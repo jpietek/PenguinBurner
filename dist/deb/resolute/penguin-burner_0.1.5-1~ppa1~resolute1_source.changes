@@ -1,0 +1,48 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Format: 1.8
+Date: Tue, 05 May 2026 12:03:43 +0200
+Source: penguin-burner
+Architecture: source
+Version: 0.1.5-1~ppa1~resolute1
+Distribution: resolute
+Urgency: medium
+Maintainer: PenguinBurner contributors <jan.pietek@gmail.com>
+Changed-By: Jan Pietek <jan.pietek@gmail.com>
+Changes:
+ penguin-burner (0.1.5-1~ppa1~resolute1) resolute; urgency=medium
+ .
+   * PPA release for Ubuntu resolute.
+Checksums-Sha1:
+ 567c860e570d623075a211bc9a084707b4fed71e 1935 penguin-burner_0.1.5-1~ppa1~resolute1.dsc
+ 64818cfd08fe48fc7645c90b83fd92ba81559c2c 3835498 penguin-burner_0.1.5.orig.tar.gz
+ ad395253b9efe2369ec0a1134f1aa1724a6fff79 1752 penguin-burner_0.1.5-1~ppa1~resolute1.debian.tar.xz
+ de72e74b08e0e49925a16f601048127cfe714697 1772 penguin-burner_0.1.5-1~ppa1~resolute1_source.buildinfo
+Checksums-Sha256:
+ 6191323d7107f211eb8c0fb24ec2df8ab176adcb9af8987fa36a3ab83bedeadd 1935 penguin-burner_0.1.5-1~ppa1~resolute1.dsc
+ 1f6d7a63a072fbe6ff01cd7f01be9f5a8fb246b40c80a27ac708f4d7ce60aa76 3835498 penguin-burner_0.1.5.orig.tar.gz
+ bbd6d8285703e9b55239656a82399a1836c78384aacd5b60bd0fdea895c2aad8 1752 penguin-burner_0.1.5-1~ppa1~resolute1.debian.tar.xz
+ 263787bc843c84deda9ea44de2be884449cbb31f22b53da6ba331290288bc981 1772 penguin-burner_0.1.5-1~ppa1~resolute1_source.buildinfo
+Files:
+ 754ee214e72ad422d1e58668b989556a 1935 utils optional penguin-burner_0.1.5-1~ppa1~resolute1.dsc
+ b35778844227e500778dcdc9d92cffed 3835498 utils optional penguin-burner_0.1.5.orig.tar.gz
+ e2e18e7c697d28b1a42f9b41821337a6 1752 utils optional penguin-burner_0.1.5-1~ppa1~resolute1.debian.tar.xz
+ e7732f52aab0c3ac3ce50e9cd0afde0b 1772 utils optional penguin-burner_0.1.5-1~ppa1~resolute1_source.buildinfo
+
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAEBCgAdFiEEsJjjd+PDwSSgCeVAk87hDtt/AaIFAmn5wH8ACgkQk87hDtt/
+AaIaow/9GQZ/3fJ1QqJk4IpF00j7m2RGanCLxfJyI5dVgpS9dLx7wAyWSLoENVIg
+EKabAZS09ZO1zUNFw9M0LYShERrzuhASxhuhVZq7mCBw9bSjacvbO7ALd+CSstw9
+kNhlaG/Xt5oTxl0Q2ha0RRuz6qc/df1gzaXjOt3zBYLbt0/B7tEpfEjnR5zH32x0
+Jp4U/s8hcQ2wFcmOPB67XHfZjPT12EME7oSoOT7cqmAxKkdbPCiPpn7q5vCMaVq8
+rW4JGMkQC+VleoG/UBssZi9ysU+fyvdbvj1jC0AipWMupDvXgsC4+9gH2TTZXx9r
+q9j/cP/7vNnS79KoPH7iX3kGAWHMpYcMOC9DWSD9ResjeFHNTLec7ALvmdFYA9UV
+uxxIQpGfrqDMnENvdgslejKIMKSDAL7hBEATgIsK8i8ziNlVyaoksqAyT3p9MEXx
++UN7mi8Nc8yqUdBttfgO67fHsRKYiZFMAOJ3PUmLfxMg7DZcV6BUewpVZgP1mf/1
+cig9lmZQRsQoc+IxxhXTDdJqahc3qZACJseas+NsoW9JCeiZoITgL+b8loVqebv6
+HQqaoY1uHToyJuilvrWocIdraXvXh8NFMmywK2DrkWW6ZE+bdOUMuUl4mEWZRiCh
+KvrH/BfoMX4Ww056ZkgVTQTF6+W9/rLMBBSgLI1DJHY3V/eqDKw=
+=447W
+-----END PGP SIGNATURE-----

@@ -1,0 +1,43 @@
+name: Upload PPA source packages once
+
+on:
+  push:
+    branches:
+      - ppa-upload-0.1.5
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out signed source packages
+        uses: actions/checkout@v4
+
+      - name: Install dput
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dput-ng
+
+      - name: Configure Launchpad PPA upload
+        run: |
+          mkdir -p "$HOME/.dput.d/profiles"
+          cat > "$HOME/.dput.d/profiles/penguin-ppa.json" <<'JSON'
+          {
+            "fqdn": "ppa.launchpad.net",
+            "incoming": "~jpietek/penguin-burner/ubuntu/",
+            "login": "anonymous",
+            "meta": "boring",
+            "method": "ftp",
+            "passive_ftp": true,
+            "ftp": {
+              "timeout": 120
+            }
+          }
+          JSON
+
+      - name: Upload questing source package
+        run: |
+          dput --unchecked --passive penguin-ppa dist/deb/questing/penguin-burner_0.1.5-1~ppa1~questing1_source.changes
+
+      - name: Upload resolute source package
+        run: |
+          dput --unchecked --passive penguin-ppa dist/deb/resolute/penguin-burner_0.1.5-1~ppa1~resolute1_source.changes

@@ -1,0 +1,49 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Format: 1.0
+Source: penguin-burner
+Architecture: source
+Version: 0.1.5-1~ppa1~questing1
+Checksums-Md5:
+ 8a48d2a323be6f07c55be3cb2963a50a 1935 penguin-burner_0.1.5-1~ppa1~questing1.dsc
+Checksums-Sha1:
+ 69e90f2ffeed4ba5f3547f3a72831e3f6c77e969 1935 penguin-burner_0.1.5-1~ppa1~questing1.dsc
+Checksums-Sha256:
+ aeab4adf32c08ae7339bb8d30afad5f7f635f956cabe85caadc9925d0a3b928f 1935 penguin-burner_0.1.5-1~ppa1~questing1.dsc
+Build-Origin: Fedora
+Build-Architecture: arm64
+Build-Date: Tue, 05 May 2026 12:03:39 +0200
+Environment:
+ DEB_BUILD_OPTIONS="parallel=8"
+ LANG="en_US.utf8"
+ LANGUAGE=""
+ LC_ADDRESS="pl_PL.utf8"
+ LC_ALL="C.UTF-8"
+ LC_CTYPE="C.UTF-8"
+ LC_IDENTIFICATION="pl_PL.utf8"
+ LC_MEASUREMENT="pl_PL.utf8"
+ LC_MONETARY="pl_PL.utf8"
+ LC_NAME="pl_PL.utf8"
+ LC_NUMERIC="pl_PL.utf8"
+ LC_PAPER="pl_PL.utf8"
+ LC_TELEPHONE="pl_PL.utf8"
+ LC_TIME="pl_PL.utf8"
+ SOURCE_DATE_EPOCH="1777975419"
+
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAEBCgAdFiEEsJjjd+PDwSSgCeVAk87hDtt/AaIFAmn5wH4ACgkQk87hDtt/
+AaKJrQ/+L2lqHT5YjOX9Jngg8L/VOpGJx4aGK3GhQdbxd6oCuawXWDt57SFYDEjo
+L38I8l6sdwVtDMLFiLPyuhiImztaiXJrOiWsFz8MVwIhMLB2niLYPZgd/WEn6IMO
+JbS3j97SuE4MCU1xA/DlxE1vjNaFV1184ZIBuhwtm5D9mIOPkLMq25YpfNkohnbk
+VCf1157V9oU+6qoLkz8kvudPP6wQKwi8Qxu2pfzk2LznNAUoYUTjVyHuY4mB3yAk
+llMWX+o4GbJ0f/RkIbEfPqR2QwnlF2KxddVBY0dwK58RyRjsfhyNA7HHK6e35XOF
+ZnGrNzW1IY7R/VRoL6Oy7wcJWwLyhtFVwB7owwUb4J3BX2FwB0cNoHC0AQ4Q+SrE
+ccJ4iNw/xAxsN8Rt+HXT2zsmROt2lXi4r6QG+qEaugr8qiukh2WEcG+zkogj1/j9
+PyD/6fR6eNZTXoRJWzpeiiD3W9poGMJkJz52G1zCPU0mddfgnvW3jHlJw4D7IhJP
+J5Q9vd17dBVCyFGSBCayYjcpQHbnui6m4X2g8up06I/AXIMRVgpSnt+UFwXh1wBd
+d41bVu1K+MTCTX/SVrIaF2GVJkMianXOX7N+dN3hEZgWSGSYkXrHn10pyyDDUBCZ
+CAkU/3lh5S5tHhf557cdyTSxoSwxig/YHjK4Va5InvOs8ggJ4HI=
+=KDII
+-----END PGP SIGNATURE-----
