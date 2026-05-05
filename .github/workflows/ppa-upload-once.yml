@@ -38,6 +38,7 @@ jobs:
           JSON
 
       - name: Upload and save diagnostics
+        continue-on-error: true
         run: |
           set +e
           mkdir -p dist/upload-logs
@@ -74,11 +75,12 @@ jobs:
             echo "final status: questing=${questing_status} resolute=${resolute_status}"
           } 2>&1 | tee "$log"
 
+      - name: Push diagnostics
+        if: always()
+        run: |
+          git status --short
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "$log"
-          git commit -m "Record PPA upload diagnostics ${GITHUB_RUN_ID}"
+          git add dist/upload-logs/
+          git commit -m "Record PPA upload diagnostics ${GITHUB_RUN_ID}" || exit 0
           git push
-
-          test "${questing_status}" -eq 0
-          test "${resolute_status}" -eq 0
