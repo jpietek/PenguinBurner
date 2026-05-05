@@ -58,9 +58,20 @@ exec python3 "/usr/lib/penguin-burner/bin/{script.name}" "$@"
     os.chmod(wrapper, 0o755)
 
 
+def move_generated_scripts_private() -> None:
+    private_bin = APP_DIR / "bin"
+    private_bin.mkdir(parents=True, exist_ok=True)
+    if not BIN_DIR.exists():
+        return
+    for script in sorted(BIN_DIR.iterdir()):
+        if script.is_file():
+            shutil.move(str(script), str(private_bin / script.name))
+
+
 def main() -> None:
     normalize_legacy_local_install()
     normalize_shared_data()
+    move_generated_scripts_private()
     private_bin = APP_DIR / "bin"
     if not private_bin.is_dir():
         raise SystemExit(f"private script directory not found: {private_bin}")
