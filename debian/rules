@@ -7,6 +7,6 @@ override_dh_auto_build:
 	python3 -m build --wheel --no-isolation
 
 override_dh_auto_install:
-	python3 -m installer --destdir=$(CURDIR)/debian/penguin-burner dist/*.whl
+	python3 -m installer --destdir=$(CURDIR)/debian/penguin-burner --prefix=/usr dist/*.whl
 
 override_dh_auto_test:
