@@ -39,6 +39,16 @@ def normalize_legacy_local_install() -> None:
     shutil.rmtree(local_dir)
 
 
+def normalize_private_local_install() -> None:
+    private_local_dir = APP_DIR / "local"
+    if not private_local_dir.exists():
+        return
+    merge_tree(private_local_dir / "bin", APP_DIR / "bin")
+    merge_tree(private_local_dir / "lib", APP_DIR / "lib")
+    merge_tree(private_local_dir / "share", APP_DIR / "share")
+    shutil.rmtree(private_local_dir)
+
+
 def normalize_shared_data() -> None:
     merge_tree(APP_DIR / "share", PACKAGE_DIR / "usr/share")
 
@@ -70,6 +80,7 @@ def move_generated_scripts_private() -> None:
 
 def main() -> None:
     normalize_legacy_local_install()
+    normalize_private_local_install()
     normalize_shared_data()
     move_generated_scripts_private()
     private_bin = APP_DIR / "bin"
