@@ -108,6 +108,16 @@ def test_package_installs_shared_subprocess_locale_helper() -> None:
     assert "q2rtx_stability" in py_modules
 
 
+def test_fedora_rpm_accepts_fedora_and_rpmfusion_nvidia_drivers() -> None:
+    spec_text = Path("packaging/rpm/penguin-burner.spec").read_text(
+        encoding="utf-8"
+    )
+
+    assert "nvidia-driver-cuda >= 3:580" in spec_text
+    assert "xorg-x11-drv-nvidia-cuda >= 3:580" in spec_text
+    assert "xorg-x11-drv-nvidia-580xx-cuda >= 3:580" in spec_text
+
+
 def test_package_installs_auto_uv3_subpackages_and_initial_check() -> None:
     metadata = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     packages = set(metadata["tool"]["setuptools"]["packages"])

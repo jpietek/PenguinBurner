@@ -30,8 +30,15 @@ The version must match `pyproject.toml`, and
 
 ## Fedora Package
 
-The RPM is x86_64-only and has a hard runtime dependency on RPM Fusion NVIDIA
-driver packages:
+The RPM is x86_64-only and has a hard runtime dependency on proprietary NVIDIA
+driver packages, version 580 or newer. It accepts Fedora's NVIDIA driver
+repository package:
+
+```text
+nvidia-driver-cuda >= 3:580
+```
+
+It also accepts RPM Fusion NVIDIA driver packages:
 
 ```text
 xorg-x11-drv-nvidia-cuda >= 3:580
@@ -39,7 +46,8 @@ or
 xorg-x11-drv-nvidia-580xx-cuda >= 3:580
 ```
 
-Users must enable RPM Fusion nonfree and the COPR repo before installing.
+Users must have one of those NVIDIA driver repositories enabled, plus the COPR
+repo, before installing.
 
 Package description:
 

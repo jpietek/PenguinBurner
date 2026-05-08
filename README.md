@@ -20,14 +20,25 @@ Install the published package:
 python -m pip install --user --upgrade penguin-burner
 ```
 
-Fedora 42/43/44 users can install the COPR package after enabling RPM Fusion
-for the proprietary NVIDIA driver packages:
+Fedora 42/43/44 users can install the COPR package with a proprietary NVIDIA
+driver stack from either Fedora's NVIDIA driver repository or RPM Fusion. If
+you already have Fedora's `nvidia-driver-cuda` package installed, you can skip
+the RPM Fusion enablement step and only enable the COPR.
+
+For RPM Fusion systems:
 
 ```bash
 sudo dnf install -y \
   https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm \
   https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm
 sudo dnf install -y dnf-plugins-core
+sudo dnf copr enable -y jpietek/penguin-burner
+sudo dnf install -y penguin-burner
+```
+
+For systems already using Fedora's NVIDIA driver repository:
+
+```bash
 sudo dnf copr enable -y jpietek/penguin-burner
 sudo dnf install -y penguin-burner
 ```

@@ -23,7 +23,7 @@ Requires:       python3-pyqtgraph
 Requires:       hicolor-icon-theme
 Requires:       bash
 Requires:       systemd
-Requires:       (xorg-x11-drv-nvidia-cuda >= 3:580 or xorg-x11-drv-nvidia-580xx-cuda >= 3:580)
+Requires:       (nvidia-driver-cuda >= 3:580 or xorg-x11-drv-nvidia-cuda >= 3:580 or xorg-x11-drv-nvidia-580xx-cuda >= 3:580)
 
 %description
 PenguinBurner is an NVIDIA GPU automatic undervolting tool. It helps you
@@ -36,8 +36,9 @@ It provides a Qt desktop UI, command-line tools, automatic voltage/frequency
 scanning, Q2RTX/CUDA stability testing, and optional runtime profile service
 installation.
 
-This package is intended for Fedora systems using the proprietary NVIDIA driver
-from RPM Fusion, version 580 or newer.
+This package is intended for Fedora systems using the proprietary NVIDIA driver,
+version 580 or newer, from either Fedora's NVIDIA driver repository or RPM
+Fusion.
 
 %prep
 %autosetup
