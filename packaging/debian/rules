@@ -7,10 +7,7 @@ override_dh_auto_build:
 	python3 -m build --wheel --no-isolation
 
 override_dh_auto_install:
-	python3 -m installer --destdir=$(CURDIR)/debian/penguin-burner --prefix=/usr dist/*.whl
-	if [ -d "$(CURDIR)/debian/penguin-burner/usr/local" ]; then \
-		cp -a "$(CURDIR)/debian/penguin-burner/usr/local/." "$(CURDIR)/debian/penguin-burner/usr/"; \
-		rm -rf "$(CURDIR)/debian/penguin-burner/usr/local"; \
-	fi
+	python3 -m installer --destdir=$(CURDIR)/debian/penguin-burner --prefix=/usr/lib/penguin-burner dist/*.whl
+	python3 packaging/debian/install-private-python.py
 
 override_dh_auto_test:

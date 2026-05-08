@@ -5,7 +5,7 @@ set -euo pipefail
 ppa="${PPA_TARGET:-ppa:jpietek/penguin-burner}"
 version="${1:-}"
 series_list=("${@:2}")
-debian_revision="${DEBIAN_REVISION:-2}"
+debian_revision="${DEBIAN_REVISION:-1}"
 dput_profile_dir=""
 
 if [ -z "$version" ]; then

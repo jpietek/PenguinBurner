@@ -1620,10 +1620,10 @@ def test_final_choice_candidate_table_helpers_show_metrics_and_default() -> None
     assert _candidate_number(candidate["candidate_voltage_mv"], precision=0) == "865"
     assert _candidate_number(candidate["efficiency_fps_per_w"], precision=4) == "0.73"
     assert _format_number(candidate["efficiency_fps_per_w"], precision=4) == "0.73"
-    assert _candidate_status_text(candidate, True) == "Best FPS | Passed short probe"
+    assert _candidate_status_text(candidate, True) == "Best FPS/W | Passed short probe"
     assert (
         _candidate_status_text(candidate, True, auto_uv_mode="performance")
-        == "Best FPS/W | Passed short probe"
+        == "Best FPS | Passed short probe"
     )
 
 

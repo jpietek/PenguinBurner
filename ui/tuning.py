@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from afterburner.import_fan_curve import load_config
@@ -7,6 +8,10 @@ from auto_uv3.scan_mode import AUTO_UV_MODE_EFFICIENCY
 from auto_uv3.scan_mode import AUTO_UV_MODE_PERFORMANCE
 from auto_uv3.auto_uv_user_options import AUTO_UV_MAX_CLOCK_BUMP_BUDGET_RATIO
 from auto_uv3.auto_uv_user_options import AUTO_UV_YOLO_MAX_CLOCK_BUMP_BUDGET_RATIO
+from auto_uv3.scan_mode.uv_limits import (
+    uv_limit_voltage_floor_target_for_gpu,
+    voltage_drop_pct,
+)
 from penguin_burner_paths import default_runtime_config_path
 
 
@@ -15,6 +20,8 @@ PERFORMANCE_BIAS_WARNING_PCT = 110.0
 PERFORMANCE_BIAS_DANGER_PCT = 130.0
 DEFAULT_AUTO_UV_PERFORMANCE_BIAS_PCT = 100.0
 DEFAULT_AUTO_UV_MAX_DROP_PCT = 15.0
+GENERIC_AUTO_UV_MAX_DROP_PCT = DEFAULT_AUTO_UV_MAX_DROP_PCT
+AUTO_UV_DROP_REFERENCE_VOLTAGE_MV = 1000
 DEFAULT_AUTO_UV_MAX_CLOCK_DROP_PCT = 10.0
 MAX_OVERCLOCK_BUDGET_PCT = AUTO_UV_MAX_CLOCK_BUMP_BUDGET_RATIO * 100.0
 YOLO_MAX_OVERCLOCK_BUDGET_PCT = AUTO_UV_YOLO_MAX_CLOCK_BUMP_BUDGET_RATIO * 100.0
@@ -33,6 +40,52 @@ PERFORMANCE_BIAS_TOOLTIP_TEXT = (
     "clock and might hang your system. Changing this can result in instability; "
     "modify with care."
 )
+
+
+@dataclass(frozen=True, slots=True)
+class AutoUvVoltageDropDefault:
+    value_pct: float
+    gpu_name: str | None
+    gpu_family: str | None
+    floor_voltage_mv: int | None
+    reference_voltage_mv: int
+    preset_matched: bool
+
+
+def auto_uv_voltage_drop_default(
+    *,
+    gpu_name: object | None = None,
+    gpu_index: int | None = None,
+    auto_uv_mode: object | None = None,
+    yolo: bool = False,
+    reference_voltage_mv: int = AUTO_UV_DROP_REFERENCE_VOLTAGE_MV,
+) -> AutoUvVoltageDropDefault:
+    detected_name = str(gpu_name).strip() if gpu_name else _query_gpu_name(gpu_index)
+    target = uv_limit_voltage_floor_target_for_gpu(
+        detected_name,
+        auto_uv_mode,
+        yolo=bool(yolo),
+    )
+    if target is None:
+        return AutoUvVoltageDropDefault(
+            value_pct=float(DEFAULT_AUTO_UV_MAX_DROP_PCT),
+            gpu_name=detected_name or None,
+            gpu_family=None,
+            floor_voltage_mv=None,
+            reference_voltage_mv=int(reference_voltage_mv),
+            preset_matched=False,
+        )
+    return AutoUvVoltageDropDefault(
+        value_pct=voltage_drop_pct(
+            start_voltage_mv=int(reference_voltage_mv),
+            floor_voltage_mv=int(target.voltage_mv),
+        ),
+        gpu_name=detected_name or None,
+        gpu_family=str(target.gpu_family),
+        floor_voltage_mv=int(target.voltage_mv),
+        reference_voltage_mv=int(reference_voltage_mv),
+        preset_matched=True,
+    )
 
 
 def auto_uv_mode_for_performance_bias(value_pct: float | int) -> str:
@@ -108,6 +161,27 @@ def memory_offset_mhz_range() -> tuple[int, int]:
     except (TypeError, ValueError):
         return fallback
     return 0, max(0, min(fallback[1], max_mhz))
+
+
+def _query_gpu_name(gpu_index: int | None = None) -> str | None:
+    controller = None
+    try:
+        from nvml_gpu_policy import NvmlGpuPolicyController
+
+        index = int(gpu_index) if gpu_index is not None else _runtime_gpu_index(
+            default_runtime_config_path()
+        )
+        controller = NvmlGpuPolicyController(gpu_index=index)
+        name = controller.query_gpu_name()
+    except Exception:
+        return None
+    finally:
+        if controller is not None:
+            try:
+                controller.close()
+            except Exception:
+                pass
+    return str(name).strip() if name else None
 
 
 def _runtime_gpu_index(config_path: Path) -> int:

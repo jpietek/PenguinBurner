@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -10,6 +11,7 @@ from auto_uv3.scan_runtime_settings import (
     short_probe_base_duration_s as _short_probe_base_duration_s,
 )
 from auto_uv3.ui.final_verification_candidate_choice import (
+    candidate_selection_summary as _candidate_selection_summary,
     sorted_final_choice_candidates as _sorted_backend_final_choice_candidates,
 )
 from ui.assets import application_version as _application_version
@@ -20,7 +22,11 @@ from ui.dialogs.final_choice import (
     best_final_choice_candidate_id as _best_final_choice_candidate_id,
     create_final_choice_table as _create_final_choice_table,
     final_choice_sort_column_for_mode as _final_choice_sort_column_for_mode,
+    final_choice_intro_text as _final_choice_intro_text,
     sort_candidates_for_final_choice as _sort_candidates_for_final_choice,
+)
+from ui.dialogs.scan_tuning import (
+    _auto_voltage_drop_note_text,
 )
 from ui.main import parse_gui_args as _parse_gui_args
 from ui.models import top_status_text as _top_status_text
@@ -29,15 +35,18 @@ from ui.models import probe_failure_label as _probe_failure_label
 from ui.styles import STYLESHEET
 from ui.styles import performance_bias_slider_stylesheet
 from ui.tuning import (
+    AUTO_UV_DROP_REFERENCE_VOLTAGE_MV,
     DEFAULT_AUTO_UV_MAX_CLOCK_DROP_PCT,
     DEFAULT_AUTO_UV_MAX_DROP_PCT,
     DEFAULT_AUTO_UV_PERFORMANCE_BIAS_PCT,
     DEFAULT_SHORT_VERIFICATION_BASE_S,
+    GENERIC_AUTO_UV_MAX_DROP_PCT,
     GPU_UNDERVOLTING_PURPOSE_TEXT,
     MAX_OVERCLOCK_BUDGET_PCT,
     PERFORMANCE_BIAS_TOOLTIP_TEXT,
     YOLO_MAX_OVERCLOCK_BUDGET_PCT,
     auto_uv_mode_for_performance_bias as _auto_uv_mode_for_performance_bias,
+    auto_uv_voltage_drop_default as _auto_uv_voltage_drop_default,
     performance_bias_clock_recovery_pct as _performance_bias_clock_recovery_pct,
     performance_bias_slider_position as _performance_bias_slider_position,
     slider_value_from_click_position as _slider_value_from_click_position,
@@ -132,6 +141,23 @@ def test_ui_scan_command_adds_auto_uv_tuning_options(monkeypatch) -> None:
     assert command[command.index("--auto-uv-short-seconds") + 1] == "30"
     assert "--auto-uv-memory-offset-mhz" in command
     assert command[command.index("--auto-uv-memory-offset-mhz") + 1] == "500"
+
+
+def test_ui_scan_command_includes_auto_filled_auto_uv_max_drop(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(commands.os, "geteuid", lambda: 0)
+
+    command = commands.scan_command(
+        {
+            "auto_uv_mode": "efficiency",
+            "auto_uv_max_drop_pct": 15.0,
+            "auto_uv_max_clock_drop_pct": 10.0,
+        }
+    )
+
+    assert "--auto-uv-max-drop-pct" in command
+    assert command[command.index("--auto-uv-max-drop-pct") + 1] == "15"
 
 
 def test_auto_uv_short_verification_defaults_to_20_seconds() -> None:
@@ -322,7 +348,7 @@ def test_ui_runtime_command_can_prefer_afterburner_curve(monkeypatch) -> None:
     assert "--auto-uv-profile" not in command
 
 
-def test_final_choice_performance_mode_sorts_by_fps_per_w() -> None:
+def test_final_choice_performance_mode_sorts_by_fps() -> None:
     candidates = [
         {
             "candidate_id": "efficient",
@@ -343,18 +369,18 @@ def test_final_choice_performance_mode_sorts_by_fps_per_w() -> None:
     sorted_candidates = _sort_candidates_for_final_choice(candidates, "performance")
 
     assert [candidate["candidate_id"] for candidate in sorted_candidates] == [
-        "efficient",
         "fast",
+        "efficient",
     ]
     assert _best_final_choice_candidate_id(sorted_candidates, "performance") == (
-        "efficient"
+        "fast"
     )
     assert _final_choice_sort_column_for_mode("performance") == (
-        FINAL_CHOICE_FPSW_SORT_COLUMN
+        FINAL_CHOICE_FPS_SORT_COLUMN
     )
 
 
-def test_final_choice_efficiency_mode_sorts_by_fps() -> None:
+def test_final_choice_efficiency_mode_sorts_by_fps_per_w() -> None:
     candidates = [
         {
             "candidate_id": "fast",
@@ -375,18 +401,34 @@ def test_final_choice_efficiency_mode_sorts_by_fps() -> None:
     sorted_candidates = _sort_candidates_for_final_choice(candidates, "efficiency")
 
     assert [candidate["candidate_id"] for candidate in sorted_candidates] == [
-        "fast",
         "efficient",
+        "fast",
     ]
     assert _best_final_choice_candidate_id(sorted_candidates, "efficiency") == (
-        "fast"
+        "efficient"
     )
     assert _final_choice_sort_column_for_mode("efficiency") == (
-        FINAL_CHOICE_FPS_SORT_COLUMN
+        FINAL_CHOICE_FPSW_SORT_COLUMN
     )
 
 
-def test_backend_final_choice_performance_mode_sorts_by_fps_per_w() -> None:
+def test_final_choice_user_stop_intro_mentions_previous_stable_metric() -> None:
+    efficiency_text = _final_choice_intro_text(
+        "efficiency",
+        request_reason="user-stop",
+    )
+    performance_text = _final_choice_intro_text(
+        "performance",
+        request_reason="user-stop",
+    )
+
+    assert "stopped" in efficiency_text.lower()
+    assert "previously stable candidates" in efficiency_text
+    assert "best FPS/W" in efficiency_text
+    assert "highest-FPS" in performance_text
+
+
+def test_backend_final_choice_performance_mode_sorts_by_fps() -> None:
     candidates = [
         {
             "candidate_id": "fast",
@@ -410,14 +452,14 @@ def test_backend_final_choice_performance_mode_sorts_by_fps_per_w() -> None:
         base_probe=None,
     )
 
-    assert sort_label == "fps-per-w"
+    assert sort_label == "fps"
     assert [candidate["candidate_id"] for candidate in sorted_candidates] == [
-        "efficient",
         "fast",
+        "efficient",
     ]
 
 
-def test_backend_final_choice_efficiency_mode_sorts_by_fps() -> None:
+def test_backend_final_choice_efficiency_mode_sorts_by_fps_per_w() -> None:
     candidates = [
         {
             "candidate_id": "efficient",
@@ -441,11 +483,30 @@ def test_backend_final_choice_efficiency_mode_sorts_by_fps() -> None:
         base_probe=None,
     )
 
-    assert sort_label == "fps"
+    assert sort_label == "fps-per-w"
     assert [candidate["candidate_id"] for candidate in sorted_candidates] == [
-        "fast",
         "efficient",
+        "fast",
     ]
+
+
+def test_backend_final_choice_summary_includes_baseline_delta_metrics() -> None:
+    summary = _candidate_selection_summary(
+        {
+            "candidate_id": "efficient",
+            "candidate_voltage_mv": 900,
+            "lock_clock_mhz": 2700,
+            "avg_fps": 160.0,
+            "efficiency_fps_per_w": 0.75,
+        },
+        base_probe=SimpleNamespace(
+            avg_fps=150.0,
+            efficiency_fps_per_w=0.50,
+        ),
+    )
+
+    assert summary["base_avg_fps"] == 150.0
+    assert summary["base_efficiency_fps_per_w"] == 0.50
 
 
 def test_final_choice_table_default_sort_and_header_toggles() -> None:
@@ -483,7 +544,7 @@ def test_final_choice_table_default_sort_and_header_toggles() -> None:
         QtWidgets=QtWidgets,
         candidates=candidates,
         default_candidate_id="efficient",
-        default_sort_column=FINAL_CHOICE_FPSW_SORT_COLUMN,
+        default_sort_column=FINAL_CHOICE_FPS_SORT_COLUMN,
         auto_uv_mode="performance",
     )
 
@@ -493,18 +554,84 @@ def test_final_choice_table_default_sort_and_header_toggles() -> None:
             for row in range(table.rowCount())
         ]
 
-    assert table.horizontalHeader().sortIndicatorSection() == FINAL_CHOICE_FPSW_SORT_COLUMN
-    assert table.horizontalHeader().sortIndicatorOrder() == QtCore.Qt.DescendingOrder
-    assert row_ids() == ["efficient", "fast"]
-
-    table.horizontalHeader().sectionClicked.emit(FINAL_CHOICE_FPS_SORT_COLUMN)
     assert table.horizontalHeader().sortIndicatorSection() == FINAL_CHOICE_FPS_SORT_COLUMN
     assert table.horizontalHeader().sortIndicatorOrder() == QtCore.Qt.DescendingOrder
     assert row_ids() == ["fast", "efficient"]
 
-    table.horizontalHeader().sectionClicked.emit(FINAL_CHOICE_FPS_SORT_COLUMN)
-    assert table.horizontalHeader().sortIndicatorOrder() == QtCore.Qt.AscendingOrder
+    table.horizontalHeader().sectionClicked.emit(FINAL_CHOICE_FPSW_SORT_COLUMN)
+    assert table.horizontalHeader().sortIndicatorSection() == FINAL_CHOICE_FPSW_SORT_COLUMN
+    assert table.horizontalHeader().sortIndicatorOrder() == QtCore.Qt.DescendingOrder
     assert row_ids() == ["efficient", "fast"]
+
+    table.horizontalHeader().sectionClicked.emit(FINAL_CHOICE_FPSW_SORT_COLUMN)
+    assert table.horizontalHeader().sortIndicatorOrder() == QtCore.Qt.AscendingOrder
+    assert row_ids() == ["fast", "efficient"]
+
+
+def test_final_choice_table_uses_profile_delta_rendering_for_fps_columns() -> None:
+    import os
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtCore, QtGui, QtWidgets
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    _ = app
+    candidates = [
+        {
+            "candidate_id": "efficient",
+            "candidate_voltage_mv": 900,
+            "lock_clock_mhz": 2700,
+            "avg_core_clock_mhz": 2680.0,
+            "avg_fps": 160.0,
+            "base_avg_fps": 150.0,
+            "efficiency_fps_per_w": 0.75,
+            "base_efficiency_fps_per_w": 0.50,
+            "avg_power_w": 200.0,
+        },
+        {
+            "candidate_id": "regressed",
+            "candidate_voltage_mv": 930,
+            "lock_clock_mhz": 2760,
+            "avg_core_clock_mhz": 2740.0,
+            "avg_fps": 140.0,
+            "base_avg_fps": 150.0,
+            "efficiency_fps_per_w": 0.45,
+            "base_efficiency_fps_per_w": 0.50,
+            "avg_power_w": 246.0,
+        },
+    ]
+
+    table = _create_final_choice_table(
+        QtCore=QtCore,
+        QtGui=QtGui,
+        QtWidgets=QtWidgets,
+        candidates=candidates,
+        default_candidate_id="efficient",
+        default_sort_column=FINAL_CHOICE_FPSW_SORT_COLUMN,
+        auto_uv_mode="performance",
+    )
+
+    def item_for(candidate_id: str, column: int):
+        for row in range(table.rowCount()):
+            item = table.item(row, 0)
+            if item is not None and item.data(QtCore.Qt.UserRole) == candidate_id:
+                return table.item(row, column)
+        raise AssertionError(f"missing row for {candidate_id}")
+
+    efficient_fpsw = item_for("efficient", FINAL_CHOICE_FPSW_SORT_COLUMN)
+    efficient_fps = item_for("efficient", FINAL_CHOICE_FPS_SORT_COLUMN)
+    regressed_fpsw = item_for("regressed", FINAL_CHOICE_FPSW_SORT_COLUMN)
+    regressed_fps = item_for("regressed", FINAL_CHOICE_FPS_SORT_COLUMN)
+
+    assert efficient_fpsw.text() == "0.75 (+50.00%)"
+    assert efficient_fps.text() == "160.00 (+6.67%)"
+    assert regressed_fpsw.text() == "0.45 (-10.00%)"
+    assert regressed_fps.text() == "140.00 (-6.67%)"
+    assert efficient_fpsw.foreground().color().name() == "#55d27a"
+    assert efficient_fps.foreground().color().name() == "#55d27a"
+    assert regressed_fpsw.foreground().color().name() == "#ff6b6b"
+    assert regressed_fps.foreground().color().name() == "#ff6b6b"
 
 
 def test_start_auto_uv_button_uses_orange_without_changing_primary_green() -> None:
@@ -706,13 +833,40 @@ def test_click_jump_slider_maps_click_position_to_exact_value() -> None:
     )
 
 
-def test_auto_uv_bias_defaults_and_mode_threshold() -> None:
+def test_auto_uv_bias_defaults_mode_threshold_and_gpu_table_default() -> None:
     assert DEFAULT_AUTO_UV_PERFORMANCE_BIAS_PCT == 100.0
     assert DEFAULT_AUTO_UV_MAX_DROP_PCT == 15.0
+    assert GENERIC_AUTO_UV_MAX_DROP_PCT == 15.0
+    assert AUTO_UV_DROP_REFERENCE_VOLTAGE_MV == 1000
     assert DEFAULT_AUTO_UV_MAX_CLOCK_DROP_PCT == 10.0
     assert _auto_uv_mode_for_performance_bias(99.9) == "efficiency"
     assert _auto_uv_mode_for_performance_bias(100.0) == "performance"
     assert _auto_uv_mode_for_performance_bias(150.0) == "performance"
+
+
+def test_auto_uv_voltage_drop_default_uses_detected_gpu_table_floor() -> None:
+    preview = _auto_uv_voltage_drop_default(gpu_name="NVIDIA GeForce RTX 5080")
+
+    assert preview.preset_matched is True
+    assert preview.gpu_family == "RTX 5080"
+    assert preview.floor_voltage_mv == 850
+    assert preview.value_pct == pytest.approx(15.0)
+    assert (
+        _auto_voltage_drop_note_text(preview)
+        == "Max voltage drop auto-filled for NVIDIA GeForce RTX 5080"
+    )
+
+
+def test_auto_uv_voltage_drop_default_falls_back_to_generic_when_unmatched() -> None:
+    preview = _auto_uv_voltage_drop_default(gpu_name="NVIDIA GeForce RTX 3080")
+
+    assert preview.preset_matched is False
+    assert preview.value_pct == pytest.approx(15.0)
+    assert preview.floor_voltage_mv is None
+    assert (
+        _auto_voltage_drop_note_text(preview)
+        == "Using generic max voltage drop for NVIDIA GeForce RTX 3080"
+    )
 
 
 def test_progress_text_stays_light_until_bar_is_full() -> None:
@@ -883,13 +1037,18 @@ def test_candidate_header_detail_is_smaller_and_not_bold() -> None:
     assert "font-weight: 400;" in candidate_style
 
 
-def test_performance_bias_slider_has_breathing_room() -> None:
+def test_performance_bias_slider_has_breathing_room_and_autofill_note() -> None:
     assert "QGroupBox#performanceBiasGroup" in STYLESHEET
     assert "QSlider#performanceBiasSlider" in STYLESHEET
     assert "margin: 8px 0 10px 0;" in STYLESHEET
+    assert "QLabel#autoVoltageDropNote" in STYLESHEET
     slider_style = performance_bias_slider_stylesheet(MAX_OVERCLOCK_BUDGET_PCT)
     assert "qlineargradient" in slider_style
     source = Path("ui/dialogs/scan_tuning.py").read_text(encoding="utf-8")
+    assert "auto_uv_voltage_drop_default" in source
+    assert "auto-filled for" in source
+    assert "efficiency floor" not in source
+    assert '"auto_uv_max_drop_pct"' in source
     assert '"penguin-burner-green.png"' in source
     assert '"penguin-burner.png"' in source
 

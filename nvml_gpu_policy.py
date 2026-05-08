@@ -235,6 +235,13 @@ class NvmlGpuPolicyController:
             ctypes.POINTER(c_void_p),
         ]
         self._nvml.nvmlDeviceGetHandleByIndex_v2.restype = c_int
+        if hasattr(self._nvml, "nvmlDeviceGetName"):
+            self._nvml.nvmlDeviceGetName.argtypes = [
+                c_void_p,
+                ctypes.POINTER(ctypes.c_char),
+                c_uint,
+            ]
+            self._nvml.nvmlDeviceGetName.restype = c_int
 
         if hasattr(self._nvml, "nvmlErrorString"):
             self._nvml.nvmlErrorString.argtypes = [c_int]
@@ -356,6 +363,18 @@ class NvmlGpuPolicyController:
         if rc != NVML_SUCCESS:
             return None
         return int(round(out.value / 1000.0))
+
+    def query_gpu_name(self):
+        getter = getattr(self._nvml, "nvmlDeviceGetName", None)
+        if getter is None:
+            return None
+
+        buf = ctypes.create_string_buffer(96)
+        rc = int(getter(self._device, buf, ctypes.c_uint(len(buf))))
+        if rc != NVML_SUCCESS:
+            return None
+        value = buf.value.decode(errors="replace").strip()
+        return value or None
 
     def query_power_limits(self):
         info = {

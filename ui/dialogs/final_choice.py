@@ -6,6 +6,9 @@ from auto_uv3.scan_mode import AUTO_UV_MODE_PERFORMANCE
 
 from ..constants import DEFAULT_FINAL_VERIFICATION_DURATION_S
 from ..constants import MAX_FINAL_VERIFICATION_DURATION_S
+from ..components.profile_list import _format_profile_metric_with_delta
+from ..components.profile_list import _paint_profile_delta_item
+from ..components.profile_list import _profile_base_metric
 from ..components.table_sizing import set_header_fit_column_widths
 
 
@@ -36,9 +39,9 @@ def candidate_status_text(
     parts = []
     if is_default:
         parts.append(
-            "Best FPS/W"
+            "Best FPS"
             if final_choice_is_performance_mode(auto_uv_mode)
-            else "Best FPS"
+            else "Best FPS/W"
         )
     parts.append(
         "Final stability verified"
@@ -74,9 +77,9 @@ def final_choice_sort_values(candidate: dict) -> list[float | str]:
 
 def final_choice_sort_column_for_mode(auto_uv_mode: object) -> int:
     return (
-        FINAL_CHOICE_FPSW_SORT_COLUMN
+        FINAL_CHOICE_FPS_SORT_COLUMN
         if final_choice_is_performance_mode(auto_uv_mode)
-        else FINAL_CHOICE_FPS_SORT_COLUMN
+        else FINAL_CHOICE_FPSW_SORT_COLUMN
     )
 
 
@@ -88,8 +91,8 @@ def sort_candidates_for_final_choice(
         return sorted(
             candidates,
             key=lambda candidate: (
-                candidate_fpsw(candidate) is None,
-                -float(candidate_fpsw(candidate) or 0.0),
+                candidate_fps(candidate) is None,
+                -float(candidate_fps(candidate) or 0.0),
                 int(candidate.get("candidate_voltage_mv") or 99999),
                 -int(candidate.get("lock_clock_mhz") or 0),
             ),
@@ -97,8 +100,8 @@ def sort_candidates_for_final_choice(
     return sorted(
         candidates,
         key=lambda candidate: (
-            candidate_fps(candidate) is None,
-            -float(candidate_fps(candidate) or 0.0),
+            candidate_fpsw(candidate) is None,
+            -float(candidate_fpsw(candidate) or 0.0),
             int(candidate.get("candidate_voltage_mv") or 99999),
             -int(candidate.get("lock_clock_mhz") or 0),
         ),
@@ -106,7 +109,11 @@ def sort_candidates_for_final_choice(
 
 
 def best_final_choice_candidate_id(candidates: list[dict], auto_uv_mode: object) -> str:
-    metric = candidate_fpsw if final_choice_is_performance_mode(auto_uv_mode) else candidate_fps
+    metric = (
+        candidate_fps
+        if final_choice_is_performance_mode(auto_uv_mode)
+        else candidate_fpsw
+    )
     for candidate in candidates:
         if metric(candidate) is not None:
             return str(candidate.get("candidate_id", ""))
@@ -156,6 +163,7 @@ def candidate_fps(candidate: dict) -> float | None:
 def select_final_candidate(
     *,
     QtCore,
+    QtGui=None,
     QtWidgets,
     parent,
     candidates: list[dict],
@@ -164,6 +172,7 @@ def select_final_candidate(
     max_duration_s: int = MAX_FINAL_VERIFICATION_DURATION_S,
     default_sort_column: int | None = None,
     auto_uv_mode: object = "",
+    request_reason: object = "",
 ) -> tuple[dict | None, int, bool]:
     if not candidates:
         return None, int(default_duration_s), True
@@ -178,26 +187,21 @@ def select_final_candidate(
     }
     dialog = QtWidgets.QDialog(parent)
     dialog.setWindowTitle("Choose Final verification candidate")
-    dialog.setMinimumWidth(760)
+    dialog.setMinimumWidth(900)
     dialog.setMinimumHeight(360)
     layout = QtWidgets.QVBoxLayout(dialog)
 
-    if final_choice_is_performance_mode(auto_uv_mode):
-        label_text = (
-            "The short candidate sweep is complete. The best FPS/W passed candidate "
-            "is selected for the long Final verification."
-        )
-    else:
-        label_text = (
-            "The short candidate sweep is complete. The highest-FPS passed candidate "
-            "is selected for the long Final verification."
-        )
+    label_text = final_choice_intro_text(
+        auto_uv_mode,
+        request_reason=request_reason,
+    )
     label = QtWidgets.QLabel(label_text)
     label.setWordWrap(True)
     layout.addWidget(label)
 
     table = create_final_choice_table(
         QtCore=QtCore,
+        QtGui=QtGui,
         QtWidgets=QtWidgets,
         candidates=candidates,
         default_candidate_id=default_candidate_id,
@@ -265,9 +269,27 @@ def select_final_candidate(
     return by_id.get(selected_id), _seconds(duration_spin.value()), False
 
 
+def final_choice_intro_text(auto_uv_mode: object, *, request_reason: object = "") -> str:
+    stopped = str(request_reason or "").strip().lower() == "user-stop"
+    if final_choice_is_performance_mode(auto_uv_mode):
+        metric_text = "highest-FPS"
+    else:
+        metric_text = "best FPS/W"
+    if stopped:
+        return (
+            "Auto-UV was stopped. Choose one of the previously stable candidates. "
+            f"The {metric_text} candidate is selected for the long Final verification."
+        )
+    return (
+        "The short candidate sweep is complete. "
+        f"The {metric_text} passed candidate is selected for the long Final verification."
+    )
+
+
 def create_final_choice_table(
     *,
     QtCore,
+    QtGui=None,
     QtWidgets,
     candidates: list[dict],
     default_candidate_id: str,
@@ -291,8 +313,8 @@ def create_final_choice_table(
             0: 62,
             1: 108,
             2: 128,
-            3: 82,
-            4: 76,
+            3: 134,
+            4: 134,
             5: 92,
             6: 104,
             7: 110,
@@ -308,8 +330,12 @@ def create_final_choice_table(
             candidate_number(candidate.get("candidate_voltage_mv"), precision=0),
             candidate_number(candidate.get("lock_clock_mhz"), precision=0),
             candidate_number(candidate.get("avg_core_clock_mhz"), precision=2),
-            candidate_number(candidate.get("efficiency_fps_per_w"), precision=2),
-            candidate_number(candidate.get("avg_fps"), precision=2),
+            _candidate_metric_text(
+                candidate,
+                "efficiency_fps_per_w",
+                precision=2,
+            ),
+            _candidate_metric_text(candidate, "avg_fps", precision=2),
             candidate_number(candidate.get("avg_power_w"), precision=2),
             _duration_label(candidate_short_duration_s(candidate)),
             candidate_status_text(
@@ -325,6 +351,22 @@ def create_final_choice_table(
             item.setData(FINAL_CHOICE_SORT_ROLE, sort_values[column])
             if column < 6:
                 item.setTextAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+            if QtGui is not None and column == FINAL_CHOICE_FPSW_SORT_COLUMN:
+                _paint_profile_delta_item(
+                    item,
+                    QtGui,
+                    candidate.get("efficiency_fps_per_w"),
+                    _profile_base_metric(candidate, "efficiency_fps_per_w"),
+                    label="FPS/W",
+                )
+            if QtGui is not None and column == FINAL_CHOICE_FPS_SORT_COLUMN:
+                _paint_profile_delta_item(
+                    item,
+                    QtGui,
+                    candidate.get("avg_fps"),
+                    _profile_base_metric(candidate, "avg_fps"),
+                    label="FPS",
+                )
             table.setItem(row, column, item)
 
     _connect_final_choice_sorting(
@@ -334,6 +376,14 @@ def create_final_choice_table(
         default_sort_column=int(default_sort_column),
     )
     return table
+
+
+def _candidate_metric_text(candidate: dict, metric: str, *, precision: int) -> str:
+    return _format_profile_metric_with_delta(
+        candidate.get(metric),
+        _profile_base_metric(candidate, metric),
+        precision=precision,
+    )
 
 
 def _connect_final_choice_sorting(

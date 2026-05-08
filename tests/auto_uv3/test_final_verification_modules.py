@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from stability.q2rtx import Q2RTXStabilityConfig
 
@@ -18,6 +19,7 @@ from auto_uv3.final_verification.final_verification_probe_config import (
     final_q2rtx_cuda_probe_config,
 )
 from auto_uv3.persistence import auto_uv_persisted_json_files as persisted_files
+from auto_uv3.recovery import final_failure_upward_stabilization as upward_stabilization
 from auto_uv3_test_data import wide_base_curve
 
 
@@ -93,6 +95,59 @@ def test_final_clock_recovery_uses_same_budget_units_as_lower_sweep() -> None:
     assert recovery.candidate.target_mhz > 2550
     assert recovery.budget_used_pct == 2.40
     assert recovery.marker_details["previous_target_clock_mhz"] == 2550
+
+
+def test_final_upward_voltage_recovery_respects_performance_voltage_ceiling(
+    monkeypatch,
+) -> None:
+    probed: list[int] = []
+
+    def fake_probe_voltage_candidate(**kwargs):
+        voltage_mv = int(kwargs["candidate_voltage_mv"])
+        probed.append(voltage_mv)
+        return _summary(voltage_mv=voltage_mv, clock_mhz=2550), SimpleNamespace(
+            success=True,
+            reason="stable run",
+        )
+
+    monkeypatch.setattr(
+        upward_stabilization,
+        "probe_voltage_candidate",
+        fake_probe_voltage_candidate,
+    )
+    monkeypatch.setattr(
+        upward_stabilization,
+        "final_recovery_probe_passed",
+        lambda *_args, **_kwargs: True,
+    )
+
+    candidate, summary, result = upward_stabilization.find_upward_stable_final_candidate(
+        reader=object(),
+        plan_source=wide_base_curve(),
+        failure_voltage_mv=900,
+        failure_live_voltage_mv=None,
+        minimum_candidate_voltage_mv=925,
+        target_clock_mhz=2550,
+        q2rtx_config=Q2RTXStabilityConfig(gpu_index=0, duration_s=10),
+        stable_history=[_summary(voltage_mv=1025, clock_mhz=2754)],
+        nvml_session=None,
+        clock_ceiling=None,
+        log=lambda _message: None,
+        probe_history=[],
+        baseline_probe=None,
+        initial_target_voltage_mv=1025,
+        initial_probe_clock_mhz=2754.0,
+        power_limit_w=None,
+        min_performance_core_clock_pct=90.0,
+        max_candidate_voltage_mv=925,
+        short_probe_base_duration_s=20,
+    )
+
+    assert probed == [925]
+    assert candidate is not None
+    assert candidate.candidate_voltage_mv == 925
+    assert summary is not None
+    assert result is not None
 
 
 def test_final_fan_curve_blocks_when_final_load_is_too_hot() -> None:

@@ -17,6 +17,7 @@ class AutoUvScanSettings:
     min_core_clock_pct: float = 90.0
     reference_actual_voltage_mv: float | None = None
     measured_clock_cap_mhz: float | None = None
+    recovery_voltage_ceiling_mv: int | None = None
     recovery_budget_limit_pct: float = 0.0
     spend_remaining_clock_budget_at_voltage_floor: bool = False
     allow_voltage_bump_for_floor_clock_recovery: bool = False

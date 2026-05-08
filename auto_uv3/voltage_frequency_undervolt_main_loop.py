@@ -46,10 +46,12 @@ from .ui.probe_summary_ui_payload import probe_summary_ui_payload
 from .q2rtx.q2rtx_cuda_probe_runner import Q2RtxCudaProbeRunner
 from .q2rtx.q2rtx_cuda_voltage_probe import probe_voltage_candidate
 from .scan_mode import AUTO_UV_MODE_PERFORMANCE
+from .scan_mode.uv_limits import uv_limit_profile_target_for_gpu
 from .scan_runtime_settings import read_scan_runtime_settings
 from .ui.ui_json_event_writer import AutoUvEventCallback, emit_ui_json_event
 from .persistence.unsafe_voltage_blacklist_file import load_unsafe_voltage_blacklist
 from .persistence.verified_candidate_result_file import write_latest_verified_candidate
+from .persistence.auto_uv_persisted_json_files import clear_auto_uv_stop_request
 from .curve.vf_curve_flattening import build_flatten_target, build_flattened_plan
 from .ui.vf_curve_ui_points import vf_curve_ui_points
 from .voltage_sweep_state import VoltageProbeOutcome
@@ -238,36 +240,61 @@ def run_voltage_frequency_undervolt_main_loop(
             mark_unsafe_candidate=lambda _candidate, _outcome: None,
             record_passed_candidate=record_passed_candidate,
         )
-        loop_result = run_lower_voltage_sweep_loop(
-            base_curve,
-            settings=AutoUvScanSettings(
-                start_voltage_mv=int(baseline_candidate.voltage_mv),
-                min_search_voltage_mv=min_search_voltage_mv(
-                    start_voltage_mv=int(baseline_candidate.voltage_mv),
-                    configured_max_drop_pct=float(settings.configured_max_drop_pct),
-                ),
-                preserve_base_below_mv=settings.preserve_base_below_mv,
-                baseline_core_clock_mhz=float(baseline_target.measured_clock_mhz),
-                min_core_clock_pct=float(settings.min_performance_core_clock_pct),
-                reference_actual_voltage_mv=stable_probe.avg_voltage_mv,
-                measured_clock_cap_mhz=float(baseline_target.measured_clock_mhz),
-                recovery_budget_limit_pct=float(effective_recovery_budget_pct),
-                spend_remaining_clock_budget_at_voltage_floor=True,
-                allow_voltage_bump_for_floor_clock_recovery=(
-                    settings.auto_uv_mode == AUTO_UV_MODE_PERFORMANCE
-                ),
-            ),
-            initial_stable_candidate=stable_candidate,
-            hooks=hooks,
-            unsafe_entries=unsafe_entries,
+        recovery_voltage_ceiling_mv = performance_recovery_voltage_ceiling_mv(
+            gpu.translated_gpu_policy,
+            auto_uv_mode=settings.auto_uv_mode,
+            log=log,
         )
-        stable_candidate = loop_result.stable_candidate
+        user_stop_final_choice = False
+        try:
+            loop_result = run_lower_voltage_sweep_loop(
+                base_curve,
+                settings=AutoUvScanSettings(
+                    start_voltage_mv=int(baseline_candidate.voltage_mv),
+                    min_search_voltage_mv=min_search_voltage_mv(
+                        start_voltage_mv=int(baseline_candidate.voltage_mv),
+                        configured_max_drop_pct=float(settings.configured_max_drop_pct),
+                    ),
+                    preserve_base_below_mv=settings.preserve_base_below_mv,
+                    baseline_core_clock_mhz=float(baseline_target.measured_clock_mhz),
+                    min_core_clock_pct=float(settings.min_performance_core_clock_pct),
+                    reference_actual_voltage_mv=stable_probe.avg_voltage_mv,
+                    measured_clock_cap_mhz=float(baseline_target.measured_clock_mhz),
+                    recovery_voltage_ceiling_mv=recovery_voltage_ceiling_mv,
+                    recovery_budget_limit_pct=float(effective_recovery_budget_pct),
+                    spend_remaining_clock_budget_at_voltage_floor=True,
+                    allow_voltage_bump_for_floor_clock_recovery=(
+                        settings.auto_uv_mode == AUTO_UV_MODE_PERFORMANCE
+                    ),
+                ),
+                initial_stable_candidate=stable_candidate,
+                hooks=hooks,
+                unsafe_entries=unsafe_entries,
+            )
+            stable_candidate = loop_result.stable_candidate
+            final_recovery_budget_used_pct = float(loop_result.state.recovery_budget.used_pct)
+        except KeyboardInterrupt:
+            if not bool(runtime_options.get("auto_uv_require_final_choice")):
+                raise
+            user_stop_final_choice = True
+            clear_auto_uv_stop_request()
+            log_phase(
+                log,
+                "auto-uv3",
+                "user stop requested; offering past stable candidates for final verification",
+            )
+            final_recovery_budget_used_pct = recovery_budget_used_by_candidate_id.get(
+                final_choice_candidate_id(
+                    voltage_mv=int(stable_candidate.voltage_mv),
+                    lock_clock_mhz=int(stable_candidate.target_mhz),
+                ),
+                0.0,
+            )
         final_verification_duration_s = int(settings.final_verification_duration_s)
         final_stable_plan = stable_candidate.flattened_plan
         final_stable_voltage_mv = int(stable_candidate.voltage_mv)
         final_stable_lock_clock_mhz = int(stable_candidate.target_mhz)
         final_stable_probe = stable_probe
-        final_recovery_budget_used_pct = float(loop_result.state.recovery_budget.used_pct)
         if bool(runtime_options.get("auto_uv_require_final_choice")):
             (
                 final_stable_plan,
@@ -289,6 +316,9 @@ def run_voltage_frequency_undervolt_main_loop(
                 final_verification_duration_s=int(final_verification_duration_s),
                 initial_target_voltage_mv=int(baseline_candidate.voltage_mv),
                 short_probe_base_duration_s=int(settings.short_probe_base_duration_s),
+                request_reason=(
+                    "user-stop" if bool(user_stop_final_choice) else "sweep-complete"
+                ),
             )
             final_verification_duration_s = int(selected_final_verification_duration_s)
             if selected_stable_probe is not None:
@@ -327,6 +357,7 @@ def run_voltage_frequency_undervolt_main_loop(
             runtime_default_plan=gpu.runtime_default_plan,
             final_clock_drop_margin_pct=float(settings.final_clock_drop_margin_pct),
             clock_bump_budget_limit_pct=float(effective_recovery_budget_pct),
+            recovery_voltage_ceiling_mv=recovery_voltage_ceiling_mv,
             clock_bump_budget_used_pct=float(final_recovery_budget_used_pct),
             short_probe_base_duration_s=int(settings.short_probe_base_duration_s),
             timedemo_warmup_runs=int(timedemo_warmup_runs),
@@ -358,6 +389,27 @@ def final_choice_candidate_id(*, voltage_mv: int, lock_clock_mhz: int) -> str:
 def recovery_budget_used_from_label(label: str) -> float:
     match = RECOVERY_BUDGET_LABEL_RE.search(str(label or ""))
     return 0.0 if match is None else float(match.group("used"))
+
+
+def performance_recovery_voltage_ceiling_mv(
+    gpu_policy: dict,
+    *,
+    auto_uv_mode: str,
+    log: Callable[[str], None],
+) -> int | None:
+    if auto_uv_mode != AUTO_UV_MODE_PERFORMANCE:
+        return None
+    gpu_name = gpu_policy.get("gpu_name") if isinstance(gpu_policy, dict) else None
+    target = uv_limit_profile_target_for_gpu(gpu_name, "performance")
+    if target is None:
+        return None
+    voltage_mv = int(target.voltage_mv)
+    log_phase(
+        log,
+        "auto-uv3",
+        f"performance voltage recovery ceiling {target.gpu_family}: {voltage_mv}mV",
+    )
+    return voltage_mv
 
 
 def run_discovery_probe(

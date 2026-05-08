@@ -5,7 +5,6 @@ import html
 from ..assets import asset_image_path
 from ..styles import performance_bias_slider_stylesheet
 from ..tuning import DEFAULT_AUTO_UV_MAX_CLOCK_DROP_PCT
-from ..tuning import DEFAULT_AUTO_UV_MAX_DROP_PCT
 from ..tuning import DEFAULT_AUTO_UV_PERFORMANCE_BIAS_PCT
 from ..tuning import DEFAULT_SHORT_VERIFICATION_BASE_S
 from ..tuning import GPU_UNDERVOLTING_PURPOSE_TEXT
@@ -13,6 +12,7 @@ from ..tuning import MAX_OVERCLOCK_BUDGET_PCT
 from ..tuning import PERFORMANCE_BIAS_TOOLTIP_TEXT
 from ..tuning import YOLO_MAX_OVERCLOCK_BUDGET_PCT
 from ..tuning import auto_uv_mode_for_performance_bias
+from ..tuning import auto_uv_voltage_drop_default
 from ..tuning import memory_offset_mhz_range
 from ..tuning import performance_bias_clock_recovery_pct
 from ..tuning import performance_bias_slider_position
@@ -101,7 +101,20 @@ def select_scan_tuning(
     form.setVerticalSpacing(10)
     form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
 
-    max_drop_spin = _double_spin(QtWidgets, 1.0, 30.0, DEFAULT_AUTO_UV_MAX_DROP_PCT, "%")
+    voltage_drop_default = auto_uv_voltage_drop_default(yolo=bool(yolo))
+    max_drop_spin = _double_spin(
+        QtWidgets,
+        1.0,
+        30.0,
+        float(voltage_drop_default.value_pct),
+        "%",
+    )
+    max_drop_spin.setSingleStep(1.0)
+    voltage_drop_note = QtWidgets.QLabel(
+        _auto_voltage_drop_note_text(voltage_drop_default)
+    )
+    voltage_drop_note.setObjectName("autoVoltageDropNote")
+    voltage_drop_note.setWordWrap(False)
     max_clock_drop_spin = _double_spin(
         QtWidgets,
         1.0,
@@ -129,11 +142,13 @@ def select_scan_tuning(
         text="Max voltage drop",
         widget=max_drop_spin,
         tooltip=(
-            "How deep Auto-UV may go below the starting voltage. Higher values "
-            "search for lower power, but may spend more time near unstable "
-            "voltage bins. Changing this can result in instability; modify with care."
+            "Default is calculated from the detected GPU preset efficiency "
+            "voltage floor. If the GPU is unsupported or cannot be detected, "
+            "the default is 15%. Changing this can result in instability; "
+            "modify with care."
         ),
     )
+    form.addRow("", voltage_drop_note)
     _add_form_row(
         QtCore=QtCore,
         QtWidgets=QtWidgets,
@@ -211,6 +226,15 @@ def select_scan_tuning(
         "auto_uv_memory_offset_mhz": int(memory_offset_spin.value()),
         "auto_uv_short_seconds": int(short_seconds_spin.value()),
     }
+
+
+def _auto_voltage_drop_note_text(default) -> str:
+    gpu_label = str(default.gpu_name or default.gpu_family or "").strip()
+    if bool(default.preset_matched):
+        return f"Max voltage drop auto-filled for {gpu_label}"
+    if gpu_label:
+        return f"Using generic max voltage drop for {gpu_label}"
+    return "Using generic max voltage drop"
 
 
 def _click_jump_slider_class(QtCore, QtWidgets):

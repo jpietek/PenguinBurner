@@ -17,9 +17,6 @@ from ..persistence.auto_uv_persisted_json_files import (
     safe_json_write,
 )
 from ..auto_uv_types import AutoUvFinalChoiceDiscarded, AutoUvProbeSummary
-from ..scan_mode.performance_fps_score_policy import (
-    annotate_performance_candidate_scores,
-)
 from .ui_json_event_writer import AutoUvEventCallback, emit_ui_json_event
 from ..curve.vf_curve_flattening import build_flattened_plan
 
@@ -39,6 +36,7 @@ def choose_final_verification_candidate(
     final_verification_duration_s: int,
     initial_target_voltage_mv: int,
     short_probe_base_duration_s: int,
+    request_reason: str = "sweep-complete",
 ) -> tuple[list[dict], int, int, AutoUvProbeSummary | None, int]:
     candidates_by_id = candidate_records_from_history(
         stable_history,
@@ -79,6 +77,7 @@ def choose_final_verification_candidate(
     request_payload = {
         "format_version": 1,
         "auto_uv_mode": normalized_mode,
+        "request_reason": str(request_reason or "sweep-complete"),
         "default_sort_metric": sort_label,
         "default_candidate_id": default_id,
         "final_verification_duration_s": int(final_verification_duration_s),
@@ -91,6 +90,7 @@ def choose_final_verification_candidate(
         "candidates": [
             candidate_selection_summary(
                 candidate,
+                base_probe=base_probe,
                 short_verification_duration_s=candidate_short_verification_duration_s(
                     candidate,
                     initial_target_voltage_mv=int(initial_target_voltage_mv),
@@ -276,18 +276,14 @@ def sorted_final_choice_candidates(
     base_probe: AutoUvProbeSummary | None,
 ) -> tuple[list[dict], str]:
     if normalize_auto_uv_mode(auto_uv_mode) == AUTO_UV_MODE_PERFORMANCE:
-        annotate_performance_candidate_scores(
-            candidates,
-            baseline_fps=probe_float(base_probe, "avg_fps"),
-            baseline_fps_per_w=probe_float(base_probe, "efficiency_fps_per_w"),
-        )
-        return sorted(candidates, key=candidate_fps_per_w_sort_key), "fps-per-w"
-    return sorted(candidates, key=candidate_fps_sort_key), "fps"
+        return sorted(candidates, key=candidate_fps_sort_key), "fps"
+    return sorted(candidates, key=candidate_fps_per_w_sort_key), "fps-per-w"
 
 
 def candidate_selection_summary(
     candidate: dict,
     *,
+    base_probe: AutoUvProbeSummary | None = None,
     short_verification_duration_s: int | None = None,
 ) -> dict:
     summary = {
@@ -302,6 +298,22 @@ def candidate_selection_summary(
         "avg_power_w": candidate.get("avg_power_w"),
         "efficiency_fps_per_w": candidate.get("efficiency_fps_per_w"),
     }
+    base_avg_fps = _candidate_or_probe_base_metric(
+        candidate,
+        "base_avg_fps",
+        base_probe,
+        "avg_fps",
+    )
+    if base_avg_fps is not None:
+        summary["base_avg_fps"] = base_avg_fps
+    base_efficiency_fps_per_w = _candidate_or_probe_base_metric(
+        candidate,
+        "base_efficiency_fps_per_w",
+        base_probe,
+        "efficiency_fps_per_w",
+    )
+    if base_efficiency_fps_per_w is not None:
+        summary["base_efficiency_fps_per_w"] = base_efficiency_fps_per_w
     if "performance_score" in candidate:
         summary["performance_score"] = candidate.get("performance_score")
     if short_verification_duration_s is not None:
@@ -309,6 +321,20 @@ def candidate_selection_summary(
             short_verification_duration_s
         )
     return summary
+
+
+def _candidate_or_probe_base_metric(
+    candidate: dict,
+    candidate_key: str,
+    base_probe: AutoUvProbeSummary | None,
+    probe_field_name: str,
+) -> float | None:
+    existing_value = candidate.get(candidate_key)
+    if existing_value not in (None, ""):
+        existing_float = float_or_none(existing_value)
+        if existing_float is not None:
+            return existing_float
+    return probe_float(base_probe, probe_field_name)
 
 
 def candidate_plan_from_record(candidate: dict) -> list[dict] | None:

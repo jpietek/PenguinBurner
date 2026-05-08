@@ -35,6 +35,10 @@ QLabel#purposeText {{
     font-weight: 400;
     line-height: 1.25;
 }}
+QLabel#autoVoltageDropNote {{
+    color: {theme.TEXT_MUTED};
+    font-size: 11px;
+}}
 QGroupBox#performanceBiasGroup {{
     margin-top: 12px;
 }}

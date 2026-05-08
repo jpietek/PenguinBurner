@@ -1,0 +1,22 @@
+1. Starts from clean NVIDIA runtime defaults: resets power/clock state, reads live V/F curve, GPU name, power limit, and available voltage bins.
+2. Runs a baseline/default-curve probe with Q2RTX plus CUDA telemetry to measure real loaded FPS, power, voltage, and sustained core clock.
+3. Chooses the scan target clock from measured loaded behavior, not advertised boost. It avoids using transient spike clocks.
+4. Builds a flattened V/F curve at the selected voltage/clock while preserving/ramping lower voltage bins instead of making a hard cliff.
+5. Auto-filled max voltage drop uses the borrowed GPU table Eco voltage as the lower sweep boundary. For RTX 5080 that is `850mV`, so from a `1000mV` reference the UI auto-fills `15%`.
+6. Unsupported GPUs fall back to generic `15%` max voltage drop.
+7. Efficiency mode is selected below `100%` performance bias. It prioritizes FPS/W and stops when lower voltage no longer improves efficiency enough.
+8. Performance mode is selected at `100%` or above. It prioritizes FPS and allows more clock recovery instead of stopping on FPS/W loss.
+9. The candidate sweep walks downward through real editable voltage bins, probing each candidate under Q2RTX/CUDA load.
+10. Stability requires valid workload metrics, enough GPU load, acceptable FPS, acceptable loaded clocks, no CUDA/Q2RTX failure, no fatal output, and no NVIDIA Xid-type evidence.
+11. Clock recovery is budgeted from the allowed clock-drop margin. Default max core clock drop is `10%`, so recovery budget is measured against that `10%`.
+12. Performance bias maps to clock recovery budget. Non-YOLO max is `150%`; YOLO max is `175%`.
+13. Clock recovery target is calculated from the measured lower-voltage clock toward or beyond the measured baseline clock. At `175%`, it can aim 75% past the lost-clock gap, then snaps to the 15MHz curve step.
+14. Clock recovery does not directly mean "use the table clock." The table clock is not forced as target MHz.
+15. Performance-mode voltage recovery is capped by the borrowed table Performance voltage. For RTX 5080 that ceiling is `925mV`; it may seek best FPS only up to `925mV`, not `975mV`.
+16. The voltage ceiling applies both during floor clock recovery and final upward stabilization after a failed long verification.
+17. If performance recovery at a higher voltage stops improving FPS, it keeps the best passed FPS candidate instead of climbing voltage indefinitely.
+18. Final candidate choice modal sorts by mode: Efficiency sorts by FPS/W; Performance sorts by FPS. It also shows relative FPS and FPS/W percentages versus baseline.
+19. If the user stops the undervolt after stable candidates exist, Auto-UV now shows the same final-choice modal with past stable candidates and lets the user pick one for final verification.
+20. Final verification runs the selected candidate for the long check. If it fails, Auto-UV tries upward stabilization within the same recovery rules and voltage ceiling.
+21. Final profile is saved only after final verification passes. If the user discards final choice, no profile is saved.
+22. Crash/unsafe handling remains conservative: interrupted or unsafe voltages are remembered so later scans avoid repeating bad points.

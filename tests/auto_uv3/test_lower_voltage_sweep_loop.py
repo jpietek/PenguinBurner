@@ -197,6 +197,67 @@ def test_performance_voltage_floor_bumps_voltage_for_clock_recovery() -> None:
     assert result.stable_candidate.target_mhz == 2100
 
 
+def test_performance_voltage_floor_recovery_respects_voltage_ceiling() -> None:
+    curve = base_curve(900, 1050, 25, 2000, 40)
+    probed: list[tuple[int, int]] = []
+
+    def probe(candidate: VfCurveCandidate) -> VoltageProbeOutcome:
+        probed.append((int(candidate.voltage_mv), int(candidate.target_mhz)))
+        passed = not (
+            int(candidate.voltage_mv) == 950 and int(candidate.target_mhz) > 2080
+        )
+        return VoltageProbeOutcome(
+            decision=StableRunDecision(
+                passed=passed,
+                failure_kind=FailureKind.NONE if passed else FailureKind.LOW_CLOCK,
+                severity=(
+                    FailureSeverity.PASS
+                    if passed
+                    else FailureSeverity.RECOVERABLE
+                ),
+                reason="stable run" if passed else "clock too low",
+            ),
+            measured_core_clock_mhz=float(candidate.target_mhz),
+            measured_voltage_mv=float(candidate.voltage_mv),
+            raw_probe=probe_summary(
+                candidate.voltage_mv,
+                clock_mhz=float(candidate.target_mhz),
+            ),
+        )
+
+    result = run_lower_voltage_sweep_loop(
+        curve,
+        settings=AutoUvScanSettings(
+            start_voltage_mv=1000,
+            min_search_voltage_mv=950,
+            preserve_base_below_mv=None,
+            baseline_core_clock_mhz=2200.0,
+            min_core_clock_pct=90.0,
+            reference_actual_voltage_mv=1000.0,
+            measured_clock_cap_mhz=2200.0,
+            recovery_voltage_ceiling_mv=975,
+            recovery_budget_limit_pct=1.6,
+            spend_remaining_clock_budget_at_voltage_floor=True,
+            allow_voltage_bump_for_floor_clock_recovery=True,
+        ),
+        initial_stable_candidate=VfCurveCandidate(
+            label="baseline",
+            voltage_mv=1000,
+            target_mhz=2160,
+            flattened_plan=curve,
+        ),
+        hooks=LowerVoltageSweepHooks(
+            probe_candidate=probe,
+            write_verified_candidate=lambda _candidate, _outcome: None,
+            mark_unsafe_candidate=lambda _candidate, _outcome: None,
+        ),
+    )
+
+    assert probed == [(950, 2080), (950, 2100), (975, 2100)]
+    assert result.stable_candidate.voltage_mv == 975
+    assert result.stable_candidate.target_mhz == 2100
+
+
 def test_performance_voltage_recovery_keeps_target_and_stops_when_fps_stops_improving() -> None:
     curve = base_curve(900, 1050, 25, 2000, 40)
     probed: list[tuple[int, int]] = []

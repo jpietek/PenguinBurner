@@ -22,7 +22,7 @@ is triggered by the published GitHub release.
 From a clean checkout on the release commit:
 
 ```bash
-scripts/release.sh 0.1.5
+scripts/release.sh 0.1.6
 ```
 
 The version must match `pyproject.toml`, and

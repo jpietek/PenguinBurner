@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "penguin-burner"
-version = "0.1.5"
+version = "0.1.6"
 description = "NVIDIA GPU automatic undervolting tool with precision V/F tuning, MSI Afterburner imports, and LACT exports"
 readme = "README.md"
 requires-python = ">=3.11"

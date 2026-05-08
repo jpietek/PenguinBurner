@@ -533,6 +533,7 @@ def try_voltage_floor_clock_probe(
         ),
         start_voltage_mv=int(settings.start_voltage_mv),
         allow_voltage_bump=bool(settings.allow_voltage_bump_for_floor_clock_recovery),
+        recovery_voltage_ceiling_mv=settings.recovery_voltage_ceiling_mv,
     ):
         candidate = build_flattened_voltage_probe_curve(
             base_curve,
@@ -589,14 +590,18 @@ def voltage_floor_recovery_voltages(
     floor_voltage_mv: int,
     start_voltage_mv: int,
     allow_voltage_bump: bool,
+    recovery_voltage_ceiling_mv: int | None = None,
 ) -> list[int]:
     voltages = [int(floor_voltage_mv)]
     if not bool(allow_voltage_bump):
         return voltages
+    ceiling_mv = int(start_voltage_mv)
+    if recovery_voltage_ceiling_mv is not None:
+        ceiling_mv = min(ceiling_mv, int(recovery_voltage_ceiling_mv))
     voltages.extend(
         int(value)
         for value in higher_editable_voltage_bins(base_curve, int(floor_voltage_mv))
-        if int(value) <= int(start_voltage_mv)
+        if int(value) <= int(ceiling_mv)
     )
     return voltages
 

@@ -105,6 +105,13 @@ def reset_nvidia_runtime_defaults(
 
         power_limits = policy_controller.query_power_limits()
         default_power_limit_w = power_limits.get("power_limit_default_w")
+        try:
+            gpu_name = policy_controller.query_gpu_name()
+            if gpu_name:
+                log(f"Reset defaults: GPU name {gpu_name}")
+        except Exception as exc:
+            gpu_name = None
+            log(f"Reset defaults: GPU name read skipped: {exc}")
 
         try:
             before_offsets = policy_controller.get_clock_offsets()
@@ -207,6 +214,7 @@ def reset_nvidia_runtime_defaults(
 
         return {
             "plan": plan,
+            "gpu_name": gpu_name,
             "power_limits": power_limits,
             "power_limit_w": target_power_limit_w,
             "source": "runtime-defaults",

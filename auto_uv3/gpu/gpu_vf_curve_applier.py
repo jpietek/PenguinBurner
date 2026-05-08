@@ -81,7 +81,10 @@ def open_live_gpu_vf_curve_applier(
     apply_plan(reader, runtime_default_plan)
     assert_zero_runtime_vf_offsets(reader)
 
-    translated_gpu_policy = {"power_limit_w": runtime_reset.get("power_limit_w")}
+    translated_gpu_policy = {
+        "gpu_name": runtime_reset.get("gpu_name"),
+        "power_limit_w": runtime_reset.get("power_limit_w"),
+    }
     memory_offset_mhz, memory_offset_limit_mhz = auto_uv_memory_offset_mhz(
         runtime_options,
         policy_controller=policy_controller,

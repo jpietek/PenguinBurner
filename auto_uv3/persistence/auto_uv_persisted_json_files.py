@@ -52,6 +52,13 @@ def auto_uv_stop_requested() -> bool:
     return auto_uv_stop_request_path().exists()
 
 
+def clear_auto_uv_stop_request() -> None:
+    try:
+        auto_uv_stop_request_path().unlink()
+    except FileNotFoundError:
+        pass
+
+
 def safe_json_write(path: Path, payload: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     claim_desktop_user_ownership(path.parent, include_parents=True)

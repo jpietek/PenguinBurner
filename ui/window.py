@@ -379,8 +379,10 @@ class MainWindow:
             payload.get("max_final_verification_duration_s"),
             MAX_FINAL_VERIFICATION_DURATION_S,
         )
+        request_reason = str(payload.get("request_reason", "")).strip()
         selected, duration_s, discarded = select_final_candidate(
             QtCore=self.QtCore,
+            QtGui=self.QtGui,
             QtWidgets=self.QtWidgets,
             parent=self.window,
             candidates=candidates,
@@ -388,6 +390,7 @@ class MainWindow:
             default_duration_s=default_duration_s,
             max_duration_s=max_duration_s,
             auto_uv_mode=auto_uv_mode,
+            request_reason=request_reason,
         )
         response_path = str(payload.get("response_path", "")).strip()
         if not response_path:
@@ -419,10 +422,7 @@ class MainWindow:
         status_name = "finished" if int(exit_code) == 0 else "stopped"
         self.log_view.append(f"\nAuto-UV process {status_name}: exit_code={exit_code}\n")
         failed = int(exit_code) != 0 and not stopped_by_user
-        if stopped_by_user:
-            self.header.set_stage("Stopped")
-            self.runs_table.mark_running_rows_stopped(label="Stopped")
-        elif failed:
+        if failed:
             self.header.set_stage("Error")
             self.runs_table.mark_running_rows_stopped(label="Failed")
             self.controls.set_status_text("Auto-UV failed.")
@@ -439,6 +439,9 @@ class MainWindow:
             self.header.set_stage("Complete")
             self.controls.set_status_text("Final verification complete.")
             self.tabs.setCurrentIndex(self.profiles_tab_index)
+        elif stopped_by_user:
+            self.header.set_stage("Stopped")
+            self.runs_table.mark_running_rows_stopped(label="Stopped")
         else:
             self.header.set_stage("Idle")
         self.controls.set_running(False)

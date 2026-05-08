@@ -35,6 +35,7 @@ def find_upward_stable_final_candidate(
     initial_probe_clock_mhz: float | None,
     power_limit_w: int | None,
     min_performance_core_clock_pct: float,
+    max_candidate_voltage_mv: int | None = None,
     short_probe_base_duration_s: int | None = None,
     reset_plan: list[dict] | None = None,
     timedemo_warmup_runs: int = 0,
@@ -46,7 +47,17 @@ def find_upward_stable_final_candidate(
         int(value)
         for value in higher_editable_voltage_bins(plan_source, floor_mv - 1)
         if int(value) >= int(floor_mv)
+        and (
+            max_candidate_voltage_mv is None
+            or int(value) <= int(max_candidate_voltage_mv)
+        )
     ]
+    if max_candidate_voltage_mv is not None:
+        log_phase(
+            log,
+            "stabilize",
+            f"voltage-ceiling={int(max_candidate_voltage_mv)}mV",
+        )
     for voltage_mv in upward_bins:
         plan = build_flattened_plan(
             plan_source,

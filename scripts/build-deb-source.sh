@@ -4,7 +4,7 @@ set -euo pipefail
 
 usage() {
     echo "usage: $0 SERIES [VERSION] [DEBIAN_REVISION]" >&2
-    echo "example: $0 questing 0.1.5 2" >&2
+    echo "example: $0 questing 0.1.6 1" >&2
 }
 
 if [ "$#" -lt 1 ] || [ "$#" -gt 3 ]; then
@@ -14,7 +14,7 @@ fi
 
 series="$1"
 version="${2:-}"
-debian_revision="${3:-${DEBIAN_REVISION:-2}}"
+debian_revision="${3:-${DEBIAN_REVISION:-1}}"
 case "$series" in
     questing|resolute) ;;
     *)
@@ -51,23 +51,31 @@ trap cleanup EXIT
 mkdir -p "$outdir"
 rm -f "$outdir"/*
 
-tar \
-    --exclude=.git \
-    --exclude=.copr \
-    --exclude=.github \
-    --exclude=dist \
-    --exclude=build \
+git ls-files -z | tar \
+    --null \
+    --exclude='.copr' \
+    --exclude='.copr/*' \
+    --exclude='.github' \
+    --exclude='.github/*' \
+    --exclude='dist' \
+    --exclude='dist/*' \
+    --exclude='build' \
+    --exclude='build/*' \
     --exclude='*.egg-info' \
-    --exclude='./docs' \
-    --exclude='./tests' \
-    --exclude='./readme-cli.md' \
+    --exclude='*.egg-info/*' \
+    --exclude='docs' \
+    --exclude='docs/*' \
+    --exclude='tests' \
+    --exclude='tests/*' \
+    --exclude='readme-cli.md' \
     --sort=name \
     --mtime='@0' \
     --owner=0 \
     --group=0 \
     --numeric-owner \
-    --transform "s,^.,${package}-${version}," \
-    -cf - . | gzip -n > "$orig"
+    --transform "s,^,${package}-${version}/," \
+    --files-from=- \
+    -cf - | gzip -n > "$orig"
 
 tar -xzf "$orig" -C "$workroot"
 rm -rf "${source_dir}/debian"

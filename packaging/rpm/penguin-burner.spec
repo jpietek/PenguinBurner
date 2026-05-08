@@ -1,6 +1,6 @@
 Name:           penguin-burner
-Version:        0.1.5
-Release:        2%{?dist}
+Version:        0.1.6
+Release:        1%{?dist}
 Summary:        NVIDIA GPU automatic undervolting and fine tuning tool
 
 %global debug_package %{nil}
@@ -103,8 +103,11 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/io.github.jpietek.Pen
 %{_datadir}/penguin-burner/penguin_burner.sh
 
 %changelog
-* Thu May 07 2026 PenguinBurner contributors <noreply@github.com> - 0.1.5-2
+* Fri May 08 2026 PenguinBurner contributors <noreply@github.com> - 0.1.6-1
 - Add python3-colorama runtime dependency for pyqtgraph.
+- Add borrowed GPU voltage/frequency guardrails for Auto-UV3.
+- Cap performance-mode voltage recovery by the GPU Performance table voltage.
+- Improve final candidate sorting and stopped-scan final candidate selection.
 
 * Mon May 04 2026 PenguinBurner contributors <noreply@github.com> - 0.1.5-1
 - Initial COPR package for Fedora 42, 43, and 44.
