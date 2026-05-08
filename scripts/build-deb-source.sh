@@ -3,17 +3,18 @@
 set -euo pipefail
 
 usage() {
-    echo "usage: $0 SERIES [VERSION]" >&2
-    echo "example: $0 questing 0.1.5" >&2
+    echo "usage: $0 SERIES [VERSION] [DEBIAN_REVISION]" >&2
+    echo "example: $0 questing 0.1.5 2" >&2
 }
 
-if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+if [ "$#" -lt 1 ] || [ "$#" -gt 3 ]; then
     usage
     exit 2
 fi
 
 series="$1"
 version="${2:-}"
+debian_revision="${3:-${DEBIAN_REVISION:-2}}"
 case "$series" in
     questing|resolute) ;;
     *)
@@ -36,7 +37,7 @@ fi
 
 key_id="${DEBSIGN_KEYID:-B098E377E3C3C124A009E54093CEE10EDB7F01A2}"
 package="penguin-burner"
-debian_version="${version}-1~ppa1~${series}1"
+debian_version="${version}-${debian_revision}~ppa1~${series}1"
 outdir="${OUTDIR:-dist/deb/${series}}"
 workroot="$(mktemp -d)"
 source_dir="${workroot}/${package}-${version}"
@@ -53,9 +54,13 @@ rm -f "$outdir"/*
 tar \
     --exclude=.git \
     --exclude=.copr \
+    --exclude=.github \
     --exclude=dist \
     --exclude=build \
     --exclude='*.egg-info' \
+    --exclude='./docs' \
+    --exclude='./tests' \
+    --exclude='./readme-cli.md' \
     --sort=name \
     --mtime='@0' \
     --owner=0 \

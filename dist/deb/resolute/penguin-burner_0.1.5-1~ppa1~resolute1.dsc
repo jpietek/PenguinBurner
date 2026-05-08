@@ -13,28 +13,28 @@ Build-Depends: debhelper-compat (= 13), python3, python3-build, python3-installe
 Package-List:
  penguin-burner deb utils optional arch=amd64
 Checksums-Sha1:
- 64818cfd08fe48fc7645c90b83fd92ba81559c2c 3835498 penguin-burner_0.1.5.orig.tar.gz
- ad395253b9efe2369ec0a1134f1aa1724a6fff79 1752 penguin-burner_0.1.5-1~ppa1~resolute1.debian.tar.xz
+ 510589da7bccfa8ff13472a45ea66a875efc5fe5 546236 penguin-burner_0.1.5.orig.tar.gz
+ de9806b04194074def65855f279d4f78f4fda9a7 1752 penguin-burner_0.1.5-1~ppa1~resolute1.debian.tar.xz
 Checksums-Sha256:
- 1f6d7a63a072fbe6ff01cd7f01be9f5a8fb246b40c80a27ac708f4d7ce60aa76 3835498 penguin-burner_0.1.5.orig.tar.gz
- bbd6d8285703e9b55239656a82399a1836c78384aacd5b60bd0fdea895c2aad8 1752 penguin-burner_0.1.5-1~ppa1~resolute1.debian.tar.xz
+ 5e40734c1b274c3f6e4ad6a2a969fe340e5ba2b9c01859a88a8b878223e5ae7a 546236 penguin-burner_0.1.5.orig.tar.gz
+ 37eb73c6530514886074639b86db98b8c44dcfefef95ce18ac07c13f8bad9025 1752 penguin-burner_0.1.5-1~ppa1~resolute1.debian.tar.xz
 Files:
- b35778844227e500778dcdc9d92cffed 3835498 penguin-burner_0.1.5.orig.tar.gz
- e2e18e7c697d28b1a42f9b41821337a6 1752 penguin-burner_0.1.5-1~ppa1~resolute1.debian.tar.xz
+ 12a01eec5624174f8308d1b726cd1860 546236 penguin-burner_0.1.5.orig.tar.gz
+ 2c671016592164a4ddf17e59f52138d3 1752 penguin-burner_0.1.5-1~ppa1~resolute1.debian.tar.xz
 
 -----BEGIN PGP SIGNATURE-----
 
-iQIzBAEBCgAdFiEEsJjjd+PDwSSgCeVAk87hDtt/AaIFAmn5wH8ACgkQk87hDtt/
-AaJshA//bvmv+nz1MMcznIn787r4ctfRshjQq9VL5h+fVhWPbdsIDjI7C8xKZXdU
-RQmq+PZDyUcdpQAWe8f+SMAmSVyQzn+LysRPxWu8VWtLAYCjaAV8SMDIuYoHzkkD
-DFzYdpUrvkWuqXdZye7acctSU5TimhPtdjSbBn9YbPcyoOWrQu30PksXKRdoIOCC
-zsK63X0CtREhJylLB7bHEbESU4nMOZ9mKghm1WLxXfZyHjEcAcUfWueeaRa0Gg+c
-xHdghSPC8yBjzJP6u/9obLjlcC9AEYj2uiO1mAUj7qW1UDulquOBMiwIDK8eoBGo
-kN86jr3KDFzWHlJvNbRDM2yirRPob65KIAqvbSumqRODU4MnrXHdjMNQSiwoa6JP
-GpFoAHMX4BJjYfsIRlUCDJ22xhfWuHuTmC8ZZZ7knvLkvm/070B8VB0Luz2CASv5
-C9vQwpKscQ15PFfxdjx9Ppl7b3w1k+sGadgs7/k3qog6EPH6jnrPgwfAnJcMLqjT
-GgEOU7lrU38wkfadkrNdMm4o4JAyqyPuwswOKDldRqixi4M/fe3wTHLPnLjTKyNE
-iPpaNvmZTXlRkXv0Xo+glCafK0vMmkUO/IcMRsNn8eFoeug63ktDKjnApLDIC+oq
-2tojR5+Vrqs5T60M/T8DNisp+8XEvHZChxznuo6JGLKQng1YlAg=
-=mdlF
+iQIzBAEBCgAdFiEEsJjjd+PDwSSgCeVAk87hDtt/AaIFAmn5x9IACgkQk87hDtt/
+AaLBIw//XPOKT/fsSa8xzSRLQjY6fcMbNsF9MmqrtR8fqbkMR5FEtaEzW2Ohtxle
+RzjXbjGsCtv46fr8mp72/0S7pPb4sJri67Lb/S3uo8jG7Uf7FPNWIvlvbDQ10fRj
+Ub/mEAULQDG78VjnyXu4U7WVNlkSElfvHNQqxxqG8psY8ox64vDI20Zcidxvoc2D
+Ifcl2RCrbmz+mU0x9Rlm0Q4TuK9nLX7bvKlI7eahlrHqigS/977JyQgkG7KVv04O
+IRlyVgkcidXthcUjzGyBss0eO9ax2rOWewtqf++sAmC6AWs5f3GuecmS9EMczjrd
+AfvYXyNoZtLW6ZIAT+WCD8y+6Y2nxXhodFglavCqBjRF0bRLLGpIp/U/4mSjvTsW
+nh0hCbm/w2FxAvnA6L2B3zK8wMaGxviWTWMyKQmbh2EzoBndVFjqlfX9xRh6JAj1
+vtLYQ/DrXKiZ0t8aNk/QY9kkJeoEgfcT+SuKFpMDFpIjIUVAzrerUlnGli5pGEKX
+w56hdf0Td06rRJ4ft8CrYzp6w9Lps2kkQa5KPWnavPmcBnkZjFpLnWGUZmXqqKZb
+EMDsC6RLYzpQJMpg4au/dJ4qNlczz7SzPqXDAiRdko4vhwJNtVLFzOE81mRGztw+
+/AbvvTyZTbLWRiJRoxB+0Yp7nIb/K+sR/miDRr0hlHVptBwH2Bc=
+=uPTl
 -----END PGP SIGNATURE-----

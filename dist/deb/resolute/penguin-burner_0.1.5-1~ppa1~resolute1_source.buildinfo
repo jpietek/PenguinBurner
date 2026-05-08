@@ -6,14 +6,14 @@ Source: penguin-burner
 Architecture: source
 Version: 0.1.5-1~ppa1~resolute1
 Checksums-Md5:
- 754ee214e72ad422d1e58668b989556a 1935 penguin-burner_0.1.5-1~ppa1~resolute1.dsc
+ fffe4afeb1f18565498e77544640bbcb 1932 penguin-burner_0.1.5-1~ppa1~resolute1.dsc
 Checksums-Sha1:
- 567c860e570d623075a211bc9a084707b4fed71e 1935 penguin-burner_0.1.5-1~ppa1~resolute1.dsc
+ a1f92f824dd1dcc6e61d0181923c122ba14be44b 1932 penguin-burner_0.1.5-1~ppa1~resolute1.dsc
 Checksums-Sha256:
- 6191323d7107f211eb8c0fb24ec2df8ab176adcb9af8987fa36a3ab83bedeadd 1935 penguin-burner_0.1.5-1~ppa1~resolute1.dsc
+ 11a802f7664cafc9aa7c6ef77833f2cf0fdc15500af608c030e77f5d0e1429fe 1932 penguin-burner_0.1.5-1~ppa1~resolute1.dsc
 Build-Origin: Fedora
 Build-Architecture: arm64
-Build-Date: Tue, 05 May 2026 12:03:43 +0200
+Build-Date: Tue, 05 May 2026 12:34:58 +0200
 Environment:
  DEB_BUILD_OPTIONS="parallel=8"
  LANG="en_US.utf8"
@@ -29,21 +29,21 @@ Environment:
  LC_PAPER="pl_PL.utf8"
  LC_TELEPHONE="pl_PL.utf8"
  LC_TIME="pl_PL.utf8"
- SOURCE_DATE_EPOCH="1777975423"
+ SOURCE_DATE_EPOCH="1777977297"
 
 -----BEGIN PGP SIGNATURE-----
 
-iQIzBAEBCgAdFiEEsJjjd+PDwSSgCeVAk87hDtt/AaIFAmn5wH8ACgkQk87hDtt/
-AaLpJA//dQumokqd7D4nDEOmNFyscBeeAGv+qiy9f3zUTQvTn8w/CvVjl94sRqB4
-vTP2tfZ37SWfsJ4dO4m4xjA2uVWKTjLM5f2UHzWEzamGm4jphJnTbbuZ8V3ur/BG
-fUihLlumKCI85vLCFfmHgT9T9ZHIHEfLazxPLcEVn3XvtyeRv6uVS/qrqAujiFmY
-9k13SeulT95+Rm89gmAek9n8waZPdGkxbsFj6GT29IGA7LiknRQD1Sa44O5F7lHh
-eVDfwkhZJgi2qARLtQzzBRQsXCsn3OPTNWYaPJ58nE38LZowaDeZUL7LlBleJepc
-uL5q7AfVVUewJsqCgHkv2zpymcV9hriFGzyhPQ506KbCjuar8yYjE52AWplAyj8F
-INe06XIMbMHOC/xHjBJVUevlyBz4q8CpmCq/w7ZWhx5Eyc9/KJygwJ6ok+TUwAv0
-+Duc7xh+yvusT2+LmKZIl1vk+GG+r0AA0uA6r07C21oJr5Fv0qA3d0FGcm9Q01yO
-1AJeKhD8RYqQKR/SwmI60S9l2xS8kspr5nygAh1A6rjJg4rMF0iKg9rt52iL2sXF
-lcEwOJs5X+JM+MZtu9Rv5ZJukXFmVsOM/rbhI3mT1qreu0DfQw8PFjvg60FB+zV5
-mP9EDefUoV4D5PQmQOfr3XSlYeT+0WVDsIe138W/DUOtP8JMpSs=
-=F/Zl
+iQIzBAEBCgAdFiEEsJjjd+PDwSSgCeVAk87hDtt/AaIFAmn5x9IACgkQk87hDtt/
+AaKjwg/8Cenel5hfrifokGMuZwP1z1D6p4gV1YY3j6o2fQ63R2RMcFg4SOls++6e
+HMvfZ0buMn3svLTcr+TEdB6D/ioGHMyCQ9ugDLkRE5dHoM4Fwf4gLBmsiN1wgm5P
+qHwMfXNdBxgNSpccLBTRo473H/cqRB9t04vqq2Wj/rbSH/38T5zYQYSHUPtkBL1Z
+hDV/VozW60G3/eeaBSpO1zeooWZ9zTVwm22xnAguHsjLBmm4ELVRP3elWiFdAUHB
+fXhO/7H5CsnNjN4Ls8Pvi/YBae044qjzBoSWIoF0RAY6o/bps3/2+yECLX5fmIeB
+M8TKznYvoO6hq2lPcOo4AepPOzzV8iI0xEX3F51rXoWkkg1hLYdcgcHv3G4IceqS
+xw6S4YpE861GncxqxXNhQpgIWcAtNbIwZsycO2EC+Awh0GuIM4mGr7sOS6MVhGQ5
+2Pazw11KHGSdzQslXfKUevyb+Z/IFAJf0xHwKnSCbqGewLEYF/ByKICKZ0DQ8Hbh
+3LgDQ8NIfnXuJ4uihLQGD6cVKOuE4XNp645kbVxBMT5eQTVLzkDXsHqweO3vuu5o
++UMhVynItfHvmu08QdVG3EtxsdAW5/sQY7xrG10QQkMnIag/7BJ+c7soEJqM8guV
+Oj/bJcT9w1ajZdEYHdglhLWDanxQhpnEooiofGTV1bGWzLktPlc=
+=TlVS
 -----END PGP SIGNATURE-----

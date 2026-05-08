@@ -1,6 +1,6 @@
 Name:           penguin-burner
 Version:        0.1.5
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        NVIDIA GPU automatic undervolting and fine tuning tool
 
 %global debug_package %{nil}
@@ -18,6 +18,7 @@ BuildRequires:  python3-wheel
 BuildRequires:  desktop-file-utils
 
 Requires:       python3-pyside6
+Requires:       python3-colorama
 Requires:       python3-pyqtgraph
 Requires:       hicolor-icon-theme
 Requires:       bash
@@ -102,5 +103,8 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/io.github.jpietek.Pen
 %{_datadir}/penguin-burner/penguin_burner.sh
 
 %changelog
+* Thu May 07 2026 PenguinBurner contributors <noreply@github.com> - 0.1.5-2
+- Add python3-colorama runtime dependency for pyqtgraph.
+
 * Mon May 04 2026 PenguinBurner contributors <noreply@github.com> - 0.1.5-1
 - Initial COPR package for Fedora 42, 43, and 44.

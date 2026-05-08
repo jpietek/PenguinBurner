@@ -6,14 +6,14 @@ Source: penguin-burner
 Architecture: source
 Version: 0.1.5-1~ppa1~questing1
 Checksums-Md5:
- 8a48d2a323be6f07c55be3cb2963a50a 1935 penguin-burner_0.1.5-1~ppa1~questing1.dsc
+ 8fe6eca96e5fb68fd3ae761c40404e0e 1932 penguin-burner_0.1.5-1~ppa1~questing1.dsc
 Checksums-Sha1:
- 69e90f2ffeed4ba5f3547f3a72831e3f6c77e969 1935 penguin-burner_0.1.5-1~ppa1~questing1.dsc
+ b4805e328d423b5b84a9bbb16820b63d5b2ce7cb 1932 penguin-burner_0.1.5-1~ppa1~questing1.dsc
 Checksums-Sha256:
- aeab4adf32c08ae7339bb8d30afad5f7f635f956cabe85caadc9925d0a3b928f 1935 penguin-burner_0.1.5-1~ppa1~questing1.dsc
+ b54778fd4e250babed32f8faf915765b7aa7130d142587f25ad4bb2c1bdabeff 1932 penguin-burner_0.1.5-1~ppa1~questing1.dsc
 Build-Origin: Fedora
 Build-Architecture: arm64
-Build-Date: Tue, 05 May 2026 12:03:39 +0200
+Build-Date: Tue, 05 May 2026 12:34:53 +0200
 Environment:
  DEB_BUILD_OPTIONS="parallel=8"
  LANG="en_US.utf8"
@@ -29,21 +29,21 @@ Environment:
  LC_PAPER="pl_PL.utf8"
  LC_TELEPHONE="pl_PL.utf8"
  LC_TIME="pl_PL.utf8"
- SOURCE_DATE_EPOCH="1777975419"
+ SOURCE_DATE_EPOCH="1777977292"
 
 -----BEGIN PGP SIGNATURE-----
 
-iQIzBAEBCgAdFiEEsJjjd+PDwSSgCeVAk87hDtt/AaIFAmn5wH4ACgkQk87hDtt/
-AaKJrQ/+L2lqHT5YjOX9Jngg8L/VOpGJx4aGK3GhQdbxd6oCuawXWDt57SFYDEjo
-L38I8l6sdwVtDMLFiLPyuhiImztaiXJrOiWsFz8MVwIhMLB2niLYPZgd/WEn6IMO
-JbS3j97SuE4MCU1xA/DlxE1vjNaFV1184ZIBuhwtm5D9mIOPkLMq25YpfNkohnbk
-VCf1157V9oU+6qoLkz8kvudPP6wQKwi8Qxu2pfzk2LznNAUoYUTjVyHuY4mB3yAk
-llMWX+o4GbJ0f/RkIbEfPqR2QwnlF2KxddVBY0dwK58RyRjsfhyNA7HHK6e35XOF
-ZnGrNzW1IY7R/VRoL6Oy7wcJWwLyhtFVwB7owwUb4J3BX2FwB0cNoHC0AQ4Q+SrE
-ccJ4iNw/xAxsN8Rt+HXT2zsmROt2lXi4r6QG+qEaugr8qiukh2WEcG+zkogj1/j9
-PyD/6fR6eNZTXoRJWzpeiiD3W9poGMJkJz52G1zCPU0mddfgnvW3jHlJw4D7IhJP
-J5Q9vd17dBVCyFGSBCayYjcpQHbnui6m4X2g8up06I/AXIMRVgpSnt+UFwXh1wBd
-d41bVu1K+MTCTX/SVrIaF2GVJkMianXOX7N+dN3hEZgWSGSYkXrHn10pyyDDUBCZ
-CAkU/3lh5S5tHhf557cdyTSxoSwxig/YHjK4Va5InvOs8ggJ4HI=
-=KDII
+iQIzBAEBCgAdFiEEsJjjd+PDwSSgCeVAk87hDtt/AaIFAmn5x9EACgkQk87hDtt/
+AaLV2RAAp6Ey/Q46NP4tSBTx5y3iAyYWGuE+W2ZCP6VLRgQH0E1GQ31CKnb+1tnG
+xFKejvGc9Cpg3cJg13NFcf3eBQ0a8bMmLacgAXXJmYK5aWZIGf+TREdhgk11tGWF
+2ujXrJapVpL53oUk5Zrkg8b009I5Fq3Oxfv7+M5ta9VhxWsEUoJ/G7WKldpQkvVo
+BxR8c8HUvqhYB8fSxAHDIzWeD3CoCrwzMhYbdbHfXkOu7jm0uGAolwsM2Av4kGvS
+wBOKCxSETUXKkfe7fe8AHhE7iUOvwVNqovX1OY2aYu+x8VC+7pTC1+RmTl97EyWn
+EnhbOMMjSKbQjEpuwZWeTGTOrD3xRyLBZ8wvmvBQZxurVqDIvuAMwNvl++dpDh1D
+MFo2JIkx5D8QaFv4jKK0c6rf1AKKV7NmLchrJ38uFbscnKT+omp0cdS6AL6ASy6V
+/EKpxCMVFsaKrAoOLO2g3KFAvPpqp75bku3GpDBiwQH4L5n136xMP81cx+g7NbwX
+RkN8a3h7405YqTVvUepskWHa085ORg0eYrzl/TDtkjK1kpMfkvF+fjNN1OAj4lcH
+a4UBGuAdr7xBc9kKYDAwJylCtkALLBQobgOl1zvMFI+X4oMfu66YhJ+PRUQ6tEj7
+aIKnRHP7dkyuJjtkUOE9vsH3tQtCkQnrvo+EvMQg1a547MvQpYc=
+=DSGe
 -----END PGP SIGNATURE-----

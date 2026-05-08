@@ -5,6 +5,7 @@ set -euo pipefail
 ppa="${PPA_TARGET:-ppa:jpietek/penguin-burner}"
 version="${1:-}"
 series_list=("${@:2}")
+debian_revision="${DEBIAN_REVISION:-2}"
 dput_profile_dir=""
 
 if [ -z "$version" ]; then
@@ -52,8 +53,8 @@ JSON
 fi
 
 for series in "${series_list[@]}"; do
-    scripts/build-deb-source.sh "$series" "$version"
-    changes="$(find "dist/deb/${series}" -maxdepth 1 -name "*_${version}-1~ppa1~${series}1_source.changes" -print -quit)"
+    scripts/build-deb-source.sh "$series" "$version" "$debian_revision"
+    changes="$(find "dist/deb/${series}" -maxdepth 1 -name "*_${version}-${debian_revision}~ppa1~${series}1_source.changes" -print -quit)"
     if [ -z "$changes" ]; then
         echo "source changes file not found for ${series}" >&2
         exit 1

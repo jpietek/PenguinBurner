@@ -32,6 +32,7 @@ classifiers = [
 ]
 dependencies = [
   "PySide6>=6.7",
+  "colorama>=0.4",
   "pyqtgraph>=0.13",
 ]
 
@@ -40,6 +41,7 @@ ui = [
   # Compatibility alias for older docs/users. GUI dependencies are installed by
   # the base package too, so plain `pip install penguin-burner` is enough.
   "PySide6>=6.7",
+  "colorama>=0.4",
   "pyqtgraph>=0.13",
 ]
 

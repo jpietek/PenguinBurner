@@ -11,6 +11,7 @@ def test_base_package_installs_gui_dependencies() -> None:
     dependencies = set(metadata["project"]["dependencies"])
 
     assert "PySide6>=6.7" in dependencies
+    assert "colorama>=0.4" in dependencies
     assert "pyqtgraph>=0.13" in dependencies
 
 
@@ -19,7 +20,21 @@ def test_ui_extra_remains_as_compatibility_alias() -> None:
     ui_dependencies = set(metadata["project"]["optional-dependencies"]["ui"])
 
     assert "PySide6>=6.7" in ui_dependencies
+    assert "colorama>=0.4" in ui_dependencies
     assert "pyqtgraph>=0.13" in ui_dependencies
+
+
+def test_native_packages_install_pyqtgraph_colorama_runtime_dependency() -> None:
+    arch_pkgbuild = Path("packaging/arch/PKGBUILD").read_text(encoding="utf-8")
+    debian_control = Path("packaging/debian/control").read_text(encoding="utf-8")
+    rpm_spec = Path("packaging/rpm/penguin-burner.spec").read_text(encoding="utf-8")
+
+    assert "'python-colorama'" in arch_pkgbuild
+    assert "'python-pyqtgraph>=0.13'" in arch_pkgbuild
+    assert " python3-colorama," in debian_control
+    assert " python3-pyqtgraph (>= 0.13)," in debian_control
+    assert "Requires:       python3-colorama" in rpm_spec
+    assert "Requires:       python3-pyqtgraph" in rpm_spec
 
 
 def test_console_scripts_use_gui_default_and_explicit_cli_names() -> None:
