@@ -96,6 +96,11 @@ def run_runtime_fan_control_loop(
     clock_ceiling_controller = vf_policy.clock_ceiling_controller
     vf_apply_result = vf_policy.vf_apply_result
     vf_expected_samples = list(vf_policy.vf_expected_samples)
+    reapply_memory_offset_mhz = (
+        vf_policy.auto_uv_profile_gpu_policy.get("mem_clk_vf_offset_mhz")
+        if isinstance(vf_policy.auto_uv_profile_gpu_policy, dict)
+        else None
+    )
     last_vf_reapply_monotonic = 0.0
     vf_reapply_cooldown_s = max(float(settings.poll_interval_s), 10.0)
 
@@ -215,6 +220,8 @@ def run_runtime_fan_control_loop(
                 last_vf_reapply_monotonic=last_vf_reapply_monotonic,
                 vf_reapply_cooldown_s=vf_reapply_cooldown_s,
                 deps=deps,
+                gpu_policy_controller=gpu_policy_controller,
+                memory_offset_mhz=reapply_memory_offset_mhz,
             )
 
         def fan_state_text() -> str:
@@ -563,6 +570,8 @@ def _maybe_reapply_vf_curve(
     last_vf_reapply_monotonic,
     vf_reapply_cooldown_s,
     deps: RuntimeFanLoopDependencies,
+    gpu_policy_controller=None,
+    memory_offset_mhz=None,
 ):
     vf_mismatches = deps.detect_vf_curve_reset(vf_curve_reader, vf_expected_samples)
     if not vf_mismatches:
@@ -577,6 +586,18 @@ def _maybe_reapply_vf_curve(
     except Exception as exc:
         deps.log(f"{timestamp} event=vf-curve-reapply-error error={exc}")
         return last_vf_reapply_monotonic
+
+    if (
+        memory_offset_mhz is not None
+        and int(memory_offset_mhz) > 0
+        and gpu_policy_controller is not None
+    ):
+        try:
+            gpu_policy_controller.apply_clock_offsets(
+                mem_clk_vf_offset_mhz=int(memory_offset_mhz)
+            )
+        except Exception as exc:
+            deps.log(f"{timestamp} event=mem-offset-reapply-error error={exc}")
 
     mismatch_preview = deps.format_vf_curve_mismatch_preview(vf_mismatches)
     deps.log(
