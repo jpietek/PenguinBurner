@@ -25,30 +25,33 @@ the path `runtime/support/runtime_service.py` discovers first. `cargo` is a
 `Build-Depends`. `CARGO_HOME` is redirected into `debian/cargo` so the build
 stays inside the tree (matching `Rules-Requires-Root: no`).
 
-### Offline / Launchpad builds need vendored crates — REMAINING STEP
+### Offline Launchpad builds
 
-`cargo build --locked` still fetches crate sources from crates.io, and
-**Launchpad PPA builders have no network access**, so the source package must
-carry the crates. `scripts/build-deb-source.sh` builds the `.orig.tar.gz` from
-`git ls-files`, and `burnerd/vendor` / `burnerd/target` are not tracked, so they
-are not shipped today. To publish a buildable PPA source package, vendor the
-crates into the orig tarball before `dpkg-buildpackage`:
+Launchpad PPA builders have no network access. `scripts/build-deb-source.sh`
+therefore exports the matching release tag into a temporary tree, runs
+`cargo vendor --locked`, writes Cargo's project-local source replacement, and
+includes the generated crates in the `.orig.tar.gz`. It proves the lockfile can
+resolve with `cargo metadata --locked --offline` before signing the source.
 
-```bash
-# 1. Vendor the locked crate set and write cargo's source-replacement config.
-cd burnerd
-cargo vendor --locked vendor > /tmp/pb-cargo-config.toml
-mkdir -p .cargo
-mv /tmp/pb-cargo-config.toml .cargo/config.toml
-cd ..
+The Launchpad build runs:
 
-# 2. Include burnerd/vendor and burnerd/.cargo when assembling the orig tarball
-#    (add them to the tar in scripts/build-deb-source.sh, or unpack the tarball,
-#    copy them in, and repack), then run dpkg-buildpackage as usual. With the
-#    vendor dir + .cargo/config.toml present, `cargo build --locked` resolves
-#    fully offline.
+```text
+cargo build --release --locked --offline --manifest-path burnerd/Cargo.toml
 ```
 
-Alternatively enable `CARGO_NET_OFFLINE=1` once the vendor dir is in place. The
-in-tree `debian/rules` build works out of the box on a networked developer box;
-only the network-isolated Launchpad path needs the vendoring step above.
+The vendor directory, Cargo configuration, source archives, and binary build
+outputs are generated only below ignored `dist/` or temporary directories. They
+are never committed to Git.
+
+## Publish
+
+From a clean checkout containing the release tag and Debian signing key:
+
+```bash
+scripts/publish-ppa.sh 0.7.2
+```
+
+That one command builds and validates both Questing and Resolute source
+packages, uploads them, waits for Launchpad's amd64 builds, prints their URLs,
+and fails if either build fails. Pass series names after the version to publish
+only selected targets.
