@@ -41,6 +41,9 @@ def test_one_click_publisher_guards_git_and_waits_for_both_series() -> None:
     assert "PPA publication requires a clean checkout" in script
     assert "git check-ignore -q dist/deb" in script
     assert "dput_profile_backup" in script
+    assert '"login": "anonymous"' in script
+    assert '"method": "ftp"' in script
+    assert '"passive_ftp": true' in script
     assert '"$status_helper" check' in script
     assert '"$status_helper" wait' in script
     assert 'changes_files+=("$changes")' in script

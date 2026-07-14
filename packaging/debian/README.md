@@ -52,6 +52,6 @@ scripts/publish-ppa.sh 0.7.2
 ```
 
 That one command builds and validates both Questing and Resolute source
-packages, uploads them, waits for Launchpad's amd64 builds, prints their URLs,
-and fails if either build fails. Pass series names after the version to publish
-only selected targets.
+packages, uploads them through Launchpad's anonymous passive-FTP endpoint,
+waits for Launchpad's amd64 builds, prints their URLs, and fails if either build
+fails. Pass series names after the version to publish only selected targets.
