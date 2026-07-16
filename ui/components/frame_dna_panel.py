@@ -1,10 +1,10 @@
 """The Frame DNA tab: one game's full telemetry detail.
 
-Large fingerprint + stat row, the MangoHUD-style frametime graph (30-minute
-overview or the live last-10-seconds zoom), and the operating orbit
-(power x clock, colored by the profile tier active at each sample). Reads
-the daemon's ring for the selected game and refreshes while visible.
-Visuals follow the approved mockup via the ``theme.DNA_*`` palette.
+Large fingerprint + stat row and the MangoHUD-style frametime graph
+(30-minute overview or the live last-10-seconds zoom). Reads the daemon's
+ring for the selected game and refreshes while visible. Visuals follow the
+approved mockup via the ``theme.DNA_*`` palette: the trace is always the
+mock's violet-blue; red is reserved for the stutter needles.
 """
 
 from __future__ import annotations
@@ -32,6 +32,9 @@ _OVERVIEW_COLUMNS = 300
 _LIVE_WINDOW_MS = 10_000.0
 _STUTTER_RATIO = 1.6
 _DNA_SIZE = 200
+# The mock is a measured column, not a full-bleed sprawl: cap the content so
+# a very wide window keeps the composed, centered layout.
+_CONTENT_MAX_WIDTH = 1500
 
 _EMPTY_HINT = (
     "Select a game in the Steam tab and click its Frame DNA badge.\n"
@@ -162,8 +165,17 @@ class FrameDnaPanel:
             """
         )
 
-        root = QtWidgets.QVBoxLayout(self.widget)
-        root.setContentsMargins(14, 12, 14, 12)
+        # A centered, width-capped column (the mock's measure): the content
+        # expands up to the cap, extra width becomes symmetric margins.
+        outer = QtWidgets.QHBoxLayout(self.widget)
+        outer.setContentsMargins(18, 14, 18, 16)
+        content = QtWidgets.QWidget()
+        content.setMaximumWidth(_CONTENT_MAX_WIDTH)
+        outer.addStretch(1)
+        outer.addWidget(content, 100)
+        outer.addStretch(1)
+        root = QtWidgets.QVBoxLayout(content)
+        root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(10)
 
         self._stack = QtWidgets.QStackedLayout()
@@ -218,7 +230,9 @@ class FrameDnaPanel:
             "GPU / CPU-THREAD", "BOTTLENECK", "LATENCY",
         )
         for index, key in enumerate(stat_keys):
-            cell = QtWidgets.QVBoxLayout()
+            cell_widget = QtWidgets.QWidget()
+            cell = QtWidgets.QVBoxLayout(cell_widget)
+            cell.setContentsMargins(0, 0, 0, 0)
             cell.setSpacing(1)
             key_label = QtWidgets.QLabel(key)
             key_label.setObjectName("frameDnaStatKey")
@@ -226,16 +240,26 @@ class FrameDnaPanel:
             value_label.setObjectName("frameDnaStatValue")
             cell.addWidget(key_label)
             cell.addWidget(value_label)
-            stats.addLayout(cell, index // 3, index % 3)
+            stats.addWidget(cell_widget, index // 3, index % 3)
             self._stat_values[key] = value_label
-        stats.setRowStretch(2, 1)
+        # Latency has no spoke and no placeholder: the cell exists only
+        # while there is a real measurement to show.
+        self._latency_cell = cell_widget
+        self._latency_key = key_label
+        self._latency_cell.setVisible(False)
         stats.setColumnStretch(3, 1)
-        top.addLayout(stats, 1)
+        # The mock's tab-top centers the stats against the fingerprint.
+        stats_wrap = QtWidgets.QVBoxLayout()
+        stats_wrap.addStretch(1)
+        stats_wrap.addLayout(stats)
+        stats_wrap.addStretch(1)
+        top.addLayout(stats_wrap, 1)
         detail.addLayout(top)
 
-        detail.addWidget(self._build_frametime_figure())
-        detail.addWidget(self._build_orbit_figure())
-        detail.addStretch(1)
+        # The figure takes the remaining height (up to its cap) so the plot
+        # breathes at any window shape; leftover falls below as quiet margin.
+        detail.addWidget(self._build_frametime_figure(), 1)
+        detail.addStretch(0)
         self._stack.addWidget(detail_page)
 
         self._refresh_timer = QtCore.QTimer(self.widget)
@@ -246,42 +270,79 @@ class FrameDnaPanel:
     # ---------- figures ----------
 
     def _figure(self, title: str, caption: str):
+        """A mock ``.figure``: header row, breathing room, plot, then the
+        muted caption under the chart — never riding the plot itself."""
         QtWidgets = self.QtWidgets
         frame = QtWidgets.QFrame()
         frame.setObjectName("frameDnaFigure")
         layout = QtWidgets.QVBoxLayout(frame)
-        layout.setContentsMargins(12, 10, 12, 8)
-        layout.setSpacing(6)
+        layout.setContentsMargins(14, 12, 14, 10)
+        layout.setSpacing(0)
         header = QtWidgets.QHBoxLayout()
+        header.setSpacing(12)
         section = QtWidgets.QLabel(title)
         section.setObjectName("frameDnaSection")
         header.addWidget(section, 0)
         header.addStretch(1)
         layout.addLayout(header)
+        layout.addSpacing(10)
         caption_label = QtWidgets.QLabel(caption)
         caption_label.setObjectName("frameDnaCaption")
         caption_label.setWordWrap(True)
         return frame, layout, header, caption_label
 
+    def _edge_label_axis(self, orientation: str):
+        """An axis that keeps its edge tick labels: stock pyqtgraph culls any
+        label protruding past the axis rect, which always swallows the "0"
+        at the origin once the range is pinned to the data."""
+        pg = self.pg
+
+        class _EdgeLabelAxis(pg.AxisItem):
+            def boundingRect(self):
+                rect = super().boundingRect()
+                if self.orientation in ("left", "right"):
+                    return rect.adjusted(0, -12, 0, 12)
+                return rect.adjusted(-12, 0, 12, 0)
+
+        return _EdgeLabelAxis(orientation=orientation)
+
     def _styled_plot(self, *, x_label: str, y_label: str):
         pg = self.pg
-        plot = pg.PlotWidget()
+        plot = pg.PlotWidget(
+            axisItems={
+                "left": self._edge_label_axis("left"),
+                "bottom": self._edge_label_axis("bottom"),
+            }
+        )
         plot.setMenuEnabled(False)
         if hasattr(pg, "setConfigOptions"):
             pg.setConfigOptions(antialias=True)
         plot.setBackground(theme.DNA_SURFACE)
         plot.showGrid(x=True, y=True, alpha=0.16)
+        # A read-only figure: the panel owns the ranges, the user's wheel
+        # must not fight the 2 s refresh.
+        plot.setMouseEnabled(x=False, y=False)
+        plot.hideButtons()
         axis_pen = pg.mkPen(theme.DNA_AXIS, width=1)
         text_color = theme.DNA_TEXT_MUTED
-        for name, label in (("bottom", x_label), ("left", y_label)):
+        for name in ("bottom", "left"):
             axis = plot.getAxis(name)
             axis.setPen(axis_pen)
             axis.setTextPen(pg.mkPen(text_color))
             if hasattr(axis, "enableAutoSIPrefix"):
                 axis.enableAutoSIPrefix(False)
+            try:
+                # Keep the edge ticks ("0" at the origin) instead of
+                # pyqtgraph's default of hiding labels near the axis ends.
+                axis.setStyle(hideOverlappingLabels=False)
+            except (NameError, TypeError):
+                pass
         plot.setLabel("bottom", x_label, color=text_color)
         plot.setLabel("left", y_label, color=text_color)
-        plot.setMinimumHeight(190)
+        # Keep the mock's figure proportions: fill the window's height but
+        # never stretch into a barren wall of empty plot.
+        plot.setMinimumHeight(220)
+        plot.setMaximumHeight(460)
         return plot
 
     def _build_frametime_figure(self):
@@ -302,6 +363,8 @@ class FrameDnaPanel:
         self.frametime_plot = self._styled_plot(
             x_label="minutes ago", y_label="frametime (ms)"
         )
+        # The trace is ALWAYS the mock's violet-blue, whatever the game's
+        # tier: red belongs exclusively to the stutter needles.
         self.frametime_curve = self.frametime_plot.plot(
             [], [], pen=pg.mkPen(theme.DNA_TIER_BALANCED, width=1.4),
             fillLevel=0.0, brush=_mk_color(self.QtGui, theme.DNA_TIER_BALANCED, 38),
@@ -313,38 +376,23 @@ class FrameDnaPanel:
         )
         self.stutter_bars.setZValue(5)
         self.frametime_plot.addItem(self.stutter_bars)
-        ref_pen = pg.mkPen(theme.DNA_AXIS, width=1)
-        emphasis_pen = pg.mkPen(theme.DNA_TEXT_DIM, width=1)
-        label_opts = {"color": theme.DNA_TEXT_DIM, "position": 0.94, "fill": None}
+        # Unlabeled reference lines: the numbers live in the stat row, and
+        # on-plot labels collide whenever median and 1%-low sit close.
         self.median_line = pg.InfiniteLine(
-            angle=0, movable=False, pen=ref_pen,
-            label="median {value:.1f} ms", labelOpts=dict(label_opts),
+            angle=0, movable=False, pen=pg.mkPen(theme.DNA_AXIS, width=1)
         )
         self.p99_line = pg.InfiniteLine(
-            angle=0, movable=False, pen=emphasis_pen,
-            label="1%-low {value:.1f} ms", labelOpts=dict(label_opts),
+            angle=0, movable=False,
+            pen=pg.mkPen(theme.DNA_TEXT_MUTED, width=1),
         )
         self.frametime_plot.addItem(self.median_line, ignoreBounds=True)
         self.frametime_plot.addItem(self.p99_line, ignoreBounds=True)
-        layout.addWidget(self.frametime_plot)
+        layout.addWidget(self.frametime_plot, 1)
+        layout.addSpacing(6)
         layout.addWidget(caption)
-        self._frametime_caption = caption
-        return frame
-
-    def _build_orbit_figure(self):
-        pg = self.pg
-        frame, layout, _header, caption = self._figure(
-            "Operating orbit — power × clock, by profile",
-            "every 1 Hz sample · colored by the active profile — "
-            "green Efficiency · blue Balanced · red Performance",
-        )
-        self.orbit_plot = self._styled_plot(
-            x_label="power (W)", y_label="clock (MHz)"
-        )
-        self.orbit_scatter = pg.ScatterPlotItem(size=6, pen=None)
-        self.orbit_plot.addItem(self.orbit_scatter)
-        layout.addWidget(self.orbit_plot)
-        layout.addWidget(caption)
+        # The frame must stop where its content stops — no dead surface
+        # below the caption once the plot reaches its own height cap.
+        frame.setMaximumHeight(560)
         return frame
 
     # ---------- data flow ----------
@@ -439,20 +487,35 @@ class FrameDnaPanel:
             f"{summary.gpu_util_pct}% / {summary.cpu_peak_thread_pct}%"
         )
         self._stat_values["BOTTLENECK"].setText(bottleneck_label(summary.bottleneck))
-        self._stat_values["LATENCY"].setText(f"{summary.latency_ms:.0f} ms")
-        self._render_frametime(history, summary, color)
-        self._render_orbit(history)
+        self._update_latency_cell(summary)
+        self._render_frametime(history, summary)
+
+    def _update_latency_cell(self, summary: FrameHistorySummary) -> None:
+        """Latency is numeric-only and appears only when actually measured:
+        marker latency when present, otherwise the present→scanout tail as
+        DISPLAY LAT (a different metric, never labeled plain LATENCY)."""
+        display_latency = summary.median_display_latency_ms
+        if summary.latency_ms > 0:
+            self._latency_key.setText("LATENCY")
+            self._stat_values["LATENCY"].setText(f"{summary.latency_ms:.0f} ms")
+            self._latency_cell.setVisible(True)
+        elif display_latency > 0:
+            self._latency_key.setText("DISPLAY LAT")
+            self._stat_values["LATENCY"].setText(f"{display_latency:.0f} ms")
+            self._latency_cell.setVisible(True)
+        else:
+            self._latency_cell.setVisible(False)
 
     def _render_frametime(
-        self, history: FrameHistory, summary: FrameHistorySummary, color: str
+        self, history: FrameHistory, summary: FrameHistorySummary
     ) -> None:
-        pg = self.pg
         threshold = summary.median_frametime_ms * _STUTTER_RATIO
         if self._live_mode:
             xs, values = live_tail(history.frametimes_ms)
             spikes_x = tuple(x for x, v in zip(xs, values) if v >= threshold)
             spikes_h = tuple(v for v in values if v >= threshold)
             bar_width = 0.03
+            x_range = (-_LIVE_WINDOW_MS / 1000.0 - 0.3, 0.1)
             self.frametime_plot.setLabel(
                 "bottom", "seconds ago", color=theme.DNA_TEXT_MUTED
             )
@@ -460,7 +523,11 @@ class FrameDnaPanel:
             xs, values, maxes = densify_frametimes(history.frametimes_ms)
             spikes_x = tuple(x for x, m in zip(xs, maxes) if m >= threshold)
             spikes_h = tuple(m for m in maxes if m >= threshold)
-            bar_width = (abs(xs[0]) / _OVERVIEW_COLUMNS * 0.35) if xs else 0.01
+            span = abs(xs[0]) if xs else 1.0
+            bar_width = span / _OVERVIEW_COLUMNS * 0.5
+            # Pin the view to the captured span so the band meets the plot
+            # edges instead of floating in autorange padding.
+            x_range = (xs[0] - span * 0.01, span * 0.01) if xs else (-1.0, 0.0)
             self.frametime_plot.setLabel(
                 "bottom", "minutes ago", color=theme.DNA_TEXT_MUTED
             )
@@ -470,34 +537,17 @@ class FrameDnaPanel:
         )
         spikes_h = tuple(min(height, ceiling) for height in spikes_h)
         self.frametime_curve.setData(xs, values)
-        self.frametime_curve.setPen(pg.mkPen(color, width=1.4))
-        self.frametime_curve.setBrush(_mk_color(self.QtGui, color, 38))
-        self.stutter_bars.setOpts(
-            x=spikes_x, height=spikes_h, width=bar_width,
-            brush=_mk_color(self.QtGui, theme.DNA_STUTTER, 230), pen=None,
-        )
+        self.stutter_bars.setOpts(x=spikes_x, height=spikes_h, width=bar_width)
         self.median_line.setValue(summary.median_frametime_ms)
         self.p99_line.setValue(summary.p99_frametime_ms)
         if values:
-            self.frametime_plot.setYRange(0.0, ceiling, padding=0.05)
-
-    def _render_orbit(self, history: FrameHistory) -> None:
-        pg = self.pg
-        spots = [
-            {
-                "pos": (sample.power_w, sample.clock_mhz),
-                "brush": _mk_color(self.QtGui, tier_color(sample.tier), 158),
-            }
-            for sample in history.samples
-            if sample.power_w > 0 and sample.clock_mhz > 0
-        ]
-        self.orbit_scatter.setData(spots=spots)
-        if spots:
-            powers = [s["pos"][0] for s in spots]
-            clocks = [s["pos"][1] for s in spots]
-            self.orbit_plot.setXRange(min(powers) - 12, max(powers) + 12, padding=0)
-            self.orbit_plot.setYRange(min(clocks) - 50, max(clocks) + 50, padding=0)
-        _ = pg  # orbit styling is data-driven; pg kept for symmetry
+            # Explicit ticks, mock-style: 0 is always on the axis.
+            step = 5 if ceiling <= 25 else 10 if ceiling <= 50 else 20
+            self.frametime_plot.getAxis("left").setTicks(
+                [[(v, str(v)) for v in range(0, int(ceiling) + 1, step)]]
+            )
+            self.frametime_plot.setXRange(*x_range, padding=0.0)
+            self.frametime_plot.setYRange(0.0, ceiling * 1.04, padding=0.0)
 
     # ---------- events ----------
 

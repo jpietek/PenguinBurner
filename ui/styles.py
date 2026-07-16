@@ -280,9 +280,9 @@ QPushButton#steamPlayButton:pressed {{
 }}
 QToolButton#steamFrameDnaBadge {{
     background: {theme.DNA_SURFACE};
-    border: 1px solid {theme.BORDER_STRONG};
-    border-radius: 9px;
-    padding: 2px;
+    border: 1px solid {theme.DNA_BORDER};
+    border-radius: 12px;
+    padding: 4px;
 }}
 QToolButton#steamFrameDnaBadge:hover {{
     border-color: {theme.DNA_TIER_BALANCED};

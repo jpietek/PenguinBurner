@@ -374,8 +374,8 @@ class SteamPanel:
         title_row.addWidget(self.play_button, 0, QtCore.Qt.AlignVCenter)
         self.frame_dna_badge = QtWidgets.QToolButton()
         self.frame_dna_badge.setObjectName("steamFrameDnaBadge")
-        self.frame_dna_badge.setFixedSize(46, 46)
-        self.frame_dna_badge.setIconSize(QtCore.QSize(40, 40))
+        self.frame_dna_badge.setFixedSize(72, 72)
+        self.frame_dna_badge.setIconSize(QtCore.QSize(64, 64))
         self.frame_dna_badge.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
         self.frame_dna_badge.setVisible(False)
         self.frame_dna_badge.clicked.connect(self._open_frame_dna)
@@ -807,7 +807,7 @@ class SteamPanel:
             )
             pixmap = dna_pixmap(
                 self.QtCore, self.QtGui, axes=axes, tier=summary.tier,
-                size=40, device_pixel_ratio=ratio,
+                size=64, compact_labels=True, device_pixel_ratio=ratio,
             )
             badge.setToolTip("")
         else:
@@ -815,7 +815,7 @@ class SteamPanel:
             self._hide_frame_dna_peek()
             pixmap = dna_pixmap(
                 self.QtCore, self.QtGui, axes=None, tier="",
-                size=40, device_pixel_ratio=ratio,
+                size=64, device_pixel_ratio=ratio,
             )
             if summary is not None:
                 badge.setToolTip(

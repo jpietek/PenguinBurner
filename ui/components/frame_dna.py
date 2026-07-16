@@ -1,4 +1,4 @@
-"""Frame DNA: the six-spoke per-game telemetry fingerprint.
+"""Frame DNA: the five-spoke per-game telemetry fingerprint.
 
 Pure axis math over a ``FrameHistorySummary`` plus QPainter rendering of the
 radar (badge and labeled sizes), the warming-up placeholder, and the hover
@@ -45,7 +45,6 @@ _BOTTLENECK_LABELS = {
 # adaptive default.
 _FALLBACK_POWER_LIMIT_W = 350.0
 _FALLBACK_TARGET_FPS = 60.0
-LATENCY_CAP_MS = 40.0
 
 # Mockup geometry: fill alpha .18 labeled / .30 badge, 2 px / 1.6 px strokes,
 # spokes start at 10% radius so a zero still reads as a vertex.
@@ -88,7 +87,12 @@ def dna_axes(
     target_fps: float | None,
     power_limit_w: int,
 ) -> tuple[DnaAxis, ...]:
-    """The six spokes, each normalized against this machine or this game."""
+    """The five spokes, each normalized against this machine or this game.
+
+    Latency deliberately has no spoke: it is not reliably measurable for
+    non-Reflex games, so it must not shape the DNA. It appears only as
+    numeric data where actually measured.
+    """
     power_limit = float(power_limit_w) if power_limit_w > 0 else _FALLBACK_POWER_LIMIT_W
     target = float(target_fps) if target_fps and target_fps > 0 else _FALLBACK_TARGET_FPS
     median_fps = summary.median_present_fps
@@ -124,12 +128,6 @@ def dna_axes(
             f"{low_ratio:.0%} of median",
             _clamp(low_ratio),
         ),
-        DnaAxis(
-            "LAT",
-            "Input latency",
-            f"{summary.latency_ms:.0f} ms",
-            _clamp(summary.latency_ms / LATENCY_CAP_MS),
-        ),
     )
 
 
@@ -143,6 +141,16 @@ def _vertex(center: float, radius: float, index: int, count: int, fraction: floa
     )
 
 
+def _label_font(QtGui, size: int, *, compact: bool):
+    font = QtGui.QFont()
+    families = getattr(font, "setFamilies", None)
+    if families is not None:
+        families(["JetBrains Mono", "DejaVu Sans Mono", "Monospace"])
+    font.setStyleHint(QtGui.QFont.StyleHint.Monospace)
+    font.setPixelSize(max(8, round(size * (0.125 if compact else 0.052))))
+    return font
+
+
 def dna_pixmap(
     QtCore,
     QtGui,
@@ -151,13 +159,17 @@ def dna_pixmap(
     tier: str,
     size: int,
     labels: bool = False,
+    compact_labels: bool = False,
     device_pixel_ratio: float = 1.0,
 ):
     """Render the fingerprint (or the dashed warming placeholder) to a pixmap.
 
     ``axes=None`` draws the warming-up state. ``labels=True`` is the large
-    variant with rings, spokes, axis codes, and vertex dots; the badge variant
-    draws only the outer ring and a bolder fill.
+    variant with rings, spokes, axis codes, and vertex dots.
+    ``compact_labels=True`` is the badge variant: one ring, faint spokes, and
+    tiny axis codes so the shape means something at a glance. The radius is
+    computed from the label band's real font metrics so every code always
+    lands inside the pixmap, at any size.
     """
     ratio = max(1.0, float(device_pixel_ratio))
     pixmap = QtGui.QPixmap(round(size * ratio), round(size * ratio))
@@ -167,7 +179,17 @@ def dna_pixmap(
     try:
         painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
         center = size / 2
-        radius = size * (0.33 if labels else 0.42)
+        labeled = labels or compact_labels
+        if labeled:
+            font = _label_font(QtGui, size, compact=compact_labels)
+            painter.setFont(font)
+            metrics = QtGui.QFontMetricsF(font)
+            gap = max(3.0, size * 0.02) if compact_labels else max(2.0, size * 0.02)
+            radius = size / 2 - (metrics.height() + gap)
+        else:
+            metrics = None
+            gap = 0.0
+            radius = size * 0.42
         grid_pen = QtGui.QPen(QtGui.QColor(theme.DNA_GRID))
         grid_pen.setWidthF(1.0)
 
@@ -193,29 +215,46 @@ def dna_pixmap(
         for index, axis in enumerate(axes):
             x, y, angle = _vertex(center, radius, index, count, axis.fraction)
             points.append((x, y))
-            if labels:
-                painter.setPen(grid_pen)
-                painter.drawLine(
-                    QtCore.QPointF(center, center),
-                    QtCore.QPointF(
-                        center + math.cos(angle) * radius,
-                        center + math.sin(angle) * radius,
-                    ),
-                )
-                label_pos = QtCore.QPointF(
-                    center + math.cos(angle) * (radius + 14),
-                    center + math.sin(angle) * (radius + 14) + 3.5,
-                )
-                painter.setPen(QtGui.QPen(QtGui.QColor(theme.DNA_TEXT_MUTED)))
-                font = painter.font()
-                font.setPixelSize(max(8, round(size * 0.05)))
-                painter.setFont(font)
-                metrics = QtGui.QFontMetricsF(font)
+            if labeled:
+                if labels:
+                    # Full variant only: spokes clutter the compact badge.
+                    painter.setPen(grid_pen)
+                    painter.drawLine(
+                        QtCore.QPointF(center, center),
+                        QtCore.QPointF(
+                            center + math.cos(angle) * radius,
+                            center + math.sin(angle) * radius,
+                        ),
+                    )
+                # Center the code just outside the ring, then clamp it into
+                # the pixmap so no size can clip a label. The compact badge
+                # tucks the four diagonal codes into the pixmap's corners —
+                # their vertices point there, and the corners are the only
+                # real estate a small square has to spare.
                 width = metrics.horizontalAdvance(axis.code)
-                painter.drawText(
-                    QtCore.QPointF(label_pos.x() - width / 2, label_pos.y()),
-                    axis.code,
-                )
+                if compact_labels and abs(math.cos(angle)) > 0.01:
+                    text_x = 1.0 if math.cos(angle) < 0 else size - width - 1.0
+                    row_mid = (
+                        metrics.height() / 2 + 1
+                        if math.sin(angle) < 0
+                        else size - metrics.height() / 2 - 1
+                    )
+                    baseline = row_mid + metrics.ascent() - metrics.height() / 2
+                else:
+                    distance = radius + gap + metrics.height() / 2
+                    text_x = center + math.cos(angle) * distance - width / 2
+                    text_x = min(max(text_x, 0.0), size - width)
+                    baseline = (
+                        center
+                        + math.sin(angle) * distance
+                        + metrics.ascent()
+                        - metrics.height() / 2
+                    )
+                    baseline = min(
+                        max(baseline, metrics.ascent()), size - metrics.descent()
+                    )
+                painter.setPen(QtGui.QPen(QtGui.QColor(theme.DNA_TEXT_MUTED)))
+                painter.drawText(QtCore.QPointF(text_x, baseline), axis.code)
 
         color = QtGui.QColor(tier_color(tier))
         fill = QtGui.QColor(color)
@@ -231,10 +270,11 @@ def dna_pixmap(
         if labels:
             ring = QtGui.QPen(QtGui.QColor(theme.DNA_SURFACE))
             ring.setWidthF(1.5)
+            dot_radius = max(2.4, size * 0.018)
             for x, y in points:
                 painter.setPen(ring)
                 painter.setBrush(QtGui.QBrush(color))
-                painter.drawEllipse(QtCore.QPointF(x, y), 3.6, 3.6)
+                painter.drawEllipse(QtCore.QPointF(x, y), dot_radius, dot_radius)
     finally:
         painter.end()
     return pixmap
@@ -301,7 +341,11 @@ class FrameDnaPeek:
         stats.setHorizontalSpacing(18)
         stats.setVerticalSpacing(4)
         self._stat_values: dict[str, Any] = {}
-        for row, key in enumerate(("Median", "1%-low", "Power", "Bottleneck")):
+        self._stat_keys: dict[str, Any] = {}
+        # Latency rides fifth, and only for games with a real marker source.
+        for row, key in enumerate(
+            ("Median", "1%-low", "Power", "Bottleneck", "Latency")
+        ):
             key_label = QtWidgets.QLabel(key)
             key_label.setObjectName("frameDnaPeekKey")
             value_label = QtWidgets.QLabel("")
@@ -313,7 +357,8 @@ class FrameDnaPeek:
             stats.addWidget(key_label, row, 0)
             stats.addWidget(value_label, row, 1)
             self._stat_values[key] = value_label
-        stats.setRowStretch(4, 1)
+            self._stat_keys[key] = key_label
+        stats.setRowStretch(5, 1)
         body.addLayout(stats, 1)
         layout.addLayout(body)
         self.hint = QtWidgets.QLabel("Click the badge to open the Frame DNA tab")
@@ -351,6 +396,13 @@ class FrameDnaPeek:
         )
         self._stat_values["Power"].setText(f"{summary.median_power_w} W")
         self._stat_values["Bottleneck"].setText(bottleneck_label(summary.bottleneck))
+        # Absence of data is absence of the row — never a placeholder.
+        has_latency = summary.latency_ms > 0
+        self._stat_values["Latency"].setText(
+            f"{summary.latency_ms:.0f} ms" if has_latency else ""
+        )
+        self._stat_values["Latency"].setVisible(has_latency)
+        self._stat_keys["Latency"].setVisible(has_latency)
         self.widget.adjustSize()
         screen = self.QtGui.QGuiApplication.screenAt(global_pos)
         position = self.QtCore.QPoint(global_pos)

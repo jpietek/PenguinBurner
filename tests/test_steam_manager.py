@@ -180,8 +180,10 @@ def test_bulk_enable_and_disable_all_games(manager, tmp_path, monkeypatch) -> No
     stored = load_steam_game_settings(tmp_path / "steam-game-settings.json")
     setting = stored[ACCOUNT_ID][APP_ID]
     assert setting.enabled is True
-    # Bulk enable never turns the overlay on.
+    # Bulk enable never turns the overlay on, and a game the user never
+    # configured individually defaults to Adaptive.
     assert setting.overlay is False
+    assert setting.mode == GAME_MODE_ADAPTIVE
 
     result = manager.set_all_games_enabled([APP_ID], False)
 
@@ -189,6 +191,21 @@ def test_bulk_enable_and_disable_all_games(manager, tmp_path, monkeypatch) -> No
     assert _FakeCdpClient.launch_options[APP_ID] == "gamemoderun %command%"
     stored = load_steam_game_settings(tmp_path / "steam-game-settings.json")
     assert stored[ACCOUNT_ID][APP_ID].enabled is False
+
+
+def test_bulk_enable_keeps_an_explicit_per_game_mode(
+    manager, tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(manager, "_watched_running_app_ids", lambda: frozenset())
+    manager.refresh(initialize_defaults=True)
+    manager.set_game_mode(APP_ID, "efficiency")
+
+    manager.set_all_games_enabled([APP_ID], True)
+
+    stored = load_steam_game_settings(tmp_path / "steam-game-settings.json")
+    # Enabling everything must not clobber a mode the user chose deliberately.
+    assert stored[ACCOUNT_ID][APP_ID].mode == "efficiency"
+    assert stored[ACCOUNT_ID][APP_ID].enabled is True
 
 
 def test_bulk_apply_hot_reapplies_only_watched_running_games(

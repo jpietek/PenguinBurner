@@ -15,6 +15,7 @@ from runtime.frame_history import (
     MetricsSample,
     write_frame_history,
 )
+from ui import theme
 from ui.components.frame_dna_panel import (
     FrameDnaPanel,
     densify_frametimes,
@@ -23,7 +24,13 @@ from ui.components.frame_dna_panel import (
 from ui.qt import import_qt
 
 
-def _sample(t_rel_s: int, *, tier: str = PROFILE_TIER_PERFORMANCE) -> MetricsSample:
+def _sample(
+    t_rel_s: int,
+    *,
+    tier: str = PROFILE_TIER_PERFORMANCE,
+    latency_ms: float = 34.0,
+    display_latency_ms: float = 19.0,
+) -> MetricsSample:
     return MetricsSample(
         t_rel_s=t_rel_s,
         frame_count=78,
@@ -39,8 +46,8 @@ def _sample(t_rel_s: int, *, tier: str = PROFILE_TIER_PERFORMANCE) -> MetricsSam
         uv_offset_mv=-120,
         present_fps=78.0,
         framegen_fps=156.0,
-        latency_ms=34.0,
-        display_latency_ms=19.0,
+        latency_ms=latency_ms,
+        display_latency_ms=display_latency_ms,
         framegen_active=True,
         adaptive=False,
         fps_source=2,
@@ -51,7 +58,14 @@ def _sample(t_rel_s: int, *, tier: str = PROFILE_TIER_PERFORMANCE) -> MetricsSam
     )
 
 
-def _write_ring(tmp_path: Path, app_id: int, *, seconds: int = 360) -> dict[str, str]:
+def _write_ring(
+    tmp_path: Path,
+    app_id: int,
+    *,
+    seconds: int = 360,
+    latency_ms: float = 34.0,
+    display_latency_ms: float = 19.0,
+) -> dict[str, str]:
     env = {
         FRAME_HISTORY_LIVE_DIR_ENV: str(tmp_path / "live"),
         FRAME_HISTORY_ARCHIVE_DIR_ENV: str(tmp_path / "arch"),
@@ -61,7 +75,14 @@ def _write_ring(tmp_path: Path, app_id: int, *, seconds: int = 360) -> dict[str,
         frametimes.append(30.0 if index % 50 == 49 else 12.8)  # 2% stutter spikes
     assert write_frame_history(
         tmp_path / "live" / f"{app_id}.ring",
-        samples=[_sample(i) for i in range(seconds)],
+        samples=[
+            _sample(
+                i,
+                latency_ms=latency_ms,
+                display_latency_ms=display_latency_ms,
+            )
+            for i in range(seconds)
+        ],
         frametimes_ms=frametimes,
         app_id=app_id,
         pid=4242,
@@ -165,9 +186,17 @@ def test_panel_populates_detail_from_a_qualified_ring(qtbot, tmp_path: Path) -> 
         assert abs(panel.median_line.value() - 12.8) < 0.2
         assert panel.p99_line.value() > panel.median_line.value()
 
-        # orbit is tier-colored per point and framed to the operating band
-        points = panel.orbit_scatter.points()
-        assert len(points) == 360
+        # the trace stays balanced-blue even though this ring is performance
+        assert (
+            panel.frametime_curve.opts["pen"].color().name()
+            == theme.DNA_TIER_BALANCED
+        )
+        # the latency cell reports the measured marker latency
+        assert panel._latency_cell.isVisibleTo(panel.widget)
+        assert panel._latency_key.text() == "LATENCY"
+        assert panel._stat_values["LATENCY"].text() == "34 ms"
+        # the y axis is pinned to a zero floor
+        assert panel.frametime_plot.getViewBox().viewRange()[1][0] == 0.0
 
         # live zoom re-renders at per-frame resolution
         panel.live_toggle.setChecked(True)
@@ -175,6 +204,34 @@ def test_panel_populates_detail_from_a_qualified_ring(qtbot, tmp_path: Path) -> 
         assert live_xs is not None
         assert min(live_xs) >= -10.5  # seconds, not minutes
         panel.live_toggle.setChecked(False)
+    finally:
+        panel._refresh_timer.stop()
+
+
+def test_panel_latency_cell_falls_back_to_display_latency(
+    qtbot, tmp_path: Path
+) -> None:
+    env = _write_ring(tmp_path, 3764200, latency_ms=0.0, display_latency_ms=19.0)
+    panel = _make_panel(env)
+    qtbot.addWidget(panel.widget)
+    try:
+        panel.select_app("3764200", game_name="Resident Evil 9", target_fps=120.0)
+        assert panel._stack.currentIndex() == 1
+        assert panel._latency_cell.isVisibleTo(panel.widget)
+        assert panel._latency_key.text() == "DISPLAY LAT"
+        assert panel._stat_values["LATENCY"].text() == "19 ms"
+    finally:
+        panel._refresh_timer.stop()
+
+
+def test_panel_latency_cell_hidden_without_any_source(qtbot, tmp_path: Path) -> None:
+    env = _write_ring(tmp_path, 3764200, latency_ms=0.0, display_latency_ms=0.0)
+    panel = _make_panel(env)
+    qtbot.addWidget(panel.widget)
+    try:
+        panel.select_app("3764200", game_name="Resident Evil 9", target_fps=120.0)
+        assert panel._stack.currentIndex() == 1
+        assert not panel._latency_cell.isVisibleTo(panel.widget)
     finally:
         panel._refresh_timer.stop()
 

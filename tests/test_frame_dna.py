@@ -36,6 +36,7 @@ def _summary(
     gpu: int = 92,
     cpu: int = 60,
     latency_ms: float = 22.0,
+    display_latency_ms: float = 12.0,
     minutes: float = 30.0,
 ) -> FrameHistorySummary:
     return FrameHistorySummary(
@@ -52,6 +53,7 @@ def _summary(
         gpu_util_pct=gpu,
         cpu_peak_thread_pct=cpu,
         latency_ms=latency_ms,
+        median_display_latency_ms=display_latency_ms,
         framegen_seen=False,
     )
 
@@ -59,7 +61,8 @@ def _summary(
 def test_dna_axes_normalization_math() -> None:
     axes = dna_axes(_summary(), target_fps=120.0, power_limit_w=360)
     by_code = {axis.code: axis for axis in axes}
-    assert [axis.code for axis in axes] == ["PWR", "GPU", "CPU", "FPS", "LOW", "LAT"]
+    # Five spokes: latency deliberately has none (unreliable off-Reflex).
+    assert [axis.code for axis in axes] == ["PWR", "GPU", "CPU", "FPS", "LOW"]
     assert abs(by_code["PWR"].fraction - 214 / 360) < 1e-9
     assert by_code["PWR"].text == "214 W"
     assert abs(by_code["GPU"].fraction - 0.92) < 1e-9
@@ -67,7 +70,6 @@ def test_dna_axes_normalization_math() -> None:
     assert abs(by_code["FPS"].fraction - 96 / 120) < 1e-9
     assert abs(by_code["LOW"].fraction - 71 / 96) < 1e-9
     assert by_code["LOW"].text == "74% of median"
-    assert abs(by_code["LAT"].fraction - 22 / 40) < 1e-9
 
 
 def test_dna_axes_fallbacks_and_clamping() -> None:
@@ -75,8 +77,8 @@ def test_dna_axes_fallbacks_and_clamping() -> None:
     axes = {a.code: a for a in dna_axes(fast, target_fps=None, power_limit_w=0)}
     # target None -> 60 fps fallback, clamped; power limit 0 -> 350 W fallback
     assert axes["FPS"].fraction == 1.0
-    assert axes["LAT"].fraction == 1.0
     assert axes["PWR"].fraction == 1.0
+    assert "LAT" not in axes
 
 
 def test_tier_colors_use_the_mock_palette() -> None:
@@ -148,8 +150,29 @@ def test_peek_popover_populates_and_positions(qapp) -> None:
         assert peek._stat_values["1%-low"].text() == "14.1 ms · 71 fps"
         assert peek._stat_values["Power"].text() == "214 W"
         assert peek._stat_values["Bottleneck"].text() == "GPU-bound"
+        # A real marker latency earns the fifth row.
+        assert peek._stat_values["Latency"].text() == "22 ms"
+        assert peek._stat_values["Latency"].isVisibleTo(peek.widget)
         assert peek.dna_label.pixmap() is not None
         assert "Frame DNA tab" in peek.hint.text()
     finally:
         peek.hide()
     assert not peek.widget.isVisible()
+
+
+def test_peek_popover_hides_latency_without_a_marker_source(qapp) -> None:
+    QtCore, QtGui, QtWidgets, _pg = import_qt()
+    peek = FrameDnaPeek(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
+    peek.show_for(
+        game_name="Hades II",
+        summary=_summary(latency_ms=0.0, display_latency_ms=8.0),
+        target_fps=144.0,
+        power_limit_w=360,
+        global_pos=QtCore.QPoint(100, 100),
+    )
+    try:
+        # No marker latency -> no latency row at all, never a placeholder.
+        assert not peek._stat_values["Latency"].isVisibleTo(peek.widget)
+        assert not peek._stat_keys["Latency"].isVisibleTo(peek.widget)
+    finally:
+        peek.hide()

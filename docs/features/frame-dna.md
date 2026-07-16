@@ -8,7 +8,7 @@ game runs, the daemon records a rolling **30-minute window** of everything it
 already measures — every rendered frame's frametime plus a per-second snapshot
 of clock, memory clock, voltage, power, GPU/CPU load, fan, temperature,
 undervolt offset, FPS, latency, and the active profile tier. The window is
-summarized into a six-spoke radar you learn to recognize at a glance: how
+summarized into a five-spoke radar you learn to recognize at a glance: how
 demanding a game is, where its bottleneck lives, and how fluent its
 **pre-frame-generation** frames really were.
 
@@ -17,16 +17,14 @@ demanding a game is, where its bottleneck lives, and how fluent its
 - **Steam tab** — a small fingerprint badge sits next to the **Play** button
   for the selected game. **Hover** it for a quick peek (median and 1%-low
   frametimes, power, bottleneck); **click** it to open the full detail.
-- **Frame DNA tab** — the full view: the large fingerprint, a stat row, a
+- **Frame DNA tab** — the full view: the large fingerprint, a stat row, and a
   MangoHUD-style **frametime graph** in milliseconds (30-minute overview with
-  red stutter needles, or a **LIVE 10 s** zoom at per-frame resolution), and
-  the **operating orbit** — every per-second sample plotted as power × clock,
-  colored by the profile tier that was active at that moment.
+  red stutter needles, or a **LIVE 10 s** zoom at per-frame resolution).
 
 A game needs at least **5 minutes** of captured play before it earns a
 fingerprint; until then the badge shows a dashed "warming up" outline.
 
-## The six spokes
+## The five spokes
 
 | Spoke | Meaning | Normalized against |
 | --- | --- | --- |
@@ -35,7 +33,11 @@ fingerprint; until then the badge shows a dashed "warming up" outline.
 | **CPU** | median hottest-thread load | 100 % |
 | **FPS** | median rendered FPS | the game's target FPS |
 | **LOW** | 1%-low ÷ median (consistency) | 1.0 |
-| **LAT** | median render latency | 40 ms |
+
+Latency has no spoke: it is not reliably measurable for games without Reflex
+markers, so it never shapes the fingerprint. When a real measurement exists
+it appears as a number in the tab's stat row — marker latency as
+**LATENCY**, otherwise the present→scanout tail as **DISPLAY LAT**.
 
 Read the spokes, not the blob's area — the shape is the signature. A fat kite
 leaning into PWR/GPU is a heavyweight; a tall CPU spike with a small GPU spoke
