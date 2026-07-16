@@ -363,15 +363,11 @@ impl OverlayStatePublisher {
 
     /// Build the `OverlayState` for one tick and write it (the loop gates
     /// cadence). `now_ns` is the wall-clock stamp (injectable for tests).
-    pub fn publish(
-        &mut self,
-        backend: &dyn GpuBackend,
-        latency_snapshot: Option<&LatencySnapshot>,
-        now_ns: i64,
-    ) -> std::io::Result<()> {
-        let state = self.build_state(backend, latency_snapshot, now_ns);
+    /// Write an already-built state (the loop builds once and shares it with
+    /// the frame-history recorder).
+    pub fn write_state(&self, state: &OverlayState) -> std::io::Result<()> {
         let path = self.path.clone().unwrap_or_else(overlay_state_path);
-        write_overlay_state(&state, &path)
+        write_overlay_state(state, &path)
     }
 
     pub fn build_state(

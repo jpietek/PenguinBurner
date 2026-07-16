@@ -381,6 +381,8 @@ fn reap_game_watches(sup: &Mutex<Supervisor>) {
     for (&pid, watch) in &mut supervisor.game_runtime.watches {
         if watch.exited_at.is_none() && !watch.running(pid) {
             watch.exited_at = Some(now);
+            // Fires exactly once per pid: archive the game's telemetry ring.
+            crate::frame_history::session_end(pid, &watch.app_id);
         }
     }
     supervisor.game_runtime.watches.retain(|_, watch| {
@@ -717,6 +719,9 @@ pub fn start_game_runtime_profile(
                 supervisor.game_runtime.standing_spec = standing_spec;
             }
             supervisor.game_runtime.watches.insert(watch_pid, watch);
+            if let Some(watch) = supervisor.game_runtime.watches.get(&watch_pid) {
+                crate::frame_history::session_start(watch_pid, &watch.app_id);
+            }
             supervisor.game_runtime.override_active = true;
             Ok(serde_json::json!({
                 "started": true,

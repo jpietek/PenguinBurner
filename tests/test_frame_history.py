@@ -385,3 +385,37 @@ def test_archive_frame_history_stamps_app_id_and_compresses(tmp_path: Path) -> N
     assert len(archived.samples) == 10
     assert len(archived.frametimes_ms) == 40
     assert not archive_frame_history(tmp_path / "missing.ring", 1, env=env)
+
+
+def test_for_app_reads_the_daemon_system_archive(tmp_path: Path) -> None:
+    from runtime.frame_history import FRAME_HISTORY_SYSTEM_ARCHIVE_DIR_ENV
+
+    env = {
+        FRAME_HISTORY_LIVE_DIR_ENV: str(tmp_path / "live"),
+        FRAME_HISTORY_SYSTEM_ARCHIVE_DIR_ENV: str(tmp_path / "system"),
+        FRAME_HISTORY_ARCHIVE_DIR_ENV: str(tmp_path / "user"),
+    }
+    # An uncompressed daemon archive (the Rust side writes .ring, no gzip).
+    write_frame_history(
+        tmp_path / "system" / "3764200.ring",
+        samples=[_sample(i) for i in range(7)],
+        frametimes_ms=[12.8] * 100,
+        app_id=3764200,
+        metrics_cap=7,
+        frame_cap=100,
+    )
+    found = read_frame_history_for_app(3764200, env=env)
+    assert found is not None
+    assert found.header.app_id == 3764200
+    assert len(found.samples) == 7
+    # The user archive is only the last resort.
+    write_frame_history(
+        tmp_path / "user" / "42.ring.gz",
+        samples=[_sample(0)],
+        frametimes_ms=[],
+        app_id=42,
+        metrics_cap=4,
+        frame_cap=8,
+    )
+    fallback = read_frame_history_for_app(42, env=env)
+    assert fallback is not None and fallback.header.app_id == 42

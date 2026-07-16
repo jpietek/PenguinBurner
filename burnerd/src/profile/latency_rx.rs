@@ -1084,6 +1084,7 @@ fn receive_available(sock: &UnixDatagram, buf: &mut [u8], meter: &Arc<Mutex<Mete
         if map.get("type").and_then(Value::as_str) != Some("timing") {
             continue;
         }
+        crate::frame_history::record_frame(&map);
         meter
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())

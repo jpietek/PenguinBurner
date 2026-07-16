@@ -14,7 +14,7 @@ mod latency_rx;
 mod logfmt;
 mod runtime_spec;
 pub(crate) mod savings;
-mod telemetry;
+pub(crate) mod telemetry;
 
 #[cfg(test)]
 mod tests;
@@ -749,17 +749,33 @@ fn run_fan_control_loop(
 
         // Overlay publish (throttled). On failure, log once (the Python
         // `overlay_publish_failed` latch) and do NOT advance the publish marker
-        // (Python retried every tick, silently).
+        // (Python retried every tick, silently). The frame-history recorder
+        // shares the built state at its own 1 Hz cadence, independent of
+        // whether the overlay itself is enabled.
         let publish_due =
             last_overlay_publish.is_none_or(|last| loop_started - last >= overlay_interval_s);
-        if publisher.enabled && publish_due {
-            match publisher.publish(backend, latency_snapshot, now_unix_ns()) {
-                Ok(()) => last_overlay_publish = Some(loop_started),
-                Err(exc) => {
-                    if !overlay_publish_failed {
-                        engine_log(&warn_line("overlay publish unavailable", &exc.to_string()));
+        let history_due = crate::frame_history::metrics_due();
+        if history_due || (publisher.enabled && publish_due) {
+            let state = publisher.build_state(backend, latency_snapshot, now_unix_ns());
+            if history_due {
+                crate::frame_history::record_metrics(
+                    &state,
+                    backend.clock_info_mhz(crate::gpu::ClockType::Memory),
+                    backend.query_power_limits().power_limit_w,
+                );
+            }
+            if publisher.enabled && publish_due {
+                match publisher.write_state(&state) {
+                    Ok(()) => last_overlay_publish = Some(loop_started),
+                    Err(exc) => {
+                        if !overlay_publish_failed {
+                            engine_log(&warn_line(
+                                "overlay publish unavailable",
+                                &exc.to_string(),
+                            ));
+                        }
+                        overlay_publish_failed = true;
                     }
-                    overlay_publish_failed = true;
                 }
             }
         }
@@ -949,11 +965,16 @@ fn sleep_loop(
     overlay_interval_s: f64,
     overlay_enabled: bool,
 ) {
-    let interval = if overlay_enabled {
+    let mut interval = if overlay_enabled {
         poll_interval_s.min(overlay_interval_s)
     } else {
         poll_interval_s
     };
+    if crate::frame_history::recording_active() {
+        // Keep the frame-history recorder fed at 1 Hz even when fan polling
+        // is slow and the overlay is disabled.
+        interval = interval.min(1.0);
+    }
     let total = Duration::from_secs_f64(interval.max(0.0));
     let deadline = Instant::now() + total;
     // Sleep in short chunks so a stop request is observed promptly.

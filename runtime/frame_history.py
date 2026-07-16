@@ -34,11 +34,14 @@ FRAME_HISTORY_MAGIC = b"PBFH"
 FRAME_HISTORY_FORMAT_VERSION = 1
 
 # Live rings are written by the daemon on tmpfs; tests and tools pin the
-# directory through the env override (argument > env > default, matching
+# directories through the env overrides (argument > env > default, matching
 # overlay_state_path / daemon socket resolution).
 FRAME_HISTORY_LIVE_DIR = "/run/penguin-burner/frame-history"
 FRAME_HISTORY_LIVE_DIR_ENV = "PENGUIN_BURNER_FRAME_HISTORY_DIR"
-# Archives are per-user and written by this process, not the daemon.
+# The daemon archives a finished session per app id, world-readable.
+FRAME_HISTORY_SYSTEM_ARCHIVE_DIR = "/var/lib/penguin-burner/frame-history"
+FRAME_HISTORY_SYSTEM_ARCHIVE_DIR_ENV = "PENGUIN_BURNER_FRAME_HISTORY_SYSTEM_DIR"
+# Optional per-user archives written by this process (tools/tests).
 FRAME_HISTORY_ARCHIVE_DIR_ENV = "PENGUIN_BURNER_FRAME_HISTORY_ARCHIVE_DIR"
 
 _HEADER_FORMAT = "<4sHHIIHHHBBHHHHIIIQ12x"
@@ -200,6 +203,14 @@ def frame_history_live_dir(env: Mapping[str, str] | None = None) -> Path:
     if explicit:
         return Path(explicit).expanduser()
     return Path(FRAME_HISTORY_LIVE_DIR)
+
+
+def frame_history_system_archive_dir(env: Mapping[str, str] | None = None) -> Path:
+    resolved_env = os.environ if env is None else env
+    explicit = str(resolved_env.get(FRAME_HISTORY_SYSTEM_ARCHIVE_DIR_ENV) or "").strip()
+    if explicit:
+        return Path(explicit).expanduser()
+    return Path(FRAME_HISTORY_SYSTEM_ARCHIVE_DIR)
 
 
 def frame_history_archive_dir(env: Mapping[str, str] | None = None) -> Path:
@@ -484,10 +495,11 @@ def read_frame_history_for_app(
     *,
     env: Mapping[str, str] | None = None,
 ) -> FrameHistory | None:
-    """The freshest history for a game: live ring first, archive fallback.
+    """The freshest history for a game: live ring, then archives.
 
-    Live rings are matched on ``header.app_id`` (synthetic rings and archives
-    carry it; daemon-written rings carry 0 until Stage 3 associates pids).
+    Live rings are matched on ``header.app_id`` (the daemon stamps it at
+    session start). Fallbacks: the daemon's system archive under /var/lib,
+    then the per-user archive.
     """
     try:
         wanted = int(str(app_id).strip())
@@ -508,6 +520,11 @@ def read_frame_history_for_app(
             best = history
     if best is not None:
         return best
+    system_dir = frame_history_system_archive_dir(env)
+    for name in (f"{wanted}.ring", f"{wanted}.ring.gz"):
+        history = read_frame_history(system_dir / name)
+        if history is not None:
+            return history
     return read_frame_history(frame_history_archive_dir(env) / f"{wanted}.ring.gz")
 
 
