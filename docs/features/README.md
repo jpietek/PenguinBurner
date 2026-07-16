@@ -15,6 +15,9 @@ comparison.
    PC latency meter, clocks, power, and active tier.
 4. **[Latency & Frame-Generation FPS](./latency-fg.md)** — how LAT, base FPS,
    output FPS, and frame-generation detection are measured.
+5. **[Frame DNA](./frame-dna.md)** — the per-game telemetry fingerprint:
+   badge and peek in the Steam tab, plus a frametime graph and power×clock
+   orbit over the last 30 minutes of play.
 
 ## Secondary
 
