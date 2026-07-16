@@ -419,3 +419,21 @@ def test_for_app_reads_the_daemon_system_archive(tmp_path: Path) -> None:
     )
     fallback = read_frame_history_for_app(42, env=env)
     assert fallback is not None and fallback.header.app_id == 42
+
+
+def test_summarize_derives_fps_from_frametimes_when_estimator_is_silent() -> None:
+    from runtime.frame_history import FrameHistory
+
+    header = FrameHistoryHeader(
+        version=1, app_id=1, pid=1, gpu_index=0, power_limit_w=360, max_boost_mhz=0,
+        sample_hz=1, window_s=1800, metrics_cap=1800, metrics_head=5, metrics_count=5,
+        frame_cap=1024, frame_head=100, frame_count=100, started_unix=0,
+    )
+    silent = FrameHistory(
+        header=header,
+        samples=tuple(_sample(i, present_fps=0.0) for i in range(5)),
+        frametimes_ms=tuple([8.33] * 100),
+    )
+    summary = summarize(silent)
+    assert summary is not None
+    assert abs(summary.median_present_fps - 1000.0 / 8.33) < 0.1

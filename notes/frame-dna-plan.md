@@ -1,7 +1,11 @@
 # Frame DNA — per-game telemetry fingerprint: implementation plan
 
-**Status:** design finalized, implementation not started. This document is self-contained:
-a fresh session on any host, plus `CLAUDE.md`, is enough to implement it.
+**Status:** Stages 0–2 implemented on `steam_tweaks` (format contract + reader, hybrid UI,
+burnerd recorder with per-app archival); Stage 3 live validation in progress. Two decisions
+changed during implementation, superseding §2 where they conflict: **the daemon (not Python)
+archives** finished sessions to `/var/lib/penguin-burner/frame-history/<app_id>.ring`
+(uncompressed, trimmed — no new Rust deps), and the archive carries the app_id because the
+supervisor's game watch already knows it (no pid→app_id mapping needed).
 **Interactive mockup (approved UX):** https://claude.ai/code/artifact/986339c0-6fa0-4845-9cf7-c3746b6dbc35
 **Owner surfaces:** `burnerd/` (recorder), `runtime/` (reader/archive), `ui/` (badge, peek, tab).
 

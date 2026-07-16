@@ -562,12 +562,18 @@ def summarize(history: FrameHistory) -> FrameHistorySummary | None:
         bottleneck = BOTTLENECK_MIXED
     tier_counts = Counter(s.tier for s in samples if s.tier != PROFILE_TIER_NONE)
     tier = tier_counts.most_common(1)[0][0] if tier_counts else PROFILE_TIER_NONE
+    median_fps = statistics.median(s.present_fps for s in samples)
+    if median_fps <= 0.0 and median_ft > 0.0:
+        # The daemon's fps estimator stays silent when no marker source ever
+        # elects an owner session; the recorded frametimes still carry the
+        # true present cadence.
+        median_fps = 1000.0 / median_ft
     return FrameHistorySummary(
         minutes=history.minutes,
         qualified=history.qualified,
         tier=tier,
         bottleneck=bottleneck,
-        median_present_fps=statistics.median(s.present_fps for s in samples),
+        median_present_fps=median_fps,
         low_1pct_fps=(1000.0 / p99_ft) if p99_ft > 0 else 0.0,
         median_frametime_ms=median_ft,
         p99_frametime_ms=p99_ft,
