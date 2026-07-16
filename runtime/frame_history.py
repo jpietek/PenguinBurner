@@ -166,6 +166,9 @@ class FrameHistory:
     header: FrameHistoryHeader
     samples: tuple[MetricsSample, ...]
     frametimes_ms: tuple[float, ...]
+    # True when this came from a live ring under /run: the game is playing and
+    # the daemon is still appending to it.
+    live: bool = False
 
     @property
     def minutes(self) -> float:
@@ -390,31 +393,37 @@ def read_frame_history(path: str | Path) -> FrameHistory | None:
         for slot in _unwrap(metrics_count, header.metrics_cap, header.metrics_head)
     )
     frame_count = min(header.frame_count, header.frame_cap)
-    frametimes = tuple(
-        decode_frametime_ms(data[metrics_end + (slot % header.frame_cap)])
-        for slot in _unwrap(frame_count, header.frame_cap, header.frame_head)
-    )
-    # The frame ring's byte capacity outlives the metrics window on long
-    # sessions; enforce the advertised rolling window on the frame data too,
-    # so summaries and the frametime graph describe the same span.
-    frametimes = _trim_frames_to_window(frametimes, header.window_s)
+    frametimes = _decode_frames_in_window(data, metrics_end, header, frame_count)
     return FrameHistory(header=header, samples=samples, frametimes_ms=frametimes)
 
 
-def _trim_frames_to_window(
-    frametimes_ms: tuple[float, ...], window_s: int
+def _decode_frames_in_window(
+    data: bytes, frames_offset: int, header: FrameHistoryHeader, frame_count: int
 ) -> tuple[float, ...]:
-    budget_ms = float(window_s) * 1000.0
-    if budget_ms <= 0.0:
-        return frametimes_ms
+    """Decode the newest ``window_s`` of frames, and no more.
+
+    The frame ring's byte capacity outlives the metrics window on long
+    sessions, so a live ring holds the whole session while only the rolling
+    window is ever shown. Decoding all of it and trimming afterwards makes
+    every refresh cost the session's full length — a 1 M-frame ring costs
+    ~150 ms, which a live view repeats every second. Walking newest-first and
+    stopping once the window is covered bounds the work to what is displayed.
+
+    The slot order is ``_unwrap``'s, just consumed backwards, so summaries and
+    the graph still describe the same span the metrics do.
+    """
+    budget_ms = float(header.window_s) * 1000.0
+    newest_first: list[float] = []
     total = 0.0
-    start = len(frametimes_ms)
-    for index in range(len(frametimes_ms) - 1, -1, -1):
-        total += frametimes_ms[index]
-        if total > budget_ms:
-            break
-        start = index
-    return frametimes_ms[start:]
+    for slot in reversed(_unwrap(frame_count, header.frame_cap, header.frame_head)):
+        frametime = decode_frametime_ms(data[frames_offset + (slot % header.frame_cap)])
+        if budget_ms > 0.0:
+            total += frametime
+            if total > budget_ms:
+                break
+        newest_first.append(frametime)
+    newest_first.reverse()
+    return tuple(newest_first)
 
 
 def write_frame_history(
@@ -544,7 +553,7 @@ def read_frame_history_for_app(
         if best is None or history.header.started_unix >= best.header.started_unix:
             best = history
     if best is not None:
-        return best
+        return replace(best, live=True)
     system_dir = frame_history_system_archive_dir(env)
     for name in (f"{wanted}.ring", f"{wanted}.ring.gz"):
         history = read_frame_history(system_dir / name)

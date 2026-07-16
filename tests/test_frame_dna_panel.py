@@ -12,6 +12,7 @@ from profiles.uv.profile_tiers import (
 from runtime.frame_history import (
     FRAME_HISTORY_ARCHIVE_DIR_ENV,
     FRAME_HISTORY_LIVE_DIR_ENV,
+    FRAME_HISTORY_SYSTEM_ARCHIVE_DIR_ENV,
     MetricsSample,
     write_frame_history,
 )
@@ -65,16 +66,22 @@ def _write_ring(
     seconds: int = 360,
     latency_ms: float = 34.0,
     display_latency_ms: float = 19.0,
+    live: bool = True,
 ) -> dict[str, str]:
     env = {
         FRAME_HISTORY_LIVE_DIR_ENV: str(tmp_path / "live"),
         FRAME_HISTORY_ARCHIVE_DIR_ENV: str(tmp_path / "arch"),
+        FRAME_HISTORY_SYSTEM_ARCHIVE_DIR_ENV: str(tmp_path / "sys-arch"),
     }
     frametimes = []
     for index in range(seconds * 78):
         frametimes.append(30.0 if index % 50 == 49 else 12.8)  # 2% stutter spikes
+    target = (
+        tmp_path / "live" / f"{app_id}.ring" if live
+        else tmp_path / "arch" / f"{app_id}.ring.gz"
+    )
     assert write_frame_history(
-        tmp_path / "live" / f"{app_id}.ring",
+        target,
         samples=[
             _sample(
                 i,
@@ -134,6 +141,7 @@ def test_panel_empty_and_missing_states(qtbot, tmp_path: Path) -> None:
     env = {
         FRAME_HISTORY_LIVE_DIR_ENV: str(tmp_path / "live"),
         FRAME_HISTORY_ARCHIVE_DIR_ENV: str(tmp_path / "arch"),
+        FRAME_HISTORY_SYSTEM_ARCHIVE_DIR_ENV: str(tmp_path / "sys-arch"),
     }
     panel = _make_panel(env)
     qtbot.addWidget(panel.widget)
@@ -149,7 +157,9 @@ def test_panel_empty_and_missing_states(qtbot, tmp_path: Path) -> None:
 
 
 def test_panel_warming_state_under_five_minutes(qtbot, tmp_path: Path) -> None:
-    env = _write_ring(tmp_path, 4242, seconds=120)
+    # A short *archived* session is over: no more data is coming, so the gate
+    # still says the fingerprint never settled.
+    env = _write_ring(tmp_path, 4242, seconds=120, live=False)
     panel = _make_panel(env)
     qtbot.addWidget(panel.widget)
     try:
@@ -157,6 +167,58 @@ def test_panel_warming_state_under_five_minutes(qtbot, tmp_path: Path) -> None:
         assert panel._stack.currentIndex() == 0
         assert "Warming up" in panel.empty_label.text()
         assert "2 of 5 min" in panel.empty_label.text()
+    finally:
+        panel._refresh_timer.stop()
+
+
+def test_panel_shows_a_live_session_before_the_qualify_gate(
+    qtbot, tmp_path: Path
+) -> None:
+    # The game is on right now: show the frametimes as they land instead of
+    # hiding five minutes of real play behind "Warming up".
+    env = _write_ring(tmp_path, 4242, seconds=120)
+    panel = _make_panel(env)
+    qtbot.addWidget(panel.widget)
+    try:
+        panel.select_app("4242", game_name="INDIKA")
+        assert panel._stack.currentIndex() == 1  # detail, not the gate message
+        assert panel.frametime_plot is not None
+        meta = panel.meta_label.text()
+        assert "● REC" in meta
+        assert "2.0 min captured" in meta
+        assert "fingerprint at 5 min" in meta  # honest about the short window
+    finally:
+        panel._refresh_timer.stop()
+
+
+def test_live_zoom_buys_1hz_and_the_overview_stays_at_2s(
+    qtbot, tmp_path: Path
+) -> None:
+    # Each refresh decodes the whole window, so the faster tick is only worth
+    # it where a second of play is visible.
+    env = _write_ring(tmp_path, 4242, seconds=120)
+    panel = _make_panel(env)
+    qtbot.addWidget(panel.widget)
+    try:
+        panel.select_app("4242", game_name="INDIKA")
+        assert panel._refresh_timer.interval() == 2000
+        panel.live_toggle.setChecked(True)
+        assert panel._refresh_timer.interval() == 1000
+        panel.live_toggle.setChecked(False)
+        assert panel._refresh_timer.interval() == 2000
+    finally:
+        panel._refresh_timer.stop()
+
+
+def test_archived_session_never_buys_the_fast_tick(qtbot, tmp_path: Path) -> None:
+    env = _write_ring(tmp_path, 4242, seconds=360, live=False)
+    panel = _make_panel(env)
+    qtbot.addWidget(panel.widget)
+    try:
+        panel.select_app("4242", game_name="INDIKA")
+        panel.live_toggle.setChecked(True)
+        # Dead data cannot advance; 1 Hz would redraw the same picture.
+        assert panel._refresh_timer.interval() == 2000
     finally:
         panel._refresh_timer.stop()
 
@@ -170,7 +232,8 @@ def test_panel_populates_detail_from_a_qualified_ring(qtbot, tmp_path: Path) -> 
         assert panel._stack.currentIndex() == 1
         assert panel.game_title.text() == "Resident Evil 9"
         assert panel.tier_chip.text() == "PERFORMANCE"
-        assert "6 min captured" in panel.meta_label.text()
+        assert "6.0 min captured" in panel.meta_label.text()
+        assert "fingerprint at 5 min" not in panel.meta_label.text()
         assert "frame-gen seen" in panel.meta_label.text()
         assert panel._stat_values["POWER"].text() == "298 W"
         assert panel._stat_values["GPU / CPU-THREAD"].text() == "99% / 66%"
@@ -243,6 +306,7 @@ def test_panel_reads_archived_rings_too(qtbot, tmp_path: Path) -> None:
     env = {
         FRAME_HISTORY_LIVE_DIR_ENV: str(tmp_path / "live"),
         FRAME_HISTORY_ARCHIVE_DIR_ENV: str(tmp_path / "arch"),
+        FRAME_HISTORY_SYSTEM_ARCHIVE_DIR_ENV: str(tmp_path / "sys-arch"),
     }
     assert write_frame_history(
         tmp_path / "arch" / "1089130.ring.gz",

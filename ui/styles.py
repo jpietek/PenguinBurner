@@ -287,6 +287,12 @@ QToolButton#steamFrameDnaBadge {{
 QToolButton#steamFrameDnaBadge:hover {{
     border-color: {theme.DNA_TIER_BALANCED};
 }}
+QLabel#steamFrameDnaCaption {{
+    color: {theme.DNA_TEXT_MUTED};
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+}}
 QPushButton#steamPlayButton[playState="running"] {{
     background: {theme.DANGER_BUTTON_BG};
     border-color: {theme.DANGER_BUTTON_BORDER};

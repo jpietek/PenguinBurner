@@ -13,6 +13,7 @@ import math
 from typing import Any
 
 from runtime.frame_history import (
+    QUALIFY_MINUTES,
     FrameHistory,
     FrameHistorySummary,
     read_frame_history_for_app,
@@ -28,6 +29,9 @@ from ui.components.frame_dna import (
 )
 
 _REFRESH_MS = 2000
+# A recording ring flushes once a second; match it so a live session visibly
+# advances instead of jumping two seconds at a time.
+_LIVE_REFRESH_MS = 1000
 _OVERVIEW_COLUMNS = 300
 _LIVE_WINDOW_MS = 10_000.0
 _STUTTER_RATIO = 1.6
@@ -42,6 +46,28 @@ _EMPTY_HINT = (
     "Select a game in the Steam tab and click its Game Stats badge.\n"
     "Telemetry is recorded while a PenguinBurner-enabled game runs."
 )
+
+
+def meta_text(history: FrameHistory, summary: FrameHistorySummary) -> str:
+    """The line under the game title: how much window is behind the numbers.
+
+    A live ring says so, and a window still short of the qualify gate says the
+    fingerprint has not settled — the graph is real either way.
+    """
+    minutes = summary.minutes
+    parts: list[str] = []
+    if history.live:
+        parts.append("● REC")
+    parts.append(
+        f"{minutes:.1f} min captured" if minutes < 10.0
+        else f"{minutes:.0f} min captured"
+    )
+    parts.append(f"{len(history.frametimes_ms):,} frames")
+    if not summary.qualified:
+        parts.append(f"settling · fingerprint at {QUALIFY_MINUTES:.0f} min")
+    if summary.framegen_seen:
+        parts.append("frame-gen seen")
+    return " · ".join(parts)
 
 
 def densify_frametimes(
@@ -468,7 +494,19 @@ class FrameDnaPanel:
                 warming=False,
             )
             return
-        if not summary.qualified:
+        # 1 Hz costs a full-window decode per tick, so buy it only where it
+        # shows: the LIVE zoom's 10-60 s window moves visibly every second. An
+        # overview column spans ~6 s of play, so a faster tick would redraw the
+        # same picture.
+        self._set_refresh_interval(
+            _LIVE_REFRESH_MS if history.live and self._live_mode else _REFRESH_MS
+        )
+        # The 5-minute gate decides whether a fingerprint is worth trusting at
+        # a glance, so it still hides a short *archived* session. A ring the
+        # daemon is writing right now is different: the game is on and the user
+        # wants to watch it fill, so show the detail from the first second and
+        # label it as still settling.
+        if not summary.qualified and not history.live:
             self._show_message(
                 f"{self._game_name} — {warming_text(summary.minutes)}",
                 warming=True,
@@ -503,11 +541,7 @@ class FrameDnaPanel:
             f"color: {color}; border: 1px solid {color}; border-radius: 9px;"
             "padding: 2px 10px; font-size: 10px; font-weight: 700;"
         )
-        self.meta_label.setText(
-            f"{summary.minutes:.0f} min captured · "
-            f"{len(history.frametimes_ms):,} frames"
-            + (" · frame-gen seen" if summary.framegen_seen else "")
-        )
+        self.meta_label.setText(meta_text(history, summary))
         axes = dna_axes(
             summary,
             target_fps=self._target_fps,
@@ -629,6 +663,28 @@ class FrameDnaPanel:
         self._live_mode = bool(checked)
         self.refresh()
 
+    def _refresh_is_worth_it(self) -> bool:
+        """Never spend a decode nobody can see.
+
+        Refreshing costs a full-window ring decode. A tab the user switched
+        away from reports ``isVisible()`` false and costs nothing, but Qt keeps
+        it true for a minimized window, so ask about that outright.
+
+        This cannot catch the case that matters most: a window merely occluded
+        by a fullscreen game still reports visible *and* exposed, and Qt offers
+        no portable occlusion signal. A Game Stats tab left open behind a game
+        keeps paying, which is why the tick above stays as slow as it can.
+        """
+        if not self._app_id or not self.widget.isVisible():
+            return False
+        window = self.widget.window()
+        return window is None or not window.isMinimized()
+
+    def _set_refresh_interval(self, interval_ms: int) -> None:
+        timer = self._refresh_timer
+        if timer is not None and timer.interval() != interval_ms:
+            timer.setInterval(interval_ms)
+
     def _timer_tick(self) -> None:
-        if self.widget.isVisible() and self._app_id:
+        if self._refresh_is_worth_it():
             self.refresh()

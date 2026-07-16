@@ -858,12 +858,18 @@ def test_frame_dna_badge_states_peek_and_open_callback(
     from runtime.frame_history import (
         FRAME_HISTORY_ARCHIVE_DIR_ENV,
         FRAME_HISTORY_LIVE_DIR_ENV,
+        FRAME_HISTORY_SYSTEM_ARCHIVE_DIR_ENV,
         MetricsSample,
         write_frame_history,
     )
 
     monkeypatch.setenv(FRAME_HISTORY_LIVE_DIR_ENV, str(tmp_path / "fh-live"))
     monkeypatch.setenv(FRAME_HISTORY_ARCHIVE_DIR_ENV, str(tmp_path / "fh-arch"))
+    # Without this the reader falls through to the real /var/lib archive and
+    # the test reads whatever this host has actually played.
+    monkeypatch.setenv(
+        FRAME_HISTORY_SYSTEM_ARCHIVE_DIR_ENV, str(tmp_path / "fh-sys")
+    )
 
     def _metric(t_rel: int) -> MetricsSample:
         return MetricsSample(
@@ -919,6 +925,9 @@ def test_frame_dna_badge_states_peek_and_open_callback(
         assert not badge.icon().isNull()
         assert badge.toolTip() == ""
         assert panel._frame_dna_summary is not None
+        # The fingerprint carries no spoke labels, so a caption names it.
+        assert panel.frame_dna_caption.isVisibleTo(panel.widget)
+        assert panel.frame_dna_caption.text() == "GAME PERFORMANCE PROFILE"
 
         panel._show_frame_dna_peek()
         peek = panel._frame_dna_peek
