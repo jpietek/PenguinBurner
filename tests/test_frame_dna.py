@@ -140,7 +140,7 @@ def test_peek_popover_populates_and_positions(qapp) -> None:
     )
     try:
         assert peek.widget.isVisible()
-        assert peek.title.text() == "Baldur's Gate 3 · Frame DNA"
+        assert peek.title.text() == "Baldur's Gate 3 · Game Stats"
         # fps-first, matching the tab's stat row and the mock.
         assert peek._stat_values["Median"].text() == "96 fps · 10.4 ms"
         assert peek._stat_values["1%-low"].text() == "71 fps · 14.1 ms"
@@ -150,7 +150,7 @@ def test_peek_popover_populates_and_positions(qapp) -> None:
         assert peek._stat_values["Latency"].text() == "22 ms"
         assert peek._stat_values["Latency"].isVisibleTo(peek.widget)
         assert peek.dna_label.pixmap() is not None
-        assert "Frame DNA tab" in peek.hint.text()
+        assert "Game Stats tab" in peek.hint.text()
     finally:
         peek.hide()
     assert not peek.widget.isVisible()

@@ -337,7 +337,7 @@ class FrameDnaPeek:
         stats.setRowStretch(5, 1)
         body.addLayout(stats, 1)
         layout.addLayout(body)
-        self.hint = QtWidgets.QLabel("Click the badge to open the Frame DNA tab")
+        self.hint = QtWidgets.QLabel("Click the badge to open the Game Stats tab")
         self.hint.setObjectName("frameDnaPeekHint")
         layout.addWidget(self.hint)
 
@@ -351,7 +351,7 @@ class FrameDnaPeek:
         global_pos,
         device_pixel_ratio: float = 1.0,
     ) -> None:
-        self.title.setText(f"{game_name} · Frame DNA")
+        self.title.setText(f"{game_name} · Game Stats")
         axes = dna_axes(summary, target_fps=target_fps, power_limit_w=power_limit_w)
         self.dna_label.setPixmap(
             dna_pixmap(

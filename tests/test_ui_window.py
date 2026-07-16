@@ -324,7 +324,7 @@ def test_window_tab_order_and_bins_visibility(main_window) -> None:
     win = main_window
     # Fixed tabs, in order (no separate fan-curve tab).
     labels = [win.tabs.tabText(i) for i in range(win.tabs.count())]
-    assert labels == ["Auto-UV", "Profiles", "Steam", "In-Game Overlay", "Frame DNA"]
+    assert labels == ["Auto-UV", "Profiles", "Steam", "In-Game Overlay", "Game Stats"]
     assert win.tabs.iconSize().width() == 18
     assert win.tabs.iconSize().height() == 18
     assert all(not win.tabs.tabIcon(i).isNull() for i in range(win.tabs.count()))

@@ -923,7 +923,7 @@ def test_frame_dna_badge_states_peek_and_open_callback(
         panel._show_frame_dna_peek()
         peek = panel._frame_dna_peek
         assert peek is not None and peek.widget.isVisible()
-        assert peek.title.text() == "Zeta · Frame DNA"
+        assert peek.title.text() == "Zeta · Game Stats"
         assert peek._stat_values["Power"].text() == "214 W"
 
         badge.click()  # opens the tab and hides the peek
@@ -935,7 +935,7 @@ def test_frame_dna_badge_states_peek_and_open_callback(
         panel.game_list.setCurrentItem(panel.game_list.item(1))
         assert panel.game_title.text() == "Alpha"
         assert badge.isVisibleTo(panel.widget)
-        assert "No Frame DNA yet" in badge.toolTip()
+        assert "No Game Stats yet" in badge.toolTip()
         assert panel._frame_dna_summary is None
         badge.click()
         assert opened[-1] == ("10", "Alpha", None)

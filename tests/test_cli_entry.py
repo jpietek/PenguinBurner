@@ -165,6 +165,7 @@ def test_dispatch_cli_daemonize_applies_through_running_daemon(monkeypatch) -> N
                 "silent_fan_curve": False,
                 "adaptive_auto_uv": False,
                 "adaptive_target_fps": None,
+                "game_telemetry": True,
                 "gpu_index": 1,
             },
             {

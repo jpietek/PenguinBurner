@@ -379,7 +379,7 @@ class SteamPanel:
         self.frame_dna_badge.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
         self.frame_dna_badge.setVisible(False)
         self.frame_dna_badge.setAccessibleName(
-            "Frame DNA — open the Frame DNA tab"
+            "Game Stats — open the Game Stats tab"
         )
         self.frame_dna_badge.clicked.connect(self._open_frame_dna)
         panel = self
@@ -493,7 +493,7 @@ class SteamPanel:
         self.telemetry_checkbox.setObjectName("steamTelemetryToggle")
         self.telemetry_checkbox.setToolTip(
             _wrapped_tooltip(
-                "Record this game's Frame DNA telemetry (a rolling 30-minute "
+                "Record this game's telemetry (a rolling 30-minute "
                 "window of frametimes, clocks, power, and the active tier) "
                 "while it runs. On by default; turning it off stops new "
                 "capture from the next launch."
@@ -841,12 +841,12 @@ class SteamPanel:
             )
             if summary is not None:
                 badge.setToolTip(
-                    _wrapped_tooltip(f"Frame DNA — {warming_text(summary.minutes)}")
+                    _wrapped_tooltip(f"Game Stats — {warming_text(summary.minutes)}")
                 )
             else:
                 badge.setToolTip(
                     _wrapped_tooltip(
-                        "No Frame DNA yet. Play this game with PenguinBurner "
+                        "No Game Stats yet. Play this game with PenguinBurner "
                         "running to record its telemetry fingerprint."
                     )
                 )

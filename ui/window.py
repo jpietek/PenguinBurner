@@ -196,7 +196,7 @@ class MainWindow(ProfileActionsMixin):
         self.frame_dna_tab_index = self.tabs.addTab(
             self.frame_dna_panel.widget,
             self._frame_dna_tab_icon(),
-            "Frame DNA",
+            "Game Stats",
         )
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self._close_dynamic_tab)

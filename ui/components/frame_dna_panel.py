@@ -31,13 +31,15 @@ _REFRESH_MS = 2000
 _OVERVIEW_COLUMNS = 300
 _LIVE_WINDOW_MS = 10_000.0
 _STUTTER_RATIO = 1.6
+_STUTTER_MILD_MS = 16.7
+_STUTTER_SEVERE_MS = 33.3
 _DNA_SIZE = 200
 # The mock is a measured column, not a full-bleed sprawl: cap the content so
 # a very wide window keeps the composed, centered layout.
 _CONTENT_MAX_WIDTH = 1500
 
 _EMPTY_HINT = (
-    "Select a game in the Steam tab and click its Frame DNA badge.\n"
+    "Select a game in the Steam tab and click its Game Stats badge.\n"
     "Telemetry is recorded while a PenguinBurner-enabled game runs."
 )
 
@@ -90,6 +92,23 @@ def _mk_color(QtGui, color: str, alpha: int):
     value = QtGui.QColor(color)
     value.setAlpha(alpha)
     return value
+
+
+def stutter_severity_color(QtGui, frametime_ms: float):
+    """Needle color for a stutter spike: yellow -> orange -> red by magnitude.
+
+    A 12 ms worst-1% at high fps is still good, so mild spikes read yellow;
+    red is reserved for frames that genuinely lag (~30 ms and beyond).
+    """
+    span = _STUTTER_SEVERE_MS - _STUTTER_MILD_MS
+    t = min(1.0, max(0.0, (frametime_ms - _STUTTER_MILD_MS) / span))
+    mild = QtGui.QColor(theme.DNA_STUTTER_MILD)
+    severe = QtGui.QColor(theme.DNA_STUTTER)
+    return QtGui.QColor(
+        round(mild.red() + (severe.red() - mild.red()) * t),
+        round(mild.green() + (severe.green() - mild.green()) * t),
+        round(mild.blue() + (severe.blue() - mild.blue()) * t),
+    )
 
 
 class FrameDnaPanel:
@@ -369,8 +388,8 @@ class FrameDnaPanel:
         pg = self.pg
         frame, layout, header, caption = self._figure(
             "Frametime — every frame, in milliseconds",
-            "flat & low = smooth · red = stutter (> 1.6× median) · "
-            "lines: median & 1%-low (p99)",
+            "flat & low = smooth · stutter needles yellow -> red by severity "
+            "(red ~30 ms) · lines: median & 1%-low (p99)",
         )
         self._frametime_caption = caption
         self._frametime_caption_base = caption.text()
@@ -565,6 +584,10 @@ class FrameDnaPanel:
         )
         ceiling = float(math.ceil(raw_ceiling / 5.0) * 5)
         worst = max(spikes_h) if spikes_h else 0.0
+        # Colors come from the TRUE spike magnitude, before the plot clamp.
+        spike_brushes = [
+            stutter_severity_color(self.QtGui, height) for height in spikes_h
+        ]
         spikes_h = tuple(min(height, ceiling) for height in spikes_h)
         # A 250 ms hitch must not silently render like a 20 ms blip: the
         # caption discloses the true worst frame whenever the plot clamps.
@@ -573,7 +596,9 @@ class FrameDnaPanel:
             caption = f"{caption} · worst frame {worst:.0f} ms (clipped)"
         self._frametime_caption.setText(caption)
         self.frametime_curve.setData(xs, values)
-        self.stutter_bars.setOpts(x=spikes_x, height=spikes_h, width=bar_width)
+        self.stutter_bars.setOpts(
+            x=spikes_x, height=spikes_h, width=bar_width, brushes=spike_brushes
+        )
         self.median_line.setValue(summary.median_frametime_ms)
         self.p99_line.setValue(summary.p99_frametime_ms)
         if values:

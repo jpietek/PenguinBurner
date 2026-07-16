@@ -85,3 +85,6 @@ DNA_TIER_BALANCED = "#3987e5"
 DNA_TIER_PERFORMANCE = "#d95926"
 DNA_TIER_NONE = "#8a8880"
 DNA_STUTTER = "#e05656"
+# Graduated stutter severity: needles lerp mild -> DNA_STUTTER; red is only
+# for genuinely laggy frames (>= ~30 ms).
+DNA_STUTTER_MILD = "#e8c258"
