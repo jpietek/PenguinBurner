@@ -839,3 +839,101 @@ def test_refused_stop_falls_back_to_running(
 
     panel._sync_timer.stop()
     panel._game_state_timer.stop()
+
+
+def test_frame_dna_badge_states_peek_and_open_callback(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    from runtime.frame_history import (
+        FRAME_HISTORY_ARCHIVE_DIR_ENV,
+        FRAME_HISTORY_LIVE_DIR_ENV,
+        MetricsSample,
+        write_frame_history,
+    )
+
+    monkeypatch.setenv(FRAME_HISTORY_LIVE_DIR_ENV, str(tmp_path / "fh-live"))
+    monkeypatch.setenv(FRAME_HISTORY_ARCHIVE_DIR_ENV, str(tmp_path / "fh-arch"))
+
+    def _metric(t_rel: int) -> MetricsSample:
+        return MetricsSample(
+            t_rel_s=t_rel, frame_count=96, clock_mhz=2550, mem_clock_mhz=10251,
+            voltage_mv=965, power_w=214, gpu_util_pct=92, cpu_util_pct=34,
+            cpu_peak_thread_pct=60, fan_pct=52, temperature_c=66,
+            uv_offset_mv=-135, present_fps=96.0, framegen_fps=0.0,
+            latency_ms=22.0, display_latency_ms=12.0, framegen_active=False,
+            adaptive=True, fps_source=2, tier="balanced",
+            ft_p50_ms=10.4, ft_p99_ms=14.1, ft_p999_ms=22.0,
+        )
+
+    # Zeta (app 30): qualified 6-minute ring. Beta (app 20): 2-minute warming
+    # ring. Alpha (app 10): no ring at all.
+    assert write_frame_history(
+        tmp_path / "fh-live" / "30.ring",
+        samples=[_metric(i) for i in range(360)],
+        frametimes_ms=[10.4] * 2000,
+        app_id=30, power_limit_w=360, frame_cap=1 << 12,
+    )
+    assert write_frame_history(
+        tmp_path / "fh-live" / "20.ring",
+        samples=[_metric(i) for i in range(120)],
+        frametimes_ms=[10.4] * 500,
+        app_id=20, power_limit_w=360, frame_cap=1 << 12,
+    )
+
+    QtCore, QtGui, QtWidgetsModule, _pg = import_qt()
+    rows = (
+        _row(tmp_path, "10", "Alpha", 100),
+        _row(tmp_path, "20", "Beta", 0),
+        _row(tmp_path, "30", "Zeta", 300),
+    )
+    manager = _FakeManager(rows)
+    panel = SteamPanel(
+        QtCore=QtCore,
+        QtGui=QtGui,
+        QtWidgets=QtWidgetsModule,
+        manager=cast(SteamIntegrationManager, manager),
+    )
+    qtbot.addWidget(panel.widget)
+    qtbot.waitUntil(lambda: not panel._scan_running, timeout=2000)
+    try:
+        opened: list[tuple[str, str, float | None]] = []
+        panel.on_open_frame_dna = lambda app_id, name, fps: opened.append(
+            (app_id, name, fps)
+        )
+
+        # Recent sort selects Zeta first: qualified ring -> real fingerprint.
+        assert panel.game_title.text() == "Zeta"
+        badge = panel.frame_dna_badge
+        assert badge.isVisibleTo(panel.widget)
+        assert not badge.icon().isNull()
+        assert badge.toolTip() == ""
+        assert panel._frame_dna_summary is not None
+
+        panel._show_frame_dna_peek()
+        peek = panel._frame_dna_peek
+        assert peek is not None and peek.widget.isVisible()
+        assert peek.title.text() == "Zeta · Frame DNA"
+        assert peek._stat_values["Power"].text() == "214 W"
+
+        badge.click()  # opens the tab and hides the peek
+        assert opened == [("30", "Zeta", None)]
+        assert not peek.widget.isVisible()
+
+        # Alpha: no ring -> dashed badge + "no telemetry" tooltip; the click
+        # still opens the tab, which explains the empty state.
+        panel.game_list.setCurrentItem(panel.game_list.item(1))
+        assert panel.game_title.text() == "Alpha"
+        assert badge.isVisibleTo(panel.widget)
+        assert "No Frame DNA yet" in badge.toolTip()
+        assert panel._frame_dna_summary is None
+        badge.click()
+        assert opened[-1] == ("10", "Alpha", None)
+
+        # Beta: under the 5-minute gate -> dashed badge + warming tooltip.
+        panel.game_list.setCurrentItem(panel.game_list.item(2))
+        assert panel.game_title.text() == "Beta"
+        assert "Warming up" in badge.toolTip()
+        assert panel._frame_dna_summary is None
+    finally:
+        panel._sync_timer.stop()
+        panel._game_state_timer.stop()

@@ -322,13 +322,16 @@ def test_window_simple_helpers(main_window) -> None:
 
 def test_window_tab_order_and_bins_visibility(main_window) -> None:
     win = main_window
-    # Tabs are Auto-UV, Profiles, Steam, Overlay (no separate fan-curve tab).
+    # Fixed tabs, in order (no separate fan-curve tab).
     labels = [win.tabs.tabText(i) for i in range(win.tabs.count())]
-    assert labels == ["Auto-UV", "Profiles", "Steam", "In-Game Overlay"]
+    assert labels == ["Auto-UV", "Profiles", "Steam", "In-Game Overlay", "Frame DNA"]
     assert win.tabs.iconSize().width() == 18
     assert win.tabs.iconSize().height() == 18
     assert all(not win.tabs.tabIcon(i).isNull() for i in range(win.tabs.count()))
     assert not hasattr(win, "fan_plot")
+    # Frame DNA is a fixed tab (added before setTabsClosable/CurveTabs), so
+    # it must not grow a close button.
+    assert win.curve_tabs.fixed_tab_count == win.tabs.count()
 
     # The undervolting-runs panel shows only on the Auto-UV tab.
     win.tabs.setCurrentIndex(win.auto_uv_tab_index)
@@ -339,6 +342,17 @@ def test_window_tab_order_and_bins_visibility(main_window) -> None:
     assert win.table_panel.isHidden()
     win.tabs.setCurrentIndex(win.steam_tab_index)
     assert win.table_panel.isHidden()
+
+
+def test_show_frame_dna_switches_tab_and_selects_the_game(main_window) -> None:
+    win = main_window
+    assert win.steam_panel.on_open_frame_dna == win.show_frame_dna
+    win.show_frame_dna("3764200", game_name="Resident Evil 9", target_fps=120.0)
+    assert win.tabs.currentIndex() == win.frame_dna_tab_index
+    # No ring exists in the test environment: the tab shows its empty state
+    # for the selected game rather than crashing.
+    assert "Resident Evil 9" in win.frame_dna_panel.empty_label.text()
+    win.frame_dna_panel._refresh_timer.stop()
 
 
 def test_runs_table_splitter_is_draggable_with_content_derived_floors(

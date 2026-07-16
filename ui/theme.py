@@ -67,3 +67,21 @@ PLOT_BADGE = "#ffe5b1"
 TIER_CURVE_EFFICIENCY = "#9fe6a8"
 TIER_CURVE_BALANCED = "#8ecbef"
 TIER_CURVE_PERFORMANCE = "#e05c5c"
+
+# Frame DNA: the approved mockup's dark palette (notes/frame-dna-mockup.html).
+# These are deliberately the mock's values, not the TIER_CURVE_* pastels, so
+# the shipped feature matches the design that was signed off.
+DNA_SURFACE = "#171716"
+DNA_SURFACE_ALT = "#201f1d"
+DNA_TEXT = "#ffffff"
+DNA_TEXT_DIM = "#c3c2b7"
+DNA_TEXT_MUTED = "#8a8880"
+DNA_GRID = "#2a2a28"
+DNA_AXIS = "#3a3a36"
+DNA_BORDER = "rgba(255, 255, 255, 26)"
+DNA_BORDER_STRONG = "rgba(255, 255, 255, 46)"
+DNA_TIER_EFFICIENCY = "#199e70"
+DNA_TIER_BALANCED = "#3987e5"
+DNA_TIER_PERFORMANCE = "#d95926"
+DNA_TIER_NONE = "#8a8880"
+DNA_STUTTER = "#e05656"

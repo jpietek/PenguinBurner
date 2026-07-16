@@ -8,6 +8,7 @@ button for that selection. Changes still apply immediately through
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
 import textwrap
@@ -24,10 +25,17 @@ from integrations.steam.settings import (
     normalize_game_mode,
 )
 from profiles.uv.profile_tiers import PROFILE_TIER_LABELS, PROFILE_TIERS
+from runtime.frame_history import read_frame_history_for_app, summarize
 from runtime.support.adaptive_target_fps import (
     MAX_ADAPTIVE_TARGET_FPS,
     MIN_ADAPTIVE_TARGET_FPS,
     adaptive_target_fps_from_env,
+)
+from ui.components.frame_dna import (
+    FrameDnaPeek,
+    dna_axes,
+    dna_pixmap,
+    warming_text,
 )
 
 
@@ -160,6 +168,13 @@ class SteamPanel:
         self._game_poll_result: frozenset[str] | None = None
         self._auto_sync_thread: threading.Thread | None = None
         self._auto_sync_result: tuple[tuple[SteamGameRow, ...], dict] | None = None
+        # Frame DNA: the window wires this to open the Frame DNA tab.
+        self.on_open_frame_dna: (
+            Callable[[str, str, float | None], None] | None
+        ) = None
+        self._frame_dna_summary = None
+        self._frame_dna_power_limit = 0
+        self._frame_dna_peek: FrameDnaPeek | None = None
 
         self.widget = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(self.widget)
@@ -357,6 +372,33 @@ class SteamPanel:
             )
         )
         title_row.addWidget(self.play_button, 0, QtCore.Qt.AlignVCenter)
+        self.frame_dna_badge = QtWidgets.QToolButton()
+        self.frame_dna_badge.setObjectName("steamFrameDnaBadge")
+        self.frame_dna_badge.setFixedSize(46, 46)
+        self.frame_dna_badge.setIconSize(QtCore.QSize(40, 40))
+        self.frame_dna_badge.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+        self.frame_dna_badge.setVisible(False)
+        self.frame_dna_badge.clicked.connect(self._open_frame_dna)
+        panel = self
+
+        class _FrameDnaBadgeHover(QtCore.QObject):
+            """Hover peeks the fingerprint; any click falls through to open."""
+
+            def eventFilter(self, watched, event):
+                event_type = event.type()
+                if event_type == QtCore.QEvent.Type.Enter:
+                    panel._show_frame_dna_peek()
+                elif event_type in (
+                    QtCore.QEvent.Type.Leave,
+                    QtCore.QEvent.Type.MouseButtonPress,
+                    QtCore.QEvent.Type.Hide,
+                ):
+                    panel._hide_frame_dna_peek()
+                return False
+
+        self._frame_dna_hover_filter = _FrameDnaBadgeHover(self.widget)
+        self.frame_dna_badge.installEventFilter(self._frame_dna_hover_filter)
+        title_row.addWidget(self.frame_dna_badge, 0, QtCore.Qt.AlignVCenter)
         title_row.addStretch(1)
         details_layout.addLayout(title_row)
 
@@ -560,6 +602,9 @@ class SteamPanel:
             self._populate(rows)
         else:
             self._sync_default_mode_label()
+            # Ring data grows while a game runs even when the rows are
+            # unchanged, so the fingerprint badge refreshes on every sync.
+            self._sync_frame_dna_badge(self._rows.get(self._selected_app_id))
         self._sync_header(probe)
 
     @staticmethod
@@ -729,7 +774,99 @@ class SteamPanel:
                 self.overlay_checkbox.setChecked(row.setting.overlay)
         finally:
             self._syncing = was_syncing
+        self._sync_frame_dna_badge(row)
         self._sync_interaction_state()
+
+    def _badge_device_pixel_ratio(self) -> float:
+        window = self.widget.window()
+        handle = window.windowHandle() if window is not None else None
+        if handle is not None:
+            return float(handle.devicePixelRatio())
+        return 1.0
+
+    def _sync_frame_dna_badge(self, row: SteamGameRow | None) -> None:
+        """Refresh the fingerprint badge for the selected game's ring."""
+        badge = self.frame_dna_badge
+        if row is None:
+            self._frame_dna_summary = None
+            self._hide_frame_dna_peek()
+            badge.setVisible(False)
+            return
+        history = read_frame_history_for_app(row.game.app_id)
+        summary = summarize(history) if history is not None else None
+        self._frame_dna_power_limit = (
+            history.header.power_limit_w if history is not None else 0
+        )
+        ratio = self._badge_device_pixel_ratio()
+        if summary is not None and summary.qualified:
+            self._frame_dna_summary = summary
+            axes = dna_axes(
+                summary,
+                target_fps=row.setting.target_fps,
+                power_limit_w=self._frame_dna_power_limit,
+            )
+            pixmap = dna_pixmap(
+                self.QtCore, self.QtGui, axes=axes, tier=summary.tier,
+                size=40, device_pixel_ratio=ratio,
+            )
+            badge.setToolTip("")
+        else:
+            self._frame_dna_summary = None
+            self._hide_frame_dna_peek()
+            pixmap = dna_pixmap(
+                self.QtCore, self.QtGui, axes=None, tier="",
+                size=40, device_pixel_ratio=ratio,
+            )
+            if summary is not None:
+                badge.setToolTip(
+                    _wrapped_tooltip(f"Frame DNA — {warming_text(summary.minutes)}")
+                )
+            else:
+                badge.setToolTip(
+                    _wrapped_tooltip(
+                        "No Frame DNA yet. Play this game with PenguinBurner "
+                        "running to record its telemetry fingerprint."
+                    )
+                )
+        badge.setIcon(self.QtGui.QIcon(pixmap))
+        badge.setVisible(True)
+
+    def _show_frame_dna_peek(self) -> None:
+        summary = self._frame_dna_summary
+        row = self._rows.get(self._selected_app_id)
+        if summary is None or row is None:
+            return
+        if self._frame_dna_peek is None:
+            self._frame_dna_peek = FrameDnaPeek(
+                QtCore=self.QtCore,
+                QtGui=self.QtGui,
+                QtWidgets=self.QtWidgets,
+                parent=self.widget,
+            )
+        badge = self.frame_dna_badge
+        below = badge.mapToGlobal(badge.rect().bottomLeft())
+        below.setY(below.y() + 6)
+        self._frame_dna_peek.show_for(
+            game_name=row.game.name,
+            summary=summary,
+            target_fps=row.setting.target_fps,
+            power_limit_w=self._frame_dna_power_limit,
+            global_pos=below,
+            device_pixel_ratio=self._badge_device_pixel_ratio(),
+        )
+
+    def _hide_frame_dna_peek(self) -> None:
+        if self._frame_dna_peek is not None:
+            self._frame_dna_peek.hide()
+
+    def _open_frame_dna(self) -> None:
+        row = self._rows.get(self._selected_app_id)
+        self._hide_frame_dna_peek()
+        if row is None or self.on_open_frame_dna is None:
+            return
+        self.on_open_frame_dna(
+            row.game.app_id, row.game.name, row.setting.target_fps
+        )
 
     def _sync_interaction_state(self) -> None:
         has_selection = bool(self._selected_app_id and self._selected_app_id in self._rows)

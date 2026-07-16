@@ -278,6 +278,15 @@ QPushButton#steamPlayButton:pressed {{
     background: {theme.PRIMARY_BUTTON_PRESSED_BG};
     border-color: {theme.PRIMARY_BUTTON_PRESSED_BORDER};
 }}
+QToolButton#steamFrameDnaBadge {{
+    background: {theme.DNA_SURFACE};
+    border: 1px solid {theme.BORDER_STRONG};
+    border-radius: 9px;
+    padding: 2px;
+}}
+QToolButton#steamFrameDnaBadge:hover {{
+    border-color: {theme.DNA_TIER_BALANCED};
+}}
 QPushButton#steamPlayButton[playState="running"] {{
     background: {theme.DANGER_BUTTON_BG};
     border-color: {theme.DANGER_BUTTON_BORDER};
