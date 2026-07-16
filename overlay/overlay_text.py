@@ -114,8 +114,6 @@ def _combined_latency_ms(values: dict[str, str]) -> str:
     The two metrics are kept separate upstream (receiver/state); the overlay
     sums them into one click-to-photon number. When the display tail is absent
     (no VK_KHR_present_wait data), this collapses to the render latency alone.
-    For non-Reflex games with no marker latency at all, the display tail is
-    still a real measurement and is shown on its own rather than nothing.
     """
     render = _ms_number(values.get("latency_ms"))
     if render is None:

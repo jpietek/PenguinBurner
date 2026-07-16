@@ -437,3 +437,24 @@ def test_summarize_derives_fps_from_frametimes_when_estimator_is_silent() -> Non
     summary = summarize(silent)
     assert summary is not None
     assert abs(summary.median_present_fps - 1000.0 / 8.33) < 0.1
+
+
+def test_reader_trims_frames_to_the_advertised_window(tmp_path: Path) -> None:
+    # 20 s of 10 ms frames against a 10 s window: only the newest ~10 s of
+    # frames survive, so summaries and the graph describe the same span.
+    path = tmp_path / "long.ring"
+    assert write_frame_history(
+        path,
+        samples=[_sample(i) for i in range(20)],
+        frametimes_ms=[10.0] * 2000,
+        window_s=10,
+        metrics_cap=32,
+        frame_cap=4096,
+    )
+    history = read_frame_history(path)
+    assert history is not None
+    kept_ms = sum(history.frametimes_ms)
+    assert kept_ms <= 10_000.0 + 10.5
+    # Companded 10 ms decodes to ~9.93 ms, so ~1006 frames fill the window.
+    assert 1000 <= len(history.frametimes_ms) <= 1007
+    assert len(history.frametimes_ms) < 2000  # actually trimmed

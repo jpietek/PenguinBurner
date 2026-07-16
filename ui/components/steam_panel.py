@@ -378,18 +378,26 @@ class SteamPanel:
         self.frame_dna_badge.setIconSize(QtCore.QSize(64, 64))
         self.frame_dna_badge.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
         self.frame_dna_badge.setVisible(False)
+        self.frame_dna_badge.setAccessibleName(
+            "Frame DNA — open the Frame DNA tab"
+        )
         self.frame_dna_badge.clicked.connect(self._open_frame_dna)
         panel = self
 
         class _FrameDnaBadgeHover(QtCore.QObject):
-            """Hover peeks the fingerprint; any click falls through to open."""
+            """Hover or keyboard focus peeks the fingerprint; any click
+            falls through to open the tab."""
 
             def eventFilter(self, watched, event):
                 event_type = event.type()
-                if event_type == QtCore.QEvent.Type.Enter:
+                if event_type in (
+                    QtCore.QEvent.Type.Enter,
+                    QtCore.QEvent.Type.FocusIn,
+                ):
                     panel._show_frame_dna_peek()
                 elif event_type in (
                     QtCore.QEvent.Type.Leave,
+                    QtCore.QEvent.Type.FocusOut,
                     QtCore.QEvent.Type.MouseButtonPress,
                     QtCore.QEvent.Type.Hide,
                 ):

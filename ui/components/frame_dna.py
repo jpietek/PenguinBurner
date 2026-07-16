@@ -87,16 +87,17 @@ def dna_axes(
     target_fps: float | None,
     power_limit_w: int,
 ) -> tuple[DnaAxis, ...]:
-    """The four spokes, each normalized against this machine or this game.
+    """The five spokes, each normalized against this machine or this game.
 
-    Only PWR, GPU, FPS, and CPU shape the DNA — a clean cardinal diamond.
-    Everything else (1%-low consistency, latency) is textual: consistency
-    lives in the stat row, and latency is not reliably measurable for
-    non-Reflex games at all.
+    PWR crowns the pentagon, the load pair (GPU, CPU) flanks it, and the
+    experience pair (FPS, LOW) sits below. Latency has no spoke: it is not
+    reliably measurable for non-Reflex games, so it appears only as numeric
+    data where actually measured.
     """
     power_limit = float(power_limit_w) if power_limit_w > 0 else _FALLBACK_POWER_LIMIT_W
     target = float(target_fps) if target_fps and target_fps > 0 else _FALLBACK_TARGET_FPS
     median_fps = summary.median_present_fps
+    low_ratio = (summary.low_1pct_fps / median_fps) if median_fps > 0 else 0.0
     return (
         DnaAxis(
             "PWR",
@@ -115,6 +116,12 @@ def dna_axes(
             "Median FPS",
             f"{median_fps:.0f} fps",
             _clamp(median_fps / target),
+        ),
+        DnaAxis(
+            "LOW",
+            "Fluency floor",
+            f"{low_ratio:.0%} of median",
+            _clamp(low_ratio),
         ),
         DnaAxis(
             "CPU",
@@ -288,14 +295,17 @@ class FrameDnaPeek:
                 background: transparent; border: none;
             }}
             QLabel#frameDnaPeekKey {{
+                font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
                 color: {theme.DNA_TEXT_DIM}; font-size: 11px;
                 background: transparent; border: none;
             }}
             QLabel#frameDnaPeekValue {{
+                font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
                 color: {theme.DNA_TEXT}; font-size: 11px; font-weight: 600;
                 background: transparent; border: none;
             }}
             QLabel#frameDnaPeekHint {{
+                font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
                 color: {theme.DNA_TEXT_MUTED}; font-size: 10px;
                 background: transparent; border: none;
                 border-top: 1px solid {theme.DNA_BORDER};
@@ -366,10 +376,10 @@ class FrameDnaPeek:
             )
         )
         self._stat_values["Median"].setText(
-            f"{summary.median_frametime_ms:.1f} ms · {summary.median_present_fps:.0f} fps"
+            f"{summary.median_present_fps:.0f} fps · {summary.median_frametime_ms:.1f} ms"
         )
         self._stat_values["1%-low"].setText(
-            f"{summary.p99_frametime_ms:.1f} ms · {summary.low_1pct_fps:.0f} fps"
+            f"{summary.low_1pct_fps:.0f} fps · {summary.p99_frametime_ms:.1f} ms"
         )
         self._stat_values["Power"].setText(f"{summary.median_power_w} W")
         self._stat_values["Bottleneck"].setText(bottleneck_label(summary.bottleneck))

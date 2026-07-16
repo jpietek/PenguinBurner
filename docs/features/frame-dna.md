@@ -32,6 +32,7 @@ fingerprint; until then the badge shows a dashed "warming up" outline.
 | **GPU** | median GPU load | 100 % |
 | **CPU** | median hottest-thread load | 100 % |
 | **FPS** | median rendered FPS | the game's target FPS |
+| **LOW** | 1%-low ÷ median (consistency) | 1.0 |
 
 Latency has no spoke: it is not reliably measurable for games without Reflex
 markers, so it never shapes the fingerprint. When marker latency exists it

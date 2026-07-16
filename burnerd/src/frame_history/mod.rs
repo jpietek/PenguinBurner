@@ -481,8 +481,22 @@ fn compact_ring(data: &[u8], app_id: u32) -> Option<Vec<u8>> {
         return None;
     }
 
+    // Collect the frames oldest-to-newest, then trim to the advertised
+    // rolling window so long sessions archive exactly what the header claims.
+    let frame_start = if frame_count < frame_cap {
+        0
+    } else {
+        frame_head % frame_cap
+    };
+    let mut frames: Vec<u8> = (0..frame_count)
+        .map(|index| data[frames_offset + ((frame_start + index) % frame_cap) as usize])
+        .collect();
+    let window_s = u16::from_le_bytes([data[24], data[25]]);
+    trim_frames_to_window(&mut frames, window_s);
+    let kept_frames = frames.len() as u32;
+
     let out_metrics_cap = metrics_count;
-    let out_frame_cap = frame_count.max(1);
+    let out_frame_cap = kept_frames.max(1);
     let mut out = vec![
         0u8;
         HEADER_SIZE + out_metrics_cap as usize * RECORD_SIZE + out_frame_cap as usize
@@ -493,8 +507,8 @@ fn compact_ring(data: &[u8], app_id: u32) -> Option<Vec<u8>> {
     out[28..30].copy_from_slice(&0u16.to_le_bytes()); // head: unwrapped layout
     out[30..32].copy_from_slice(&(metrics_count as u16).to_le_bytes());
     out[32..36].copy_from_slice(&out_frame_cap.to_le_bytes());
-    out[36..40].copy_from_slice(&(frame_count % out_frame_cap).to_le_bytes());
-    out[40..44].copy_from_slice(&frame_count.to_le_bytes());
+    out[36..40].copy_from_slice(&(kept_frames % out_frame_cap).to_le_bytes());
+    out[40..44].copy_from_slice(&kept_frames.to_le_bytes());
 
     let metrics_start = if metrics_count < metrics_cap {
         0
@@ -507,17 +521,29 @@ fn compact_ring(data: &[u8], app_id: u32) -> Option<Vec<u8>> {
         let dst = HEADER_SIZE + index as usize * RECORD_SIZE;
         out[dst..dst + RECORD_SIZE].copy_from_slice(&data[src..src + RECORD_SIZE]);
     }
-    let frame_start = if frame_count < frame_cap {
-        0
-    } else {
-        frame_head % frame_cap
-    };
     let out_frames_offset = HEADER_SIZE + out_metrics_cap as usize * RECORD_SIZE;
-    for index in 0..frame_count {
-        let src_slot = ((frame_start + index) % frame_cap) as usize;
-        out[out_frames_offset + index as usize] = data[frames_offset + src_slot];
-    }
+    out[out_frames_offset..out_frames_offset + frames.len()].copy_from_slice(&frames);
     Some(out)
+}
+
+/// Drop frames older than the advertised rolling window (by cumulative
+/// decoded frametime, newest backwards), so long sessions archive exactly
+/// the span the header promises.
+fn trim_frames_to_window(frames: &mut Vec<u8>, window_s: u16) {
+    let budget_ms = f64::from(window_s) * 1000.0;
+    if budget_ms <= 0.0 {
+        return;
+    }
+    let mut total = 0.0;
+    let mut start = frames.len();
+    for index in (0..frames.len()).rev() {
+        total += 2f64.powf(f64::from(frames[index]) / 32.0);
+        if total > budget_ms {
+            break;
+        }
+        start = index;
+    }
+    frames.drain(..start.min(frames.len()));
 }
 
 #[cfg(test)]

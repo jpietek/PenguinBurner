@@ -313,7 +313,8 @@ class MainWindow(ProfileActionsMixin):
         glyph_axes = tuple(
             DnaAxis(code, code, "", fraction)
             for code, fraction in (
-                ("PWR", 0.85), ("GPU", 0.9), ("FPS", 0.65), ("CPU", 0.6),
+                ("PWR", 0.85), ("GPU", 0.9), ("FPS", 0.65),
+                ("LOW", 0.75), ("CPU", 0.6),
             )
         )
         pixmap = dna_pixmap(

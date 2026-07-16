@@ -9,6 +9,7 @@ mock's violet-blue; red is reserved for the stutter needles.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from runtime.frame_history import (
@@ -132,8 +133,10 @@ class FrameDnaPanel:
             QLabel#frameDnaTitle {{
                 color: {theme.DNA_TEXT}; font-size: 17px; font-weight: 700;
             }}
-            QLabel#frameDnaMeta {{ color: {theme.DNA_TEXT_MUTED}; font-size: 11px; }}
+            QLabel#frameDnaMeta {{ color: {theme.DNA_TEXT_MUTED}; font-size: 11px;
+                font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace; }}
             QLabel#frameDnaTierChip {{
+                font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
                 color: {theme.DNA_TEXT_DIM}; font-size: 10px; font-weight: 700;
                 border: 1px solid {theme.DNA_BORDER_STRONG}; border-radius: 9px;
                 padding: 2px 10px;
@@ -141,11 +144,14 @@ class FrameDnaPanel:
             QLabel#frameDnaSection {{
                 color: {theme.DNA_TEXT_DIM}; font-size: 12px; font-weight: 700;
             }}
-            QLabel#frameDnaCaption {{ color: {theme.DNA_TEXT_MUTED}; font-size: 10px; }}
+            QLabel#frameDnaCaption {{ color: {theme.DNA_TEXT_MUTED}; font-size: 10px;
+                font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace; }}
             QLabel#frameDnaStatKey {{
+                font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
                 color: {theme.DNA_TEXT_MUTED}; font-size: 10px; font-weight: 600;
             }}
             QLabel#frameDnaStatValue {{
+                font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
                 color: {theme.DNA_TEXT}; font-size: 13px; font-weight: 600;
             }}
             QLabel#frameDnaEmpty {{ color: {theme.DNA_TEXT_MUTED}; font-size: 13px; }}
@@ -304,6 +310,15 @@ class FrameDnaPanel:
                     return rect.adjusted(0, -12, 0, 12)
                 return rect.adjusted(-12, 0, 12, 0)
 
+            def tickStrings(self, values, scale, spacing):
+                # The axis label already says "minutes ago" — a "-5" under it
+                # would read as the future. Ticks show unsigned magnitudes.
+                if self.orientation == "bottom":
+                    return [
+                        f"{abs(value * scale):g}" for value in values
+                    ]
+                return super().tickStrings(values, scale, spacing)
+
         return _EdgeLabelAxis(orientation=orientation)
 
     def _styled_plot(self, *, x_label: str, y_label: str):
@@ -353,6 +368,8 @@ class FrameDnaPanel:
             "flat & low = smooth · red = stutter (> 1.6× median) · "
             "lines: median & 1%-low (p99)",
         )
+        self._frametime_caption = caption
+        self._frametime_caption_base = caption.text()
         self.live_toggle = QtWidgets.QToolButton()
         self.live_toggle.setObjectName("frameDnaLiveToggle")
         self.live_toggle.setText("LIVE 10 s")
@@ -377,13 +394,15 @@ class FrameDnaPanel:
         self.stutter_bars.setZValue(5)
         self.frametime_plot.addItem(self.stutter_bars)
         # Unlabeled reference lines: the numbers live in the stat row, and
-        # on-plot labels collide whenever median and 1%-low sit close.
-        self.median_line = pg.InfiniteLine(
-            angle=0, movable=False, pen=pg.mkPen(theme.DNA_AXIS, width=1)
-        )
+        # on-plot labels collide whenever median and 1%-low sit close. The
+        # median rides its own trace, so it dashes in a brighter ink to stay
+        # visible against the stroke it hugs.
+        median_pen = pg.mkPen(theme.DNA_TEXT_MUTED, width=1)
+        median_pen.setStyle(self.QtCore.Qt.PenStyle.DashLine)
+        self.median_line = pg.InfiniteLine(angle=0, movable=False, pen=median_pen)
         self.p99_line = pg.InfiniteLine(
             angle=0, movable=False,
-            pen=pg.mkPen(theme.DNA_TEXT_MUTED, width=1),
+            pen=pg.mkPen(theme.DNA_TEXT_DIM, width=1),
         )
         self.frametime_plot.addItem(self.median_line, ignoreBounds=True)
         self.frametime_plot.addItem(self.p99_line, ignoreBounds=True)
@@ -526,11 +545,20 @@ class FrameDnaPanel:
             self.frametime_plot.setLabel(
                 "bottom", "minutes ago", color=theme.DNA_TEXT_MUTED
             )
-        # The mock's y-ceiling: spikes keep their height, extremes clamp.
-        ceiling = max(
-            summary.median_frametime_ms * 2.4, summary.p99_frametime_ms * 1.85
+        # The mock's y-ceiling, rounded to a nice number so the top tick and
+        # the range end coincide; spikes keep their height, extremes clamp.
+        raw_ceiling = max(
+            20.0, summary.median_frametime_ms * 2.4, summary.p99_frametime_ms * 1.85
         )
+        ceiling = float(math.ceil(raw_ceiling / 5.0) * 5)
+        worst = max(spikes_h) if spikes_h else 0.0
         spikes_h = tuple(min(height, ceiling) for height in spikes_h)
+        # A 250 ms hitch must not silently render like a 20 ms blip: the
+        # caption discloses the true worst frame whenever the plot clamps.
+        caption = self._frametime_caption_base
+        if worst > ceiling:
+            caption = f"{caption} · worst frame {worst:.0f} ms (clipped)"
+        self._frametime_caption.setText(caption)
         self.frametime_curve.setData(xs, values)
         self.stutter_bars.setOpts(x=spikes_x, height=spikes_h, width=bar_width)
         self.median_line.setValue(summary.median_frametime_ms)
@@ -542,6 +570,8 @@ class FrameDnaPanel:
                 [[(v, str(v)) for v in range(0, int(ceiling) + 1, step)]]
             )
             self.frametime_plot.setXRange(*x_range, padding=0.0)
+            # 4% headroom keeps the top tick's label unclipped; clamped
+            # needles still terminate exactly on the ceiling tick.
             self.frametime_plot.setYRange(0.0, ceiling * 1.04, padding=0.0)
 
     # ---------- events ----------

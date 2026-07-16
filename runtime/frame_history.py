@@ -392,7 +392,27 @@ def read_frame_history(path: str | Path) -> FrameHistory | None:
         decode_frametime_ms(data[metrics_end + (slot % header.frame_cap)])
         for slot in _unwrap(frame_count, header.frame_cap, header.frame_head)
     )
+    # The frame ring's byte capacity outlives the metrics window on long
+    # sessions; enforce the advertised rolling window on the frame data too,
+    # so summaries and the frametime graph describe the same span.
+    frametimes = _trim_frames_to_window(frametimes, header.window_s)
     return FrameHistory(header=header, samples=samples, frametimes_ms=frametimes)
+
+
+def _trim_frames_to_window(
+    frametimes_ms: tuple[float, ...], window_s: int
+) -> tuple[float, ...]:
+    budget_ms = float(window_s) * 1000.0
+    if budget_ms <= 0.0:
+        return frametimes_ms
+    total = 0.0
+    start = len(frametimes_ms)
+    for index in range(len(frametimes_ms) - 1, -1, -1):
+        total += frametimes_ms[index]
+        if total > budget_ms:
+            break
+        start = index
+    return frametimes_ms[start:]
 
 
 def write_frame_history(

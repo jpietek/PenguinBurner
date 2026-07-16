@@ -61,14 +61,16 @@ def _summary(
 def test_dna_axes_normalization_math() -> None:
     axes = dna_axes(_summary(), target_fps=120.0, power_limit_w=360)
     by_code = {axis.code: axis for axis in axes}
-    # Four cardinal spokes; consistency (1%-low) and latency are textual only.
-    assert [axis.code for axis in axes] == ["PWR", "GPU", "FPS", "CPU"]
+    # Five spokes — PWR crown, load pair, experience pair; latency stays
+    # textual only.
+    assert [axis.code for axis in axes] == ["PWR", "GPU", "FPS", "LOW", "CPU"]
     assert abs(by_code["PWR"].fraction - 214 / 360) < 1e-9
     assert by_code["PWR"].text == "214 W"
     assert abs(by_code["GPU"].fraction - 0.92) < 1e-9
     assert abs(by_code["CPU"].fraction - 0.60) < 1e-9
     assert abs(by_code["FPS"].fraction - 96 / 120) < 1e-9
-    assert "LOW" not in by_code
+    assert abs(by_code["LOW"].fraction - 71 / 96) < 1e-9
+    assert by_code["LOW"].text == "74% of median"
 
 
 def test_dna_axes_fallbacks_and_clamping() -> None:
@@ -145,8 +147,9 @@ def test_peek_popover_populates_and_positions(qapp) -> None:
     try:
         assert peek.widget.isVisible()
         assert peek.title.text() == "Baldur's Gate 3 · Frame DNA"
-        assert peek._stat_values["Median"].text() == "10.4 ms · 96 fps"
-        assert peek._stat_values["1%-low"].text() == "14.1 ms · 71 fps"
+        # fps-first, matching the tab's stat row and the mock.
+        assert peek._stat_values["Median"].text() == "96 fps · 10.4 ms"
+        assert peek._stat_values["1%-low"].text() == "71 fps · 14.1 ms"
         assert peek._stat_values["Power"].text() == "214 W"
         assert peek._stat_values["Bottleneck"].text() == "GPU-bound"
         # A real marker latency earns the fifth row.
