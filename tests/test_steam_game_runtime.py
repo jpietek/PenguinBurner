@@ -62,6 +62,17 @@ def test_profile_argv_for_explicit_stock_pins_factory_state() -> None:
     assert argv == ["--auto-uv-profile", "__stock__"]
 
 
+def test_profile_argv_appends_the_telemetry_opt_out() -> None:
+    argv = profile_argv_for_setting(
+        SteamGameSetting(enabled=True, mode="stock", telemetry=False)
+    )
+    assert argv == ["--auto-uv-profile", "__stock__", "--no-game-telemetry"]
+    # Default stays flag-free: capture is on unless the user opted out.
+    assert "--no-game-telemetry" not in (
+        profile_argv_for_setting(SteamGameSetting(enabled=True, mode="stock")) or []
+    )
+
+
 def _stub_adaptive_profiles(monkeypatch) -> None:
     monkeypatch.setattr(game_runtime, "read_auto_uv_profiles", lambda: [])
     monkeypatch.setattr(

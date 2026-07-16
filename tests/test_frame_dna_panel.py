@@ -174,7 +174,10 @@ def test_panel_populates_detail_from_a_qualified_ring(qtbot, tmp_path: Path) -> 
         assert "frame-gen seen" in panel.meta_label.text()
         assert panel._stat_values["POWER"].text() == "298 W"
         assert panel._stat_values["GPU / CPU-THREAD"].text() == "99% / 66%"
-        assert panel._stat_values["BOTTLENECK"].text() == "GPU-bound"
+        assert panel._stat_values["CLOCK"].text() == "2610 MHz"
+        assert panel._stat_values["TEMP"].text() == "71 °C"
+        assert panel._stat_values["FAN"].text() == "63%"
+        assert "BOTTLENECK" not in panel._stat_values  # dropped as confusing
         assert "78 fps" in panel._stat_values["MEDIAN"].text()
         assert panel.dna_label.pixmap() is not None
 

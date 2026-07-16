@@ -73,6 +73,7 @@ class _FakeManager:
         self.target_fps_changes: list[tuple[str, float | None]] = []
         self.bulk_enabled: list[tuple[list[str], bool]] = []
         self.bulk_overlay: list[tuple[list[str], bool]] = []
+        self.telemetry_changes: list[tuple[str, bool]] = []
         self.stop_ok = True
         self.marker = True
         self.cdp = True
@@ -162,6 +163,16 @@ class _FakeManager:
     def set_all_games_overlay(self, app_ids, overlay):
         self.bulk_overlay.append((sorted(app_ids), bool(overlay)))
         return SimpleNamespace(ok=True, message="bulk overlay done")
+
+    def set_game_telemetry(self, app_id: str, telemetry: bool):
+        self.telemetry_changes.append((app_id, bool(telemetry)))
+        self.rows = tuple(
+            replace(row, setting=replace(row.setting, telemetry=bool(telemetry)))
+            if row.game.app_id == app_id
+            else row
+            for row in self.rows
+        )
+        return SimpleNamespace(ok=True, message="Applied live.")
 
     def set_game_target_fps(self, app_id: str, target_fps):
         self.target_fps_changes.append((app_id, target_fps))
@@ -934,6 +945,35 @@ def test_frame_dna_badge_states_peek_and_open_callback(
         assert panel.game_title.text() == "Beta"
         assert "Warming up" in badge.toolTip()
         assert panel._frame_dna_summary is None
+    finally:
+        panel._sync_timer.stop()
+        panel._game_state_timer.stop()
+
+
+def test_telemetry_capture_toggle_persists_per_game(qtbot, tmp_path: Path) -> None:
+    QtCore, QtGui, QtWidgetsModule, _pg = import_qt()
+    rows = (_row(tmp_path, "30", "Zeta", 300),)
+    manager = _FakeManager(rows)
+    panel = SteamPanel(
+        QtCore=QtCore,
+        QtGui=QtGui,
+        QtWidgets=QtWidgetsModule,
+        manager=cast(SteamIntegrationManager, manager),
+    )
+    qtbot.addWidget(panel.widget)
+    qtbot.waitUntil(lambda: not panel._scan_running, timeout=2000)
+    try:
+        # Capture defaults on for every game.
+        assert panel.telemetry_checkbox.isChecked() is True
+        panel.enabled_checkbox.click()  # toggles need the wrapper enabled
+        assert panel.telemetry_checkbox.isEnabled()
+
+        panel.telemetry_checkbox.click()
+        assert manager.telemetry_changes == [("30", False)]
+        assert panel.telemetry_checkbox.isChecked() is False
+
+        panel.telemetry_checkbox.click()
+        assert manager.telemetry_changes == [("30", False), ("30", True)]
     finally:
         panel._sync_timer.stop()
         panel._game_state_timer.stop()

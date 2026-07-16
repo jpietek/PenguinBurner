@@ -67,6 +67,9 @@ class SteamGameSetting:
     enabled: bool = False
     mode: str = GAME_MODE_ADAPTIVE
     overlay: bool = False
+    # Frame-history capture (Frame DNA). On by default: the daemon records a
+    # rolling window for every enabled game unless the user opts out.
+    telemetry: bool = True
     original_launch_options: str = ""
     injected_launch_options: str = ""
     # None = follow the global [adaptive] target_fps from the runtime config.
@@ -112,6 +115,7 @@ def load_steam_game_settings(
                 ),
                 mode=mode,
                 overlay=bool(entry.get("overlay")),
+                telemetry=bool(entry.get("telemetry", True)),
                 original_launch_options=str(entry.get("original_launch_options") or ""),
                 injected_launch_options=injected,
                 target_fps=normalize_game_target_fps(entry.get("target_fps")),
@@ -210,6 +214,7 @@ def _write_settings(
                         "enabled": setting.enabled,
                         "mode": setting.mode,
                         "overlay": setting.overlay,
+                        "telemetry": setting.telemetry,
                         **(
                             {"target_fps": setting.target_fps}
                             if setting.target_fps is not None

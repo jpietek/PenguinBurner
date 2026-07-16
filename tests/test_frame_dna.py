@@ -8,15 +8,12 @@ from profiles.uv.profile_tiers import (
     PROFILE_TIER_PERFORMANCE,
 )
 from runtime.frame_history import (
-    BOTTLENECK_CPU,
     BOTTLENECK_GPU,
-    BOTTLENECK_MIXED,
     FrameHistorySummary,
 )
 from ui import theme
 from ui.components.frame_dna import (
     FrameDnaPeek,
-    bottleneck_label,
     dna_axes,
     dna_pixmap,
     tier_color,
@@ -91,10 +88,7 @@ def test_tier_colors_use_the_mock_palette() -> None:
     assert tier_label(PROFILE_TIER_NONE) == "Untuned"
 
 
-def test_bottleneck_labels() -> None:
-    assert bottleneck_label(BOTTLENECK_GPU) == "GPU-bound"
-    assert bottleneck_label(BOTTLENECK_CPU) == "CPU-bound"
-    assert bottleneck_label(BOTTLENECK_MIXED) == "Mixed"
+def test_warming_text_names_the_gate() -> None:
     assert "5 min" in warming_text(2.4)
 
 
@@ -151,7 +145,7 @@ def test_peek_popover_populates_and_positions(qapp) -> None:
         assert peek._stat_values["Median"].text() == "96 fps · 10.4 ms"
         assert peek._stat_values["1%-low"].text() == "71 fps · 14.1 ms"
         assert peek._stat_values["Power"].text() == "214 W"
-        assert peek._stat_values["Bottleneck"].text() == "GPU-bound"
+        assert "Bottleneck" not in peek._stat_values  # dropped as confusing
         # A real marker latency earns the fifth row.
         assert peek._stat_values["Latency"].text() == "22 ms"
         assert peek._stat_values["Latency"].isVisibleTo(peek.widget)

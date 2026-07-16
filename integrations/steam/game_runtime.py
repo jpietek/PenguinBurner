@@ -56,6 +56,13 @@ def game_account_id(env: dict[str, str], *, home: Path | None = None) -> str:
 
 def profile_argv_for_setting(setting: SteamGameSetting) -> list[str] | None:
     """Daemon runtime argv for a preset; None when there is nothing to apply."""
+    argv = _profile_argv_for_setting(setting)
+    if argv is not None and not setting.telemetry:
+        argv.append("--no-game-telemetry")
+    return argv
+
+
+def _profile_argv_for_setting(setting: SteamGameSetting) -> list[str] | None:
     if not setting.enabled:
         return None
     if setting.mode in (GAME_MODE_NONE, GAME_MODE_DEFAULT):

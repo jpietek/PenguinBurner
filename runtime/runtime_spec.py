@@ -48,6 +48,7 @@ def runtime_intent(
     adaptive_auto_uv: bool = False,
     adaptive_target_fps: float | None = None,
     gpu_index: int | None = None,
+    game_telemetry: bool = True,
 ) -> dict[str, Any]:
     return {
         "profile_selector": str(profile_selector or "").strip(),
@@ -57,6 +58,7 @@ def runtime_intent(
             None if adaptive_target_fps is None else float(adaptive_target_fps)
         ),
         "gpu_index": None if gpu_index is None else max(0, int(gpu_index)),
+        "game_telemetry": bool(game_telemetry),
     }
 
 
@@ -67,6 +69,7 @@ def runtime_intent_from_argv(argv) -> dict[str, Any]:
     adaptive_auto_uv = False
     adaptive_target_fps = None
     gpu_index = None
+    game_telemetry = True
     values = list(argv or ())
     index = 0
     while index < len(values):
@@ -93,6 +96,8 @@ def runtime_intent_from_argv(argv) -> dict[str, Any]:
             silent_fan_curve = True
         elif item == "--adaptive-auto-uv":
             adaptive_auto_uv = True
+        elif item == "--no-game-telemetry":
+            game_telemetry = False
         else:
             raise RuntimeError(f"unsupported runtime profile argument: {item}")
         index += 1
@@ -102,6 +107,7 @@ def runtime_intent_from_argv(argv) -> dict[str, Any]:
         adaptive_auto_uv=adaptive_auto_uv,
         adaptive_target_fps=adaptive_target_fps,
         gpu_index=gpu_index,
+        game_telemetry=game_telemetry,
     )
 
 
@@ -120,6 +126,7 @@ def build_runtime_spec_from_intent(
             "adaptive_auto_uv",
             "adaptive_target_fps",
             "gpu_index",
+            "game_telemetry",
         }
     )
     if unknown:
@@ -134,6 +141,7 @@ def build_runtime_spec(
     adaptive_auto_uv: bool = False,
     adaptive_target_fps: float | None = None,
     gpu_index: int | None = None,
+    game_telemetry: bool = True,
     socket_path: str | Path | None = None,
 ) -> dict[str, Any]:
     require_daemon_capabilities(
@@ -197,6 +205,9 @@ def build_runtime_spec(
             "enabled": bool(overlay.enabled),
             "update_interval_s": int(overlay.update_interval_s),
         },
+        # Frame-history capture for the watched game (Frame DNA); per-game
+        # opt-out from the Steam tab. Absent means enabled (older callers).
+        "game_telemetry": bool(game_telemetry),
     }
 
 

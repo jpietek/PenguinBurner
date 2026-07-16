@@ -357,6 +357,17 @@ def test_runtime_intent_from_argv_parses_adaptive_target_fps() -> None:
     )
 
 
+def test_runtime_intent_from_argv_parses_the_telemetry_opt_out() -> None:
+    # Capture is the default; the wrapper passes the flag only to opt out.
+    assert runtime_spec.runtime_intent_from_argv([])["game_telemetry"] is True
+    assert (
+        runtime_spec.runtime_intent_from_argv(["--no-game-telemetry"])[
+            "game_telemetry"
+        ]
+        is False
+    )
+
+
 def test_saved_fan_curve_is_resolved_before_daemon_apply(monkeypatch, tmp_path) -> None:
     path = tmp_path / "auto-uv-fan-curve.json"
     path.write_text(
@@ -407,6 +418,7 @@ def test_runtime_intent_argv_bridge_is_python_only_and_strict() -> None:
         "adaptive_auto_uv": True,
         "adaptive_target_fps": None,
         "gpu_index": 3,
+        "game_telemetry": True,
     }
     with pytest.raises(RuntimeError, match="unsupported runtime profile argument"):
         runtime_spec.runtime_intent_from_argv(["--daemon-api"])

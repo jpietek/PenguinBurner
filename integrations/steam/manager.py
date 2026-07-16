@@ -322,6 +322,11 @@ class SteamIntegrationManager:
         setting = self._setting(app_id)
         return self._apply(app_id, replace(setting, overlay=bool(overlay)))
 
+    def set_game_telemetry(self, app_id: str, telemetry: bool) -> ApplyResult:
+        """Frame-history capture opt-out; takes effect on the next launch."""
+        setting = self._setting(app_id)
+        return self._apply(app_id, replace(setting, telemetry=bool(telemetry)))
+
     def set_game_target_fps(self, app_id: str, target_fps: float | None) -> ApplyResult:
         setting = self._setting(app_id)
         return self._apply(

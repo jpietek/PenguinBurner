@@ -20,7 +20,6 @@ from runtime.frame_history import (
 )
 from ui import theme
 from ui.components.frame_dna import (
-    bottleneck_label,
     dna_axes,
     dna_pixmap,
     tier_color,
@@ -237,8 +236,8 @@ class FrameDnaPanel:
         stats.setVerticalSpacing(10)
         self._stat_values: dict[str, Any] = {}
         stat_keys = (
-            "MEDIAN", "1%-LOW", "POWER",
-            "GPU / CPU-THREAD", "BOTTLENECK", "LATENCY",
+            "MEDIAN", "1%-LOW", "POWER", "CLOCK",
+            "GPU / CPU-THREAD", "TEMP", "FAN", "LATENCY",
         )
         for index, key in enumerate(stat_keys):
             cell_widget = QtWidgets.QWidget()
@@ -251,14 +250,14 @@ class FrameDnaPanel:
             value_label.setObjectName("frameDnaStatValue")
             cell.addWidget(key_label)
             cell.addWidget(value_label)
-            stats.addWidget(cell_widget, index // 3, index % 3)
+            stats.addWidget(cell_widget, index // 4, index % 4)
             self._stat_values[key] = value_label
         # Latency has no spoke and no placeholder: the cell exists only
         # while there is a real measurement to show.
         self._latency_cell = cell_widget
         self._latency_key = key_label
         self._latency_cell.setVisible(False)
-        stats.setColumnStretch(3, 1)
+        stats.setColumnStretch(4, 1)
         # The mock's tab-top centers the stats against the fingerprint.
         stats_wrap = QtWidgets.QVBoxLayout()
         stats_wrap.addStretch(1)
@@ -513,10 +512,12 @@ class FrameDnaPanel:
             f"{summary.low_1pct_fps:.0f} fps · {summary.p99_frametime_ms:.1f} ms"
         )
         self._stat_values["POWER"].setText(f"{summary.median_power_w} W")
+        self._stat_values["CLOCK"].setText(f"{summary.median_clock_mhz} MHz")
+        self._stat_values["TEMP"].setText(f"{summary.median_temperature_c:.0f} °C")
+        self._stat_values["FAN"].setText(f"{summary.median_fan_pct:.0f}%")
         self._stat_values["GPU / CPU-THREAD"].setText(
             f"{summary.gpu_util_pct}% / {summary.cpu_peak_thread_pct}%"
         )
-        self._stat_values["BOTTLENECK"].setText(bottleneck_label(summary.bottleneck))
         self._update_latency_cell(summary)
         self._render_frametime(history, summary)
 

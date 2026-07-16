@@ -198,6 +198,8 @@ class FrameHistorySummary:
     # Present->scanout tail (VK_KHR_present_wait) — a different metric from
     # marker render latency; non-Reflex games may have only this one.
     median_display_latency_ms: float = 0.0
+    median_temperature_c: float = 0.0
+    median_fan_pct: float = 0.0
 
 
 def frame_history_live_dir(env: Mapping[str, str] | None = None) -> Path:
@@ -608,5 +610,9 @@ def summarize(history: FrameHistory) -> FrameHistorySummary | None:
         median_display_latency_ms=statistics.median(
             s.display_latency_ms for s in samples
         ),
+        median_temperature_c=statistics.median(
+            s.temperature_c for s in samples
+        ),
+        median_fan_pct=statistics.median(s.fan_pct for s in samples),
         framegen_seen=any(s.framegen_active for s in samples),
     )

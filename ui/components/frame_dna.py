@@ -21,8 +21,6 @@ from profiles.uv.profile_tiers import (
     PROFILE_TIER_PERFORMANCE,
 )
 from runtime.frame_history import (
-    BOTTLENECK_CPU,
-    BOTTLENECK_GPU,
     QUALIFY_MINUTES,
     FrameHistorySummary,
 )
@@ -33,11 +31,6 @@ DNA_TIER_COLORS = {
     PROFILE_TIER_BALANCED: theme.DNA_TIER_BALANCED,
     PROFILE_TIER_PERFORMANCE: theme.DNA_TIER_PERFORMANCE,
     PROFILE_TIER_NONE: theme.DNA_TIER_NONE,
-}
-
-_BOTTLENECK_LABELS = {
-    BOTTLENECK_GPU: "GPU-bound",
-    BOTTLENECK_CPU: "CPU-bound",
 }
 
 # Axis normalization fallbacks: an unknown board limit reads against a
@@ -71,10 +64,6 @@ def tier_color(tier: str) -> str:
 
 def tier_label(tier: str) -> str:
     return PROFILE_TIER_LABELS.get(tier, "Untuned")
-
-
-def bottleneck_label(code: str) -> str:
-    return _BOTTLENECK_LABELS.get(code, "Mixed")
 
 
 def warming_text(minutes: float) -> str:
@@ -331,7 +320,7 @@ class FrameDnaPeek:
         self._stat_keys: dict[str, Any] = {}
         # Latency rides fifth, and only for games with a real marker source.
         for row, key in enumerate(
-            ("Median", "1%-low", "Power", "Bottleneck", "Latency")
+            ("Median", "1%-low", "Power", "Latency")
         ):
             key_label = QtWidgets.QLabel(key)
             key_label.setObjectName("frameDnaPeekKey")
@@ -382,7 +371,6 @@ class FrameDnaPeek:
             f"{summary.low_1pct_fps:.0f} fps · {summary.p99_frametime_ms:.1f} ms"
         )
         self._stat_values["Power"].setText(f"{summary.median_power_w} W")
-        self._stat_values["Bottleneck"].setText(bottleneck_label(summary.bottleneck))
         # Absence of data is absence of the row — never a placeholder.
         has_latency = summary.latency_ms > 0
         self._stat_values["Latency"].setText(

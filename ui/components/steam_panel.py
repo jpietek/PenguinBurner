@@ -489,6 +489,17 @@ class SteamPanel:
         self.overlay_checkbox = QtWidgets.QCheckBox("Enable In-Game overlay")
         self.overlay_checkbox.setObjectName("steamOverlayToggle")
         details_layout.addWidget(self.overlay_checkbox)
+        self.telemetry_checkbox = QtWidgets.QCheckBox("Capture game telemetry")
+        self.telemetry_checkbox.setObjectName("steamTelemetryToggle")
+        self.telemetry_checkbox.setToolTip(
+            _wrapped_tooltip(
+                "Record this game's Frame DNA telemetry (a rolling 30-minute "
+                "window of frametimes, clocks, power, and the active tier) "
+                "while it runs. On by default; turning it off stops new "
+                "capture from the next launch."
+            )
+        )
+        details_layout.addWidget(self.telemetry_checkbox)
 
         details_layout.addStretch(1)
         self.splitter.addWidget(self.details_pane)
@@ -510,6 +521,7 @@ class SteamPanel:
         self.target_fps_spin.valueChanged.connect(self._target_fps_changed)
         self.enabled_checkbox.toggled.connect(self._enabled_changed)
         self.overlay_checkbox.toggled.connect(self._overlay_changed)
+        self.telemetry_checkbox.toggled.connect(self._telemetry_changed)
         self._launch_edit_timer = QtCore.QTimer(self.widget)
         self._launch_edit_timer.setSingleShot(True)
         self._launch_edit_timer.setInterval(600)
@@ -743,6 +755,7 @@ class SteamPanel:
                 self.target_fps_spin.setValue(adaptive_target_fps_from_env())
                 self.enabled_checkbox.setChecked(False)
                 self.overlay_checkbox.setChecked(False)
+                self.telemetry_checkbox.setChecked(True)
             else:
                 self.game_title.setText(row.game.name)
                 self.game_metadata.setText(
@@ -780,6 +793,7 @@ class SteamPanel:
                 )
                 self.enabled_checkbox.setChecked(row.setting.enabled)
                 self.overlay_checkbox.setChecked(row.setting.overlay)
+                self.telemetry_checkbox.setChecked(row.setting.telemetry)
         finally:
             self._syncing = was_syncing
         self._sync_frame_dna_badge(row)
@@ -925,6 +939,7 @@ class SteamPanel:
         else:
             self.proton_combo.setToolTip(self._proton_combo_default_tooltip)
         self.overlay_checkbox.setEnabled(wrapper_enabled)
+        self.telemetry_checkbox.setEnabled(wrapper_enabled)
         # The Play/Stop button state (including availability) is derived from
         # the selected game's lifecycle in _sync_game_status.
         self._sync_game_status()
@@ -1225,6 +1240,15 @@ class SteamPanel:
                 launch_options=row.launch_options,
             )
         self._sync_status(result.message)
+
+    def _telemetry_changed(self, checked: bool) -> None:
+        if self._syncing:
+            return
+        app_id = self._selected_app_id
+        if not app_id:
+            return
+        result = self.manager.set_game_telemetry(app_id, bool(checked))
+        self._after_apply(app_id, result)
 
     def _overlay_changed(self, checked: bool) -> None:
         if self._syncing:

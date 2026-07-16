@@ -141,6 +141,22 @@ pub struct RuntimeSpec {
     pub fan: FanSpec,
     pub policy: RuntimePolicySpec,
     pub overlay: OverlaySpec,
+    /// Frame-history capture for the watched game (Frame DNA). Absent means
+    /// enabled — capture is the default — and the default is not serialized
+    /// so persisted runtime state keeps its old shape.
+    #[serde(
+        default = "default_game_telemetry",
+        skip_serializing_if = "game_telemetry_is_default"
+    )]
+    pub game_telemetry: bool,
+}
+
+fn default_game_telemetry() -> bool {
+    true
+}
+
+fn game_telemetry_is_default(value: &bool) -> bool {
+    *value
 }
 
 impl RuntimeSpec {
@@ -236,6 +252,7 @@ impl RuntimeSpec {
                 enabled: false,
                 update_interval_s: 1,
             },
+            game_telemetry: true,
         }
     }
 
@@ -496,4 +513,62 @@ pub fn profile_tier_label(value: &str) -> String {
         _ => "",
     }
     .to_string()
+}
+
+#[cfg(test)]
+mod telemetry_flag_tests {
+    use super::*;
+
+    fn minimal_spec_json() -> serde_json::Value {
+        serde_json::json!({
+            "format_version": 1,
+            "gpu": {
+                "uuid": "GPU-test",
+                "index_at_resolution": 0,
+                "pci_bus_id": "0000:01:00.0",
+                "name": "Test GPU"
+            },
+            "mode": "stock",
+            "static_profile": null,
+            "adaptive": null,
+            "fan": {
+                "enabled": false,
+                "config": {
+                    "poll_interval_s": 2.0,
+                    "curve": [[55.0, 30.0], [80.0, 45.0]],
+                    "hysteresis_c": 2.0,
+                    "mode": "linear",
+                    "min_fan_speed_pct": 20,
+                    "max_fan_speed_pct": 100,
+                    "max_step_up_pct_per_s": 25.0,
+                    "max_step_down_pct_per_s": 15.0,
+                    "manual_enable_temp_c": 55.0,
+                    "auto_restore_temp_c": 50.0,
+                    "emergency_auto_override_temp_c": 80.0,
+                    "emergency_auto_resume_temp_c": 75.0,
+                    "force_update_every_poll": false,
+                    "curve_source": null,
+                    "curve_source_path": null
+                },
+                "notice": ""
+            },
+            "policy": {"enable_persistence_mode": false},
+            "overlay": {"enabled": false, "update_interval_s": 1}
+        })
+    }
+
+    #[test]
+    fn game_telemetry_defaults_to_enabled_for_older_specs() {
+        let spec: RuntimeSpec =
+            serde_json::from_value(minimal_spec_json()).expect("spec parses");
+        assert!(spec.game_telemetry);
+    }
+
+    #[test]
+    fn game_telemetry_opt_out_round_trips() {
+        let mut json = minimal_spec_json();
+        json["game_telemetry"] = serde_json::Value::from(false);
+        let spec: RuntimeSpec = serde_json::from_value(json).expect("spec parses");
+        assert!(!spec.game_telemetry);
+    }
 }

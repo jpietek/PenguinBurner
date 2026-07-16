@@ -719,8 +719,10 @@ pub fn start_game_runtime_profile(
                 supervisor.game_runtime.standing_spec = standing_spec;
             }
             supervisor.game_runtime.watches.insert(watch_pid, watch);
-            if let Some(watch) = supervisor.game_runtime.watches.get(&watch_pid) {
-                crate::frame_history::session_start(watch_pid, &watch.app_id);
+            if spec.game_telemetry {
+                if let Some(watch) = supervisor.game_runtime.watches.get(&watch_pid) {
+                    crate::frame_history::session_start(watch_pid, &watch.app_id);
+                }
             }
             supervisor.game_runtime.override_active = true;
             Ok(serde_json::json!({
