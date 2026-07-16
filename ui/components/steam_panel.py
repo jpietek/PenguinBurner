@@ -406,8 +406,10 @@ class SteamPanel:
 
         self._frame_dna_hover_filter = _FrameDnaBadgeHover(self.widget)
         self.frame_dna_badge.installEventFilter(self._frame_dna_hover_filter)
-        title_row.addWidget(self.frame_dna_badge, 0, QtCore.Qt.AlignVCenter)
+        # The badge parks in the header's right corner: Play stays beside the
+        # game's info block, the fingerprint anchors the opposite edge.
         title_row.addStretch(1)
+        title_row.addWidget(self.frame_dna_badge, 0, QtCore.Qt.AlignVCenter)
         details_layout.addLayout(title_row)
 
         self.proton_label = QtWidgets.QLabel("Compatibility tool")
