@@ -807,7 +807,7 @@ class SteamPanel:
             )
             pixmap = dna_pixmap(
                 self.QtCore, self.QtGui, axes=axes, tier=summary.tier,
-                size=64, compact_labels=True, device_pixel_ratio=ratio,
+                size=64, device_pixel_ratio=ratio,
             )
             badge.setToolTip("")
         else:

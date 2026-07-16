@@ -61,15 +61,14 @@ def _summary(
 def test_dna_axes_normalization_math() -> None:
     axes = dna_axes(_summary(), target_fps=120.0, power_limit_w=360)
     by_code = {axis.code: axis for axis in axes}
-    # Five spokes: latency deliberately has none (unreliable off-Reflex).
-    assert [axis.code for axis in axes] == ["PWR", "GPU", "CPU", "FPS", "LOW"]
+    # Four cardinal spokes; consistency (1%-low) and latency are textual only.
+    assert [axis.code for axis in axes] == ["PWR", "GPU", "FPS", "CPU"]
     assert abs(by_code["PWR"].fraction - 214 / 360) < 1e-9
     assert by_code["PWR"].text == "214 W"
     assert abs(by_code["GPU"].fraction - 0.92) < 1e-9
     assert abs(by_code["CPU"].fraction - 0.60) < 1e-9
     assert abs(by_code["FPS"].fraction - 96 / 120) < 1e-9
-    assert abs(by_code["LOW"].fraction - 71 / 96) < 1e-9
-    assert by_code["LOW"].text == "74% of median"
+    assert "LOW" not in by_code
 
 
 def test_dna_axes_fallbacks_and_clamping() -> None:

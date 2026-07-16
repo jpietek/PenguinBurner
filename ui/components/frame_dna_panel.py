@@ -491,17 +491,12 @@ class FrameDnaPanel:
         self._render_frametime(history, summary)
 
     def _update_latency_cell(self, summary: FrameHistorySummary) -> None:
-        """Latency is numeric-only and appears only when actually measured:
-        marker latency when present, otherwise the present→scanout tail as
-        DISPLAY LAT (a different metric, never labeled plain LATENCY)."""
-        display_latency = summary.median_display_latency_ms
+        """Latency is numeric-only and appears only when a marker source
+        actually measured it. The present→scanout display tail is recorded in
+        the ring but never displayed — a bare scanout time reads as garbage."""
         if summary.latency_ms > 0:
             self._latency_key.setText("LATENCY")
             self._stat_values["LATENCY"].setText(f"{summary.latency_ms:.0f} ms")
-            self._latency_cell.setVisible(True)
-        elif display_latency > 0:
-            self._latency_key.setText("DISPLAY LAT")
-            self._stat_values["LATENCY"].setText(f"{display_latency:.0f} ms")
             self._latency_cell.setVisible(True)
         else:
             self._latency_cell.setVisible(False)

@@ -118,9 +118,11 @@ def _combined_latency_ms(values: dict[str, str]) -> str:
     still a real measurement and is shown on its own rather than nothing.
     """
     render = _ms_number(values.get("latency_ms"))
-    display = _ms_number(values.get("display_latency_ms"))
     if render is None:
-        return "" if display is None else str(display)
+        # A display tail alone is scanout timing (often ~1 ms off-vsync) —
+        # showing it as LAT reads as garbage. No marker latency, no LAT.
+        return ""
+    display = _ms_number(values.get("display_latency_ms"))
     total = render if display is None else render + display
     return str(total)
 

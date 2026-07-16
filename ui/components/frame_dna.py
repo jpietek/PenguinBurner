@@ -87,16 +87,16 @@ def dna_axes(
     target_fps: float | None,
     power_limit_w: int,
 ) -> tuple[DnaAxis, ...]:
-    """The five spokes, each normalized against this machine or this game.
+    """The four spokes, each normalized against this machine or this game.
 
-    Latency deliberately has no spoke: it is not reliably measurable for
-    non-Reflex games, so it must not shape the DNA. It appears only as
-    numeric data where actually measured.
+    Only PWR, GPU, FPS, and CPU shape the DNA — a clean cardinal diamond.
+    Everything else (1%-low consistency, latency) is textual: consistency
+    lives in the stat row, and latency is not reliably measurable for
+    non-Reflex games at all.
     """
     power_limit = float(power_limit_w) if power_limit_w > 0 else _FALLBACK_POWER_LIMIT_W
     target = float(target_fps) if target_fps and target_fps > 0 else _FALLBACK_TARGET_FPS
     median_fps = summary.median_present_fps
-    low_ratio = (summary.low_1pct_fps / median_fps) if median_fps > 0 else 0.0
     return (
         DnaAxis(
             "PWR",
@@ -111,22 +111,16 @@ def dna_axes(
             _clamp(summary.gpu_util_pct / 100.0),
         ),
         DnaAxis(
-            "CPU",
-            "CPU hot thread",
-            f"{summary.cpu_peak_thread_pct}%",
-            _clamp(summary.cpu_peak_thread_pct / 100.0),
-        ),
-        DnaAxis(
             "FPS",
             "Median FPS",
             f"{median_fps:.0f} fps",
             _clamp(median_fps / target),
         ),
         DnaAxis(
-            "LOW",
-            "Fluency floor",
-            f"{low_ratio:.0%} of median",
-            _clamp(low_ratio),
+            "CPU",
+            "CPU hot thread",
+            f"{summary.cpu_peak_thread_pct}%",
+            _clamp(summary.cpu_peak_thread_pct / 100.0),
         ),
     )
 
@@ -159,17 +153,15 @@ def dna_pixmap(
     tier: str,
     size: int,
     labels: bool = False,
-    compact_labels: bool = False,
     device_pixel_ratio: float = 1.0,
 ):
     """Render the fingerprint (or the dashed warming placeholder) to a pixmap.
 
     ``axes=None`` draws the warming-up state. ``labels=True`` is the large
-    variant with rings, spokes, axis codes, and vertex dots.
-    ``compact_labels=True`` is the badge variant: one ring, faint spokes, and
-    tiny axis codes so the shape means something at a glance. The radius is
-    computed from the label band's real font metrics so every code always
-    lands inside the pixmap, at any size.
+    variant with rings, spokes, axis codes, and vertex dots; the badge is the
+    bare shape — at miniature sizes the silhouette is the information. The
+    labeled radius is computed from the label band's real font metrics so
+    every code always lands inside the pixmap, at any size.
     """
     ratio = max(1.0, float(device_pixel_ratio))
     pixmap = QtGui.QPixmap(round(size * ratio), round(size * ratio))
@@ -179,12 +171,11 @@ def dna_pixmap(
     try:
         painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
         center = size / 2
-        labeled = labels or compact_labels
-        if labeled:
-            font = _label_font(QtGui, size, compact=compact_labels)
+        if labels:
+            font = _label_font(QtGui, size, compact=False)
             painter.setFont(font)
             metrics = QtGui.QFontMetricsF(font)
-            gap = max(3.0, size * 0.02) if compact_labels else max(2.0, size * 0.02)
+            gap = max(2.0, size * 0.02)
             radius = size / 2 - (metrics.height() + gap)
         else:
             metrics = None
@@ -215,44 +206,30 @@ def dna_pixmap(
         for index, axis in enumerate(axes):
             x, y, angle = _vertex(center, radius, index, count, axis.fraction)
             points.append((x, y))
-            if labeled:
-                if labels:
-                    # Full variant only: spokes clutter the compact badge.
-                    painter.setPen(grid_pen)
-                    painter.drawLine(
-                        QtCore.QPointF(center, center),
-                        QtCore.QPointF(
-                            center + math.cos(angle) * radius,
-                            center + math.sin(angle) * radius,
-                        ),
-                    )
+            if labels:
+                painter.setPen(grid_pen)
+                painter.drawLine(
+                    QtCore.QPointF(center, center),
+                    QtCore.QPointF(
+                        center + math.cos(angle) * radius,
+                        center + math.sin(angle) * radius,
+                    ),
+                )
                 # Center the code just outside the ring, then clamp it into
-                # the pixmap so no size can clip a label. The compact badge
-                # tucks the four diagonal codes into the pixmap's corners —
-                # their vertices point there, and the corners are the only
-                # real estate a small square has to spare.
+                # the pixmap so no size can clip a label.
                 width = metrics.horizontalAdvance(axis.code)
-                if compact_labels and abs(math.cos(angle)) > 0.01:
-                    text_x = 1.0 if math.cos(angle) < 0 else size - width - 1.0
-                    row_mid = (
-                        metrics.height() / 2 + 1
-                        if math.sin(angle) < 0
-                        else size - metrics.height() / 2 - 1
-                    )
-                    baseline = row_mid + metrics.ascent() - metrics.height() / 2
-                else:
-                    distance = radius + gap + metrics.height() / 2
-                    text_x = center + math.cos(angle) * distance - width / 2
-                    text_x = min(max(text_x, 0.0), size - width)
-                    baseline = (
-                        center
-                        + math.sin(angle) * distance
-                        + metrics.ascent()
-                        - metrics.height() / 2
-                    )
-                    baseline = min(
-                        max(baseline, metrics.ascent()), size - metrics.descent()
-                    )
+                distance = radius + gap + metrics.height() / 2
+                text_x = center + math.cos(angle) * distance - width / 2
+                text_x = min(max(text_x, 0.0), size - width)
+                baseline = (
+                    center
+                    + math.sin(angle) * distance
+                    + metrics.ascent()
+                    - metrics.height() / 2
+                )
+                baseline = min(
+                    max(baseline, metrics.ascent()), size - metrics.descent()
+                )
                 painter.setPen(QtGui.QPen(QtGui.QColor(theme.DNA_TEXT_MUTED)))
                 painter.drawText(QtCore.QPointF(text_x, baseline), axis.code)
 

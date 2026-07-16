@@ -32,12 +32,11 @@ fingerprint; until then the badge shows a dashed "warming up" outline.
 | **GPU** | median GPU load | 100 % |
 | **CPU** | median hottest-thread load | 100 % |
 | **FPS** | median rendered FPS | the game's target FPS |
-| **LOW** | 1%-low ÷ median (consistency) | 1.0 |
 
 Latency has no spoke: it is not reliably measurable for games without Reflex
-markers, so it never shapes the fingerprint. When a real measurement exists
-it appears as a number in the tab's stat row — marker latency as
-**LATENCY**, otherwise the present→scanout tail as **DISPLAY LAT**.
+markers, so it never shapes the fingerprint. When marker latency exists it
+appears as a **LATENCY** number in the tab's stat row; the 1%-low consistency
+figure is likewise textual (**1%-LOW** in the stat row) rather than a spoke.
 
 Read the spokes, not the blob's area — the shape is the signature. A fat kite
 leaning into PWR/GPU is a heavyweight; a tall CPU spike with a small GPU spoke

@@ -82,17 +82,18 @@ def test_overlay_text_latency_falls_back_to_render_without_display_tail() -> Non
     )
 
 
-def test_overlay_text_shows_display_tail_alone_for_non_reflex_games() -> None:
+def test_overlay_text_never_shows_the_display_tail_alone() -> None:
     config = OverlayConfig(enabled=True, enabled_item_ids=("latency_ms",))
 
-    # No marker latency at all (non-Reflex title): the present->scanout tail
-    # is still a real measurement and renders on its own.
+    # No marker latency (non-Reflex title): a bare present->scanout tail is
+    # scanout timing, not a latency figure — the LAT slot stays empty rather
+    # than showing garbage like "LAT 1 ms".
     assert (
         format_overlay_text(
             {"latency_ms": "", "display_latency_ms": "6"},
             config=config,
         )
-        == "LAT 6 ms"
+        == "PB waiting"
     )
 
 

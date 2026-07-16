@@ -208,18 +208,18 @@ def test_panel_populates_detail_from_a_qualified_ring(qtbot, tmp_path: Path) -> 
         panel._refresh_timer.stop()
 
 
-def test_panel_latency_cell_falls_back_to_display_latency(
+def test_panel_latency_cell_never_shows_the_display_tail(
     qtbot, tmp_path: Path
 ) -> None:
+    # A recorded present→scanout tail with no marker latency stays data-only:
+    # a bare scanout time displayed as latency reads as garbage.
     env = _write_ring(tmp_path, 3764200, latency_ms=0.0, display_latency_ms=19.0)
     panel = _make_panel(env)
     qtbot.addWidget(panel.widget)
     try:
         panel.select_app("3764200", game_name="Resident Evil 9", target_fps=120.0)
         assert panel._stack.currentIndex() == 1
-        assert panel._latency_cell.isVisibleTo(panel.widget)
-        assert panel._latency_key.text() == "DISPLAY LAT"
-        assert panel._stat_values["LATENCY"].text() == "19 ms"
+        assert not panel._latency_cell.isVisibleTo(panel.widget)
     finally:
         panel._refresh_timer.stop()
 
