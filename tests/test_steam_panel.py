@@ -17,6 +17,7 @@ from integrations.steam.manager import SteamGameRow, SteamIntegrationManager
 from integrations.steam.settings import GAME_MODE_ADAPTIVE, SteamGameSetting
 from ui.components.steam_panel import (
     SORT_ALPHABETICAL,
+    SORT_INSTALLED,
     SORT_RECENT,
     SteamPanel,
     _mode_keys_for_standing_mode,
@@ -33,6 +34,7 @@ def _row(
     name: str,
     last_played: int,
     *,
+    last_updated: int = 0,
     command: str = "%command%",
     compat_tool: str = "proton_experimental",
     effective_compat_tool: str | None = "proton_experimental",
@@ -45,6 +47,7 @@ def _row(
             steamapps_dir=tmp_path / "steamapps",
             state_flags=4,
             last_played=last_played,
+            last_updated=last_updated,
             icon_path=None,
             compat_tool=compat_tool,
             effective_compat_tool=effective_compat_tool,
@@ -233,6 +236,23 @@ def test_recent_sort_uses_last_played_and_puts_never_played_last(
     assert last_played_text(0) == "Never played on this PC"
 
 
+def test_installed_sort_uses_last_updated_and_puts_unknown_last(
+    tmp_path: Path,
+) -> None:
+    rows = (
+        _row(tmp_path, "10", "Alpha", 300, last_updated=100),
+        _row(tmp_path, "20", "Beta", 100, last_updated=0),
+        _row(tmp_path, "30", "Zeta", 0, last_updated=300),
+    )
+
+    # Newest install first; a missing LastUpdated trails regardless of playtime.
+    assert [row.game.app_id for row in sorted_steam_rows(rows, SORT_INSTALLED)] == [
+        "30",
+        "10",
+        "20",
+    ]
+
+
 def test_mode_menu_contains_adaptive_tiers_and_stock() -> None:
     mode_keys = _mode_keys_for_standing_mode("Stock")
 
@@ -375,9 +395,9 @@ def test_panel_keeps_library_left_and_one_selected_game_editor(
 ) -> None:
     QtCore, QtGui, QtWidgetsModule, _pg = import_qt()
     rows = (
-        _row(tmp_path, "10", "Alpha", 100, command="alpha %command%"),
-        _row(tmp_path, "20", "Beta", 0, command="beta %command%"),
-        _row(tmp_path, "30", "Zeta", 300, command="zeta %command%"),
+        _row(tmp_path, "10", "Alpha", 100, last_updated=100, command="alpha %command%"),
+        _row(tmp_path, "20", "Beta", 0, last_updated=500, command="beta %command%"),
+        _row(tmp_path, "30", "Zeta", 300, last_updated=200, command="zeta %command%"),
     )
     manager = _FakeManager(rows)
     panel = SteamPanel(
@@ -470,6 +490,15 @@ def test_panel_keeps_library_left_and_one_selected_game_editor(
     assert panel.game_title.text() == "Zeta"
     assert panel.launch_edit.toPlainText() == "gamemoderun %command%"
     assert panel.launch_edit.textCursor().position() == 0
+
+    # Recently installed orders by LastUpdated, distinct from both other modes.
+    panel.sort_combo.setCurrentIndex(panel.sort_combo.findData(SORT_INSTALLED))
+    assert [panel.game_list.item(i).text() for i in range(3)] == [
+        "Beta",
+        "Zeta",
+        "Alpha",
+    ]
+    assert panel.game_title.text() == "Zeta"
 
     panel._sync_timer.stop()
 

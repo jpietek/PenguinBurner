@@ -321,6 +321,7 @@ def _demo_steam_rows() -> tuple[SteamGameRow, ...]:
                 steamapps_dir=steamapps_dir,
                 state_flags=4,
                 last_played=game.last_played,
+                last_updated=game.last_played,
                 icon_path=None,
                 compat_tool=game.compat_tool,
                 effective_compat_tool=(

@@ -14,6 +14,7 @@ def _write_manifest(
     *,
     state_flags: int = 4,
     last_played: str = "0",
+    last_updated: str = "0",
 ) -> None:
     (steamapps / f"appmanifest_{app_id}.acf").write_text(
         "\n".join(
@@ -23,6 +24,7 @@ def _write_manifest(
                 f'\t"appid"\t\t"{app_id}"',
                 f'\t"name"\t\t"{name}"',
                 f'\t"StateFlags"\t\t"{state_flags}"',
+                f'\t"LastUpdated"\t\t"{last_updated}"',
                 f'\t"LastPlayed"\t\t"{last_played}"',
                 f'\t"installdir"\t\t"{name}"',
                 "}",
@@ -106,6 +108,19 @@ def test_reads_last_played_timestamp_from_manifest(tmp_path: Path) -> None:
 
     assert games["10"].last_played == 1783870852
     assert games["20"].last_played == 0
+
+
+def test_reads_last_updated_timestamp_from_manifest(tmp_path: Path) -> None:
+    root = _steam_home(tmp_path)
+    _write_manifest(
+        root / "steamapps", "10", "Recently Installed", last_updated="1783870852"
+    )
+    _write_manifest(root / "steamapps", "20", "No Update Time")
+
+    games = {game.app_id: game for game in installed_steam_games(tmp_path)}
+
+    assert games["10"].last_updated == 1783870852
+    assert games["20"].last_updated == 0
 
 
 def test_invalid_last_played_timestamp_is_treated_as_never_played(

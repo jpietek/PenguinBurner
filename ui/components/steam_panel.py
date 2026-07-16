@@ -48,6 +48,7 @@ _MODE_KEYS = (
 
 SORT_RECENT = "recent"
 SORT_ALPHABETICAL = "alphabetical"
+SORT_INSTALLED = "installed"
 
 _AUTO_SYNC_INTERVAL_MS = 10000
 _ROW_HEIGHT = 42
@@ -89,10 +90,22 @@ def _mode_keys_for_standing_mode(standing_mode_label: str) -> tuple[str, ...]:
 def sorted_steam_rows(
     rows: tuple[SteamGameRow, ...], sort_mode: str
 ) -> tuple[SteamGameRow, ...]:
-    """Sort the visible library; never-played games trail recent games."""
+    """Sort the visible library; games without a timestamp trail the rest."""
     if sort_mode == SORT_ALPHABETICAL:
         return tuple(
             sorted(rows, key=lambda row: (row.game.name.casefold(), row.game.app_id))
+        )
+    if sort_mode == SORT_INSTALLED:
+        return tuple(
+            sorted(
+                rows,
+                key=lambda row: (
+                    0 if row.game.last_updated > 0 else 1,
+                    -row.game.last_updated,
+                    row.game.name.casefold(),
+                    row.game.app_id,
+                ),
+            )
         )
     return tuple(
         sorted(
@@ -239,16 +252,19 @@ class SteamPanel:
         sort_row.addWidget(QtWidgets.QLabel("Sort"))
         self.sort_combo = QtWidgets.QComboBox()
         self.sort_combo.setObjectName("steamGameSort")
-        # Size to the longest label ("Recently played") so it never clips.
+        # Size to the longest label ("Recently installed") so it never clips.
         self.sort_combo.setSizeAdjustPolicy(
             QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContents
         )
         self.sort_combo.addItem("Recently played", SORT_RECENT)
+        self.sort_combo.addItem("Recently installed", SORT_INSTALLED)
         self.sort_combo.addItem("Alphabetical", SORT_ALPHABETICAL)
         self.sort_combo.setToolTip(
             _wrapped_tooltip(
-                "Recently played uses Steam's LastPlayed timestamp from each "
-                "installed app manifest. Games without a timestamp appear last."
+                "Recently played uses Steam's LastPlayed timestamp and Recently "
+                "installed uses LastUpdated (set on install and each update), "
+                "both from the installed app manifest. Games without a "
+                "timestamp appear last."
             )
         )
         sort_row.addWidget(self.sort_combo, 1)
