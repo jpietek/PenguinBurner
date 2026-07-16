@@ -257,3 +257,29 @@ def test_panel_reads_archived_rings_too(qtbot, tmp_path: Path) -> None:
         assert panel.tier_chip.text() == "EFFICIENCY"
     finally:
         panel._refresh_timer.stop()
+
+
+def test_live_window_dropdown_switches_the_tail_span(qtbot, tmp_path: Path) -> None:
+    env = _write_ring(tmp_path, 3764200, seconds=360)
+    panel = _make_panel(env)
+    qtbot.addWidget(panel.widget)
+    try:
+        panel.select_app("3764200", game_name="Resident Evil 9", target_fps=120.0)
+        assert [
+            panel.live_window_combo.itemData(i)
+            for i in range(panel.live_window_combo.count())
+        ] == [10, 30, 60]
+
+        panel.live_toggle.setChecked(True)
+        xs, _ys = panel.frametime_curve.getData()
+        assert min(xs) >= -10.5  # default 10 s tail
+
+        panel.live_window_combo.setCurrentIndex(
+            panel.live_window_combo.findData(60)
+        )
+        xs, _ys = panel.frametime_curve.getData()
+        assert min(xs) >= -60.5
+        assert min(xs) < -30.0  # genuinely widened beyond the old span
+        panel.live_toggle.setChecked(False)
+    finally:
+        panel._refresh_timer.stop()

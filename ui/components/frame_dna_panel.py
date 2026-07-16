@@ -168,6 +168,11 @@ class FrameDnaPanel:
                 color: {theme.DNA_TEXT};
                 border-color: {theme.DNA_TIER_BALANCED};
             }}
+            QComboBox#frameDnaLiveWindow {{
+                color: {theme.DNA_TEXT_DIM}; background: {theme.DNA_SURFACE_ALT};
+                border: 1px solid {theme.DNA_BORDER_STRONG}; border-radius: 5px;
+                font-size: 10px; font-weight: 700; padding: 2px 8px;
+            }}
             """
         )
 
@@ -372,10 +377,16 @@ class FrameDnaPanel:
         self._frametime_caption_base = caption.text()
         self.live_toggle = QtWidgets.QToolButton()
         self.live_toggle.setObjectName("frameDnaLiveToggle")
-        self.live_toggle.setText("LIVE 10 s")
+        self.live_toggle.setText("LIVE")
         self.live_toggle.setCheckable(True)
         self.live_toggle.toggled.connect(self._live_toggled)
         header.addWidget(self.live_toggle, 0)
+        self.live_window_combo = QtWidgets.QComboBox()
+        self.live_window_combo.setObjectName("frameDnaLiveWindow")
+        for seconds in (10, 30, 60):
+            self.live_window_combo.addItem(f"{seconds} s", seconds)
+        self.live_window_combo.currentIndexChanged.connect(self._live_window_changed)
+        header.addWidget(self.live_window_combo, 0)
 
         self.frametime_plot = self._styled_plot(
             x_label="minutes ago", y_label="frametime (ms)"
@@ -525,11 +536,12 @@ class FrameDnaPanel:
     ) -> None:
         threshold = summary.median_frametime_ms * _STUTTER_RATIO
         if self._live_mode:
-            xs, values = live_tail(history.frametimes_ms)
+            window_s = float(self._live_window_s)
+            xs, values = live_tail(history.frametimes_ms, window_s * 1000.0)
             spikes_x = tuple(x for x, v in zip(xs, values) if v >= threshold)
             spikes_h = tuple(v for v in values if v >= threshold)
-            bar_width = 0.03
-            x_range = (-_LIVE_WINDOW_MS / 1000.0 - 0.3, 0.1)
+            bar_width = window_s * 0.003
+            x_range = (-window_s - window_s * 0.03, window_s * 0.01)
             self.frametime_plot.setLabel(
                 "bottom", "seconds ago", color=theme.DNA_TEXT_MUTED
             )
@@ -575,6 +587,17 @@ class FrameDnaPanel:
             self.frametime_plot.setYRange(0.0, ceiling * 1.04, padding=0.0)
 
     # ---------- events ----------
+
+    def _live_window_changed(self, _index: int) -> None:
+        if self._live_mode:
+            self.refresh()
+
+    @property
+    def _live_window_s(self) -> int:
+        combo = getattr(self, "live_window_combo", None)
+        if combo is None:
+            return 10
+        return int(combo.currentData() or 10)
 
     def _live_toggled(self, checked: bool) -> None:
         self._live_mode = bool(checked)
