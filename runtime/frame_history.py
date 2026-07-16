@@ -195,6 +195,9 @@ class FrameHistorySummary:
     cpu_peak_thread_pct: int
     latency_ms: float
     framegen_seen: bool
+    # Present->scanout tail (VK_KHR_present_wait) — a different metric from
+    # marker render latency; non-Reflex games may have only this one.
+    median_display_latency_ms: float = 0.0
 
 
 def frame_history_live_dir(env: Mapping[str, str] | None = None) -> Path:
@@ -582,5 +585,8 @@ def summarize(history: FrameHistory) -> FrameHistorySummary | None:
         gpu_util_pct=gpu_util,
         cpu_peak_thread_pct=cpu_thread,
         latency_ms=statistics.median(s.latency_ms for s in samples),
+        median_display_latency_ms=statistics.median(
+            s.display_latency_ms for s in samples
+        ),
         framegen_seen=any(s.framegen_active for s in samples),
     )

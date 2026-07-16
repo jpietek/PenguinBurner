@@ -566,7 +566,18 @@ impl OverlayStatePublisher {
             self.last_latency_ns = Some(now_ns);
             return (latency_ms, display_latency_ms);
         }
-        let matches = self.last_latency_ms.is_some()
+        if !display_latency_ms.is_empty() {
+            // Non-Reflex games have no marker latency, but the present-wait
+            // display tail is a real measurement — surface it on its own
+            // instead of discarding it with the empty marker value.
+            self.last_latency_ms = None;
+            self.last_display_latency_ms = Some(display_latency_ms.clone());
+            self.last_latency_pid = latency_pid;
+            self.last_latency_ns = Some(now_ns);
+            return (String::new(), display_latency_ms);
+        }
+        let matches = (self.last_latency_ms.is_some()
+            || self.last_display_latency_ms.is_some())
             && self.last_latency_pid.is_some()
             && latency_pid.is_some()
             && self.last_latency_pid == latency_pid;

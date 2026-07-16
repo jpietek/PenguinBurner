@@ -736,7 +736,12 @@ fn estimate_base_present_fps(
         return (None, false);
     };
     let seed = *last_base;
-    if seed.is_none() && p95_fps > METER_UNSEEDED_PRESENT_FPS_MAX {
+    if seed.is_none() && marker_stream && p95_fps > METER_UNSEEDED_PRESENT_FPS_MAX {
+        // With a marker stream, a fast first window may be frame-gen output;
+        // wait for the markers to establish the base before seeding. Without
+        // markers frame generation can never be asserted (deinterlace below is
+        // marker-gated), so rejecting here would blind the meter permanently
+        // for any session that starts above 70 fps — a 120 Hz vsync menu.
         return (None, false);
     }
     let inferred = infer_framegen_multiplier(raw_avg_fps, seed);
@@ -1122,6 +1127,35 @@ mod tests {
         let mut map = obj(extra);
         map.insert("type".to_string(), Value::from("timing"));
         Value::Object(map)
+    }
+
+    #[test]
+    fn markerless_sessions_seed_above_the_unseeded_fps_gate() {
+        // A 120 Hz vsync menu with no marker stream: the meter must report
+        // the present cadence instead of staying blind for the whole session
+        // (which held adaptive on the fastest tier — the Hades II bug).
+        let mut last_base = None;
+        let (fps, deinterlaced) =
+            estimate_base_present_fps(&mut last_base, Some(120.0), Some(120.0), false);
+        assert!(approx(fps.expect("markerless high fps must seed"), 120.0));
+        assert!(!deinterlaced);
+        assert!(approx(last_base.expect("seeded"), 120.0));
+    }
+
+    #[test]
+    fn marker_sessions_still_wait_before_seeding_fast_first_windows() {
+        // With markers present, a fast first window may be frame-gen output:
+        // keep the cautious unseeded gate exactly as before.
+        let mut last_base = None;
+        let (fps, deinterlaced) =
+            estimate_base_present_fps(&mut last_base, Some(120.0), Some(120.0), true);
+        assert!(fps.is_none());
+        assert!(!deinterlaced);
+        assert!(last_base.is_none());
+        // Below the gate a marker session seeds normally.
+        let (fps, _) =
+            estimate_base_present_fps(&mut last_base, Some(60.0), Some(60.0), true);
+        assert!(approx(fps.expect("seeds below the gate"), 60.0));
     }
 
     // --- `_int_value` parity table (samples.py) ------------------------------

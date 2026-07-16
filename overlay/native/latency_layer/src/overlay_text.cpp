@@ -443,19 +443,33 @@ std::string overlay_optional_value(const std::string& value, const char* suffix)
 
 // Render latency plus the optional present->scanout display tail, as one number.
 // When the display field is absent (display-latency capture not enabled via the
-// Steam params), this collapses to the render latency alone.
+// Steam params), this collapses to the render latency alone. Non-Reflex games
+// have no marker latency at all: the display tail alone is still a real
+// measurement and is shown instead of nothing (mirrors overlay_text.py).
 std::string overlay_combined_latency_value(
     const std::string& render_ms,
     const std::string& display_ms) {
-    if (overlay_value_missing(render_ms)) {
-        return "";
+    long render = 0;
+    bool have_render = false;
+    if (!overlay_value_missing(render_ms)) {
+        const std::string render_text = trim_ascii(render_ms);
+        errno = 0;
+        char* render_end = nullptr;
+        render = std::strtol(render_text.c_str(), &render_end, 10);
+        have_render = errno == 0 && render_end != render_text.c_str();
     }
-    const std::string render_text = trim_ascii(render_ms);
-    errno = 0;
-    char* render_end = nullptr;
-    const long render = std::strtol(render_text.c_str(), &render_end, 10);
-    if (errno != 0 || render_end == render_text.c_str()) {
-        return "";
+    if (!have_render) {
+        if (overlay_value_missing(display_ms)) {
+            return "";
+        }
+        const std::string display_text = trim_ascii(display_ms);
+        errno = 0;
+        char* display_end = nullptr;
+        const long display = std::strtol(display_text.c_str(), &display_end, 10);
+        if (errno != 0 || display_end == display_text.c_str()) {
+            return "";
+        }
+        return std::to_string(display);
     }
     long total = render;
     if (!overlay_value_missing(display_ms)) {
