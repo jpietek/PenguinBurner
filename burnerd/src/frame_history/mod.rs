@@ -178,7 +178,10 @@ struct Recorder {
     path: PathBuf,
     header: HeaderState,
     started_mono: Instant,
-    sec_frametimes: Vec<f64>,
+    // Frames buffered per producer stream for the current second. A session
+    // can carry more than one present stream (the game plus e.g. the Steam
+    // overlay swapchain); only the dominant stream is the game's cadence.
+    sec_frametimes: std::collections::BTreeMap<String, Vec<f64>>,
 }
 
 impl Recorder {
@@ -217,12 +220,12 @@ impl Recorder {
             path,
             header,
             started_mono: Instant::now(),
-            sec_frametimes: Vec::with_capacity(512),
+            sec_frametimes: std::collections::BTreeMap::new(),
         })
     }
 
-    fn push_frame(&mut self, frametime_ms: f64) {
-        self.sec_frametimes.push(frametime_ms);
+    fn push_frame(&mut self, stream: String, frametime_ms: f64) {
+        self.sec_frametimes.entry(stream).or_default().push(frametime_ms);
     }
 
     fn append_frames(&mut self, companded: &[u8]) -> std::io::Result<()> {
@@ -249,7 +252,14 @@ impl Recorder {
         mem_clock_mhz: Option<u32>,
         power_limit_w: Option<i64>,
     ) -> std::io::Result<()> {
-        let mut frametimes = std::mem::take(&mut self.sec_frametimes);
+        // Keep only the dominant stream's frames for this second; ties break
+        // deterministically by key so equal-rate streams don't interleave.
+        let buckets = std::mem::take(&mut self.sec_frametimes);
+        let mut frametimes = buckets
+            .into_iter()
+            .max_by(|a, b| a.1.len().cmp(&b.1.len()).then(b.0.cmp(&a.0)))
+            .map(|(_, frames)| frames)
+            .unwrap_or_default();
         let companded: Vec<u8> = frametimes
             .iter()
             .map(|&ft| encode_frametime_ms(ft))
@@ -355,9 +365,17 @@ pub fn record_frame(sample: &serde_json::Map<String, Value>) {
     if !(frametime_us.is_finite()) || frametime_us <= 0.0 {
         return;
     }
+    let stream = sample
+        .get("session_id")
+        .or_else(|| sample.get("pid"))
+        .map(|value| match value {
+            Value::String(text) => text.clone(),
+            other => other.to_string(),
+        })
+        .unwrap_or_default();
     let mut slot = RECORDER.lock().unwrap_or_else(|p| p.into_inner());
     if let Some(recorder) = slot.as_mut() {
-        recorder.push_frame(frametime_us / 1000.0);
+        recorder.push_frame(stream, frametime_us / 1000.0);
     }
 }
 
@@ -633,6 +651,29 @@ mod tests {
             HEADER_SIZE + 2 * RECORD_SIZE + 79,
             "archive is compact"
         );
+        drop(guard);
+    }
+
+    #[test]
+    fn only_the_dominant_present_stream_is_recorded() {
+        let guard = pin_dir();
+        session_start(31337, "367520");
+        // The game presents 120 frames; a second swapchain (Steam overlay)
+        // presents 30. Only the game's cadence must land in the ring.
+        for index in 0..150 {
+            let mut map = timing_sample(if index % 5 == 4 { 33_333.0 } else { 8_333.0 });
+            let stream = if index % 5 == 4 { "overlay-swapchain" } else { "game-session" };
+            map.insert("session_id".into(), Value::from(stream));
+            record_frame(&map);
+        }
+        record_metrics(&overlay_state("performance"), None, None);
+        let data = fs::read(live_dir().join("31337.ring")).expect("ring");
+        let record = &data[HEADER_SIZE..HEADER_SIZE + RECORD_SIZE];
+        let frame_count = u16::from_le_bytes([record[2], record[3]]);
+        assert_eq!(frame_count, 120);
+        let p99 = f64::from(u16::from_le_bytes([record[30], record[31]])) / 20.0;
+        assert!(p99 < 10.0, "overlay frames leaked into percentiles: {p99}");
+        session_end(31337, "367520");
         drop(guard);
     }
 
