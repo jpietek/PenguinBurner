@@ -868,7 +868,7 @@ class SteamPanel:
                 parent=self.widget,
             )
         badge = self.frame_dna_badge
-        below = badge.mapToGlobal(badge.rect().bottomLeft())
+        below = badge.mapToGlobal(badge.rect().bottomRight())
         below.setY(below.y() + 6)
         self._frame_dna_peek.show_for(
             game_name=row.game.name,
@@ -877,6 +877,7 @@ class SteamPanel:
             power_limit_w=self._frame_dna_power_limit,
             global_pos=below,
             device_pixel_ratio=self._badge_device_pixel_ratio(),
+            align_right=True,
         )
 
     def _hide_frame_dna_peek(self) -> None:

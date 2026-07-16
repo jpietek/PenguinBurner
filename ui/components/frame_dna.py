@@ -350,6 +350,7 @@ class FrameDnaPeek:
         power_limit_w: int,
         global_pos,
         device_pixel_ratio: float = 1.0,
+        align_right: bool = False,
     ) -> None:
         self.title.setText(f"{game_name} · Game Stats")
         axes = dna_axes(summary, target_fps=target_fps, power_limit_w=power_limit_w)
@@ -381,11 +382,21 @@ class FrameDnaPeek:
         self.widget.adjustSize()
         screen = self.QtGui.QGuiApplication.screenAt(global_pos)
         position = self.QtCore.QPoint(global_pos)
+        width = self.widget.sizeHint().width()
+        height = self.widget.sizeHint().height()
+        if align_right:
+            # The badge lives in the header's right corner: anchor the
+            # popover's right edge to it so it opens leftward into the panel
+            # instead of off the window's edge.
+            position.setX(position.x() - width)
         if screen is not None:
             available = screen.availableGeometry()
-            width = self.widget.sizeHint().width()
-            height = self.widget.sizeHint().height()
-            position.setX(min(position.x(), available.right() - width - 8))
+            position.setX(
+                min(
+                    max(position.x(), available.left() + 8),
+                    available.right() - width - 8,
+                )
+            )
             position.setY(min(position.y(), available.bottom() - height - 8))
         self.widget.move(position)
         self.widget.show()

@@ -172,3 +172,25 @@ def test_peek_popover_hides_latency_without_a_marker_source(qapp) -> None:
         assert not peek._stat_keys["Latency"].isVisibleTo(peek.widget)
     finally:
         peek.hide()
+
+
+def test_peek_opens_leftward_when_right_aligned(qapp) -> None:
+    QtCore, QtGui, QtWidgets, _pg = import_qt()
+    peek = FrameDnaPeek(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
+    anchor = QtCore.QPoint(900, 200)
+    peek.show_for(
+        game_name="Hades II",
+        summary=_summary(),
+        target_fps=144.0,
+        power_limit_w=360,
+        global_pos=anchor,
+        align_right=True,
+    )
+    try:
+        # The popover's right edge meets the anchor: it grows leftward from
+        # the corner badge instead of off the window edge.
+        right_edge = peek.widget.x() + peek.widget.sizeHint().width()
+        assert peek.widget.x() < anchor.x()
+        assert abs(right_edge - anchor.x()) <= 8
+    finally:
+        peek.hide()
