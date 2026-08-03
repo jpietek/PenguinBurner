@@ -17,8 +17,8 @@ from runtime.frame_history import (
     write_frame_history,
 )
 from ui import theme
-from ui.components.frame_dna_panel import (
-    FrameDnaPanel,
+from ui.components.game_perf_profile_panel import (
+    GamePerfProfilePanel,
     densify_frametimes,
     live_tail,
 )
@@ -122,7 +122,7 @@ def test_live_tail_returns_the_last_ten_seconds() -> None:
 
 def test_panel_placeholder_without_pyqtgraph(qapp) -> None:
     QtCore, QtGui, QtWidgets, _pg = import_qt()
-    panel = FrameDnaPanel(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets, pg=None)
+    panel = GamePerfProfilePanel(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets, pg=None)
     text = panel.widget.findChild(QtWidgets.QPlainTextEdit)
     assert text is not None and "pyqtgraph" in text.toPlainText()
     panel.refresh()  # must be a no-op, not a crash
@@ -132,7 +132,7 @@ def _make_panel(env):
     QtCore, QtGui, QtWidgets, pg = import_qt()
     if pg is None:
         pytest.skip("pyqtgraph not available")
-    return FrameDnaPanel(
+    return GamePerfProfilePanel(
         QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets, pg=pg, history_env=env
     )
 
@@ -242,7 +242,7 @@ def test_panel_populates_detail_from_a_qualified_ring(qtbot, tmp_path: Path) -> 
         assert panel._stat_values["FAN"].text() == "63%"
         assert "BOTTLENECK" not in panel._stat_values  # dropped as confusing
         assert "78 fps" in panel._stat_values["MEDIAN"].text()
-        assert panel.dna_label.pixmap() is not None
+        assert panel.profile_label.pixmap() is not None
 
         # overview plot has densified data + stutter needles + reference lines
         xs, _ys = panel.frametime_curve.getData()
@@ -255,7 +255,7 @@ def test_panel_populates_detail_from_a_qualified_ring(qtbot, tmp_path: Path) -> 
         # the trace stays balanced-blue even though this ring is performance
         assert (
             panel.frametime_curve.opts["pen"].color().name()
-            == theme.DNA_TIER_BALANCED
+            == theme.PERF_PROFILE_TIER_BALANCED
         )
         # the latency cell reports the measured marker latency
         assert panel._latency_cell.isVisibleTo(panel.widget)

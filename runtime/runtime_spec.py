@@ -205,7 +205,7 @@ def build_runtime_spec(
             "enabled": bool(overlay.enabled),
             "update_interval_s": int(overlay.update_interval_s),
         },
-        # Frame-history capture for the watched game (Frame DNA); per-game
+        # Frame-history capture for the watched game (Game Perf Profile); per-game
         # opt-out from the Steam tab. Absent means enabled (older callers).
         "game_telemetry": bool(game_telemetry),
     }

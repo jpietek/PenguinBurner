@@ -1,4 +1,4 @@
-//! Frame-history recorder: the per-game telemetry ring behind Frame DNA.
+//! Frame-history recorder: the per-game telemetry ring behind Game Perf Profile.
 //!
 //! One ring file per watched game session on tmpfs
 //! (`/run/penguin-burner/frame-history/<pid>.ring`): a 64-byte header, a ring
@@ -10,7 +10,7 @@
 //! The module is fully self-contained — the engine, supervisor, and latency
 //! receiver each touch it through a single call (`record_metrics`,
 //! `session_start`/`session_end`, `record_frame`). The byte layout is format
-//! v1 from `notes/frame-dna-plan.md` and must stay in lockstep with the
+//! v1 from `notes/game-perf-profile-plan.md` and must stay in lockstep with the
 //! Python reader in `runtime/frame_history.py`.
 
 use std::fs;

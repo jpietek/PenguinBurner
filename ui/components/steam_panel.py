@@ -31,10 +31,10 @@ from runtime.support.adaptive_target_fps import (
     MIN_ADAPTIVE_TARGET_FPS,
     adaptive_target_fps_from_env,
 )
-from ui.components.frame_dna import (
-    FrameDnaPeek,
-    dna_axes,
-    dna_pixmap,
+from ui.components.game_perf_profile import (
+    GamePerfProfilePeek,
+    perf_profile_axes,
+    perf_profile_pixmap,
     warming_text,
 )
 
@@ -168,13 +168,13 @@ class SteamPanel:
         self._game_poll_result: frozenset[str] | None = None
         self._auto_sync_thread: threading.Thread | None = None
         self._auto_sync_result: tuple[tuple[SteamGameRow, ...], dict] | None = None
-        # Frame DNA: the window wires this to open the Frame DNA tab.
-        self.on_open_frame_dna: (
+        # Game Perf Profile: the window wires this to open the Game Perf Profile tab.
+        self.on_open_game_perf_profile: (
             Callable[[str, str, float | None], None] | None
         ) = None
-        self._frame_dna_summary = None
-        self._frame_dna_power_limit = 0
-        self._frame_dna_peek: FrameDnaPeek | None = None
+        self._game_perf_profile_summary = None
+        self._game_perf_profile_power_limit = 0
+        self._game_perf_profile_peek: GamePerfProfilePeek | None = None
 
         self.widget = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(self.widget)
@@ -372,19 +372,19 @@ class SteamPanel:
             )
         )
         title_row.addWidget(self.play_button, 0, QtCore.Qt.AlignVCenter)
-        self.frame_dna_badge = QtWidgets.QToolButton()
-        self.frame_dna_badge.setObjectName("steamFrameDnaBadge")
-        self.frame_dna_badge.setFixedSize(72, 72)
-        self.frame_dna_badge.setIconSize(QtCore.QSize(64, 64))
-        self.frame_dna_badge.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
-        self.frame_dna_badge.setVisible(False)
-        self.frame_dna_badge.setAccessibleName(
-            "Game Stats — open the Game Stats tab"
+        self.game_perf_profile_badge = QtWidgets.QToolButton()
+        self.game_perf_profile_badge.setObjectName("steamGamePerfProfileBadge")
+        self.game_perf_profile_badge.setFixedSize(72, 72)
+        self.game_perf_profile_badge.setIconSize(QtCore.QSize(64, 64))
+        self.game_perf_profile_badge.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+        self.game_perf_profile_badge.setVisible(False)
+        self.game_perf_profile_badge.setAccessibleName(
+            "Game Perf Profile — open the Game Perf Profile tab"
         )
-        self.frame_dna_badge.clicked.connect(self._open_frame_dna)
+        self.game_perf_profile_badge.clicked.connect(self._open_game_perf_profile)
         panel = self
 
-        class _FrameDnaBadgeHover(QtCore.QObject):
+        class _GamePerfProfileBadgeHover(QtCore.QObject):
             """Hover or keyboard focus peeks the fingerprint; any click
             falls through to open the tab."""
 
@@ -394,32 +394,32 @@ class SteamPanel:
                     QtCore.QEvent.Type.Enter,
                     QtCore.QEvent.Type.FocusIn,
                 ):
-                    panel._show_frame_dna_peek()
+                    panel._show_game_perf_profile_peek()
                 elif event_type in (
                     QtCore.QEvent.Type.Leave,
                     QtCore.QEvent.Type.FocusOut,
                     QtCore.QEvent.Type.MouseButtonPress,
                     QtCore.QEvent.Type.Hide,
                 ):
-                    panel._hide_frame_dna_peek()
+                    panel._hide_game_perf_profile_peek()
                 return False
 
-        self._frame_dna_hover_filter = _FrameDnaBadgeHover(self.widget)
-        self.frame_dna_badge.installEventFilter(self._frame_dna_hover_filter)
+        self._game_perf_profile_hover_filter = _GamePerfProfileBadgeHover(self.widget)
+        self.game_perf_profile_badge.installEventFilter(self._game_perf_profile_hover_filter)
         # The fingerprint is unlabelled by design — spoke labels crowded it —
         # so a quiet caption beside it says what the shape is, once.
         # Uppercased to read as a key like the tab's stat row, not as stray
         # bold text; Qt stylesheets have no text-transform.
-        self.frame_dna_caption = QtWidgets.QLabel("GAME PERFORMANCE PROFILE")
-        self.frame_dna_caption.setObjectName("steamFrameDnaCaption")
-        self.frame_dna_caption.setVisible(False)
+        self.game_perf_profile_caption = QtWidgets.QLabel("GAME PERFORMANCE PROFILE")
+        self.game_perf_profile_caption.setObjectName("steamGamePerfProfileCaption")
+        self.game_perf_profile_caption.setVisible(False)
         # The badge parks in the header's right corner: Play stays beside the
         # game's info block, the fingerprint anchors the opposite edge.
         title_row.addStretch(1)
         title_row.addWidget(
-            self.frame_dna_caption, 0, QtCore.Qt.AlignVCenter
+            self.game_perf_profile_caption, 0, QtCore.Qt.AlignVCenter
         )
-        title_row.addWidget(self.frame_dna_badge, 0, QtCore.Qt.AlignVCenter)
+        title_row.addWidget(self.game_perf_profile_badge, 0, QtCore.Qt.AlignVCenter)
         details_layout.addLayout(title_row)
 
         self.proton_label = QtWidgets.QLabel("Compatibility tool")
@@ -636,7 +636,7 @@ class SteamPanel:
             self._sync_default_mode_label()
             # Ring data grows while a game runs even when the rows are
             # unchanged, so the fingerprint badge refreshes on every sync.
-            self._sync_frame_dna_badge(self._rows.get(self._selected_app_id))
+            self._sync_game_perf_profile_badge(self._rows.get(self._selected_app_id))
         self._sync_header(probe)
 
     @staticmethod
@@ -808,7 +808,7 @@ class SteamPanel:
                 self.telemetry_checkbox.setChecked(row.setting.telemetry)
         finally:
             self._syncing = was_syncing
-        self._sync_frame_dna_badge(row)
+        self._sync_game_perf_profile_badge(row)
         self._sync_interaction_state()
 
     def _badge_device_pixel_ratio(self) -> float:
@@ -818,90 +818,89 @@ class SteamPanel:
             return float(handle.devicePixelRatio())
         return 1.0
 
-    def _sync_frame_dna_badge(self, row: SteamGameRow | None) -> None:
+    def _sync_game_perf_profile_badge(self, row: SteamGameRow | None) -> None:
         """Refresh the fingerprint badge for the selected game's ring."""
-        badge = self.frame_dna_badge
+        badge = self.game_perf_profile_badge
         if row is None:
-            self._frame_dna_summary = None
-            self._hide_frame_dna_peek()
+            self._game_perf_profile_summary = None
+            self._hide_game_perf_profile_peek()
             badge.setVisible(False)
-            self.frame_dna_caption.setVisible(False)
+            self.game_perf_profile_caption.setVisible(False)
             return
         history = read_frame_history_for_app(row.game.app_id)
         summary = summarize(history) if history is not None else None
-        self._frame_dna_power_limit = (
+        self._game_perf_profile_power_limit = (
             history.header.power_limit_w if history is not None else 0
         )
         ratio = self._badge_device_pixel_ratio()
         if summary is not None and summary.qualified:
-            self._frame_dna_summary = summary
-            axes = dna_axes(
+            self._game_perf_profile_summary = summary
+            axes = perf_profile_axes(
                 summary,
                 target_fps=row.setting.target_fps,
-                power_limit_w=self._frame_dna_power_limit,
+                power_limit_w=self._game_perf_profile_power_limit,
             )
-            pixmap = dna_pixmap(
+            pixmap = perf_profile_pixmap(
                 self.QtCore, self.QtGui, axes=axes, tier=summary.tier,
                 size=64, device_pixel_ratio=ratio,
             )
             badge.setToolTip("")
         else:
-            self._frame_dna_summary = None
-            self._hide_frame_dna_peek()
-            pixmap = dna_pixmap(
+            self._game_perf_profile_summary = None
+            self._hide_game_perf_profile_peek()
+            pixmap = perf_profile_pixmap(
                 self.QtCore, self.QtGui, axes=None, tier="",
                 size=64, device_pixel_ratio=ratio,
             )
             if summary is not None:
                 badge.setToolTip(
-                    _wrapped_tooltip(f"Game Stats — {warming_text(summary.minutes)}")
+                    _wrapped_tooltip(f"Game Perf Profile — {warming_text(summary.minutes)}")
                 )
             else:
                 badge.setToolTip(
                     _wrapped_tooltip(
-                        "No Game Stats yet. Play this game with PenguinBurner "
+                        "No Game Perf Profile yet. Play this game with PenguinBurner "
                         "running to record its telemetry fingerprint."
                     )
                 )
         badge.setIcon(self.QtGui.QIcon(pixmap))
         badge.setVisible(True)
-        self.frame_dna_caption.setVisible(True)
+        self.game_perf_profile_caption.setVisible(True)
 
-    def _show_frame_dna_peek(self) -> None:
-        summary = self._frame_dna_summary
+    def _show_game_perf_profile_peek(self) -> None:
+        summary = self._game_perf_profile_summary
         row = self._rows.get(self._selected_app_id)
         if summary is None or row is None:
             return
-        if self._frame_dna_peek is None:
-            self._frame_dna_peek = FrameDnaPeek(
+        if self._game_perf_profile_peek is None:
+            self._game_perf_profile_peek = GamePerfProfilePeek(
                 QtCore=self.QtCore,
                 QtGui=self.QtGui,
                 QtWidgets=self.QtWidgets,
                 parent=self.widget,
             )
-        badge = self.frame_dna_badge
+        badge = self.game_perf_profile_badge
         below = badge.mapToGlobal(badge.rect().bottomRight())
         below.setY(below.y() + 6)
-        self._frame_dna_peek.show_for(
-            game_name=row.game.name,
+        self._game_perf_profile_peek.show_for(
             summary=summary,
             target_fps=row.setting.target_fps,
-            power_limit_w=self._frame_dna_power_limit,
+            power_limit_w=self._game_perf_profile_power_limit,
             global_pos=below,
             device_pixel_ratio=self._badge_device_pixel_ratio(),
             align_right=True,
         )
 
-    def _hide_frame_dna_peek(self) -> None:
-        if self._frame_dna_peek is not None:
-            self._frame_dna_peek.hide()
+    def _hide_game_perf_profile_peek(self) -> None:
+        if self._game_perf_profile_peek is not None:
+            self._game_perf_profile_peek.hide()
 
-    def _open_frame_dna(self) -> None:
+    def _open_game_perf_profile(self) -> None:
         row = self._rows.get(self._selected_app_id)
-        self._hide_frame_dna_peek()
-        if row is None or self.on_open_frame_dna is None:
+        self._hide_game_perf_profile_peek()
+        if row is None or self.on_open_game_perf_profile is None:
             return
-        self.on_open_frame_dna(
+        self.on_open_game_perf_profile(
             row.game.app_id, row.game.name, row.setting.target_fps
         )
 

@@ -1,4 +1,4 @@
-# Frame DNA — per-game telemetry fingerprint: implementation plan
+# Game Stats — per-game telemetry fingerprint: implementation plan
 
 **Status:** Stages 0–2 implemented on `steam_tweaks` (format contract + reader, hybrid UI,
 burnerd recorder with per-app archival); Stage 3 live validation in progress. Two decisions
@@ -13,10 +13,10 @@ supervisor's game watch already knows it (no pid→app_id mapping needed).
 
 ## 1. Summary
 
-Every *played* Steam game gets a **telemetry fingerprint** ("Frame DNA") built purely from our own
+Every *played* Steam game gets a **telemetry fingerprint** ("Game Stats") built purely from our own
 telemetry over a rolling **30-minute** window: a six-spoke radar that says how demanding a game is,
 where its bottleneck lives, and how fluent its **pre-frame-gen** frames were. A small badge sits in
-the Steam tab's game header next to Play; hovering peeks the numbers; a dedicated **Frame DNA tab**
+the Steam tab's game header next to Play; hovering peeks the numbers; a dedicated **Game Stats tab**
 shows the full detail: a MangoHUD-style **frametime graph** (ms) and an **operating orbit**
 (power × clock, colored by active profile tier).
 
@@ -26,7 +26,7 @@ The privileged Rust daemon `burnerd` records; the Qt UI only reads.
 
 1. **Placement — hybrid.** Small DNA badge in the Steam details header (next to title/Play).
    Hover → compact peek (rich tooltip: median / 1%-low / power / bottleneck + "click to open").
-   Click → dedicated **Frame DNA tab** with the full detail. Everything-on-hover was mocked and
+   Click → dedicated **Game Stats tab** with the full detail. Everything-on-hover was mocked and
    rejected (too large). No DNA icons on library rows — rows already show Steam game icons.
 2. **Fingerprint axes (6):** PWR, GPU, CPU, FPS, LOW, LAT (§4). Power only for demand — clock is
    recorded but not a spoke (it tracks power on the stock V/F curve; it earns its keep in the orbit).
@@ -182,7 +182,7 @@ records self-timed either way).
 - **Peek:** richest existing pattern is `QToolTip.showText` driven by a hover event filter
   (`ui/dialogs/scan_tuning.py:873-910`) and HTML-table tooltips (`scan_tuning.py:867-870`).
   The peek = rich HTML tooltip on the badge (name, tier, median fps+ms, 1 %-low, power, bottleneck,
-  "Click to open Frame DNA"); the badge **click** opens the tab (no button-in-popover needed).
+  "Click to open Game Stats"); the badge **click** opens the tab (no button-in-popover needed).
 - **Theme (dark):** `ui/theme.py` — `WINDOW_BG #111418`, `SURFACE_BG #171b21`, `BORDER #2e3440`,
   `BORDER_STRONG #3a4352`, `TEXT #d8dee9`, `TEXT_MUTED #aeb7c2`, `ERROR #ff6b6b`, and **existing tier
   colors**: `TIER_CURVE_EFFICIENCY #9fe6a8`, `TIER_CURVE_BALANCED #8ecbef`,

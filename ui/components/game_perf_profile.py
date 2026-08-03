@@ -1,10 +1,10 @@
-"""Frame DNA: the five-spoke per-game telemetry fingerprint.
+"""Game Perf Profile: the five-spoke per-game telemetry fingerprint.
 
 Pure axis math over a ``FrameHistorySummary`` plus QPainter rendering of the
 radar (badge and labeled sizes), the warming-up placeholder, and the hover
 peek popover. Everything is drawn natively — geometry, colors, and alpha
-follow the approved mockup (``notes/frame-dna-mockup.html``) via the
-``theme.DNA_*`` palette.
+follow the approved mockup (``notes/game-perf-profile-mockup.html``) via the
+``theme.PERF_PROFILE_*`` palette.
 """
 
 from __future__ import annotations
@@ -26,11 +26,11 @@ from runtime.frame_history import (
 )
 from ui import theme
 
-DNA_TIER_COLORS = {
-    PROFILE_TIER_EFFICIENCY: theme.DNA_TIER_EFFICIENCY,
-    PROFILE_TIER_BALANCED: theme.DNA_TIER_BALANCED,
-    PROFILE_TIER_PERFORMANCE: theme.DNA_TIER_PERFORMANCE,
-    PROFILE_TIER_NONE: theme.DNA_TIER_NONE,
+PERF_PROFILE_TIER_COLORS = {
+    PROFILE_TIER_EFFICIENCY: theme.PERF_PROFILE_TIER_EFFICIENCY,
+    PROFILE_TIER_BALANCED: theme.PERF_PROFILE_TIER_BALANCED,
+    PROFILE_TIER_PERFORMANCE: theme.PERF_PROFILE_TIER_PERFORMANCE,
+    PROFILE_TIER_NONE: theme.PERF_PROFILE_TIER_NONE,
 }
 
 # Axis normalization fallbacks: an unknown board limit reads against a
@@ -47,7 +47,7 @@ _POINT_FLOOR = 0.1
 
 
 @dataclass(frozen=True, slots=True)
-class DnaAxis:
+class PerfProfileAxis:
     code: str
     label: str
     text: str
@@ -59,7 +59,7 @@ def _clamp(fraction: float) -> float:
 
 
 def tier_color(tier: str) -> str:
-    return DNA_TIER_COLORS.get(tier, theme.DNA_TIER_NONE)
+    return PERF_PROFILE_TIER_COLORS.get(tier, theme.PERF_PROFILE_TIER_NONE)
 
 
 def tier_label(tier: str) -> str:
@@ -70,12 +70,12 @@ def warming_text(minutes: float) -> str:
     return f"Warming up · {minutes:.0f} of {QUALIFY_MINUTES:.0f} min captured"
 
 
-def dna_axes(
+def perf_profile_axes(
     summary: FrameHistorySummary,
     *,
     target_fps: float | None,
     power_limit_w: int,
-) -> tuple[DnaAxis, ...]:
+) -> tuple[PerfProfileAxis, ...]:
     """The five spokes, each normalized against this machine or this game.
 
     PWR crowns the pentagon, the load pair (GPU, CPU) flanks it, and the
@@ -88,31 +88,31 @@ def dna_axes(
     median_fps = summary.median_present_fps
     low_ratio = (summary.low_1pct_fps / median_fps) if median_fps > 0 else 0.0
     return (
-        DnaAxis(
+        PerfProfileAxis(
             "PWR",
             "Power draw",
             f"{summary.median_power_w} W",
             _clamp(summary.median_power_w / power_limit),
         ),
-        DnaAxis(
+        PerfProfileAxis(
             "GPU",
             "GPU load",
             f"{summary.gpu_util_pct}%",
             _clamp(summary.gpu_util_pct / 100.0),
         ),
-        DnaAxis(
+        PerfProfileAxis(
             "FPS",
             "Median FPS",
             f"{median_fps:.0f} fps",
             _clamp(median_fps / target),
         ),
-        DnaAxis(
+        PerfProfileAxis(
             "LOW",
             "Fluency floor",
             f"{low_ratio:.0%} of median",
             _clamp(low_ratio),
         ),
-        DnaAxis(
+        PerfProfileAxis(
             "CPU",
             "CPU hot thread",
             f"{summary.cpu_peak_thread_pct}%",
@@ -141,11 +141,11 @@ def _label_font(QtGui, size: int, *, compact: bool):
     return font
 
 
-def dna_pixmap(
+def perf_profile_pixmap(
     QtCore,
     QtGui,
     *,
-    axes: tuple[DnaAxis, ...] | None,
+    axes: tuple[PerfProfileAxis, ...] | None,
     tier: str,
     size: int,
     labels: bool = False,
@@ -177,11 +177,11 @@ def dna_pixmap(
             metrics = None
             gap = 0.0
             radius = size * 0.42
-        grid_pen = QtGui.QPen(QtGui.QColor(theme.DNA_GRID))
+        grid_pen = QtGui.QPen(QtGui.QColor(theme.PERF_PROFILE_GRID))
         grid_pen.setWidthF(1.0)
 
         if axes is None:
-            dashed = QtGui.QPen(QtGui.QColor(theme.DNA_AXIS))
+            dashed = QtGui.QPen(QtGui.QColor(theme.PERF_PROFILE_AXIS))
             dashed.setWidthF(1.0)
             dashed.setStyle(QtCore.Qt.PenStyle.DashLine)
             painter.setPen(dashed)
@@ -226,7 +226,7 @@ def dna_pixmap(
                 baseline = min(
                     max(baseline, metrics.ascent()), size - metrics.descent()
                 )
-                painter.setPen(QtGui.QPen(QtGui.QColor(theme.DNA_TEXT_MUTED)))
+                painter.setPen(QtGui.QPen(QtGui.QColor(theme.PERF_PROFILE_TEXT_MUTED)))
                 painter.drawText(QtCore.QPointF(text_x, baseline), axis.code)
 
         color = QtGui.QColor(tier_color(tier))
@@ -241,7 +241,7 @@ def dna_pixmap(
         painter.drawPolygon(polygon)
 
         if labels:
-            ring = QtGui.QPen(QtGui.QColor(theme.DNA_SURFACE))
+            ring = QtGui.QPen(QtGui.QColor(theme.PERF_PROFILE_SURFACE))
             ring.setWidthF(1.5)
             dot_radius = max(2.4, size * 0.018)
             for x, y in points:
@@ -253,11 +253,11 @@ def dna_pixmap(
     return pixmap
 
 
-class FrameDnaPeek:
+class GamePerfProfilePeek:
     """The hover popover: enlarged fingerprint plus the numbers that matter.
 
     A frameless tool-tip window drawn entirely with Qt widgets and the mock
-    palette; the badge click (not this popover) opens the Frame DNA tab.
+    palette; the badge click (not this popover) opens the Game Perf Profile tab.
     """
 
     def __init__(self, *, QtCore, QtGui, QtWidgets, parent=None) -> None:
@@ -271,33 +271,29 @@ class FrameDnaPeek:
         # Parented so the popover is torn down with its owner; the ToolTip
         # window flag keeps it a floating top-level window regardless.
         self.widget = QtWidgets.QFrame(parent, flags)
-        self.widget.setObjectName("frameDnaPeek")
+        self.widget.setObjectName("gamePerfProfilePeek")
         self.widget.setStyleSheet(
             f"""
-            QFrame#frameDnaPeek {{
-                background: {theme.DNA_SURFACE};
-                border: 1px solid {theme.DNA_BORDER_STRONG};
+            QFrame#gamePerfProfilePeek {{
+                background: {theme.PERF_PROFILE_SURFACE};
+                border: 1px solid {theme.PERF_PROFILE_BORDER_STRONG};
                 border-radius: 9px;
             }}
-            QLabel#frameDnaPeekTitle {{
-                color: {theme.DNA_TEXT}; font-size: 12px; font-weight: 700;
+            QLabel#gamePerfProfilePeekKey {{
+                font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
+                color: {theme.PERF_PROFILE_TEXT_DIM}; font-size: 11px;
                 background: transparent; border: none;
             }}
-            QLabel#frameDnaPeekKey {{
+            QLabel#gamePerfProfilePeekValue {{
                 font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
-                color: {theme.DNA_TEXT_DIM}; font-size: 11px;
+                color: {theme.PERF_PROFILE_TEXT}; font-size: 11px; font-weight: 600;
                 background: transparent; border: none;
             }}
-            QLabel#frameDnaPeekValue {{
+            QLabel#gamePerfProfilePeekHint {{
                 font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
-                color: {theme.DNA_TEXT}; font-size: 11px; font-weight: 600;
+                color: {theme.PERF_PROFILE_TEXT_MUTED}; font-size: 10px;
                 background: transparent; border: none;
-            }}
-            QLabel#frameDnaPeekHint {{
-                font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
-                color: {theme.DNA_TEXT_MUTED}; font-size: 10px;
-                background: transparent; border: none;
-                border-top: 1px solid {theme.DNA_BORDER};
+                border-top: 1px solid {theme.PERF_PROFILE_BORDER};
                 padding-top: 6px;
             }}
             """
@@ -305,14 +301,13 @@ class FrameDnaPeek:
         layout = QtWidgets.QVBoxLayout(self.widget)
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(8)
-        self.title = QtWidgets.QLabel("")
-        self.title.setObjectName("frameDnaPeekTitle")
-        layout.addWidget(self.title)
+        # No title: the popover hangs off the badge in the game header, which
+        # already names the game right beside it.
         body = QtWidgets.QHBoxLayout()
         body.setSpacing(12)
-        self.dna_label = QtWidgets.QLabel("")
-        self.dna_label.setFixedSize(124, 124)
-        body.addWidget(self.dna_label, 0)
+        self.profile_label = QtWidgets.QLabel("")
+        self.profile_label.setFixedSize(124, 124)
+        body.addWidget(self.profile_label, 0)
         stats = QtWidgets.QGridLayout()
         stats.setHorizontalSpacing(18)
         stats.setVerticalSpacing(4)
@@ -323,9 +318,9 @@ class FrameDnaPeek:
             ("Median", "1%-low", "Power", "Latency")
         ):
             key_label = QtWidgets.QLabel(key)
-            key_label.setObjectName("frameDnaPeekKey")
+            key_label.setObjectName("gamePerfProfilePeekKey")
             value_label = QtWidgets.QLabel("")
-            value_label.setObjectName("frameDnaPeekValue")
+            value_label.setObjectName("gamePerfProfilePeekValue")
             value_label.setAlignment(
                 QtCore.Qt.AlignmentFlag.AlignRight
                 | QtCore.Qt.AlignmentFlag.AlignVCenter
@@ -337,14 +332,13 @@ class FrameDnaPeek:
         stats.setRowStretch(5, 1)
         body.addLayout(stats, 1)
         layout.addLayout(body)
-        self.hint = QtWidgets.QLabel("Click the badge to open the Game Stats tab")
-        self.hint.setObjectName("frameDnaPeekHint")
+        self.hint = QtWidgets.QLabel("Click the badge to open the Game Perf Profile tab")
+        self.hint.setObjectName("gamePerfProfilePeekHint")
         layout.addWidget(self.hint)
 
     def show_for(
         self,
         *,
-        game_name: str,
         summary: FrameHistorySummary,
         target_fps: float | None,
         power_limit_w: int,
@@ -352,10 +346,9 @@ class FrameDnaPeek:
         device_pixel_ratio: float = 1.0,
         align_right: bool = False,
     ) -> None:
-        self.title.setText(f"{game_name} · Game Stats")
-        axes = dna_axes(summary, target_fps=target_fps, power_limit_w=power_limit_w)
-        self.dna_label.setPixmap(
-            dna_pixmap(
+        axes = perf_profile_axes(summary, target_fps=target_fps, power_limit_w=power_limit_w)
+        self.profile_label.setPixmap(
+            perf_profile_pixmap(
                 self.QtCore,
                 self.QtGui,
                 axes=axes,

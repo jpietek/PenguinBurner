@@ -1,4 +1,4 @@
-"""Frame-history ring files: the per-game telemetry window behind Frame DNA.
+"""Frame-history ring files: the per-game telemetry window behind Game Perf Profile.
 
 `burnerd` records one ring file per running game session (keyed by pid) under
 ``/run/penguin-burner/frame-history/``: a 64-byte header, a fixed-stride ring

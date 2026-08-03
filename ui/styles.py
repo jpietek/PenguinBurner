@@ -278,17 +278,17 @@ QPushButton#steamPlayButton:pressed {{
     background: {theme.PRIMARY_BUTTON_PRESSED_BG};
     border-color: {theme.PRIMARY_BUTTON_PRESSED_BORDER};
 }}
-QToolButton#steamFrameDnaBadge {{
-    background: {theme.DNA_SURFACE};
-    border: 1px solid {theme.DNA_BORDER};
+QToolButton#steamGamePerfProfileBadge {{
+    background: {theme.PERF_PROFILE_SURFACE};
+    border: 1px solid {theme.PERF_PROFILE_BORDER};
     border-radius: 12px;
     padding: 4px;
 }}
-QToolButton#steamFrameDnaBadge:hover {{
-    border-color: {theme.DNA_TIER_BALANCED};
+QToolButton#steamGamePerfProfileBadge:hover {{
+    border-color: {theme.PERF_PROFILE_TIER_BALANCED};
 }}
-QLabel#steamFrameDnaCaption {{
-    color: {theme.DNA_TEXT_MUTED};
+QLabel#steamGamePerfProfileCaption {{
+    color: {theme.PERF_PROFILE_TEXT_MUTED};
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 1px;

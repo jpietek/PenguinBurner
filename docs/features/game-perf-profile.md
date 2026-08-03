@@ -1,9 +1,9 @@
-# Frame DNA
+# Game Perf Profile
 
 > Feature guide — see the [README](../../README.md) for the project overview and
 > [overlay.md](./overlay.md) for the in-game overlay the same telemetry feeds.
 
-Frame DNA is a per-game telemetry fingerprint. While a PenguinBurner-enabled
+Game Perf Profile is a per-game telemetry fingerprint. While a PenguinBurner-enabled
 game runs, the daemon records a rolling **30-minute window** of everything it
 already measures — every rendered frame's frametime plus a per-second snapshot
 of clock, memory clock, voltage, power, GPU/CPU load, fan, temperature,
@@ -17,7 +17,7 @@ demanding a game is, where its bottleneck lives, and how fluent its
 - **Steam tab** — a small fingerprint badge sits next to the **Play** button
   for the selected game. **Hover** it for a quick peek (median and 1%-low
   frametimes, power, bottleneck); **click** it to open the full detail.
-- **Frame DNA tab** — the full view: the large fingerprint, a stat row, and a
+- **Game Perf Profile tab** — the full view: the large fingerprint, a stat row, and a
   MangoHUD-style **frametime graph** in milliseconds (30-minute overview with
   red stutter needles, or a **LIVE 10 s** zoom at per-frame resolution).
 
@@ -52,5 +52,5 @@ exits, archives the window trimmed to
 `/var/lib/penguin-burner/frame-history/<appid>.ring` — typically well under
 0.5 MB per game. Frametimes are stored log-companded at one byte per frame
 (~2 % resolution, 1–250 ms range); exact per-second p50/p99/p99.9 percentiles
-preserve the stutter tail. Only the newest window is kept — Frame DNA never
+preserve the stutter tail. Only the newest window is kept — Game Perf Profile never
 accumulates lifetime history.

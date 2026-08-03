@@ -12,10 +12,10 @@ from runtime.frame_history import (
     FrameHistorySummary,
 )
 from ui import theme
-from ui.components.frame_dna import (
-    FrameDnaPeek,
-    dna_axes,
-    dna_pixmap,
+from ui.components.game_perf_profile import (
+    GamePerfProfilePeek,
+    perf_profile_axes,
+    perf_profile_pixmap,
     tier_color,
     tier_label,
     warming_text,
@@ -55,8 +55,8 @@ def _summary(
     )
 
 
-def test_dna_axes_normalization_math() -> None:
-    axes = dna_axes(_summary(), target_fps=120.0, power_limit_w=360)
+def test_perf_profile_axes_normalization_math() -> None:
+    axes = perf_profile_axes(_summary(), target_fps=120.0, power_limit_w=360)
     by_code = {axis.code: axis for axis in axes}
     # Five spokes — PWR crown, load pair, experience pair; latency stays
     # textual only.
@@ -70,9 +70,9 @@ def test_dna_axes_normalization_math() -> None:
     assert by_code["LOW"].text == "74% of median"
 
 
-def test_dna_axes_fallbacks_and_clamping() -> None:
+def test_perf_profile_axes_fallbacks_and_clamping() -> None:
     fast = _summary(median_fps=300.0, latency_ms=90.0, power_w=999)
-    axes = {a.code: a for a in dna_axes(fast, target_fps=None, power_limit_w=0)}
+    axes = {a.code: a for a in perf_profile_axes(fast, target_fps=None, power_limit_w=0)}
     # target None -> 60 fps fallback, clamped; power limit 0 -> 350 W fallback
     assert axes["FPS"].fraction == 1.0
     assert axes["PWR"].fraction == 1.0
@@ -80,10 +80,10 @@ def test_dna_axes_fallbacks_and_clamping() -> None:
 
 
 def test_tier_colors_use_the_mock_palette() -> None:
-    assert tier_color(PROFILE_TIER_BALANCED) == theme.DNA_TIER_BALANCED == "#3987e5"
+    assert tier_color(PROFILE_TIER_BALANCED) == theme.PERF_PROFILE_TIER_BALANCED == "#3987e5"
     assert tier_color(PROFILE_TIER_PERFORMANCE) == "#d95926"
-    assert tier_color(PROFILE_TIER_NONE) == theme.DNA_TIER_NONE
-    assert tier_color("garbage") == theme.DNA_TIER_NONE
+    assert tier_color(PROFILE_TIER_NONE) == theme.PERF_PROFILE_TIER_NONE
+    assert tier_color("garbage") == theme.PERF_PROFILE_TIER_NONE
     assert tier_label(PROFILE_TIER_BALANCED) == "Balanced"
     assert tier_label(PROFILE_TIER_NONE) == "Untuned"
 
@@ -102,15 +102,15 @@ def _alpha_pixels(pixmap) -> int:
     )
 
 
-def test_dna_pixmap_renders_fingerprint_and_warming_states(qapp) -> None:
+def test_perf_profile_pixmap_renders_fingerprint_and_warming_states(qapp) -> None:
     QtCore, QtGui, _QtWidgets, _pg = import_qt()
-    axes = dna_axes(_summary(), target_fps=120.0, power_limit_w=360)
-    badge = dna_pixmap(
+    axes = perf_profile_axes(_summary(), target_fps=120.0, power_limit_w=360)
+    badge = perf_profile_pixmap(
         QtCore, QtGui, axes=axes, tier=PROFILE_TIER_BALANCED, size=40
     )
     assert not badge.isNull()
     assert badge.width() == 40
-    labeled = dna_pixmap(
+    labeled = perf_profile_pixmap(
         QtCore,
         QtGui,
         axes=axes,
@@ -120,7 +120,7 @@ def test_dna_pixmap_renders_fingerprint_and_warming_states(qapp) -> None:
         device_pixel_ratio=2.0,
     )
     assert labeled.width() == 400  # hi-dpi backing store
-    warming = dna_pixmap(QtCore, QtGui, axes=None, tier=PROFILE_TIER_NONE, size=40)
+    warming = perf_profile_pixmap(QtCore, QtGui, axes=None, tier=PROFILE_TIER_NONE, size=40)
     badge_ink = _alpha_pixels(badge)
     warming_ink = _alpha_pixels(warming)
     assert badge_ink > 200  # a filled polygon, not a blank
@@ -129,10 +129,9 @@ def test_dna_pixmap_renders_fingerprint_and_warming_states(qapp) -> None:
 
 def test_peek_popover_populates_and_positions(qapp) -> None:
     QtCore, QtGui, QtWidgets, _pg = import_qt()
-    peek = FrameDnaPeek(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
+    peek = GamePerfProfilePeek(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
     summary = _summary()
     peek.show_for(
-        game_name="Baldur's Gate 3",
         summary=summary,
         target_fps=120.0,
         power_limit_w=360,
@@ -140,7 +139,8 @@ def test_peek_popover_populates_and_positions(qapp) -> None:
     )
     try:
         assert peek.widget.isVisible()
-        assert peek.title.text() == "Baldur's Gate 3 · Game Stats"
+        # No title: the badge it hangs off already sits beside the game name.
+        assert not hasattr(peek, "title")
         # fps-first, matching the tab's stat row and the mock.
         assert peek._stat_values["Median"].text() == "96 fps · 10.4 ms"
         assert peek._stat_values["1%-low"].text() == "71 fps · 14.1 ms"
@@ -149,8 +149,8 @@ def test_peek_popover_populates_and_positions(qapp) -> None:
         # A real marker latency earns the fifth row.
         assert peek._stat_values["Latency"].text() == "22 ms"
         assert peek._stat_values["Latency"].isVisibleTo(peek.widget)
-        assert peek.dna_label.pixmap() is not None
-        assert "Game Stats tab" in peek.hint.text()
+        assert peek.profile_label.pixmap() is not None
+        assert "Game Perf Profile tab" in peek.hint.text()
     finally:
         peek.hide()
     assert not peek.widget.isVisible()
@@ -158,9 +158,8 @@ def test_peek_popover_populates_and_positions(qapp) -> None:
 
 def test_peek_popover_hides_latency_without_a_marker_source(qapp) -> None:
     QtCore, QtGui, QtWidgets, _pg = import_qt()
-    peek = FrameDnaPeek(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
+    peek = GamePerfProfilePeek(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
     peek.show_for(
-        game_name="Hades II",
         summary=_summary(latency_ms=0.0, display_latency_ms=8.0),
         target_fps=144.0,
         power_limit_w=360,
@@ -176,10 +175,9 @@ def test_peek_popover_hides_latency_without_a_marker_source(qapp) -> None:
 
 def test_peek_opens_leftward_when_right_aligned(qapp) -> None:
     QtCore, QtGui, QtWidgets, _pg = import_qt()
-    peek = FrameDnaPeek(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
+    peek = GamePerfProfilePeek(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
     anchor = QtCore.QPoint(900, 200)
     peek.show_for(
-        game_name="Hades II",
         summary=_summary(),
         target_fps=144.0,
         power_limit_w=360,

@@ -1,9 +1,9 @@
-"""The Frame DNA tab: one game's full telemetry detail.
+"""The Game Perf Profile tab: one game's full telemetry detail.
 
 Large fingerprint + stat row and the MangoHUD-style frametime graph
 (30-minute overview or the live last-10-seconds zoom). Reads the daemon's
 ring for the selected game and refreshes while visible. Visuals follow the
-approved mockup via the ``theme.DNA_*`` palette: the trace is always the
+approved mockup via the ``theme.PERF_PROFILE_*`` palette: the trace is always the
 mock's violet-blue; red is reserved for the stutter needles.
 """
 
@@ -20,9 +20,9 @@ from runtime.frame_history import (
     summarize,
 )
 from ui import theme
-from ui.components.frame_dna import (
-    dna_axes,
-    dna_pixmap,
+from ui.components.game_perf_profile import (
+    perf_profile_axes,
+    perf_profile_pixmap,
     tier_color,
     tier_label,
     warming_text,
@@ -37,13 +37,13 @@ _LIVE_WINDOW_MS = 10_000.0
 _STUTTER_RATIO = 1.6
 _STUTTER_MILD_MS = 16.7
 _STUTTER_SEVERE_MS = 33.3
-_DNA_SIZE = 200
+_PERF_PROFILE_SIZE = 200
 # The mock is a measured column, not a full-bleed sprawl: cap the content so
 # a very wide window keeps the composed, centered layout.
 _CONTENT_MAX_WIDTH = 1500
 
 _EMPTY_HINT = (
-    "Select a game in the Steam tab and click its Game Stats badge.\n"
+    "Select a game in the Steam tab and click its Game Perf Profile badge.\n"
     "Telemetry is recorded while a PenguinBurner-enabled game runs."
 )
 
@@ -128,8 +128,8 @@ def stutter_severity_color(QtGui, frametime_ms: float):
     """
     span = _STUTTER_SEVERE_MS - _STUTTER_MILD_MS
     t = min(1.0, max(0.0, (frametime_ms - _STUTTER_MILD_MS) / span))
-    mild = QtGui.QColor(theme.DNA_STUTTER_MILD)
-    severe = QtGui.QColor(theme.DNA_STUTTER)
+    mild = QtGui.QColor(theme.PERF_PROFILE_STUTTER_MILD)
+    severe = QtGui.QColor(theme.PERF_PROFILE_STUTTER)
     return QtGui.QColor(
         round(mild.red() + (severe.red() - mild.red()) * t),
         round(mild.green() + (severe.green() - mild.green()) * t),
@@ -137,8 +137,8 @@ def stutter_severity_color(QtGui, frametime_ms: float):
     )
 
 
-class FrameDnaPanel:
-    """Owns the Frame DNA tab. Plain component: root widget in ``.widget``."""
+class GamePerfProfilePanel:
+    """Owns the Game Perf Profile tab. Plain component: root widget in ``.widget``."""
 
     def __init__(
         self,
@@ -162,7 +162,7 @@ class FrameDnaPanel:
         self._last_summary: FrameHistorySummary | None = None
 
         self.widget = QtWidgets.QWidget()
-        self.widget.setObjectName("frameDnaPanel")
+        self.widget.setObjectName("gamePerfProfilePanel")
         if pg is None:
             fallback = QtWidgets.QPlainTextEdit()
             fallback.setReadOnly(True)
@@ -174,47 +174,47 @@ class FrameDnaPanel:
 
         self.widget.setStyleSheet(
             f"""
-            QLabel#frameDnaTitle {{
-                color: {theme.DNA_TEXT}; font-size: 17px; font-weight: 700;
+            QLabel#gamePerfProfileTitle {{
+                color: {theme.PERF_PROFILE_TEXT}; font-size: 17px; font-weight: 700;
             }}
-            QLabel#frameDnaMeta {{ color: {theme.DNA_TEXT_MUTED}; font-size: 11px;
+            QLabel#gamePerfProfileMeta {{ color: {theme.PERF_PROFILE_TEXT_MUTED}; font-size: 11px;
                 font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace; }}
-            QLabel#frameDnaTierChip {{
+            QLabel#gamePerfProfileTierChip {{
                 font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
-                color: {theme.DNA_TEXT_DIM}; font-size: 10px; font-weight: 700;
-                border: 1px solid {theme.DNA_BORDER_STRONG}; border-radius: 9px;
+                color: {theme.PERF_PROFILE_TEXT_DIM}; font-size: 10px; font-weight: 700;
+                border: 1px solid {theme.PERF_PROFILE_BORDER_STRONG}; border-radius: 9px;
                 padding: 2px 10px;
             }}
-            QLabel#frameDnaSection {{
-                color: {theme.DNA_TEXT_DIM}; font-size: 12px; font-weight: 700;
+            QLabel#gamePerfProfileSection {{
+                color: {theme.PERF_PROFILE_TEXT_DIM}; font-size: 12px; font-weight: 700;
             }}
-            QLabel#frameDnaCaption {{ color: {theme.DNA_TEXT_MUTED}; font-size: 10px;
+            QLabel#gamePerfProfileCaption {{ color: {theme.PERF_PROFILE_TEXT_MUTED}; font-size: 10px;
                 font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace; }}
-            QLabel#frameDnaStatKey {{
+            QLabel#gamePerfProfileStatKey {{
                 font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
-                color: {theme.DNA_TEXT_MUTED}; font-size: 10px; font-weight: 600;
+                color: {theme.PERF_PROFILE_TEXT_MUTED}; font-size: 10px; font-weight: 600;
             }}
-            QLabel#frameDnaStatValue {{
+            QLabel#gamePerfProfileStatValue {{
                 font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
-                color: {theme.DNA_TEXT}; font-size: 13px; font-weight: 600;
+                color: {theme.PERF_PROFILE_TEXT}; font-size: 13px; font-weight: 600;
             }}
-            QLabel#frameDnaEmpty {{ color: {theme.DNA_TEXT_MUTED}; font-size: 13px; }}
-            QFrame#frameDnaFigure {{
-                background: {theme.DNA_SURFACE};
-                border: 1px solid {theme.DNA_BORDER}; border-radius: 10px;
+            QLabel#gamePerfProfileEmpty {{ color: {theme.PERF_PROFILE_TEXT_MUTED}; font-size: 13px; }}
+            QFrame#gamePerfProfileFigure {{
+                background: {theme.PERF_PROFILE_SURFACE};
+                border: 1px solid {theme.PERF_PROFILE_BORDER}; border-radius: 10px;
             }}
-            QToolButton#frameDnaLiveToggle {{
-                color: {theme.DNA_TEXT_DIM}; background: {theme.DNA_SURFACE_ALT};
-                border: 1px solid {theme.DNA_BORDER_STRONG}; border-radius: 5px;
+            QToolButton#gamePerfProfileLiveToggle {{
+                color: {theme.PERF_PROFILE_TEXT_DIM}; background: {theme.PERF_PROFILE_SURFACE_ALT};
+                border: 1px solid {theme.PERF_PROFILE_BORDER_STRONG}; border-radius: 5px;
                 font-size: 10px; font-weight: 700; padding: 3px 10px;
             }}
-            QToolButton#frameDnaLiveToggle:checked {{
-                color: {theme.DNA_TEXT};
-                border-color: {theme.DNA_TIER_BALANCED};
+            QToolButton#gamePerfProfileLiveToggle:checked {{
+                color: {theme.PERF_PROFILE_TEXT};
+                border-color: {theme.PERF_PROFILE_TIER_BALANCED};
             }}
-            QComboBox#frameDnaLiveWindow {{
-                color: {theme.DNA_TEXT_DIM}; background: {theme.DNA_SURFACE_ALT};
-                border: 1px solid {theme.DNA_BORDER_STRONG}; border-radius: 5px;
+            QComboBox#gamePerfProfileLiveWindow {{
+                color: {theme.PERF_PROFILE_TEXT_DIM}; background: {theme.PERF_PROFILE_SURFACE_ALT};
+                border: 1px solid {theme.PERF_PROFILE_BORDER_STRONG}; border-radius: 5px;
                 font-size: 10px; font-weight: 700; padding: 2px 8px;
             }}
             """
@@ -240,11 +240,11 @@ class FrameDnaPanel:
         message_page = QtWidgets.QWidget()
         message_layout = QtWidgets.QVBoxLayout(message_page)
         message_layout.addStretch(1)
-        self.empty_dna = QtWidgets.QLabel("")
-        self.empty_dna.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        message_layout.addWidget(self.empty_dna)
+        self.empty_profile = QtWidgets.QLabel("")
+        self.empty_profile.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        message_layout.addWidget(self.empty_profile)
         self.empty_label = QtWidgets.QLabel(_EMPTY_HINT)
-        self.empty_label.setObjectName("frameDnaEmpty")
+        self.empty_label.setObjectName("gamePerfProfileEmpty")
         self.empty_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         message_layout.addWidget(self.empty_label)
         message_layout.addStretch(2)
@@ -259,23 +259,23 @@ class FrameDnaPanel:
         header = QtWidgets.QHBoxLayout()
         header.setSpacing(10)
         self.game_title = QtWidgets.QLabel("")
-        self.game_title.setObjectName("frameDnaTitle")
+        self.game_title.setObjectName("gamePerfProfileTitle")
         header.addWidget(self.game_title, 0)
         self.tier_chip = QtWidgets.QLabel("")
-        self.tier_chip.setObjectName("frameDnaTierChip")
+        self.tier_chip.setObjectName("gamePerfProfileTierChip")
         header.addWidget(self.tier_chip, 0)
         header.addStretch(1)
         self.meta_label = QtWidgets.QLabel("")
-        self.meta_label.setObjectName("frameDnaMeta")
+        self.meta_label.setObjectName("gamePerfProfileMeta")
         header.addWidget(self.meta_label, 0)
         detail.addLayout(header)
 
         top = QtWidgets.QHBoxLayout()
         top.setSpacing(16)
-        self.dna_label = QtWidgets.QLabel("")
-        self.dna_label.setFixedSize(_DNA_SIZE + 30, _DNA_SIZE + 30)
-        self.dna_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        top.addWidget(self.dna_label, 0)
+        self.profile_label = QtWidgets.QLabel("")
+        self.profile_label.setFixedSize(_PERF_PROFILE_SIZE + 30, _PERF_PROFILE_SIZE + 30)
+        self.profile_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        top.addWidget(self.profile_label, 0)
         stats = QtWidgets.QGridLayout()
         stats.setHorizontalSpacing(26)
         stats.setVerticalSpacing(10)
@@ -290,9 +290,9 @@ class FrameDnaPanel:
             cell.setContentsMargins(0, 0, 0, 0)
             cell.setSpacing(1)
             key_label = QtWidgets.QLabel(key)
-            key_label.setObjectName("frameDnaStatKey")
+            key_label.setObjectName("gamePerfProfileStatKey")
             value_label = QtWidgets.QLabel("")
-            value_label.setObjectName("frameDnaStatValue")
+            value_label.setObjectName("gamePerfProfileStatValue")
             cell.addWidget(key_label)
             cell.addWidget(value_label)
             stats.addWidget(cell_widget, index // 4, index % 4)
@@ -329,20 +329,20 @@ class FrameDnaPanel:
         muted caption under the chart — never riding the plot itself."""
         QtWidgets = self.QtWidgets
         frame = QtWidgets.QFrame()
-        frame.setObjectName("frameDnaFigure")
+        frame.setObjectName("gamePerfProfileFigure")
         layout = QtWidgets.QVBoxLayout(frame)
         layout.setContentsMargins(14, 12, 14, 10)
         layout.setSpacing(0)
         header = QtWidgets.QHBoxLayout()
         header.setSpacing(12)
         section = QtWidgets.QLabel(title)
-        section.setObjectName("frameDnaSection")
+        section.setObjectName("gamePerfProfileSection")
         header.addWidget(section, 0)
         header.addStretch(1)
         layout.addLayout(header)
         layout.addSpacing(10)
         caption_label = QtWidgets.QLabel(caption)
-        caption_label.setObjectName("frameDnaCaption")
+        caption_label.setObjectName("gamePerfProfileCaption")
         caption_label.setWordWrap(True)
         return frame, layout, header, caption_label
 
@@ -381,14 +381,14 @@ class FrameDnaPanel:
         plot.setMenuEnabled(False)
         if hasattr(pg, "setConfigOptions"):
             pg.setConfigOptions(antialias=True)
-        plot.setBackground(theme.DNA_SURFACE)
+        plot.setBackground(theme.PERF_PROFILE_SURFACE)
         plot.showGrid(x=True, y=True, alpha=0.16)
         # A read-only figure: the panel owns the ranges, the user's wheel
         # must not fight the 2 s refresh.
         plot.setMouseEnabled(x=False, y=False)
         plot.hideButtons()
-        axis_pen = pg.mkPen(theme.DNA_AXIS, width=1)
-        text_color = theme.DNA_TEXT_MUTED
+        axis_pen = pg.mkPen(theme.PERF_PROFILE_AXIS, width=1)
+        text_color = theme.PERF_PROFILE_TEXT_MUTED
         for name in ("bottom", "left"):
             axis = plot.getAxis(name)
             axis.setPen(axis_pen)
@@ -420,13 +420,13 @@ class FrameDnaPanel:
         self._frametime_caption = caption
         self._frametime_caption_base = caption.text()
         self.live_toggle = QtWidgets.QToolButton()
-        self.live_toggle.setObjectName("frameDnaLiveToggle")
+        self.live_toggle.setObjectName("gamePerfProfileLiveToggle")
         self.live_toggle.setText("LIVE")
         self.live_toggle.setCheckable(True)
         self.live_toggle.toggled.connect(self._live_toggled)
         header.addWidget(self.live_toggle, 0)
         self.live_window_combo = QtWidgets.QComboBox()
-        self.live_window_combo.setObjectName("frameDnaLiveWindow")
+        self.live_window_combo.setObjectName("gamePerfProfileLiveWindow")
         for seconds in (10, 30, 60):
             self.live_window_combo.addItem(f"{seconds} s", seconds)
         self.live_window_combo.currentIndexChanged.connect(self._live_window_changed)
@@ -438,13 +438,13 @@ class FrameDnaPanel:
         # The trace is ALWAYS the mock's violet-blue, whatever the game's
         # tier: red belongs exclusively to the stutter needles.
         self.frametime_curve = self.frametime_plot.plot(
-            [], [], pen=pg.mkPen(theme.DNA_TIER_BALANCED, width=1.4),
-            fillLevel=0.0, brush=_mk_color(self.QtGui, theme.DNA_TIER_BALANCED, 38),
+            [], [], pen=pg.mkPen(theme.PERF_PROFILE_TIER_BALANCED, width=1.4),
+            fillLevel=0.0, brush=_mk_color(self.QtGui, theme.PERF_PROFILE_TIER_BALANCED, 38),
         )
         # Needles sit above the trace fill, as in the mock.
         self.stutter_bars = pg.BarGraphItem(
             x=[], height=[], width=0.001,
-            brush=_mk_color(self.QtGui, theme.DNA_STUTTER, 230), pen=None,
+            brush=_mk_color(self.QtGui, theme.PERF_PROFILE_STUTTER, 230), pen=None,
         )
         self.stutter_bars.setZValue(5)
         self.frametime_plot.addItem(self.stutter_bars)
@@ -452,12 +452,12 @@ class FrameDnaPanel:
         # on-plot labels collide whenever median and 1%-low sit close. The
         # median rides its own trace, so it dashes in a brighter ink to stay
         # visible against the stroke it hugs.
-        median_pen = pg.mkPen(theme.DNA_TEXT_MUTED, width=1)
+        median_pen = pg.mkPen(theme.PERF_PROFILE_TEXT_MUTED, width=1)
         median_pen.setStyle(self.QtCore.Qt.PenStyle.DashLine)
         self.median_line = pg.InfiniteLine(angle=0, movable=False, pen=median_pen)
         self.p99_line = pg.InfiniteLine(
             angle=0, movable=False,
-            pen=pg.mkPen(theme.DNA_TEXT_DIM, width=1),
+            pen=pg.mkPen(theme.PERF_PROFILE_TEXT_DIM, width=1),
         )
         self.frametime_plot.addItem(self.median_line, ignoreBounds=True)
         self.frametime_plot.addItem(self.p99_line, ignoreBounds=True)
@@ -518,12 +518,12 @@ class FrameDnaPanel:
 
     def _show_message(self, text: str, *, warming: bool) -> None:
         self.empty_label.setText(text)
-        pixmap = dna_pixmap(
+        pixmap = perf_profile_pixmap(
             self.QtCore, self.QtGui, axes=None, tier="", size=72,
             device_pixel_ratio=self._device_pixel_ratio(),
         )
-        self.empty_dna.setPixmap(pixmap)
-        self.empty_dna.setVisible(warming or not self._app_id)
+        self.empty_profile.setPixmap(pixmap)
+        self.empty_profile.setVisible(warming or not self._app_id)
         self._stack.setCurrentIndex(0)
 
     def _device_pixel_ratio(self) -> float:
@@ -542,19 +542,19 @@ class FrameDnaPanel:
             "padding: 2px 10px; font-size: 10px; font-weight: 700;"
         )
         self.meta_label.setText(meta_text(history, summary))
-        axes = dna_axes(
+        axes = perf_profile_axes(
             summary,
             target_fps=self._target_fps,
             power_limit_w=history.header.power_limit_w,
         )
-        self.dna_label.setPixmap(
-            dna_pixmap(
+        self.profile_label.setPixmap(
+            perf_profile_pixmap(
                 self.QtCore, self.QtGui, axes=axes, tier=summary.tier,
-                size=_DNA_SIZE, labels=True,
+                size=_PERF_PROFILE_SIZE, labels=True,
                 device_pixel_ratio=self._device_pixel_ratio(),
             )
         )
-        self.dna_label.setToolTip(
+        self.profile_label.setToolTip(
             "\n".join(f"{axis.label}: {axis.text}" for axis in axes)
         )
         self._stat_values["MEDIAN"].setText(
@@ -597,7 +597,7 @@ class FrameDnaPanel:
             bar_width = window_s * 0.003
             x_range = (-window_s - window_s * 0.03, window_s * 0.01)
             self.frametime_plot.setLabel(
-                "bottom", "seconds ago", color=theme.DNA_TEXT_MUTED
+                "bottom", "seconds ago", color=theme.PERF_PROFILE_TEXT_MUTED
             )
         else:
             xs, values, maxes = densify_frametimes(history.frametimes_ms)
@@ -609,7 +609,7 @@ class FrameDnaPanel:
             # edges instead of floating in autorange padding.
             x_range = (xs[0] - span * 0.01, span * 0.01) if xs else (-1.0, 0.0)
             self.frametime_plot.setLabel(
-                "bottom", "minutes ago", color=theme.DNA_TEXT_MUTED
+                "bottom", "minutes ago", color=theme.PERF_PROFILE_TEXT_MUTED
             )
         # The mock's y-ceiling, rounded to a nice number so the top tick and
         # the range end coincide; spikes keep their height, extremes clamp.
@@ -672,7 +672,7 @@ class FrameDnaPanel:
 
         This cannot catch the case that matters most: a window merely occluded
         by a fullscreen game still reports visible *and* exposed, and Qt offers
-        no portable occlusion signal. A Game Stats tab left open behind a game
+        no portable occlusion signal. A Game Perf Profile tab left open behind a game
         keeps paying, which is why the tick above stays as slow as it can.
         """
         if not self._app_id or not self.widget.isVisible():

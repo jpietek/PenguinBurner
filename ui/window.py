@@ -16,8 +16,8 @@ from ui.assets import asset_image_path
 from ui.commands import scan_command
 from ui.components.auto_uv_tier_progress import AutoUvTierProgress
 from ui.components.curve_plot import CurvePlot
-from ui.components.frame_dna import DnaAxis, dna_pixmap
-from ui.components.frame_dna_panel import FrameDnaPanel
+from ui.components.game_perf_profile import PerfProfileAxis, perf_profile_pixmap
+from ui.components.game_perf_profile_panel import GamePerfProfilePanel
 from ui.components.log_view import LogView
 from ui.components.overlay_config import OverlayConfigPanel
 from ui.components.profile_list import ProfileList
@@ -159,13 +159,13 @@ class MainWindow(ProfileActionsMixin):
             )
             >= 1,
         )
-        self.frame_dna_panel = FrameDnaPanel(
+        self.game_perf_profile_panel = GamePerfProfilePanel(
             QtCore=self.QtCore,
             QtGui=self.QtGui,
             QtWidgets=self.QtWidgets,
             pg=self.pg,
         )
-        self.steam_panel.on_open_frame_dna = self.show_frame_dna
+        self.steam_panel.on_open_game_perf_profile = self.show_game_perf_profile
 
         self.tabs = self.QtWidgets.QTabWidget()
         self.tabs.setIconSize(self.QtCore.QSize(18, 18))
@@ -193,10 +193,10 @@ class MainWindow(ProfileActionsMixin):
             tab_icon("tab-overlay.png"),
             "In-Game Overlay",
         )
-        self.frame_dna_tab_index = self.tabs.addTab(
-            self.frame_dna_panel.widget,
-            self._frame_dna_tab_icon(),
-            "Game Stats",
+        self.game_perf_profile_tab_index = self.tabs.addTab(
+            self.game_perf_profile_panel.widget,
+            self._game_perf_profile_tab_icon(),
+            "Game Perf Profile",
         )
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self._close_dynamic_tab)
@@ -307,30 +307,30 @@ class MainWindow(ProfileActionsMixin):
         # a post-upgrade launch guides the user instead of failing later.
         self.QtCore.QTimer.singleShot(0, self._run_startup_checks)
 
-    def _frame_dna_tab_icon(self):
+    def _game_perf_profile_tab_icon(self):
         """The tab glyph is a fingerprint rendered at runtime — no binary
         asset to keep in sync with the palette."""
         glyph_axes = tuple(
-            DnaAxis(code, code, "", fraction)
+            PerfProfileAxis(code, code, "", fraction)
             for code, fraction in (
                 ("PWR", 0.85), ("GPU", 0.9), ("FPS", 0.65),
                 ("LOW", 0.75), ("CPU", 0.6),
             )
         )
-        pixmap = dna_pixmap(
+        pixmap = perf_profile_pixmap(
             self.QtCore, self.QtGui, axes=glyph_axes,
             tier="balanced", size=18, device_pixel_ratio=2.0,
         )
         return self.QtGui.QIcon(pixmap)
 
-    def show_frame_dna(
+    def show_game_perf_profile(
         self, app_id: str, game_name: str = "", target_fps: float | None = None
     ) -> None:
-        """Open the Frame DNA tab for a game (the Steam badge's click path)."""
-        self.frame_dna_panel.select_app(
+        """Open the Game Perf Profile tab for a game (the Steam badge's click path)."""
+        self.game_perf_profile_panel.select_app(
             app_id, game_name=game_name, target_fps=target_fps
         )
-        self.tabs.setCurrentIndex(self.frame_dna_tab_index)
+        self.tabs.setCurrentIndex(self.game_perf_profile_tab_index)
 
     def _run_startup_checks(self) -> None:
         self._check_gpu_supported_on_startup()

@@ -852,7 +852,7 @@ def test_refused_stop_falls_back_to_running(
     panel._game_state_timer.stop()
 
 
-def test_frame_dna_badge_states_peek_and_open_callback(
+def test_game_perf_profile_badge_states_peek_and_open_callback(
     qtbot, tmp_path: Path, monkeypatch
 ) -> None:
     from runtime.frame_history import (
@@ -914,25 +914,27 @@ def test_frame_dna_badge_states_peek_and_open_callback(
     qtbot.waitUntil(lambda: not panel._scan_running, timeout=2000)
     try:
         opened: list[tuple[str, str, float | None]] = []
-        panel.on_open_frame_dna = lambda app_id, name, fps: opened.append(
+        panel.on_open_game_perf_profile = lambda app_id, name, fps: opened.append(
             (app_id, name, fps)
         )
 
         # Recent sort selects Zeta first: qualified ring -> real fingerprint.
         assert panel.game_title.text() == "Zeta"
-        badge = panel.frame_dna_badge
+        badge = panel.game_perf_profile_badge
         assert badge.isVisibleTo(panel.widget)
         assert not badge.icon().isNull()
         assert badge.toolTip() == ""
-        assert panel._frame_dna_summary is not None
+        assert panel._game_perf_profile_summary is not None
         # The fingerprint carries no spoke labels, so a caption names it.
-        assert panel.frame_dna_caption.isVisibleTo(panel.widget)
-        assert panel.frame_dna_caption.text() == "GAME PERFORMANCE PROFILE"
+        assert panel.game_perf_profile_caption.isVisibleTo(panel.widget)
+        assert panel.game_perf_profile_caption.text() == "GAME PERFORMANCE PROFILE"
 
-        panel._show_frame_dna_peek()
-        peek = panel._frame_dna_peek
+        panel._show_game_perf_profile_peek()
+        peek = panel._game_perf_profile_peek
         assert peek is not None and peek.widget.isVisible()
-        assert peek.title.text() == "Zeta · Game Stats"
+        # No title row: the popover opens beside the header that already
+        # names the game.
+        assert not hasattr(peek, "title")
         assert peek._stat_values["Power"].text() == "214 W"
 
         badge.click()  # opens the tab and hides the peek
@@ -944,8 +946,8 @@ def test_frame_dna_badge_states_peek_and_open_callback(
         panel.game_list.setCurrentItem(panel.game_list.item(1))
         assert panel.game_title.text() == "Alpha"
         assert badge.isVisibleTo(panel.widget)
-        assert "No Game Stats yet" in badge.toolTip()
-        assert panel._frame_dna_summary is None
+        assert "No Game Perf Profile yet" in badge.toolTip()
+        assert panel._game_perf_profile_summary is None
         badge.click()
         assert opened[-1] == ("10", "Alpha", None)
 
@@ -953,7 +955,7 @@ def test_frame_dna_badge_states_peek_and_open_callback(
         panel.game_list.setCurrentItem(panel.game_list.item(2))
         assert panel.game_title.text() == "Beta"
         assert "Warming up" in badge.toolTip()
-        assert panel._frame_dna_summary is None
+        assert panel._game_perf_profile_summary is None
     finally:
         panel._sync_timer.stop()
         panel._game_state_timer.stop()

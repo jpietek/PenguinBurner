@@ -141,7 +141,7 @@ pub struct RuntimeSpec {
     pub fan: FanSpec,
     pub policy: RuntimePolicySpec,
     pub overlay: OverlaySpec,
-    /// Frame-history capture for the watched game (Frame DNA). Absent means
+    /// Frame-history capture for the watched game (Game Perf Profile). Absent means
     /// enabled — capture is the default — and the default is not serialized
     /// so persisted runtime state keeps its old shape.
     #[serde(

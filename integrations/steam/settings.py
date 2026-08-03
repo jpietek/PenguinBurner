@@ -67,7 +67,7 @@ class SteamGameSetting:
     enabled: bool = False
     mode: str = GAME_MODE_ADAPTIVE
     overlay: bool = False
-    # Frame-history capture (Frame DNA). On by default: the daemon records a
+    # Frame-history capture (Game Perf Profile). On by default: the daemon records a
     # rolling window for every enabled game unless the user opts out.
     telemetry: bool = True
     original_launch_options: str = ""
