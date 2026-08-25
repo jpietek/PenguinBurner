@@ -11,16 +11,31 @@ path.
 
 ## Launch Paths
 
-Wrap the game and enable the overlay:
+### Steam
+
+Add this to the game's launch options:
 
 ```text
 PB_OVERLAY=1 PENGUIN_BURNER %command%
 ```
 
+### Lutris and other Wine launchers
+
+In Lutris, open **Game → Configure → System options** and set
+**Command prefix** to:
+
+```text
+PENGUIN_BURNER --pb-overlay=1
+```
+
+The `PENGUIN_BURNER` command must be installed and available on the launcher's
+`PATH`. This path also works for other launchers that expose the active prefix
+through `WINEPREFIX`; it does not depend on Steam game identity.
+
 In-game latency turns on with the overlay — no extra flag. The NVAPI shim is
-deployed into the Proton prefix automatically and streams Reflex markers to the
-wrapper's FIFO; native and prefix-less games fall back to the Vulkan layer's own
-marker tap. Opt out with `PB_INGAME_LATENCY=0`.
+deployed into the Wine or Proton prefix automatically and streams Reflex markers
+to the wrapper's FIFO; native and prefix-less games fall back to the Vulkan
+layer's own marker tap. Opt out with `PB_INGAME_LATENCY=0`.
 
 ## What PenguinBurner Can Force
 
@@ -40,7 +55,7 @@ marker stream at all.
 
 ## Latency Sources
 
-### NVAPI Shim (default, Proton games)
+### NVAPI Shim (default, Wine and Proton games)
 
 The default source is the drop-in NVAPI shim. It taps the Reflex markers above
 vkd3d's owner-gate — so it still works under frame generation — and streams them
@@ -50,8 +65,8 @@ involved.
 
 ### Native Vulkan Markers (fallback)
 
-Games without a Proton prefix (and the single-swapchain / non-FG case) fall back
-to PenguinBurner's native Vulkan implicit layer, which observes
+Games without a Wine or Proton prefix (and the single-swapchain / non-FG case)
+fall back to PenguinBurner's native Vulkan implicit layer, which observes
 `vkSetLatencyMarkerNV` / `vkGetLatencyTimingsNV` inside the game process and
 publishes samples such as:
 

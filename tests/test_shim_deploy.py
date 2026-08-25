@@ -449,8 +449,11 @@ def test_spawn_refront_watcher_launches_detached_watch(
     tmp_path: Path, monkeypatch
 ) -> None:
     _make_artifact(tmp_path)
-    data_path = _make_prefix(tmp_path)
-    env = _env(tmp_path, data_path)
+    prefix = _make_wine_prefix(tmp_path, umu_pfx_symlink=False)
+    env = {
+        shim_deploy.NVAPI_SHIM_DIR_ENV: str(tmp_path / "shim"),
+        "WINEPREFIX": str(prefix),
+    }
     captured: dict = {}
 
     class FakePopen:
@@ -498,3 +501,388 @@ def test_spawn_refront_watcher_skips_without_prefix(
 
     monkeypatch.setattr(shim_deploy.subprocess, "Popen", fail)
     assert shim_deploy.spawn_refront_watcher(env) is None
+
+
+def _make_wine_prefix(tmp_path: Path, *, umu_pfx_symlink: bool) -> Path:
+    """A Lutris-style prefix: drive_c at the top, no compatdata wrapper."""
+    prefix = tmp_path / "Games" / "some-game"
+    system32 = prefix / "drive_c" / "windows" / "system32"
+    system32.mkdir(parents=True)
+    (system32 / shim_deploy.SHIM_DLL_NAME).write_bytes(REAL_BYTES)
+    if umu_pfx_symlink:
+        # umu drops this next to drive_c, so the Steam-shaped path also
+        # resolves inside a Lutris prefix.
+        (prefix / "pfx").symlink_to(".")
+    return prefix
+
+
+def test_prefix_system32_resolves_a_lutris_wine_prefix(tmp_path: Path) -> None:
+    """Reading only STEAM_COMPAT_DATA_PATH left Lutris without the shim.
+
+    No shim means no Reflex markers, so adaptive receives no pacing at all and
+    holds whatever tier it started on.
+    """
+    prefix = _make_wine_prefix(tmp_path, umu_pfx_symlink=False)
+
+    assert shim_deploy.prefix_system32({"WINEPREFIX": str(prefix)}) == (
+        prefix / "drive_c" / "windows" / "system32"
+    )
+
+
+def test_prefix_system32_accepts_the_umu_pfx_symlink(tmp_path: Path) -> None:
+    prefix = _make_wine_prefix(tmp_path, umu_pfx_symlink=True)
+
+    resolved = shim_deploy.prefix_system32({"WINEPREFIX": str(prefix)})
+
+    assert resolved is not None
+    assert resolved.resolve() == (prefix / "drive_c" / "windows" / "system32").resolve()
+
+
+def test_prefix_system32_prefers_the_steam_path_when_both_are_set(
+    tmp_path: Path,
+) -> None:
+    """umu exports WINEPREFIX under Steam too; the Steam prefix stays canonical."""
+    steam = _make_prefix(tmp_path / "steam")
+    lutris = _make_wine_prefix(tmp_path / "lutris", umu_pfx_symlink=False)
+
+    resolved = shim_deploy.prefix_system32(
+        {"STEAM_COMPAT_DATA_PATH": str(steam), "WINEPREFIX": str(lutris)}
+    )
+
+    assert resolved == _system32(steam)
+
+
+def test_prefix_system32_falls_through_a_steam_path_that_does_not_exist(
+    tmp_path: Path,
+) -> None:
+    """A stale Steam variable must not hide a prefix that is really there."""
+    lutris = _make_wine_prefix(tmp_path, umu_pfx_symlink=False)
+
+    resolved = shim_deploy.prefix_system32(
+        {"STEAM_COMPAT_DATA_PATH": str(tmp_path / "gone"), "WINEPREFIX": str(lutris)}
+    )
+
+    assert resolved == lutris / "drive_c" / "windows" / "system32"
+
+
+# --- cleanup for prefixes no launcher scan can find ---------------------------
+
+
+def _isolated_home(tmp_path: Path, monkeypatch) -> Path:
+    """Point the register at a throwaway home, never the developer's own."""
+    home = tmp_path / "home"
+    home.mkdir(exist_ok=True)
+    monkeypatch.setenv("PENGUIN_BURNER_HOME", str(home))
+    return home
+
+
+def test_deploy_records_the_prefix_it_fronted(tmp_path: Path, monkeypatch) -> None:
+    _isolated_home(tmp_path, monkeypatch)
+    artifact = _make_artifact(tmp_path)
+    prefix = _make_wine_prefix(tmp_path, umu_pfx_symlink=False)
+    system32 = prefix / "drive_c" / "windows" / "system32"
+
+    shim_deploy.deploy_nvapi_shim(
+        {
+            "WINEPREFIX": str(prefix),
+            shim_deploy.NVAPI_SHIM_DIR_ENV: str(artifact.parent),
+        }
+    )
+
+    assert str(system32.resolve()) in shim_deploy._read_fronted_prefixes(
+        shim_deploy.fronted_prefixes_path()
+    )
+
+
+def test_restore_all_cleans_a_prefix_no_scan_could_find(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The whole point: a Lutris prefix lives wherever the user put it.
+
+    Without the register, uninstall walked Steam's compatdata only, so a
+    Lutris, Heroic or plain-wine prefix stayed fronted forever -- invisibly,
+    because the front is a DLL swap inside the user's own game files.
+    """
+    _isolated_home(tmp_path, monkeypatch)
+    artifact = _make_artifact(tmp_path)
+    prefix = _make_wine_prefix(tmp_path, umu_pfx_symlink=False)
+    system32 = prefix / "drive_c" / "windows" / "system32"
+    shim_deploy.deploy_nvapi_shim(
+        {
+            "WINEPREFIX": str(prefix),
+            shim_deploy.NVAPI_SHIM_DIR_ENV: str(artifact.parent),
+        }
+    )
+    assert (system32 / shim_deploy.REAL_SIDECAR_NAME).is_file()
+
+    restored = shim_deploy.restore_all_nvapi_shims(tmp_path / "no-steam-here")
+
+    assert system32 in restored
+    assert (system32 / shim_deploy.SHIM_DLL_NAME).read_bytes() == REAL_BYTES
+    assert not (system32 / shim_deploy.REAL_SIDECAR_NAME).exists()
+
+
+def test_a_cleaned_prefix_leaves_the_register(tmp_path: Path, monkeypatch) -> None:
+    _isolated_home(tmp_path, monkeypatch)
+    artifact = _make_artifact(tmp_path)
+    prefix = _make_wine_prefix(tmp_path, umu_pfx_symlink=False)
+    env = {
+        "WINEPREFIX": str(prefix),
+        shim_deploy.NVAPI_SHIM_DIR_ENV: str(artifact.parent),
+    }
+    shim_deploy.deploy_nvapi_shim(env)
+
+    shim_deploy.restore_nvapi_shim(env)
+
+    assert shim_deploy._read_fronted_prefixes(shim_deploy.fronted_prefixes_path()) == []
+
+
+def test_deploy_refuses_a_prefix_it_cannot_record(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """No record, no fronting.
+
+    A prefix that cannot be recorded is one uninstall can never find again, and
+    the swap is invisible to the user, so it would stay behind for good.
+    Declining to deploy costs a session of marker latency; the alternative
+    costs the user's game files.
+    """
+    _isolated_home(tmp_path, monkeypatch)
+    artifact = _make_artifact(tmp_path)
+    prefix = _make_wine_prefix(tmp_path, umu_pfx_symlink=False)
+    system32 = prefix / "drive_c" / "windows" / "system32"
+    monkeypatch.setattr(shim_deploy, "_write_fronted_prefixes", lambda *_a: False)
+
+    placed = shim_deploy.deploy_nvapi_shim(
+        {
+            "WINEPREFIX": str(prefix),
+            shim_deploy.NVAPI_SHIM_DIR_ENV: str(artifact.parent),
+        }
+    )
+
+    assert placed is None
+    assert (system32 / shim_deploy.SHIM_DLL_NAME).read_bytes() == REAL_BYTES
+    assert not (system32 / shim_deploy.REAL_SIDECAR_NAME).exists()
+
+
+def test_deploy_refuses_to_overwrite_a_corrupt_prefix_register(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _isolated_home(tmp_path, monkeypatch)
+    artifact = _make_artifact(tmp_path)
+    prefix = _make_wine_prefix(tmp_path, umu_pfx_symlink=False)
+    system32 = prefix / "drive_c" / "windows" / "system32"
+    register = shim_deploy.fronted_prefixes_path()
+    register.parent.mkdir(parents=True, exist_ok=True)
+    register.write_text("{broken", encoding="utf-8")
+
+    placed = shim_deploy.deploy_nvapi_shim(
+        {
+            "WINEPREFIX": str(prefix),
+            shim_deploy.NVAPI_SHIM_DIR_ENV: str(artifact.parent),
+        }
+    )
+
+    assert placed is None
+    assert register.read_text(encoding="utf-8") == "{broken"
+    assert (system32 / shim_deploy.SHIM_DLL_NAME).read_bytes() == REAL_BYTES
+    assert not (system32 / shim_deploy.REAL_SIDECAR_NAME).exists()
+
+
+def test_concurrent_prefix_registration_keeps_both_entries(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _isolated_home(tmp_path, monkeypatch)
+    first_write_started = threading.Event()
+    release_first_write = threading.Event()
+    second_write_started = threading.Event()
+    call_guard = threading.Lock()
+    call_count = 0
+    real_write = shim_deploy._write_fronted_prefixes
+
+    def paused_first_write(path: Path, entries: list[str]) -> bool:
+        nonlocal call_count
+        with call_guard:
+            call_count += 1
+            this_call = call_count
+        if this_call == 1:
+            first_write_started.set()
+            assert release_first_write.wait(timeout=2.0)
+        else:
+            second_write_started.set()
+        return real_write(path, entries)
+
+    monkeypatch.setattr(shim_deploy, "_write_fronted_prefixes", paused_first_write)
+    results: list[bool] = []
+    first = threading.Thread(
+        target=lambda: results.append(
+            shim_deploy.remember_fronted_prefix(tmp_path / "one" / "system32")
+        )
+    )
+    second = threading.Thread(
+        target=lambda: results.append(
+            shim_deploy.remember_fronted_prefix(tmp_path / "two" / "system32")
+        )
+    )
+
+    first.start()
+    assert first_write_started.wait(timeout=2.0)
+    second.start()
+    try:
+        assert not second_write_started.wait(timeout=0.1)
+    finally:
+        release_first_write.set()
+        first.join(timeout=2.0)
+        second.join(timeout=2.0)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert results == [True, True]
+    assert set(
+        shim_deploy._read_fronted_prefixes(shim_deploy.fronted_prefixes_path()) or []
+    ) == {
+        str((tmp_path / "one" / "system32").resolve()),
+        str((tmp_path / "two" / "system32").resolve()),
+    }
+
+
+def test_the_register_keeps_one_entry_per_prefix(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """umu symlinks pfx -> ., so one directory answers to two paths."""
+    _isolated_home(tmp_path, monkeypatch)
+    artifact = _make_artifact(tmp_path)
+    prefix = _make_wine_prefix(tmp_path, umu_pfx_symlink=True)
+    shim_env = {shim_deploy.NVAPI_SHIM_DIR_ENV: str(artifact.parent)}
+
+    shim_deploy.deploy_nvapi_shim({"WINEPREFIX": str(prefix), **shim_env})
+    # Second launch of the same game, reached through the symlinked spelling.
+    shim_deploy.deploy_nvapi_shim({"WINEPREFIX": str(prefix / "pfx"), **shim_env})
+
+    assert (
+        len(shim_deploy._read_fronted_prefixes(shim_deploy.fronted_prefixes_path()))
+        == 1
+    )
+
+
+def test_restore_all_still_sweeps_steam_libraries(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The register does not replace the sweep: it cannot know older installs."""
+    _isolated_home(tmp_path, monkeypatch)
+    compat_data = tmp_path / ".local/share/Steam/steamapps/compatdata/123"
+    system32 = compat_data / "pfx/drive_c/windows/system32"
+    system32.mkdir(parents=True)
+    (system32 / shim_deploy.SHIM_DLL_NAME).write_bytes(SHIM_BYTES)
+    (system32 / shim_deploy.REAL_SIDECAR_NAME).write_bytes(REAL_BYTES)
+
+    assert shim_deploy.restore_all_nvapi_shims(tmp_path) == (system32,)
+    assert (system32 / shim_deploy.SHIM_DLL_NAME).read_bytes() == REAL_BYTES
+
+
+# --- a launch that lands inside prefix setup ---------------------------------
+
+
+def test_marker_output_is_claimed_when_the_prefix_is_mid_setup(
+    tmp_path: Path,
+) -> None:
+    """umu/Proton remove nvapi64.dll before copying their own dxvk-nvapi in.
+
+    Observed on Lutris + umu (2026-08-24, every launch): at wrapper time the
+    file was simply absent. Reporting "no shim" there disarms the re-front
+    watcher -- the one thing that would front the DLL the moment it reappears --
+    so the shim never returned for the rest of the session.
+    """
+    _make_artifact(tmp_path)
+    data_path = _make_prefix(tmp_path, with_nvapi=False)
+    env = _env(tmp_path, data_path)
+
+    claimed = _configure_dxvk_nvapi_marker_output(env)
+
+    assert claimed is True
+    # The game reads its env once, at start, so the shim's output path has to be
+    # pinned now even though the shim itself arrives later.
+    assert env.get("PENGUIN_BURNER_SHIM_OUTPUT")
+
+
+def test_marker_output_is_declined_without_a_prefix_to_front(
+    tmp_path: Path,
+) -> None:
+    """The other side of it: no prefix at all is not a race, it is a fallback.
+
+    Nothing would ever appear for a watcher to guard, so the Vulkan layer's own
+    marker tap stays the source and no helper is spawned.
+    """
+    _make_artifact(tmp_path)
+    env = {shim_deploy.NVAPI_SHIM_DIR_ENV: str(tmp_path / "shim")}
+
+    assert _configure_dxvk_nvapi_marker_output(env) is False
+    assert "PENGUIN_BURNER_SHIM_OUTPUT" not in env
+
+
+def test_marker_output_is_declined_without_a_built_shim(tmp_path: Path) -> None:
+    data_path = _make_prefix(tmp_path)
+    env = {
+        shim_deploy.NVAPI_SHIM_DIR_ENV: str(tmp_path / "absent-shim-dir"),
+        "STEAM_COMPAT_DATA_PATH": str(data_path),
+    }
+
+    assert _configure_dxvk_nvapi_marker_output(env) is False
+
+
+# --- never park a DLL that is still being written -----------------------------
+
+
+def test_deploy_waits_while_the_stock_dll_is_still_being_written(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A live failure: a 512 KiB fragment of a 1.8 MB DLL was parked.
+
+    The sidecar is what every NVAPI call is forwarded into, so parking a
+    half-written copy took the game down at startup. umu writes this file during
+    prefix setup and a close notification does not prove the write finished.
+    """
+    _make_artifact(tmp_path)
+    data_path = _make_prefix(tmp_path)
+    system32 = _system32(data_path)
+    nvapi = system32 / shim_deploy.SHIM_DLL_NAME
+    monkeypatch.setattr(shim_deploy, "_settled_size", lambda _path: None)
+
+    placed = shim_deploy.deploy_nvapi_shim(_env(tmp_path, data_path))
+
+    assert placed is None
+    # Untouched: no shim installed, and crucially no sidecar written from a
+    # partial file, which is what a later restore would put back.
+    assert nvapi.read_bytes() == REAL_BYTES
+    assert not (system32 / shim_deploy.REAL_SIDECAR_NAME).exists()
+
+
+def test_settled_size_rejects_a_pause_before_more_growth() -> None:
+    sizes = iter([100, 100, 200, 200])
+
+    class PausingWriter:
+        def stat(self):
+            return type("Stat", (), {"st_size": next(sizes)})()
+
+    assert shim_deploy._settled_size(PausingWriter(), checks=3, delay_s=0) is None
+
+
+def test_settled_size_accepts_a_complete_stability_window() -> None:
+    sizes = iter([100, 100, 100, 100])
+
+    class FinishedWriter:
+        def stat(self):
+            return type("Stat", (), {"st_size": next(sizes)})()
+
+    assert shim_deploy._settled_size(FinishedWriter(), checks=3, delay_s=0) == 100
+
+
+def test_deploy_proceeds_once_the_size_settles(tmp_path: Path) -> None:
+    _make_artifact(tmp_path)
+    data_path = _make_prefix(tmp_path)
+    system32 = _system32(data_path)
+
+    placed = shim_deploy.deploy_nvapi_shim(_env(tmp_path, data_path))
+
+    assert placed is not None
+    assert (system32 / shim_deploy.REAL_SIDECAR_NAME).read_bytes() == REAL_BYTES

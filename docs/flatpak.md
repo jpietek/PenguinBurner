@@ -64,9 +64,10 @@ flatpak update --user -y io.github.jpietek.PenguinBurner && flatpak run io.githu
 
 To uninstall the Flatpak cleanly, remove the host wrappers before removing the
 app. Cleanup removes only files created by PenguinBurner: the `~/.local/bin`
-commands, user Vulkan manifest, and NVAPI shim fronts in Proton prefixes (the
-real DLLs are restored). It does not remove config or Auto-UV profiles under
-`~/.config/PenguinBurner`, so those stay available to PyPI/native installs.
+commands, user Vulkan manifest, and NVAPI shim fronts in tracked Wine or Proton
+prefixes (the real DLLs are restored). It does not remove config or Auto-UV
+profiles under `~/.config/PenguinBurner`, so those stay available to PyPI/native
+installs.
 
 ```bash
 flatpak run --user --command=penguin-burner-install-wrappers io.github.jpietek.PenguinBurner --uninstall

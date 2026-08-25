@@ -10,7 +10,12 @@ import sys
 from .config import OVERLAY_CONFIG_ENV, default_overlay_config_path
 from .native_layer import LATENCY_LAYER_NAME
 from .native_layer import native_layer_dirs
-from .shim_deploy import deploy_nvapi_shim, spawn_refront_watcher
+from .shim_deploy import (
+    deploy_nvapi_shim,
+    nvapi_shim_artifact,
+    prefix_system32,
+    spawn_refront_watcher,
+)
 from .telemetry.nvapi_marker_bridge import spawn_detached_drainer
 from .state import (
     OVERLAY_ENABLE_ENV_ALIAS,
@@ -317,15 +322,30 @@ def _configure_dxvk_nvapi_marker_output(
     # bridge drains -- no trace, no marker-log, no dxvk-nvapi fork. When there is
     # no prefix to front, in-game latency falls back to the Vulkan layer's own
     # vkSetLatencyMarkerNV tap (which covers the single-swapchain / non-FG case).
-    if deploy_nvapi_shim(env):
-        # The shim's default write to fd 2 silently fails in a GUI game process
-        # (msvcrt's std fd 2 isn't a writable handle for our loaded DLL: _write(2)
-        # returns EBADF with no syscall). Hand it the FIFO's wine path so it
-        # _open()s a fresh, valid fd. A user-set SHIM_OUTPUT (debug file) wins.
-        env.setdefault(SHIM_OUTPUT_ENV, _fifo_wine_path(env))
-        return True
+    fronted = deploy_nvapi_shim(env) is not None
+    if not fronted and (
+        nvapi_shim_artifact(env) is None or prefix_system32(env) is None
+    ):
+        # Nothing to front, or nowhere to front it: the layer's own tap is the
+        # marker source and no watcher would have anything to guard.
+        return False
 
-    return False
+    # Reached with the shim either already fronted, or frontable but not right
+    # now. The second case is a launch that landed inside prefix setup: umu and
+    # Proton REMOVE system32\nvapi64.dll before copying their own dxvk-nvapi in,
+    # and a wrapper running in that window finds nothing to park. Observed on
+    # Lutris + umu, where every launch hit it. Treating that as "no shim" is
+    # backwards -- it disarms the re-front watcher, which is the one thing that
+    # would have fronted the DLL the moment it reappeared.
+    #
+    # The shim's default write to fd 2 silently fails in a GUI game process
+    # (msvcrt's std fd 2 isn't a writable handle for our loaded DLL: _write(2)
+    # returns EBADF with no syscall). Hand it the FIFO's wine path so it
+    # _open()s a fresh, valid fd. A user-set SHIM_OUTPUT (debug file) wins.
+    # Pinned in both cases: a shim fronted later by the watcher is loaded by the
+    # same game process, which reads this env once, at start.
+    env.setdefault(SHIM_OUTPUT_ENV, _fifo_wine_path(env))
+    return True
 
 
 def _apply_overlay_enable_alias(env: dict[str, str]) -> None:
