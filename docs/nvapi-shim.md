@@ -16,6 +16,25 @@ the Vulkan layer cannot see the markers. Deployed by **fronting the prefix's
 `system32\nvapi64.dll`** (generic, no per-game logic). Markers reach the existing
 marker FIFO the bridge drains, so nothing downstream changed.
 
+## The game's own log still reaches the launcher
+
+To catch markers that arrive through wine's debug output, the wrapper redirects
+the game's stderr (fd 2) into the marker FIFO. That would otherwise hide the
+whole Proton/wine log from whatever started the game — Lutris, Steam, or a
+terminal — for as long as `PENGUIN_BURNER` is in the launch command.
+
+The drainer is spawned *before* that redirect, so its own stderr is still the
+launcher's. It forwards every line it drains that is **not** a PenguinBurner
+marker, which puts the game's diagnostics back where they belong. Marker lines
+are dropped rather than echoed: they exist only because we asked dxvk-nvapi to
+emit them, so passing them on would add noise the user never had.
+
+Forwarding is best effort and latches off once the launcher's pipe is gone.
+Draining continues regardless — it is what keeps a full pipe from freezing the
+game. Lines arrive via the drainer rather than directly, so expect them at the
+drainer's poll granularity; content and order are preserved. stdout is never
+redirected and always passes straight through.
+
 ## Why it exists — the vkd3d owner-gate
 
 The Vulkan layer (`overlay/native/latency_layer/`) taps `vkSetLatencyMarkerNV`,

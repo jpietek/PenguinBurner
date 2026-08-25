@@ -79,6 +79,43 @@ _MARKER_NAMES = {
 }
 
 
+class _GameOutputPassthrough:
+    """Hand the game's own stderr back to whoever launched it.
+
+    The wrapper redirects the game's fd 2 into the marker FIFO, so every
+    Proton/wine diagnostic ends up here instead of in the launcher's log --
+    Lutris, Steam, or a terminal all go silent for the whole session. The
+    drainer is deliberately spawned *before* that redirect, so its own stderr
+    is still the launcher's; writing there restores what the redirect took.
+
+    Only lines that are not PenguinBurner markers are forwarded. Marker lines
+    exist solely because we asked dxvk-nvapi to emit them, so echoing them
+    would add noise the user never had.
+
+    Forwarding is best effort: once the launcher's pipe is gone, further
+    writes are pointless, so it latches off. Draining must continue either way
+    -- it is what keeps a full pipe from freezing the game.
+    """
+
+    def __init__(self, stream=None) -> None:
+        self._stream = stream
+        self._failed = False
+
+    def forward(self, line: str) -> None:
+        if self._failed:
+            return
+        stream = sys.stderr if self._stream is None else self._stream
+        try:
+            stream.write(line if line.endswith("\n") else line + "\n")
+            stream.flush()
+        except (OSError, ValueError):
+            self._failed = True
+
+    @property
+    def failed(self) -> bool:
+        return self._failed
+
+
 def _parse_line_with_pid(line: str):
     """Return (frame, nv_marker, t_us, source_pid) for a marker line."""
     m = _MARKER_LOG_RE.search(line)
@@ -252,6 +289,10 @@ def _follow_fifo(
         return session_quiesced_fn is not None and session_quiesced_fn()
 
     had_traffic = False
+    # A writer connected and then every writer closed. From that point a quiet
+    # select means "nobody is left to write", not "the writer is idle" -- so
+    # once the session is gone too there is nothing left to wait for.
+    writers_closed = False
     session_over_since: float | None = None
     while not _stop_requested(stop_event):
         try:
@@ -270,10 +311,20 @@ def _follow_fifo(
                 if not readable:
                     if _session_quiesced():
                         return
-                    if had_traffic:
-                        continue
                     if not _session_over():
                         session_over_since = None
+                        continue
+                    if writers_closed:
+                        # Every writer has closed and the launching session is
+                        # gone, so no byte can ever arrive. Exiting promptly
+                        # matters beyond tidiness: this process holds the
+                        # launcher's output pipe, and Lutris waits on that pipe
+                        # for EOF to decide the game has finished. Lingering
+                        # here left the game "running" until stopped by hand.
+                        return
+                    if had_traffic:
+                        # Writers exist and are merely idle -- a wrapped game
+                        # can outlive the session that launched it.
                         continue
                     now = time.monotonic()
                     if session_over_since is None:
@@ -288,7 +339,9 @@ def _follow_fifo(
                 had_traffic = True
                 if not chunk:
                     # Writer closed (game exited): reopen and wait for the next run.
+                    writers_closed = True
                     break
+                writers_closed = False
                 pending += chunk.decode("utf-8", errors="replace")
                 while "\n" in pending:
                     line, pending = pending.split("\n", 1)
@@ -375,8 +428,12 @@ def run(
     stop_event: threading.Event | None = None,
     session_alive_fn=None,
     session_quiesced_fn=None,
+    passthrough: _GameOutputPassthrough | None = None,
 ) -> None:
     env = dict(os.environ) if env is None else env
+    # The wrapper redirected the game's stderr into this FIFO, so the launcher
+    # sees nothing unless the non-marker lines are handed back.
+    passthrough = _GameOutputPassthrough() if passthrough is None else passthrough
     targets = _socket_targets(env)
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
     # Never block on a slow/full receiver: unix datagram sendto() BLOCKS when
@@ -411,6 +468,9 @@ def run(
         ):
             parsed = _parse_line_with_pid(line)
             if parsed is None:
+                # Not one of ours: it is the game's own diagnostic output,
+                # which belongs in the launcher's log.
+                passthrough.forward(line)
                 continue
             frame, marker, t_us, source_pid = parsed
             sample_pid = source_pid if source_pid is not None else pid
