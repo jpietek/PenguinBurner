@@ -402,6 +402,42 @@ def test_a_write_refuses_until_the_games_launch_options_were_read(manager) -> No
     assert "could not be read" in result.message
 
 
+def test_a_user_switch_drops_the_previous_accounts_cached_reads(
+    manager, monkeypatch
+) -> None:
+    """Switching Steam users must not leave the tab showing the old account.
+
+    Launch options are per-account, so a cheap pass after a live switch has to
+    re-read live rather than serve the previous user's cache -- otherwise an
+    unwrapped game reads as the old user's wrapped line, and a write composes
+    from it.
+    """
+    from types import SimpleNamespace
+
+    manager.refresh()  # deep, as user "jan"
+    assert manager._launch_options[APP_ID] == "gamemoderun %command%"
+
+    # The client is now logged in as a different account, whose line differs.
+    other = SimpleNamespace(account_id="99999999", display_name="marzena")
+    monkeypatch.setattr(manager, "active_user", lambda: other)
+    _FakeCdpClient.launch_options[APP_ID] = "PENGUIN_BURNER %command%"
+    _FakeCdpClient.app_details_by_id[APP_ID] = SteamAppDetails(
+        launch_options="PENGUIN_BURNER %command%",
+        compat_tool_name="",
+        compat_tool_display_name="",
+        compat_tool_priority=0,
+        platforms=("windows",),
+    )
+
+    # A *cheap* pass -- the one the tab's timer runs -- still re-reads because
+    # the account changed under it.
+    rows = manager.refresh(read_launch_options=False)
+
+    assert manager._launch_options[APP_ID] == "PENGUIN_BURNER %command%"
+    assert rows[0].launch_options == "PENGUIN_BURNER %command%"
+    assert manager._last_user_account == "99999999"
+
+
 def test_write_blocked_while_steam_runs_without_cdp(manager) -> None:
     manager.refresh()
     _FakeCdpClient.fail = True

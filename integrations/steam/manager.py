@@ -79,6 +79,9 @@ class SteamIntegrationManager:
         # Cleared on the next deep refresh, when Steam may have come back.
         self._compat_tools_unavailable = False
         self._app_details: dict[str, SteamAppDetails] = {}
+        # The account the caches above belong to. When it changes under us (a
+        # live Steam user switch) they are per-account stale and get dropped.
+        self._last_user_account = ""
 
     # -- status ------------------------------------------------------------
 
@@ -149,6 +152,21 @@ class SteamIntegrationManager:
         read_launch_options: bool = True,
     ) -> tuple[SteamGameRow, ...]:
         games = installed_steam_games(self._home)
+        user = self.active_user()
+        account = user.account_id if user is not None else ""
+        if account != self._last_user_account:
+            # A live Steam account switch. Launch options, app details and
+            # compat tools are all per-account, so the caches from the previous
+            # user are now stale -- an unwrapped game would read as the old
+            # user's wrapped line, and a write would compose from it. Drop them
+            # and re-read live, even on what the caller asked to be a cheap
+            # pass, so the tab follows the switch instead of showing the old
+            # account until a manual rescan.
+            self._launch_options.clear()
+            self._app_details.clear()
+            self._compat_tools.clear()
+            self._last_user_account = account
+            read_launch_options = True
         if read_launch_options:
             games = self._read_all_app_details(games)
             # Steam may have come back (or gone away) since the last deep
@@ -156,7 +174,6 @@ class SteamIntegrationManager:
             self._compat_tools_unavailable = False
         else:
             games = self._merge_cached_app_details(games)
-        user = self.active_user()
         settings = (
             load_steam_game_settings(self._settings_path).get(user.account_id, {})
             if user is not None
