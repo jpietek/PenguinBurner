@@ -61,15 +61,15 @@ jobs:
           PENGUIN_BURNER_REQUIRE_NATIVE_LAYER: "1"
           CIBW_ARCHS_LINUX: "x86_64"
           CIBW_BUILD: "cp312-manylinux_x86_64"
-          CIBW_ENVIRONMENT: "PENGUIN_BURNER_REQUIRE_NATIVE_LAYER=1 PENGUIN_BURNER_REQUIRE_NVAPI_SHIM=1 PENGUIN_BURNER_REQUIRE_DAEMON=1 CARGO_HOME=/opt/rust/cargo RUSTUP_HOME=/opt/rust/rustup PATH=/opt/rust/cargo/bin:$PATH"
+          CIBW_ENVIRONMENT: "PENGUIN_BURNER_REQUIRE_NATIVE_LAYER=1 PENGUIN_BURNER_REQUIRE_NATIVE_LAYER32=1 PENGUIN_BURNER_REQUIRE_NVAPI_SHIM=1 PENGUIN_BURNER_REQUIRE_DAEMON=1 CARGO_HOME=/opt/rust/cargo RUSTUP_HOME=/opt/rust/rustup PATH=/opt/rust/cargo/bin:$PATH"
           CIBW_MANYLINUX_X86_64_IMAGE: "manylinux_2_28"
           CIBW_BEFORE_ALL_LINUX: |
             if command -v dnf >/dev/null 2>&1; then
               dnf install -y epel-release
-              dnf install -y vulkan-headers mingw64-gcc-c++ mingw64-winpthreads-static
+              dnf install -y vulkan-headers mingw64-gcc-c++ mingw64-winpthreads-static glibc-devel.i686 libstdc++-devel.i686
             else
               yum install -y epel-release
-              yum install -y vulkan-headers mingw64-gcc-c++ mingw64-winpthreads-static
+              yum install -y vulkan-headers mingw64-gcc-c++ mingw64-winpthreads-static glibc-devel.i686 libstdc++-devel.i686
             fi
             export RUSTUP_HOME=/opt/rust/rustup CARGO_HOME=/opt/rust/cargo
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.82.0 --no-modify-path

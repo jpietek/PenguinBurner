@@ -741,6 +741,49 @@ def test_native_packages_require_native_layer_build_dependencies() -> None:
         assert "PENGUIN_BURNER_REQUIRE_NATIVE_LAYER" in text
 
 
+def test_native_packages_cross_build_the_32bit_overlay_layer() -> None:
+    """The overlay Vulkan layer is cross-built for 32-bit games on every target
+    that controls its own build environment: each declares the 32-bit C/C++
+    runtime it needs and requires the companion so a silent 64-bit-only build
+    cannot ship. The Flatpak is the exception -- best effort behind the
+    Compat.i386 extension, since its SDK toolchain is confirmed by a live
+    build, not asserted here.
+    """
+    arch_pkgbuild = Path("packaging/arch/PKGBUILD").read_text(encoding="utf-8")
+    debian_control = Path("packaging/debian/control").read_text(encoding="utf-8")
+    debian_rules = Path("packaging/debian/rules").read_text(encoding="utf-8")
+    rpm_spec = Path("packaging/rpm/penguin-burner.spec").read_text(encoding="utf-8")
+    build_script = Path("scripts/build-python-dist.sh").read_text(encoding="utf-8")
+    workflow = Path(".github/workflows/publish-python-package.yml").read_text(
+        encoding="utf-8"
+    )
+    flatpak = Path(
+        "packaging/flatpak/io.github.jpietek.PenguinBurner.yml"
+    ).read_text(encoding="utf-8")
+
+    # Multilib build dependencies, per distro's own package names.
+    assert "'lib32-glibc'" in arch_pkgbuild
+    assert "'lib32-gcc-libs'" in arch_pkgbuild
+    assert " g++-multilib," in debian_control
+    assert "BuildRequires:  glibc-devel(x86-32)" in rpm_spec
+    assert "BuildRequires:  libstdc++-devel(x86-32)" in rpm_spec
+    # The PyPI wheel builds in the manylinux container; the release script and
+    # the CI workflow install the i686 devel packages the same way.
+    assert "glibc-devel.i686 libstdc++-devel.i686" in build_script
+    assert "glibc-devel.i686 libstdc++-devel.i686" in workflow
+
+    # ... and the require flag, so these targets fail loudly rather than ship
+    # the overlay unable to draw in a 32-bit game.
+    for text in (arch_pkgbuild, debian_rules, rpm_spec, build_script, workflow):
+        assert "PENGUIN_BURNER_REQUIRE_NATIVE_LAYER32" in text
+
+    # Flatpak: the 32-bit build support is present (Compat.i386), but stays best
+    # effort -- it must not carry the require flag, or a SDK that cannot -m32
+    # would break the whole Flatpak build.
+    assert "org.freedesktop.Sdk.Compat.i386" in flatpak
+    assert "PENGUIN_BURNER_REQUIRE_NATIVE_LAYER32" not in flatpak
+
+
 def test_native_packages_build_and_install_rust_daemon() -> None:
     arch_pkgbuild = Path("packaging/arch/PKGBUILD").read_text(encoding="utf-8")
     debian_control = Path("packaging/debian/control").read_text(encoding="utf-8")
