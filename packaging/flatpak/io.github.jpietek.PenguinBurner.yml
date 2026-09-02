@@ -23,12 +23,6 @@ sdk-extensions:
   # the extension is not part of the installed app; only the compiled binary at
   # /app/libexec/penguin-burnerd ships.
   - org.freedesktop.Sdk.Extension.rust-stable
-  # 32-bit runtime + dev, so setup.py can cross-build the overlay Vulkan layer
-  # for 32-bit games (its -m32 pass needs the 32-bit libc/libstdc++). Build-time
-  # only. The 32-bit layer stays best effort here (no REQUIRE_NATIVE_LAYER32):
-  # if this SDK's base gcc cannot -m32, the Flatpak still builds and ships the
-  # 64-bit layer, and 64-bit games are unaffected. Confirm with a live build.
-  - org.freedesktop.Sdk.Compat.i386
 command: penguin-burner
 
 cleanup:
