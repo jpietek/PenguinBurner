@@ -63,6 +63,15 @@ class LibraryGame:
     #: the tab draws the row for all of them -- so it belongs here rather than
     #: behind ``detail``, where a library-wide action could not reach it.
     overlay: bool = False
+    #: Whether the overlay can attach to this game at all. The overlay is a
+    #: Vulkan layer; a native OpenGL game has no Vulkan swapchain to hook, so
+    #: the tab greys the overlay switch (and the latency row) rather than let
+    #: the user turn on something that cannot draw. True by default -- every
+    #: wrapped/Proton game qualifies, and a native game only fails it when it
+    #: was positively identified as OpenGL-only. The GPU profile is unaffected.
+    overlay_supported: bool = True
+    #: The one line the tab shows on the greyed control when it is not.
+    overlay_unsupported_reason: str = ""
     #: The launcher's own row, handed back untouched so the detail pane can
     #: read the fields only that launcher has.
     detail: object | None = None

@@ -883,3 +883,86 @@ def test_stop_refuses_when_one_title_has_two_live_sessions(monkeypatch) -> None:
 
     assert ok is False
     assert "shares this game's name" in message
+
+
+def _native_lutris_row(tmp_path, *, is_wine: bool, api: bytes):
+    from types import SimpleNamespace
+
+    gamedir = tmp_path / "game"
+    gamedir.mkdir(exist_ok=True)
+    (gamedir / "Game.x86_64").write_bytes(api)
+    config = tmp_path / "game.yml"
+    config.write_text("game:\n  exe: Game.x86_64\n", encoding="utf-8")
+    game = SimpleNamespace(
+        game_id="27",
+        display_name="Game",
+        runner_label="wine" if is_wine else "linux",
+        is_wine=is_wine,
+        config_path=config,
+        directory=str(gamedir),
+        last_played=0,
+        playtime_hours=0.0,
+        cover_path=None,
+        ready=True,
+    )
+    return SimpleNamespace(
+        game=game,
+        wrapped=False,
+        prefix_command="",
+        inherited_prefix=False,
+        prefix_source_label="",
+        setting=SimpleNamespace(enabled=True, overlay=False, ingame_latency=False),
+    )
+
+
+def test_lutris_greys_overlay_and_latency_for_a_native_opengl_game(tmp_path) -> None:
+    from integrations.lutris import library_source as lutris_source
+
+    source = lutris_source.LutrisLibrarySource(manager=object())
+    source._rows = (_native_lutris_row(tmp_path, is_wine=False, api=b"libGL.so.1"),)
+
+    row = source._rows[0]
+    (game,) = source.games()
+    assert game.overlay_supported is False
+    assert "OpenGL" in game.overlay_unsupported_reason
+
+    # The latency markers ride the same Vulkan layer, so they are out of reach
+    # too. (fields() keys off the real row type, exercised in the panel tests;
+    # the field builder is the unit under test here.)
+    latency = lutris_source.LutrisLibrarySource._latency_field(
+        row, overlay_supported=False
+    )
+    assert latency.key == "ingame_latency"
+    assert latency.enabled is False
+
+
+def test_lutris_leaves_overlay_on_for_a_wine_game_without_inspecting_it(
+    tmp_path,
+) -> None:
+    """A wine/Proton game is Vulkan at the driver, so it is supported without
+    the binary ever being read."""
+    from integrations.lutris import library_source as lutris_source
+
+    source = lutris_source.LutrisLibrarySource(manager=object())
+    # OpenGL bytes on disk, but is_wine short-circuits before any scan.
+    source._rows = (_native_lutris_row(tmp_path, is_wine=True, api=b"libGL.so.1"),)
+
+    (game,) = source.games()
+    assert game.overlay_supported is True
+
+    latency = lutris_source.LutrisLibrarySource._latency_field(
+        source._rows[0], overlay_supported=True
+    )
+    assert latency.enabled is True
+
+
+def test_lutris_leaves_overlay_on_for_a_native_vulkan_game(tmp_path) -> None:
+    from integrations.lutris import library_source as lutris_source
+
+    source = lutris_source.LutrisLibrarySource(manager=object())
+    source._rows = (
+        _native_lutris_row(tmp_path, is_wine=False, api=b"libvulkan.so.1"),
+    )
+
+    (game,) = source.games()
+    assert game.overlay_supported is True

@@ -854,9 +854,30 @@ class GameLibraryPanel:
         # that will refuse the write is an animation followed by a snap-back.
         self.enable_switch.setEnabled(game is not None and self._writable)
         self._set_gated(bool(game is not None and game.enabled) and self._writable)
+        self._apply_overlay_support(game)
         for widgets in self._fields.values():
             self._apply_field_enabled(widgets)
         self._sync_status()
+
+    def _apply_overlay_support(self, game: LibraryGame | None) -> None:
+        """Grey the overlay switch for a game the Vulkan overlay cannot attach to.
+
+        A native OpenGL game has no Vulkan swapchain to draw on, so the switch
+        turns something on that could never appear. The GPU profile is
+        unaffected, so only this one control (and the latency row, handled by
+        the launcher's own field veto) is taken out of reach.
+        """
+        if game is not None and not game.overlay_supported:
+            self.overlay_switch.setEnabled(False)
+            self.overlay_switch.setToolTip(
+                wrapped_tooltip(
+                    game.overlay_unsupported_reason
+                    or "This game does not render through Vulkan, so the "
+                    "overlay cannot draw here."
+                )
+            )
+        else:
+            self.overlay_switch.setToolTip("")
 
     def _run_write_action(self) -> None:
         """Do whatever the launcher offered to do about its own write state."""

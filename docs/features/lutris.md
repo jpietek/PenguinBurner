@@ -113,6 +113,13 @@ live `prefix_command` when it refreshes; it does not watch the files.
 telemetry need a wine prefix. A native Linux runner still gets the GPU profile,
 but not the shim-based readouts.
 
+**Native OpenGL games can't show the overlay.** The overlay and its latency/FPS
+readout are a Vulkan layer, so they need a game that presents through Vulkan —
+every wine/Proton game does (DXVK/vkd3d), and so does a native Vulkan game. A
+native **OpenGL** title (older Unity games, say) has no Vulkan swapchain to draw
+on, so the tab greys the overlay switch and the latency row for it, with the
+reason on hover. The per-game GPU profile is unaffected and still applies.
+
 ## If the list is empty
 
 PenguinBurner reads `~/.local/share/lutris/pga.db`. If that file is missing the

@@ -19,6 +19,9 @@ from integrations.launchers.library import (
     LibraryGame,
 )
 
+from overlay.render_api import overlay_support
+
+from .config_store import LutrisConfigError, read_game_config
 from .manager import LutrisGameRow, LutrisIntegrationManager
 from .paths import lutris_desktop_icon
 from .process import (
@@ -54,6 +57,11 @@ class LutrisLibrarySource:
         )
         self._home = home
         self._rows: tuple[LutrisGameRow, ...] = ()
+        # Overlay-capability is a per-game disk read (a native game's binary
+        # is inspected once for how it presents); cache it so a ten-second
+        # rescan does not re-scan every game. Keyed by game id + the exe it was
+        # computed for, so a game repointed at another binary is re-checked.
+        self._overlay_support: dict[str, tuple[str, bool, str]] = {}
 
     def desktop_icon(self):
         """Lutris's own installed icon, or None when it has none here."""
@@ -77,10 +85,15 @@ class LutrisLibrarySource:
         row = game.detail
         if not isinstance(row, LutrisGameRow):
             return ()
-        return (self._latency_field(row), self._prefix_command_field(row))
+        return (
+            self._latency_field(row, game.overlay_supported),
+            self._prefix_command_field(row),
+        )
 
     @staticmethod
-    def _latency_field(row: LutrisGameRow) -> LauncherField:
+    def _latency_field(
+        row: LutrisGameRow, overlay_supported: bool = True
+    ) -> LauncherField:
         """The markers Adaptive paces on, kept when the overlay is off.
 
         Declared only here, but not because the wrapper treats Lutris
@@ -92,6 +105,20 @@ class LutrisLibrarySource:
         as --pb-overlay=N for Steam, and the latency one would need the same.
         """
         overlay_on = bool(getattr(row.setting, "overlay", False))
+        # The markers come from the same Vulkan layer as the overlay, so a game
+        # the overlay cannot attach to cannot produce them either: show the
+        # switch off and out of reach, with the reason on hover.
+        if not overlay_supported:
+            return LauncherField(
+                key="ingame_latency",
+                kind=FIELD_SWITCH,
+                title="Latency markers without the overlay",
+                subtitle="Unavailable: this game does not render through Vulkan.",
+                setter="set_game_ingame_latency",
+                value=False,
+                enabled=False,
+                group=GROUP_IN_GAME,
+            )
         return LauncherField(
             key="ingame_latency",
             kind=FIELD_SWITCH,
@@ -170,6 +197,7 @@ class LutrisLibrarySource:
         return tuple(self._library_game(row) for row in self._rows)
 
     def _library_game(self, row: LutrisGameRow) -> LibraryGame:
+        supported, reason = self._overlay_capability(row)
         return LibraryGame(
             launcher=self.launcher_id,
             game_id=row.game.game_id,
@@ -182,8 +210,48 @@ class LutrisLibrarySource:
             wrapped=bool(row.wrapped),
             enabled=bool(row.setting.enabled),
             overlay=bool(row.setting.overlay),
+            overlay_supported=supported,
+            overlay_unsupported_reason=reason,
             detail=row,
         )
+
+    def _overlay_capability(self, row: LutrisGameRow) -> tuple[bool, str]:
+        """Whether the Vulkan overlay can attach to this game, cached per exe.
+
+        Wine/Proton games translate to Vulkan and never touch the disk. A
+        native game's own binary is inspected once for how it presents.
+        """
+        game = row.game
+        exe = "" if game.is_wine else self._native_executable(game)
+        cached = self._overlay_support.get(game.game_id)
+        if cached is not None and cached[0] == exe:
+            return cached[1], cached[2]
+        supported, reason = overlay_support(
+            translated_to_vulkan=game.is_wine, executable=exe or None
+        )
+        self._overlay_support[game.game_id] = (exe, supported, reason)
+        return supported, reason
+
+    def _native_executable(self, game) -> str:
+        """The binary a native game launches, from its Lutris config.
+
+        ``game.exe`` in the config, resolved against the install directory when
+        it is relative. Empty when the game has no config or names no exe --
+        the caller then leaves the overlay enabled rather than guess.
+        """
+        if game.config_path is None:
+            return ""
+        try:
+            document = read_game_config(game.config_path)
+        except LutrisConfigError:
+            return ""
+        exe = str((document.get("game") or {}).get("exe") or "").strip()
+        if not exe:
+            return ""
+        path = Path(exe)
+        if not path.is_absolute() and game.directory:
+            path = Path(game.directory) / path
+        return str(path)
 
     # -- launching -------------------------------------------------------------
     #

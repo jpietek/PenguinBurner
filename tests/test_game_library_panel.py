@@ -1084,3 +1084,42 @@ def test_bulk_enable_still_requires_cards_for_its_own_scope(qapp) -> None:
         call[0] == "set_all_games_enabled" for call in steam.manager.calls
     )
     assert "Choose a Game GPU" in panel.status_label.text()
+
+
+# -- overlay unavailable on non-Vulkan games --------------------------------
+
+
+def test_overlay_switch_greys_out_for_a_non_vulkan_game(qapp) -> None:
+    """A native OpenGL game has no Vulkan swapchain, so the overlay switch is
+    taken out of reach with the reason on hover -- the profile still applies."""
+    steam, lutris = _steam_and_lutris()
+    lutris._games = (
+        _game(
+            "lutris",
+            "27",
+            "Oxenfree",
+            enabled=True,
+            overlay_supported=False,
+            overlay_unsupported_reason="This game renders with OpenGL.",
+            detail={"prefix_command": "gamemoderun", "inherited_prefix": False},
+        ),
+    )
+    panel = _panel(qapp, (steam, lutris))
+    panel.ensure_scanned()
+
+    panel._select_key("lutris:27")
+
+    assert not panel.overlay_switch.isEnabled()
+    assert "OpenGL" in panel.overlay_switch.toolTip()
+
+
+def test_overlay_switch_is_live_again_on_a_vulkan_game(qapp) -> None:
+    steam, lutris = _steam_and_lutris()
+    panel = _panel(qapp, (steam, lutris))
+    panel.ensure_scanned()
+
+    # Steam's Portal 2 is enabled and overlay-capable by default.
+    panel._select_key("steam:620")
+
+    assert panel.overlay_switch.isEnabled()
+    assert panel.overlay_switch.toolTip() == ""
