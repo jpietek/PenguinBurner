@@ -890,16 +890,17 @@ def _native_lutris_row(tmp_path, *, is_wine: bool, api: bytes):
 
     gamedir = tmp_path / "game"
     gamedir.mkdir(exist_ok=True)
-    (gamedir / "Game.x86_64").write_bytes(api)
+    # A real ELF header, so the detector treats it as a binary and not a script.
+    (gamedir / "Game.x86_64").write_bytes(b"\x7fELF\x02\x01\x01\x00" + b"\x00" * 8 + api)
     config = tmp_path / "game.yml"
-    config.write_text("game:\n  exe: Game.x86_64\n", encoding="utf-8")
+    config.write_text("game:\n  exe: game/Game.x86_64\n", encoding="utf-8")
     game = SimpleNamespace(
         game_id="27",
         display_name="Game",
         runner_label="wine" if is_wine else "linux",
         is_wine=is_wine,
         config_path=config,
-        directory=str(gamedir),
+        directory=str(tmp_path),
         last_played=0,
         playtime_hours=0.0,
         cover_path=None,

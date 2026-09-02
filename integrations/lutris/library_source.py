@@ -222,14 +222,18 @@ class LutrisLibrarySource:
         native game's own binary is inspected once for how it presents.
         """
         game = row.game
+        directory = "" if game.is_wine else str(game.directory or "")
         exe = "" if game.is_wine else self._native_executable(game)
+        key = f"{directory}\0{exe}"
         cached = self._overlay_support.get(game.game_id)
-        if cached is not None and cached[0] == exe:
+        if cached is not None and cached[0] == key:
             return cached[1], cached[2]
         supported, reason = overlay_support(
-            translated_to_vulkan=game.is_wine, executable=exe or None
+            translated_to_vulkan=game.is_wine,
+            executable=exe or None,
+            directory=directory or None,
         )
-        self._overlay_support[game.game_id] = (exe, supported, reason)
+        self._overlay_support[game.game_id] = (key, supported, reason)
         return supported, reason
 
     def _native_executable(self, game) -> str:
