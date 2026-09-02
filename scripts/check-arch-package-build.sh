@@ -82,7 +82,15 @@ for scenario in "${scenarios[@]}"; do
         -e SCENARIO="$scenario" \
         "$image" bash -euo pipefail -c '
         pacman -Syu --noconfirm >/dev/null
-        pacman -S --noconfirm --needed base-devel cargo cmake python-build \
+        # CachyOS rolling images can ship a cmake linked against a jsoncpp
+        # soname the just-synced repos no longer provide (a partial-upgrade
+        # skew in the base image): cmake then dies with
+        # "libjsoncpp.so.NN: cannot open shared object file" before it runs.
+        # --needed would keep the broken pair, so force both to the current
+        # repo build, which links cmake against the jsoncpp actually installed.
+        pacman -S --noconfirm cmake jsoncpp >/dev/null
+        cmake --version >/dev/null
+        pacman -S --noconfirm --needed base-devel cargo python-build \
             python-installer python-setuptools python-wheel \
             vulkan-headers >/dev/null
         if [[ "$SCENARIO" == cachyos-shelly ]]; then
