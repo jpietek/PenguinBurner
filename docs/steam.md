@@ -141,9 +141,11 @@ per-game runtime request is skipped and reported in the wrapper diagnostics.
   agnostic: native Linux, every Proton version, and DirectX 8–12 all work.
 - The **overlay and frame-pacing telemetry** are a Vulkan layer, so they cover
   anything presenting through Vulkan (DXVK for DX8–11, vkd3d-proton for DX12,
-  native Vulkan). Native OpenGL titles get the profile but no overlay, and
-  adaptive mode simply holds its initial tier when there is no present-pacing
-  signal to react to.
+  native Vulkan), for both 64-bit and 32-bit games — a 32-bit title renders
+  through wine's 32-bit Vulkan, so the layer ships a 32-bit build beside the
+  64-bit one and the loader picks the match. Native OpenGL titles get the
+  profile but no overlay, and adaptive mode simply holds its initial tier when
+  there is no present-pacing signal to react to.
 
 ## Manual launch options
 

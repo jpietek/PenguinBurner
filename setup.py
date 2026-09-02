@@ -17,6 +17,10 @@ ROOT = Path(__file__).resolve().parent
 NATIVE_LAYER_SOURCE_DIR = ROOT / "overlay" / "native" / "latency_layer"
 NATIVE_LAYER_LIBRARY = "libVkLayer_penguinburner_latency.so"
 NATIVE_LAYER_MANIFEST = "VkLayer_PENGUINBURNER_latency.json"
+# The 32-bit companion, built alongside and copied into the same directory
+# under distinct names so a 32-bit game (wine i386 winevulkan) gets the overlay.
+NATIVE_LAYER_LIBRARY_I386 = "libVkLayer_penguinburner_latency_i386.so"
+NATIVE_LAYER_MANIFEST_I386 = "VkLayer_PENGUINBURNER_latency.i386.json"
 NVAPI_SHIM_SOURCE_DIR = ROOT / "overlay" / "native" / "nvapi_shim"
 NVAPI_SHIM_DLL = "nvapi64.dll"
 NVAPI_SHIM_COMPILER = "x86_64-w64-mingw32-g++"
@@ -127,6 +131,71 @@ class build_py(_build_py):
                 )
                 return
             shutil.copy2(source, output_dir / name)
+
+        self._build_native_latency_layer_i386(cmake, output_dir)
+
+    def _build_native_latency_layer_i386(self, cmake: str, output_dir: Path) -> None:
+        """Build the 32-bit companion layer, best effort, into the same dir.
+
+        A 32-bit Windows game renders through wine's i386 winevulkan, so the
+        loader can only inject a 32-bit layer into it. Optional like the NVAPI
+        shim: without a 32-bit C++ toolchain the overlay simply stays 64-bit
+        only, so a missing multilib toolchain is a warning, not a failure --
+        unless PENGUIN_BURNER_REQUIRE_NATIVE_LAYER32 is set, for a release
+        build that must ship both.
+        """
+        if _env_flag_disabled("PENGUIN_BURNER_BUILD_NATIVE_LAYER32"):
+            return
+        require = _env_flag_enabled("PENGUIN_BURNER_REQUIRE_NATIVE_LAYER32")
+        build_root = Path(self.build_lib).parent / "penguinburner-latency-layer-i386"
+        if build_root.exists():
+            shutil.rmtree(build_root)
+        try:
+            subprocess.check_call(
+                [
+                    cmake,
+                    "-S",
+                    str(NATIVE_LAYER_SOURCE_DIR),
+                    "-B",
+                    str(build_root),
+                    "-DCMAKE_BUILD_TYPE=Release",
+                    "-DCMAKE_C_FLAGS=-m32",
+                    "-DCMAKE_CXX_FLAGS=-m32",
+                    "-DPB_LAYER_NAME_SUFFIX=_i386",
+                ]
+            )
+            subprocess.check_call(
+                [cmake, "--build", str(build_root), "--config", "Release"]
+            )
+        except subprocess.CalledProcessError as exc:
+            self._native_layer32_unavailable(
+                f"32-bit native Vulkan layer build failed: {exc}", require=require
+            )
+            return
+        # The 32-bit build's manifest already names the _i386 library and
+        # declares library_arch 32 (CMAKE_SIZEOF_VOID_P is 4 under -m32); it is
+        # copied under a distinct manifest file name so it sits beside the
+        # 64-bit manifest in one directory the loader scans.
+        for build_name, output_name in (
+            (NATIVE_LAYER_LIBRARY_I386, NATIVE_LAYER_LIBRARY_I386),
+            (NATIVE_LAYER_MANIFEST, NATIVE_LAYER_MANIFEST_I386),
+        ):
+            source = build_root / build_name
+            if not source.exists():
+                self._native_layer32_unavailable(
+                    f"32-bit native Vulkan layer build did not produce {source}",
+                    require=require,
+                )
+                return
+            shutil.copy2(source, output_dir / output_name)
+
+    def _native_layer32_unavailable(self, message: str, *, require: bool) -> None:
+        if require:
+            raise RuntimeError(message)
+        self.warn(
+            f"{message}; installing without the 32-bit overlay layer "
+            "(64-bit games are unaffected)"
+        )
 
     def _native_layer_unavailable(self, message: str, *, require: bool) -> None:
         if require:
