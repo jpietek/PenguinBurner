@@ -121,7 +121,12 @@ def test_probe_runner_marker_details_add_candidate_tier_metadata() -> None:
         voltage_mv=885,
         target_mhz=2880,
         flattened_plan=[],
-        metadata={"tail_rise_bins": 6, "generated_profile_tier": "performance"},
+        metadata={
+            "tail_rise_bins": 6,
+            "generated_profile_tier": "performance",
+            "custom_target": True,
+            "auto_oc": True,
+        },
     )
 
     details = probe_runner_marker_details({"auto_uv_mode": "performance"}, candidate)
@@ -129,6 +134,8 @@ def test_probe_runner_marker_details_add_candidate_tier_metadata() -> None:
     assert details["auto_uv_mode"] == "performance"
     assert details["generated_profile_tier"] == "performance"
     assert details["tail_rise_bins"] == 6
+    assert details["custom_target"] is True
+    assert details["auto_oc"] is True
 
 
 def test_probe_runner_discovery_doubles_q2rtx_and_skips_cuda(monkeypatch) -> None:

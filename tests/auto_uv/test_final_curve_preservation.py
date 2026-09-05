@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 from pathlib import Path
 from types import SimpleNamespace
 from dataclasses import replace
@@ -17,7 +19,10 @@ from auto_uv.domain.types import (
     VfCurveCandidate,
 )
 from auto_uv.final_verification import main_loop as final_loop
-from auto_uv.main_loop import select_final_scan_candidate
+from auto_uv.main_loop import (
+    final_verification_failure_can_offer_retry,
+    select_final_scan_candidate,
+)
 from auto_uv.run.voltage_sweep_state import VoltageProbeOutcome
 from ui.features.auto_uv import candidate_choice
 from ui.features.auto_uv.candidate_choice import candidate_record_from_probe
@@ -209,29 +214,41 @@ def test_performance_preserves_chosen_rung_instead_of_merging_earlier_rungs(
     assert bool(choices) == require_choice
 
 
-@pytest.mark.parametrize("voltage,clock,cap,tail,tier", [
-    (850, 2745, 300, 2, "efficiency"),
-    (890, 2800, 360, 4, "balanced"),
-    (925, 2950, 360, 4, "performance"),
-])
+@pytest.mark.parametrize("status", ["passed", "blocked", "critical"])
+@pytest.mark.parametrize(
+    "voltage,clock,cap,tail,tier",
+    [
+        (850, 2745, 300, 2, "efficiency"),
+        (850, 2380, 300, 2, "efficiency"),
+        (890, 2800, 360, 4, "balanced"),
+        (925, 2950, 360, 4, "performance"),
+    ],
+)
 def test_final_soak_preserves_selected_curve_and_power_limit(
-    monkeypatch, voltage: int, clock: int, cap: int, tail: int, tier: str
+    monkeypatch, voltage: int, clock: int, cap: int, tail: int, tier: str, status: str
 ) -> None:
     plan = build_flattened_plan(
         rtx_5080_20260524_high_oc_base_curve(), candidate_voltage_mv=voltage,
         lock_clock_mhz=clock, tail_rise_bins=tail,
     )
     original = [dict(p) for p in plan]
+    custom = clock == 2380
+    selected_probe = replace(
+        _summary(voltage, clock), avg_fps=80.0 if custom else 100.0
+    )
     stages, saved, applied, events, retargets = [], [], [], [], []
 
     def probe(**kwargs):
         stage = kwargs["phase_label"]
         stages.append(stage)
         if stage == "final-verify":
+            assert kwargs["marker_details"]["custom_target"] is custom
             assert kwargs["candidate_plan"] == original
             assert kwargs["power_limit_w"] == cap
         voltage, clock = kwargs["candidate_voltage_mv"], kwargs["lock_clock_mhz"]
-        return _summary(voltage, clock), stable_probe_result(clock_mhz=clock)
+        return _summary(voltage, clock), stable_probe_result(
+            clock_mhz=clock, fps=selected_probe.avg_fps
+        )
 
     def save(**kwargs):
         assert stages[-1] == "final-verify"
@@ -254,37 +271,77 @@ def test_final_soak_preserves_selected_curve_and_power_limit(
     monkeypatch.setattr(
         final_loop, "write_final_verification_fan_curve_payload", lambda **_: None
     )
-    final_loop.run_final_verification_and_save(
-        probe_voltage_candidate=probe,
-        build_voltage_scan_result=lambda **kwargs: kwargs,
-        log=lambda _: None,
-        reader=None,
-        stable_plan=plan,
-        stable_voltage_mv=voltage,
-        stable_lock_clock_mhz=clock,
-        stable_probe=_summary(voltage, clock),
-        stable_history=[],
-        probe_history=[],
-        q2rtx_config=Q2RTXStabilityConfig(),
-        final_verification_duration_s=60,
-        start_voltage_mv=1025,
-        measured_clock_mhz=clock,
-        nvml_session=None,
-        clock_ceiling=SimpleNamespace(
-            retarget=lambda **kwargs: retargets.append(kwargs),
-            describe=lambda: f"{voltage}mV@{clock}MHz",
-        ),
-        discovery_summary=_summary(1025, 2745),
-        translated_gpu_policy={"power_limit_w": cap},
-        gpu_identity={},
-        min_performance_core_clock_pct=90,
-        runtime_default_plan=[],
-        final_clock_drop_margin_pct=10,
-        tail_rise_bins=tail,
-        auto_uv_mode=tier,
-        generated_profile_tier=tier,
-        event_callback=lambda event, payload: events.append((event, payload)),
+    if status == "critical":
+        monkeypatch.setattr(
+            final_loop,
+            "final_probe_stability_decision",
+            lambda *args, **kwargs: StableRunDecision(
+                False, FailureKind.NVIDIA_XID, FailureSeverity.CRITICAL, "GPU Xid"
+            ),
+        )
+    if status == "blocked":
+        monkeypatch.setattr(
+            final_loop,
+            "load_unsafe_voltage_blacklist",
+            lambda: [
+                {
+                    "candidate_voltage_mv": voltage,
+                    "lock_clock_mhz": clock,
+                    "reason": "nvidia-xid",
+                    "generated_profile_tier": tier,
+                }
+            ],
+        )
+    expected_error = (
+        "cached unsafe point" if status == "blocked" else "critical probe failure"
     )
+    with (
+        pytest.raises(final_loop.AutoUvError, match=expected_error)
+        if status != "passed"
+        else nullcontext() as failure
+    ):
+        final_loop.run_final_verification_and_save(
+            probe_voltage_candidate=probe,
+            build_voltage_scan_result=lambda **kwargs: kwargs,
+            log=lambda _: None,
+            reader=None,
+            stable_plan=plan,
+            stable_voltage_mv=voltage,
+            stable_lock_clock_mhz=clock,
+            stable_probe=selected_probe,
+            stable_history=[_summary(1025, 2800)] if custom else [],
+            probe_history=[],
+            q2rtx_config=Q2RTXStabilityConfig(),
+            final_verification_duration_s=60,
+            start_voltage_mv=1025,
+            measured_clock_mhz=clock,
+            nvml_session=None,
+            clock_ceiling=SimpleNamespace(
+                retarget=lambda **kwargs: retargets.append(kwargs),
+                describe=lambda: f"{voltage}mV@{clock}MHz",
+            ),
+            discovery_summary=_summary(1025, 2745),
+            translated_gpu_policy={"power_limit_w": cap},
+            gpu_identity={},
+            min_performance_core_clock_pct=90 * clock / 2800 if custom else 90,
+            runtime_default_plan=[],
+            final_clock_drop_margin_pct=10,
+            tail_rise_bins=tail,
+            auto_oc_metadata={"custom_target": True} if custom else {},
+            auto_uv_mode=tier,
+            generated_profile_tier=tier,
+            event_callback=lambda event, payload: events.append((event, payload)),
+        )
+    if status == "blocked":
+        assert not (stages or saved or applied or events or retargets)
+        return
+    if status == "critical":
+        assert stages == ["final-verify"]
+        assert not saved
+        assert not final_verification_failure_can_offer_retry(
+            failure.value, runtime_options={"auto_uv_require_final_choice": True}
+        )
+        return
     assert stages == ["final-verify"]
     assert len(saved) == 3
     assert all(item["plan"] == original for item in saved)

@@ -137,6 +137,15 @@ machine hangs, reboots, loses power, or the process is killed during a probe,
 the next Auto-UV run consumes the stale marker, records that voltage/clock band
 in `uv-result/auto-uv-unsafe-voltages.json`, and avoids repeating it.
 
+The blacklist is checked before applying a climb or final-verification curve.
+It blocks the failed voltage and lower voltages at the recorded clock band and
+above, including a small clock guard band. If a climb reaches a cached unsafe
+point, Auto-UV backs off to a passing clock and can test that clock at the
+configured voltage target. It never exceeds that voltage target to force a
+higher clock. A new critical GPU or workload error aborts the scan instead of
+triggering higher-voltage retries. Explicit lower-clock targets also retain
+their crash markers across abrupt exits.
+
 When stable checkpoints exist for the same requested tier, the GUI shows a
 previous-crash recovery dialog before starting discovery again. The default
 choice is the next safer saved candidate above the failed voltage. Accepting a

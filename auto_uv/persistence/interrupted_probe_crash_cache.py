@@ -20,25 +20,22 @@ def consume_interrupted_probe_crash_marker() -> tuple[Path, dict] | None:
         marker = json.loads(path.read_text(encoding="utf-8", errors="replace"))
     except (json.JSONDecodeError, OSError):
         marker = {}
-    finally:
-        try:
-            path.unlink()
-        except FileNotFoundError:
-            pass
-
     if not isinstance(marker, dict) or marker.get("state") != "probing":
+        path.unlink(missing_ok=True)
         return None
     try:
         candidate_voltage_mv = int(marker["candidate_voltage_mv"])
         lock_clock_mhz = int(marker["lock_clock_mhz"])
     except (KeyError, TypeError, ValueError):
+        path.unlink(missing_ok=True)
         return None
 
     validation = interrupted_marker_crash_cache_validation(marker)
     if not bool(validation.get("accepted")):
+        path.unlink(missing_ok=True)
         return None
     details = marker_details(marker)
-    return record_unsafe_voltage(
+    recorded = record_unsafe_voltage(
         candidate_voltage_mv=candidate_voltage_mv,
         lock_clock_mhz=lock_clock_mhz,
         reason="previous-run-abruptly-ended",
@@ -57,6 +54,9 @@ def consume_interrupted_probe_crash_marker() -> tuple[Path, dict] | None:
             ),
         },
     )
+    # Preserve the marker if the durable blacklist write fails.
+    path.unlink(missing_ok=True)
+    return recorded
 
 
 def interrupted_marker_crash_cache_validation(marker: dict) -> dict:
@@ -94,6 +94,16 @@ def interrupted_marker_crash_cache_validation(marker: dict) -> dict:
             CRASH_CACHE_MIN_CANDIDATE_TARGET_BASELINE_PCT
         ),
     }
+    details = marker_details(marker)
+    if (
+        phase in CRASH_CACHE_CANDIDATE_PHASES
+        and details.get("used_companion_load") is True
+        and (details.get("custom_target") is True or details.get("auto_oc") is True)
+        and (candidate_voltage_mv or 0) > 0
+        and (marker_float(marker, "lock_clock_mhz") or 0) > 0
+    ):
+        validation.update(accepted=True, reason="interrupted explicit target probe")
+        return validation
     if normal_candidate_crash_marker_accepted(
         phase=phase,
         voltage_drop_pct=voltage_drop_pct,

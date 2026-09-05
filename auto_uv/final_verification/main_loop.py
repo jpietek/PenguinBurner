@@ -12,6 +12,7 @@ from auto_uv.domain.console_log import log_benchmark, log_phase, log_user_stage
 from auto_uv.domain.types import (
     AutoUvError,
     AutoUvProbeSummary,
+    FailureSeverity,
     StableRunDecision,
     VfCurveCandidate,
 )
@@ -46,6 +47,8 @@ from .result_files import (
     write_last_stable_result_snapshot,
 )
 from ..persistence.verified_candidate_result_file import write_latest_verified_candidate
+from ..persistence.unsafe_voltage_blacklist_file import load_unsafe_voltage_blacklist
+from ..persistence.unsafe_voltage_cache import unsafe_voltage_block_reason
 
 
 def run_final_verification_and_save(
@@ -83,6 +86,14 @@ def run_final_verification_and_save(
     final_lock_clock_mhz = int(stable_lock_clock_mhz)
     final_plan = stable_plan
     final_status = "not-run"
+    blocked = unsafe_voltage_block_reason(
+        load_unsafe_voltage_blacklist(),
+        candidate_voltage_mv=final_voltage_mv,
+        lock_clock_mhz=final_lock_clock_mhz,
+        profile_tier=generated_profile_tier,
+    )
+    if blocked:
+        raise AutoUvError(f"Final verification blocked: {blocked}")
 
     # Verify the selected smooth curve intact. A separate sweep of flattened
     # lower points would replace its operating point and plot during the soak.
@@ -217,6 +228,10 @@ def run_final_verification_and_save(
         raw_reason = str(getattr(raw_result, "reason", "") or "")
         reason = str(decision.reason or raw_reason or "unknown")
         log_phase(log, "final-verify", f"rejected {reason}")
+        if decision.severity is FailureSeverity.CRITICAL:
+            raise AutoUvError(
+                f"Final verification stopped after critical probe failure: {reason}"
+            )
         raise AutoUvError(f"final long verification failed: {reason}")
 
     write_latest_verified_candidate(

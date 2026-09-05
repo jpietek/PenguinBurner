@@ -1,20 +1,21 @@
 from __future__ import annotations
 
 from pathlib import Path
+from contextlib import nullcontext
+
+import pytest
 
 import auto_uv.auto_oc.search as auto_oc_search
 from auto_uv.auto_oc.ladder import AutoOcStep, build_auto_oc_ladder
 from auto_uv.auto_oc.scoring import auto_oc_probe_key
 from auto_uv.auto_oc.search import run_auto_oc_candidate_search
 from auto_uv.domain.types import (
+    AutoUvError,
     AutoUvProbeSummary,
     FailureKind,
     FailureSeverity,
     StableRunDecision,
     VfCurveCandidate,
-)
-from auto_uv.curve.flattened_voltage_probe_curve import (
-    build_flattened_voltage_probe_curve,
 )
 from auto_uv.run.voltage_sweep_state import VoltageProbeOutcome
 from auto_uv_test_data import base_curve, rtx_5080_20260524_high_oc_base_curve
@@ -399,9 +400,9 @@ def test_auto_oc_search_retries_failed_clock_at_higher_voltage_before_climbing()
             return VoltageProbeOutcome(
                 decision=StableRunDecision(
                     False,
-                    FailureKind.NVIDIA_XID,
-                    FailureSeverity.CRITICAL,
-                    "nvidia-xid",
+                    FailureKind.LOW_CLOCK,
+                    FailureSeverity.RECOVERABLE,
+                    "core clock below floor",
                 ),
                 measured_core_clock_mhz=probe.avg_core_clock_mhz,
                 measured_voltage_mv=probe.avg_voltage_mv,
@@ -461,9 +462,9 @@ def test_auto_oc_search_skips_more_mhz_until_failed_clock_is_stable(monkeypatch)
                 return VoltageProbeOutcome(
                     decision=StableRunDecision(
                         False,
-                        FailureKind.NVIDIA_XID,
-                        FailureSeverity.CRITICAL,
-                        "nvidia-xid",
+                        FailureKind.LOW_CLOCK,
+                        FailureSeverity.RECOVERABLE,
+                        "core clock below floor",
                     ),
                     measured_core_clock_mhz=probe.avg_core_clock_mhz,
                     measured_voltage_mv=probe.avg_voltage_mv,
@@ -503,7 +504,19 @@ def test_auto_oc_search_skips_more_mhz_until_failed_clock_is_stable(monkeypatch)
     assert (885, 2865) not in tried
 
 
-def test_auto_oc_search_stops_when_user_stops_scan() -> None:
+@pytest.mark.parametrize(
+    "kind",
+    [
+        FailureKind.USER_STOP,
+        FailureKind.NVIDIA_XID,
+        FailureKind.GPU_HANG,
+        FailureKind.FATAL_OUTPUT,
+        FailureKind.CUDA_FAILED,
+    ],
+)
+def test_auto_oc_search_aborts_without_retry_after_stop_or_critical_failure(
+    kind,
+) -> None:
     curve = base_curve(875, 955, 5, 2400, 15)
     start = VfCurveCandidate("start", 925, 2670, curve)
     tried: list[tuple[int, int]] = []
@@ -519,9 +532,9 @@ def test_auto_oc_search_stops_when_user_stops_scan() -> None:
             return VoltageProbeOutcome(
                 decision=StableRunDecision(
                     False,
-                    FailureKind.USER_STOP,
+                    kind,
                     FailureSeverity.CRITICAL,
-                    "user-stop",
+                    kind.value,
                 ),
                 measured_core_clock_mhz=probe.avg_core_clock_mhz,
                 measured_voltage_mv=probe.avg_voltage_mv,
@@ -529,24 +542,27 @@ def test_auto_oc_search_stops_when_user_stops_scan() -> None:
                 raw_result=object(),
             )
 
-    result = run_auto_oc_candidate_search(
-        base_curve=curve,
-        start_candidate=start,
-        start_probe=_probe(925, 2670, q2rtx_clock_mhz=2670.0),
-        runner=FakeRunner(),
-        gpu_name="NVIDIA GeForce RTX 4090",
-        clock_ceiling=None,
-        probe_history=[],
-        log=lambda _message: None,
-        tail_rise_bins=0,
-        max_interpolation_steps=2,
-        target_voltage_mv=950,
-        target_clock_mhz=2745,
-        measured_baseline_clock_mhz=2670,
-    )
+    result = None
+    with nullcontext() if kind is FailureKind.USER_STOP else pytest.raises(AutoUvError):
+        result = run_auto_oc_candidate_search(
+            base_curve=curve,
+            start_candidate=start,
+            start_probe=_probe(925, 2670, q2rtx_clock_mhz=2670.0),
+            runner=FakeRunner(),
+            gpu_name="NVIDIA GeForce RTX 4090",
+            clock_ceiling=None,
+            probe_history=[],
+            log=lambda _message: None,
+            tail_rise_bins=0,
+            max_interpolation_steps=2,
+            target_voltage_mv=950,
+            target_clock_mhz=2745,
+            measured_baseline_clock_mhz=2670,
+        )
 
     assert tried == [(935, 2715)]
-    assert result.selected_candidate is start
+    if kind is FailureKind.USER_STOP:
+        assert result is not None and result.selected_candidate is start
 
 
 def test_wall_limited_rung_is_not_adopted_and_stops_the_climb() -> None:
@@ -684,3 +700,75 @@ def test_hw_power_brake_stops_climb_below_software_power_limit() -> None:
     assert float(result.selected_candidate.target_mhz) <= wall_mhz + 22.5
     assert len([target for target in tried if target > wall_mhz + 22.5]) == 1
     assert max(tried) < 2700
+
+
+def test_restart_skips_crashed_endpoint_before_hardware_and_verifies_lower_clock(
+    tmp_path, monkeypatch
+):
+    import json
+    from auto_uv.persistence import interrupted_probe_crash_cache as crash_cache
+    from auto_uv.persistence import unsafe_voltage_blacklist_file as blacklist
+
+    marker = tmp_path / "marker.json"
+    cache = tmp_path / "unsafe.json"
+    marker.write_text(
+        json.dumps(
+            {
+                "state": "probing",
+                "phase": "candidate",
+                "candidate_voltage_mv": 925,
+                "lock_clock_mhz": 3098,
+                "details": {
+                    "start_voltage_mv": 1025,
+                    "initial_probe_clock_mhz": 2740,
+                    "generated_profile_tier": "performance",
+                    "blocked_lock_clock_mhz": [3098, 3097, 3090],
+                },
+            }
+        )
+    )
+    monkeypatch.setattr(crash_cache, "probe_in_progress_path", lambda: marker)
+    monkeypatch.setattr(blacklist, "unsafe_voltage_blacklist_path", lambda: cache)
+    assert crash_cache.consume_interrupted_probe_crash_marker() is not None
+    assert cache.exists() and not marker.exists()
+    curve = base_curve(850, 950, 5, 2400, 15)
+    start = VfCurveCandidate("last passing point", 920, 3015, curve)
+    monkeypatch.setattr(
+        auto_oc_search,
+        "build_auto_oc_ladder",
+        lambda *_a, **_k: [AutoOcStep(1, 925, 3098, 1.0)],
+    )
+    tried = []
+
+    class Runner:
+        def probe_candidate(self, candidate, **_kwargs):
+            tried.append((candidate.voltage_mv, candidate.target_mhz))
+            assert tried[-1] == (925, 3015), "known crashing region reached hardware"
+            return _passed_outcome(_probe(925, 3015))
+
+    class Ceiling:
+        def retarget(self, **kwargs):
+            assert (kwargs["lock_voltage_mv"], kwargs["lock_clock_mhz"]) == (925, 3015)
+
+        def describe(self):
+            return "test ceiling"
+
+    result = run_auto_oc_candidate_search(
+        base_curve=curve,
+        start_candidate=start,
+        start_probe=_probe(920, 3015),
+        runner=Runner(),
+        gpu_name="RTX 5080",
+        clock_ceiling=Ceiling(),
+        probe_history=[],
+        log=lambda _: None,
+        target_voltage_mv=925,
+        target_clock_mhz=3098,
+        target_profile_id="performance",
+    )
+    assert tried == [(925, 3015)]
+    assert (
+        result.selected_candidate.voltage_mv,
+        result.selected_candidate.target_mhz,
+    ) == (925, 3015)
+    assert result.attempts[0].outcome.decision.failure_kind is FailureKind.CACHED_UNSAFE

@@ -253,6 +253,8 @@ def probe_runner_marker_details(
     metadata = getattr(candidate, "metadata", {}) or {}
     if isinstance(metadata, dict):
         for key in (
+            "custom_target",
+            "auto_oc",
             "tail_rise_bins",
             "auto_uv_mode",
             "auto_uv_requested_mode",

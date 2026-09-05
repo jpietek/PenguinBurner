@@ -113,3 +113,57 @@ def test_consume_records_obvious_normal_candidate_hard_hang(
         entry["details"]["crash_cache_validation"]["reason"]
         == "validated candidate hard-hang marker"
     )
+
+
+@pytest.mark.parametrize("phase", ["candidate", "final-verify"])
+@pytest.mark.parametrize(
+    "flag,voltage,clock", [("custom_target", 850, 2380), ("auto_oc", 925, 3098)]
+)
+def test_explicit_target_crash_does_not_require_old_voltage_or_clock_margin(
+    phase, flag, voltage, clock
+):
+    marker = {
+        "state": "probing",
+        "phase": phase,
+        "candidate_voltage_mv": voltage,
+        "lock_clock_mhz": clock,
+        "details": {
+            flag: True,
+            "used_companion_load": True,
+            "start_voltage_mv": voltage,
+            "initial_probe_clock_mhz": 2800,
+        },
+    }
+    assert (
+        crash_cache.interrupted_marker_crash_cache_validation(marker)["accepted"]
+        is True
+    )
+    marker["phase"] = "baseline"
+    assert (
+        crash_cache.interrupted_marker_crash_cache_validation(marker)["accepted"]
+        is False
+    )
+
+
+def test_crash_marker_survives_failed_blacklist_write(tmp_path, monkeypatch):
+    path = tmp_path / "marker.json"
+    path.write_text(
+        json.dumps(
+            {
+                "state": "probing",
+                "phase": "candidate",
+                "candidate_voltage_mv": 925,
+                "lock_clock_mhz": 3098,
+                "details": {"start_voltage_mv": 1025, "initial_probe_clock_mhz": 2740},
+            }
+        )
+    )
+    monkeypatch.setattr(crash_cache, "probe_in_progress_path", lambda: path)
+
+    def fail_write(**_kwargs):
+        raise OSError("simulated disk write failure")
+
+    monkeypatch.setattr(crash_cache, "record_unsafe_voltage", fail_write)
+    with pytest.raises(OSError, match="disk write failure"):
+        crash_cache.consume_interrupted_probe_crash_marker()
+    assert path.exists()

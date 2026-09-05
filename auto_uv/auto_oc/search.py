@@ -9,6 +9,7 @@ from auto_uv.shared.positive_int import positive_int
 
 from auto_uv.domain.console_log import log_phase
 from auto_uv.domain.types import (
+    AutoUvError,
     AutoUvProbeSummary,
     FailureKind,
     FailureSeverity,
@@ -134,7 +135,6 @@ def run_auto_oc_candidate_search(
     failed_voltage_floor_mv: int | None = None
     consumed_voltage_floor_mv: int | None = None
     power_wall_reached = False
-    unsafe_entries = load_unsafe_voltage_blacklist()
 
     def probe_step(step: AutoOcStep, *, action: str) -> tuple[VfCurveCandidate, VoltageProbeOutcome]:
         candidate = auto_oc_candidate(
@@ -147,7 +147,7 @@ def run_auto_oc_candidate_search(
             measured_baseline_clock_mhz=measured_baseline_clock_mhz,
         )
         blocked = unsafe_voltage_block_reason(
-            unsafe_entries,
+            load_unsafe_voltage_blacklist(),
             candidate_voltage_mv=int(candidate.voltage_mv),
             lock_clock_mhz=int(candidate.target_mhz),
             profile_tier=target_profile_id,
@@ -181,6 +181,13 @@ def run_auto_oc_candidate_search(
         if outcome.raw_probe is not None:
             probe_history.append(outcome.raw_probe)
         attempts.append(AutoOcAttempt(step=step, candidate=candidate, outcome=outcome))
+        if (
+            outcome.decision.severity is FailureSeverity.CRITICAL
+            and outcome.decision.failure_kind is not FailureKind.USER_STOP
+        ):
+            raise AutoUvError(
+                f"Auto-OC stopped after critical probe failure: {outcome.decision.reason}"
+            )
         return candidate, outcome
 
     def record_outcome(
@@ -266,15 +273,34 @@ def run_auto_oc_candidate_search(
             )
             continue
         candidate, outcome = probe_step(step, action="try")
+        if outcome.decision.failure_kind is FailureKind.USER_STOP:
+            break
+        if outcome.decision.failure_kind is FailureKind.CACHED_UNSAFE:
+            log_phase(
+                log,
+                "auto-oc",
+                f"skip {outcome.decision.reason}; back off to passed {selected_candidate.target_mhz}MHz",
+            )
+            if selected_candidate.voltage_mv < endpoint.voltage_mv:
+                fallback = AutoOcStep(
+                    index=step.index,
+                    voltage_mv=endpoint.voltage_mv,
+                    target_mhz=selected_candidate.target_mhz,
+                    ratio=step.ratio,
+                )
+                candidate, outcome = probe_step(fallback, action="backoff-voltage")
+                if (
+                    record_outcome(candidate, fallback, outcome)
+                    and not power_wall_reached
+                ):
+                    selected_candidate, selected_probe = candidate, outcome.raw_probe
+            break
         passed = record_outcome(candidate, step, outcome)
         if not passed:
             failed_voltage_floor_mv = max(
                 int(failed_voltage_floor_mv or 0),
                 int(candidate.voltage_mv),
             )
-        if auto_oc_should_stop(outcome):
-            log_phase(log, "auto-oc", f"stop critical={outcome.decision.reason}")
-            break
         if power_wall_reached:
             log_phase(
                 log,
@@ -305,15 +331,10 @@ def run_auto_oc_candidate_search(
                 retry_step,
                 action=f"retry-voltage failed={int(candidate.voltage_mv)}mV",
             )
-            retry_passed = record_outcome(retry_candidate, retry_step, retry_outcome)
-            if auto_oc_should_stop(retry_outcome):
-                log_phase(
-                    log,
-                    "auto-oc",
-                    f"stop critical={retry_outcome.decision.reason}",
-                )
+            if retry_outcome.decision.failure_kind is FailureKind.USER_STOP:
                 stop_requested = True
                 break
+            retry_passed = record_outcome(retry_candidate, retry_step, retry_outcome)
             if retry_passed:
                 consumed_voltage_floor_mv = max(
                     int(consumed_voltage_floor_mv or 0),
@@ -441,10 +462,6 @@ def retarget_clock_ceiling(
         ),
     )
     log_phase(log, "ceiling", clock_ceiling.describe())
-
-
-def auto_oc_should_stop(outcome: VoltageProbeOutcome) -> bool:
-    return outcome.decision.failure_kind is FailureKind.USER_STOP
 
 
 def auto_oc_retry_voltages(
