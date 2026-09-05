@@ -34,7 +34,7 @@ from power_governor_sim import (
 )
 
 EFFICIENCY_CAP_W = 430
-BALANCED_CAP_W = 503
+BALANCED_CAP_W = 575
 PERFORMANCE_CAP_W = 575
 
 
