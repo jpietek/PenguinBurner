@@ -1712,9 +1712,9 @@ def test_overlay_tab_hides_runs_panel_and_scrolls_options(monkeypatch) -> None:
     qt_modules = (QtCore, QtGui, QtWidgets, pytest.importorskip("pyqtgraph"))
     window = MainWindow(qt_modules)
 
-    assert not window.table_panel.isHidden()
+    assert window.table_panel.isVisibleTo(window.window)
     window.tabs.setCurrentIndex(window.overlay_tab_index)
-    assert window.table_panel.isHidden()
+    assert not window.table_panel.isVisibleTo(window.window)
     assert (
         window.overlay_config.widget.findChild(
             QtWidgets.QCheckBox,
@@ -1782,7 +1782,7 @@ def test_overlay_tab_hides_runs_panel_and_scrolls_options(monkeypatch) -> None:
     )
 
     window.tabs.setCurrentIndex(window.auto_uv_tab_index)
-    assert not window.table_panel.isHidden()
+    assert window.table_panel.isVisibleTo(window.window)
     window.window.close()
 
 

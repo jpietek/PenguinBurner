@@ -153,6 +153,25 @@ class MainWindow(ProfileActionsMixin):
         auto_uv_view.addWidget(self.log_view.widget)
         auto_uv_view.setSizes([760, 440])
 
+        self.table_panel = self.QtWidgets.QGroupBox("Undervolting runs")
+        table_layout = self.QtWidgets.QVBoxLayout(self.table_panel)
+        table_layout.setContentsMargins(10, 18, 10, 10)
+        table_layout.addWidget(self.auto_uv_tier_progress.widget)
+        table_layout.addWidget(self.runs_table.widget)
+
+        # Keep the entire scan layout inside its tab. Hiding an outer runs
+        # panel on tab changes briefly enlarged the plot before shrinking it
+        # again on return. Only the plot side grows when the window resizes;
+        # the table retains its content-derived minimum and draggable split.
+        self.auto_uv_split = self.QtWidgets.QSplitter(self.QtCore.Qt.Vertical)
+        self.auto_uv_split.setObjectName("autoUvVerticalSplit")
+        self.auto_uv_split.addWidget(auto_uv_view)
+        self.auto_uv_split.addWidget(self.table_panel)
+        self.auto_uv_split.setStretchFactor(0, 1)
+        self.auto_uv_split.setStretchFactor(1, 0)
+        self.auto_uv_split.setCollapsible(0, False)
+        self.auto_uv_split.setCollapsible(1, False)
+
         self.game_library_panel = GameLibraryPanel(
             QtCore=self.QtCore,
             QtGui=self.QtGui,
@@ -175,7 +194,7 @@ class MainWindow(ProfileActionsMixin):
             return self.QtGui.QIcon(str(asset_image_path(filename)))
 
         self.auto_uv_tab_index = self.tabs.addTab(
-            auto_uv_view,
+            self.auto_uv_split,
             tab_icon("tab-auto-uv.png"),
             "Auto-UV",
         )
@@ -227,36 +246,9 @@ class MainWindow(ProfileActionsMixin):
             show_error=self.errors.show,
         )
 
-        self.table_panel = self.QtWidgets.QGroupBox("Undervolting runs")
-        table_layout = self.QtWidgets.QVBoxLayout(self.table_panel)
-        table_layout.setContentsMargins(10, 18, 10, 10)
-        table_layout.addWidget(self.auto_uv_tier_progress.widget)
-        table_layout.addWidget(self.runs_table.widget)
-
-        # The plot/tabs area and the runs table share a draggable vertical
-        # splitter; window resizes grow only the plot side. No pixel
-        # constants: the table side floors at the runs table's own
-        # MIN_VISIBLE_ROWS content minimum, and the tab side floors at the
-        # tab bar plus the Auto-UV page's content minimum. An explicit tab
-        # minimum is required because the splitter would otherwise honor the
-        # LARGEST page's minimum-size hint (overlay/Steam), pinning the tab
-        # area tall; the table panel only shows on the Auto-UV tab.
-        self.auto_uv_split = self.QtWidgets.QSplitter(self.QtCore.Qt.Vertical)
-        self.auto_uv_split.setObjectName("autoUvVerticalSplit")
-        self.tabs.setMinimumHeight(
-            self.tabs.tabBar().sizeHint().height()
-            + auto_uv_view.minimumSizeHint().height()
-        )
-        self.auto_uv_split.addWidget(self.tabs)
-        self.auto_uv_split.addWidget(self.table_panel)
-        self.auto_uv_split.setStretchFactor(0, 1)
-        self.auto_uv_split.setStretchFactor(1, 0)
-        self.auto_uv_split.setCollapsible(0, False)
-        self.auto_uv_split.setCollapsible(1, False)
-
         layout.addWidget(self.header.widget)
         layout.addWidget(self.controls.widget)
-        layout.addWidget(self.auto_uv_split, 1)
+        layout.addWidget(self.tabs, 1)
 
         self.controls.start_button.clicked.connect(self.start_scan)
         self.controls.stop_button.clicked.connect(self.stop_scan)
@@ -370,8 +362,6 @@ class MainWindow(ProfileActionsMixin):
             # library read is filesystem work nobody has asked for until the
             # tab is looked at. Idempotent, so switching back costs nothing.
             self.game_library_panel.ensure_scanned()
-        # The undervolting-runs table belongs to the Auto-UV workflow only.
-        self.table_panel.setVisible(index == self.auto_uv_tab_index)
 
     def show_about(self) -> None:
         show_about_dialog(

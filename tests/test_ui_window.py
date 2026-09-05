@@ -365,8 +365,9 @@ def test_window_simple_helpers(main_window) -> None:
     win.show_about()
 
 
-def test_window_tab_order_and_bins_visibility(main_window) -> None:
+def test_window_tab_order_and_bins_visibility(main_window, monkeypatch) -> None:
     win = main_window
+    monkeypatch.setattr(win.game_library_panel, "ensure_scanned", lambda: None)
     # Tabs are Auto-UV, Profiles, the one library tab that holds every
     # launcher, then Overlay (no separate fan-curve tab).
     labels = [win.tabs.tabText(i) for i in range(win.tabs.count())]
@@ -378,23 +379,61 @@ def test_window_tab_order_and_bins_visibility(main_window) -> None:
 
     # The undervolting-runs panel shows only on the Auto-UV tab.
     win.tabs.setCurrentIndex(win.auto_uv_tab_index)
-    assert not win.table_panel.isHidden()
+    assert win.table_panel.isVisibleTo(win.window)
     win.tabs.setCurrentIndex(win.profiles_tab_index)
-    assert win.table_panel.isHidden()
+    assert not win.table_panel.isVisibleTo(win.window)
     win.tabs.setCurrentIndex(win.overlay_tab_index)
-    assert win.table_panel.isHidden()
+    assert not win.table_panel.isVisibleTo(win.window)
     win.tabs.setCurrentIndex(win.game_library_tab_index)
-    assert win.table_panel.isHidden()
+    assert not win.table_panel.isVisibleTo(win.window)
+
+
+@pytest.mark.parametrize(
+    "other_tab", ["profiles_tab_index", "game_library_tab_index", "overlay_tab_index"]
+)
+def test_returning_to_auto_uv_keeps_plot_geometry(
+    main_window, qapp, monkeypatch, other_tab,
+) -> None:
+    win = main_window
+    win._status_timer.stop()
+    monkeypatch.setattr(win.game_library_panel, "ensure_scanned", lambda: None)
+    win.window.show()
+    qapp.processEvents()
+    # Preserve a user-adjusted plot/table split as well as the settled size.
+    win.auto_uv_split.setSizes([350, 350])
+    qapp.processEvents()
+    plot = win.vf_plot.widget
+    expected_size = plot.size()
+    expected_split = win.auto_uv_split.sizes()
+    observed_sizes = []
+
+    class ResizeWatcher(win.QtCore.QObject):
+        def eventFilter(self, watched, event):
+            if event.type() == win.QtCore.QEvent.Type.Resize:
+                observed_sizes.append(event.size())
+            return False
+
+    watcher = ResizeWatcher()
+    plot.installEventFilter(watcher)
+    for _ in range(3):
+        win.tabs.setCurrentIndex(getattr(win, other_tab))
+        qapp.processEvents()
+        win.tabs.setCurrentIndex(win.auto_uv_tab_index)
+        qapp.processEvents()
+        assert plot.size() == expected_size
+        assert win.auto_uv_split.sizes() == expected_split
+    # Checking only the final size misses the oversized frame on tab entry.
+    assert all(size == expected_size for size in observed_sizes), observed_sizes
 
 
 def test_runs_table_splitter_is_draggable_with_content_derived_floors(
-    main_window,
+    main_window, qapp,
 ) -> None:
     win = main_window
-    qt_widgets = win.QtWidgets
+    win._status_timer.stop()
     split = win.auto_uv_split
     assert split.orientation() == win.QtCore.Qt.Vertical
-    assert split.widget(0) is win.tabs
+    assert split.widget(0).widget(0) is win.vf_plot.widget
     assert split.widget(1) is win.table_panel
     assert not split.childrenCollapsible() or (
         not split.isCollapsible(0) and not split.isCollapsible(1)
@@ -409,11 +448,25 @@ def test_runs_table_splitter_is_draggable_with_content_derived_floors(
     assert table.minimumHeight() >= (
         header_height + row_height * win.runs_table.MIN_VISIBLE_ROWS
     )
-    # The tab side floors at its own content (tab bar + Auto-UV page), NOT at
-    # the largest other page's hint, so the splitter default can actually
-    # trade plot height for table rows.
-    assert win.tabs.minimumHeight() < win.tabs.minimumSizeHint().height()
-    _ = qt_widgets
+    win.window.show()
+    qapp.processEvents()
+    split.setSizes([300, 400])
+    qapp.processEvents()
+    plot_height, table_height = split.sizes()
+    split.moveSplitter(plot_height + 40, 1)
+    qapp.processEvents()
+    assert split.sizes() == [plot_height + 40, table_height - 40]
+
+    # Extra window height goes to the plot, including a resize on another tab.
+    win.window.resize(win.window.width(), win.window.height() + 80)
+    qapp.processEvents()
+    assert split.sizes() == [plot_height + 120, table_height - 40]
+    win.tabs.setCurrentIndex(win.profiles_tab_index)
+    win.window.resize(win.window.width(), win.window.height() + 80)
+    qapp.processEvents()
+    win.tabs.setCurrentIndex(win.auto_uv_tab_index)
+    qapp.processEvents()
+    assert split.sizes() == [plot_height + 200, table_height - 40]
 
 
 def test_runs_table_follows_newest_pending_row_unless_user_scrolled_up(

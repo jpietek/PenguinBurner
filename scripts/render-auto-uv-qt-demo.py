@@ -544,7 +544,7 @@ def render(output_path: Path) -> None:
     window.window.show()
     app.processEvents()
 
-    auto_uv_view = window.tabs.widget(window.auto_uv_tab_index)
+    auto_uv_view = window.auto_uv_split.widget(0)
     if isinstance(auto_uv_view, QtWidgets.QSplitter):
         auto_uv_view.setSizes([1070, 500])
     window.auto_uv_split.setSizes([585, 285])
