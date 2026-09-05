@@ -123,83 +123,40 @@ def test_deeper_flat_search_skips_low_clock_failures_without_accepting_them() ->
     assert all(all(t == c.target_mhz for t in _tail_targets_above_lock(c)) for c in probed)
 
 
-def test_floor_reached_first_pass_keeps_flat_tail() -> None:
-    curve = base_curve()
-    result = run_efficiency_uv_loop(
-        curve,
-        settings=_settings(min_search_voltage_mv=900),
-        initial_stable_candidate=_initial_candidate(curve, voltage_mv=1000, lock_mhz=2240),
-        io=_all_pass_io(),
-        min_search_voltage_mv=900,
-        initial_tail_rise_bins=0,
-        log=lambda _message: None,
-    )
-
-    candidate = result.stable_candidate
-    # Reaching the floor must not decorate the tested flat curve afterward.
-    assert candidate.voltage_mv == 900
-    assert int(candidate.metadata["tail_rise_bins"]) == 0
-    lock_clock = int(candidate.target_mhz)
-    tail = _tail_targets_above_lock(candidate)
-    assert all(target == lock_clock for target in tail)
-
-
 @pytest.mark.parametrize("tail_bins", [0, 2])
-def test_deeper_pass_keeps_the_tested_tail_to_the_floor(tail_bins) -> None:
+@pytest.mark.parametrize("first_floor,final_floor", [(900, 900), (950, 825)])
+def test_efficiency_preserves_tested_tail_through_both_passes_and_persistence(
+    tail_bins: int, first_floor: int, final_floor: int
+) -> None:
     curve = base_curve()
-    initial = _initial_candidate(curve, voltage_mv=1000, lock_mhz=2240)
     probed: list[VfCurveCandidate] = []
+    written: list[tuple[VfCurveCandidate, VoltageProbeOutcome]] = []
+    outcome = _passing_outcome(raw_probe=object())
 
     def probe(candidate: VfCurveCandidate) -> VoltageProbeOutcome:
         probed.append(candidate)
-        return _passing_outcome()
+        return outcome
 
     result = run_efficiency_uv_loop(
         curve,
-        settings=replace(_settings(min_search_voltage_mv=950), tail_rise_bins=tail_bins),
-        initial_stable_candidate=initial,
+        settings=replace(_settings(min_search_voltage_mv=first_floor), tail_rise_bins=tail_bins),
+        initial_stable_candidate=_initial_candidate(curve, voltage_mv=1000, lock_mhz=2240),
         io=BaseUvLoopIO(
             probe_candidate=probe,
-            write_verified_candidate=lambda *_: None,
+            write_verified_candidate=lambda candidate, measured: written.append((candidate, measured)),
             mark_unsafe_candidate=lambda *_: None,
         ),
-        min_search_voltage_mv=825,
-        initial_tail_rise_bins=tail_bins,
-        log=lambda _message: None,
+        min_search_voltage_mv=final_floor, initial_tail_rise_bins=tail_bins,
+        log=lambda _: None,
     )
 
-    candidate = result.stable_candidate
-    # Pass 1 stopped at 950; every deeper candidate retains the tested tail.
-    assert candidate.voltage_mv == 825
-    assert int(candidate.metadata["tail_rise_bins"]) == tail_bins
-    assert all(c.metadata["tail_rise_bins"] == tail_bins for c in probed)
-    tail = _tail_targets_above_lock(candidate)
-    assert max(tail) == int(candidate.target_mhz) + 15 * tail_bins
-
-
-def test_flat_tail_candidate_is_persisted_through_sweep_io() -> None:
-    curve = base_curve()
-    written: list[VfCurveCandidate] = []
-    probe_marker = object()
-    io = BaseUvLoopIO(
-        probe_candidate=lambda _candidate: _passing_outcome(raw_probe=probe_marker),
-        write_verified_candidate=lambda candidate, _outcome: written.append(candidate),
-        mark_unsafe_candidate=lambda _candidate, _outcome: None,
-    )
-    result = run_efficiency_uv_loop(
-        curve,
-        settings=_settings(min_search_voltage_mv=900),
-        initial_stable_candidate=_initial_candidate(curve, voltage_mv=1000, lock_mhz=2240),
-        io=io,
-        min_search_voltage_mv=900,
-        initial_tail_rise_bins=0,
-        log=lambda _message: None,
-    )
-
-    # Crash recovery and final choice must retain the tested flat shape.
-    assert written
-    assert written[-1] is result.stable_candidate
-    assert int(written[-1].metadata["tail_rise_bins"]) == 0
+    assert result.stable_candidate.voltage_mv == final_floor
+    assert written[-1][0] is result.stable_candidate
+    assert all(measured is outcome for _, measured in written)
+    assert all(candidate.metadata["tail_rise_bins"] == tail_bins for candidate in probed)
+    for candidate in probed:
+        tail = _tail_targets_above_lock(candidate)
+        assert max(tail) == candidate.target_mhz + 15 * tail_bins
 
 
 def test_non_efficiency_mode_returns_first_pass_unchanged() -> None:

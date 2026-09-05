@@ -9,7 +9,7 @@ from .unsafe_voltage_blacklist_file import record_unsafe_voltage
 
 CRASH_CACHE_MIN_VOLTAGE_DROP_PCT = 5.0
 CRASH_CACHE_MIN_CANDIDATE_TARGET_BASELINE_PCT = 95.0
-CRASH_CACHE_CANDIDATE_PHASES = {"candidate", "curve-transition", "final-verify"}
+CRASH_CACHE_CANDIDATE_PHASES = {"candidate", "final-verify"}
 
 
 def consume_interrupted_probe_crash_marker() -> tuple[Path, dict] | None:
@@ -89,7 +89,7 @@ def interrupted_marker_crash_cache_validation(marker: dict) -> dict:
             if target_clock_pct_of_baseline is not None
             else None
         ),
-        "min_voltage_drop_pct": 0.0 if phase == "curve-transition" else float(CRASH_CACHE_MIN_VOLTAGE_DROP_PCT),
+        "min_voltage_drop_pct": float(CRASH_CACHE_MIN_VOLTAGE_DROP_PCT),
         "min_candidate_target_baseline_pct": float(
             CRASH_CACHE_MIN_CANDIDATE_TARGET_BASELINE_PCT
         ),
@@ -121,14 +121,6 @@ def normal_candidate_crash_marker_accepted(
         return False
     if voltage_drop_pct is None or target_clock_pct_of_baseline is None:
         return False
-    if str(phase) == "curve-transition":
-        # The upper ramp bins can be less than 5% below the selected lock.
-        # They are deliberately overclocked and must retain hard-hang evidence.
-        return (
-            float(voltage_drop_pct) >= 0.0
-            and float(target_clock_pct_of_baseline)
-            >= float(CRASH_CACHE_MIN_CANDIDATE_TARGET_BASELINE_PCT)
-        )
     return (
         float(voltage_drop_pct) >= float(CRASH_CACHE_MIN_VOLTAGE_DROP_PCT)
         and float(target_clock_pct_of_baseline)

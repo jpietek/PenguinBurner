@@ -358,8 +358,8 @@ def _run_low_clock_sweep(
 
 def test_low_clock_first_pass_stops_without_marking_unsafe() -> None:
     # The first descent stops at the natural clock floor, but a low-clock dip is
-    # NOT instability: the voltage must not be cached unsafe, or the raised-tail
-    # tail-tune pass could never retry it.
+    # NOT instability: the voltage must not be cached unsafe, or the deeper
+    # low-voltage search could never retry it.
     result, probed, unsafe, _written = _run_low_clock_sweep(
         descend_through_low_clock=False,
         probe=_low_clock_outcome,
@@ -371,9 +371,9 @@ def test_low_clock_first_pass_stops_without_marking_unsafe() -> None:
     assert [event.name for event in result.events] == ["stop"]
 
 
-def test_low_clock_tail_tune_pass_descends_to_lower_passing_voltage() -> None:
-    # Tail-tune pass: low-clock above 940mV, but a lower voltage holds the floor
-    # with the raised tail. The sweep must skip the low-clock voltages and keep
+def test_low_clock_floor_search_pass_descends_to_lower_passing_voltage() -> None:
+    # Deeper search: low-clock above 940mV, but a lower voltage holds the floor
+    # with the same tail. The sweep must skip the low-clock voltages and keep
     # the lowest one that passes.
     def probe(candidate: VfCurveCandidate) -> VoltageProbeOutcome:
         if int(candidate.voltage_mv) > 940:
@@ -393,8 +393,8 @@ def test_low_clock_tail_tune_pass_descends_to_lower_passing_voltage() -> None:
     assert written  # at least one lower-voltage candidate was verified
 
 
-def test_low_clock_tail_tune_descends_to_min_when_never_recovers() -> None:
-    # Even if no lower voltage holds the floor, the tail-tune pass keeps probing
+def test_low_clock_floor_search_descends_to_min_when_never_recovers() -> None:
+    # Even if no lower voltage holds the floor, the deeper search keeps probing
     # toward the minimum (never marking unsafe) and falls back to the start point.
     result, probed, unsafe, written = _run_low_clock_sweep(
         descend_through_low_clock=True,
@@ -409,7 +409,7 @@ def test_low_clock_tail_tune_descends_to_min_when_never_recovers() -> None:
     assert result.stable_candidate.voltage_mv == 1000
 
 
-def test_critical_failure_marks_unsafe_and_stops_even_in_tail_tune() -> None:
+def test_critical_failure_marks_unsafe_and_stops_even_in_floor_search() -> None:
     # A genuine crash is still terminal and still cached unsafe, regardless of
     # the low-clock descent flag.
     result, probed, unsafe, _written = _run_low_clock_sweep(

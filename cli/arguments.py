@@ -105,8 +105,8 @@ def parse_arguments(argv):
         default=None,
         metavar="MODE",
         help=(
-            "Auto-UV preset path. efficiency uses a flat base sweep plus a "
-            "low-voltage tail-tune pass; balanced uses the 4-bin tail sweep; "
+            "Auto-UV preset path. efficiency uses a 2-bin tail sweep plus a "
+            "deeper low-voltage search; balanced uses the 4-bin tail sweep; "
             "performance uses the 4-bin tail sweep plus Auto-OC."
         ),
     )

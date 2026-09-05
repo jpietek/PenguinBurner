@@ -2010,177 +2010,73 @@ def test_adjust_baseline_rebuilds_plan_without_clock_ceiling() -> None:
 # --- select_performance_auto_oc_candidate: selected measurement ---
 
 
-def test_select_performance_auto_oc_keeps_selected_curve_and_probe(
-    monkeypatch,
-) -> None:
-    curve = base_curve(900, 1025, 25, 2000, 40)
-    selected_probe = _summary(950, 2745)
-    log_messages: list[str] = []
-
-    monkeypatch.setattr(
-        performance_uv_loop,
-        "run_auto_oc_candidate_search",
-        lambda **_kwargs: SimpleNamespace(
-            selected_candidate=VfCurveCandidate("oc", 950, 2745, curve),
-            selected_probe=selected_probe,
-            attempts=(),
-        ),
-    )
-
-    plan, voltage_mv, clock_mhz, probe, _oc_metadata = (
-        performance_uv_loop.select_performance_auto_oc_candidate(
-            curve,
-            auto_uv_mode="performance",
-            stable_plan=curve,
-            stable_voltage_mv=925,
-            stable_lock_clock_mhz=2600,
-            stable_probe=_summary(925, 2600),
-            stable_history=[],
-            runner=object(),
-            gpu_name="NVIDIA GeForce RTX 4090",
-            clock_ceiling=None,
-            probe_history=[],
-            log=log_messages.append,
-        )
-    )
-
-    assert plan is curve
-    assert (voltage_mv, clock_mhz) == (950, 2745)
-    assert probe is selected_probe
-    assert not any("profile-curve=performance-sweep" in message for message in log_messages)
-
-
-def test_select_performance_auto_oc_keeps_probe_when_selection_unchanged(
-    monkeypatch,
+@pytest.mark.parametrize("voltage,clock,target", [
+    pytest.param(950, 2745, None, id="higher-clock"),
+    pytest.param(925, 2600, None, id="unchanged"),
+    pytest.param(950, 2745, 2980, id="target-metadata"),
+])
+def test_performance_selection_preserves_curve_probe_and_metadata(
+    monkeypatch, voltage: int, clock: int, target: int | None
 ) -> None:
     curve = base_curve(900, 1025, 25, 2000, 40)
     start_probe = _summary(925, 2600)
-
+    selected_probe = start_probe if (voltage, clock) == (925, 2600) else _summary(voltage, clock)
     monkeypatch.setattr(
         performance_uv_loop,
         "run_auto_oc_candidate_search",
-        lambda **_kwargs: SimpleNamespace(
-            selected_candidate=VfCurveCandidate("oc", 925, 2600, curve),
-            selected_probe=start_probe,
+        lambda **_: SimpleNamespace(
+            selected_candidate=VfCurveCandidate("oc", voltage, clock, curve),
+            selected_probe=selected_probe,
+            endpoint=SimpleNamespace(clock_mhz=target) if target else None,
             attempts=(),
         ),
     )
-
-    _plan, voltage_mv, clock_mhz, probe, _oc_metadata = (
+    plan, selected_voltage, selected_clock, probe, metadata = (
         performance_uv_loop.select_performance_auto_oc_candidate(
-            curve,
-            auto_uv_mode="performance",
-            stable_plan=curve,
-            stable_voltage_mv=925,
-            stable_lock_clock_mhz=2600,
-            stable_probe=start_probe,
-            stable_history=None,
-            runner=object(),
-            gpu_name="NVIDIA GeForce RTX 4090",
-            clock_ceiling=None,
-            probe_history=[],
-            log=lambda _message: None,
+            curve, auto_uv_mode="performance", stable_plan=curve,
+            stable_voltage_mv=925, stable_lock_clock_mhz=2600,
+            stable_probe=start_probe, stable_history=None,
+            runner=object(), gpu_name="NVIDIA GeForce RTX 4090",
+            clock_ceiling=None, probe_history=[], log=lambda _: None,
+            target_voltage_mv=940 if target else None,
+            target_clock_mhz=target, measured_baseline_clock_mhz=2600,
         )
     )
+    assert plan is curve
+    assert (selected_voltage, selected_clock) == (voltage, clock)
+    assert probe is selected_probe
+    if target:
+        assert metadata["auto_oc_applied_mhz"] == clock - 2600
+        assert metadata["auto_oc_limit_mhz"] == target - 2600
+    else:
+        assert metadata == {}
 
-    assert (voltage_mv, clock_mhz) == (925, 2600)
-    # Unchanged selection keeps the original stable probe.
-    assert probe is start_probe
 
-
-def test_performance_auto_oc_progress_metadata_reports_applied_and_limit() -> None:
+@pytest.mark.parametrize("baseline,selected,target", [
+    pytest.param(2600, 2745, 2980, id="gain"),
+    pytest.param(2600, 2600, 2980, id="no-gain"),
+    pytest.param(2600, 3100, 2980, id="above-limit"),
+    pytest.param(2730, 2600, 2980, id="negative-delta"),
+    pytest.param(2600, 2700, None, id="no-target"),
+    pytest.param(None, 2700, 2980, id="no-baseline"),
+])
+def test_performance_progress_metadata_preserves_signed_deltas(
+    baseline: int | None, selected: int, target: int | None
+) -> None:
     metadata = performance_uv_loop.performance_auto_oc_progress_metadata(
-        endpoint=SimpleNamespace(clock_mhz=2980),
-        measured_baseline_clock_mhz=2600,
-        selected_clock_mhz=2745,
+        endpoint=SimpleNamespace(clock_mhz=target) if target else None,
+        measured_baseline_clock_mhz=baseline, selected_clock_mhz=selected,
     )
-
-    assert metadata["auto_oc"] is True
-    assert metadata["auto_oc_limit_mhz"] == 380
-    assert metadata["auto_oc_applied_mhz"] == 145
-    assert metadata["auto_oc_baseline_clock_mhz"] == 2600
-    assert metadata["auto_oc_target_clock_mhz"] == 2980
-
-
-def test_performance_auto_oc_progress_metadata_keeps_limit_when_no_gain() -> None:
-    # Auto-OC reports target minus measured baseline, including a zero delta.
-    metadata = performance_uv_loop.performance_auto_oc_progress_metadata(
-        endpoint=SimpleNamespace(clock_mhz=2980),
-        measured_baseline_clock_mhz=2600,
-        selected_clock_mhz=2600,
-    )
-
-    assert metadata["auto_oc_applied_mhz"] == 0
-    assert metadata["auto_oc_limit_mhz"] == 380
-
-
-def test_performance_auto_oc_progress_metadata_keeps_signed_delta_above_limit() -> None:
-    metadata = performance_uv_loop.performance_auto_oc_progress_metadata(
-        endpoint=SimpleNamespace(clock_mhz=2980),
-        measured_baseline_clock_mhz=2600,
-        selected_clock_mhz=3100,
-    )
-
-    assert metadata["auto_oc_applied_mhz"] == 500
-    assert metadata["auto_oc_limit_mhz"] == 380
-
-
-def test_performance_auto_oc_progress_metadata_keeps_negative_delta() -> None:
-    metadata = performance_uv_loop.performance_auto_oc_progress_metadata(
-        endpoint=SimpleNamespace(clock_mhz=2980),
-        measured_baseline_clock_mhz=2730,
-        selected_clock_mhz=2600,
-    )
-
-    assert metadata["auto_oc_applied_mhz"] == -130
-    assert metadata["auto_oc_limit_mhz"] == 250
-
-
-def test_performance_auto_oc_progress_metadata_empty_without_target() -> None:
-    assert (
-        performance_uv_loop.performance_auto_oc_progress_metadata(
-            endpoint=None,
-            measured_baseline_clock_mhz=2600,
-            selected_clock_mhz=2700,
-        )
-        == {}
-    )
-
-
-def test_select_performance_auto_oc_candidate_returns_oc_metadata(monkeypatch) -> None:
-    curve = base_curve(900, 1025, 25, 2000, 40)
-
-    monkeypatch.setattr(
-        performance_uv_loop,
-        "run_auto_oc_candidate_search",
-        lambda **_kwargs: SimpleNamespace(
-            selected_candidate=VfCurveCandidate("oc", 950, 2745, curve),
-            selected_probe=_summary(950, 2745),
-            endpoint=SimpleNamespace(clock_mhz=2980),
-            attempts=(),
-        ),
-    )
-
-    *_unused, oc_metadata = performance_uv_loop.select_performance_auto_oc_candidate(
-        curve,
-        auto_uv_mode="performance",
-        stable_plan=curve,
-        stable_voltage_mv=925,
-        stable_lock_clock_mhz=2600,
-        stable_probe=_summary(925, 2600),
-        stable_history=[],
-        runner=object(),
-        gpu_name="NVIDIA GeForce RTX 4090",
-        clock_ceiling=None,
-        probe_history=[],
-        log=lambda _message: None,
-        target_voltage_mv=940,
-        target_clock_mhz=2980,
-        measured_baseline_clock_mhz=2600,
-    )
-
-    assert oc_metadata["auto_oc_applied_mhz"] == 145
-    assert oc_metadata["auto_oc_limit_mhz"] == 380
+    if baseline is None or target is None:
+        assert metadata == {}
+    else:
+        assert metadata == {
+            "auto_oc": True,
+            "auto_oc_baseline_clock_mhz": baseline,
+            "auto_oc_target_clock_mhz": target,
+            "auto_oc_applied_mhz": selected - baseline,
+            "auto_oc_limit_mhz": target - baseline,
+        }
 
 
 def test_power_bound_clock_reclaim_uses_fixed_voltage_tier_target(monkeypatch) -> None:

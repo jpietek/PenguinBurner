@@ -2,7 +2,7 @@
 
 Balanced is intentionally just the shared base undervolt sweep with the
 Balanced tail shape selected by runtime settings. It has no second low-voltage
-tail-tune pass and no Performance Auto-OC pass.
+search pass and no Performance Auto-OC pass.
 """
 
 from __future__ import annotations

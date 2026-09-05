@@ -14,7 +14,7 @@ import pytest
 
 from auto_uv.curve.base_load_flatten_target import choose_base_load_flatten_target
 from auto_uv.curve.measured_probe_lock_clock import lock_clock_from_probe_loaded_clock
-from auto_uv.curve.shipped_plan import restore_stock_below_validated_floor
+from auto_uv.curve.shipped_plan import assert_monotonic_editable_targets
 from auto_uv.curve.vf_curve_flattening import build_flattened_plan
 from auto_uv.domain.types import AutoUvProbeSummary, FailureKind
 from auto_uv.probes.stability_decision import (
@@ -181,14 +181,10 @@ def test_s4_changed_cap_moves_operation_below_lock_without_predicting_hardware()
     # its configured final power limit is unknown.
     curve = rtx_5090_steep_synthetic_curve()
     model = scenario_5090_power_models()[1]
-    shipped = restore_stock_below_validated_floor(
-        build_flattened_plan(
-            curve,
-            lock_clock_mhz=2595,
-            candidate_voltage_mv=1000,
-        ),
-        floor_voltage_mv=1000,
+    shipped = build_flattened_plan(
+        curve,
         lock_clock_mhz=2595,
+        candidate_voltage_mv=1000,
     )
 
     settle = settle_operating_point(
@@ -214,64 +210,38 @@ def test_s4_changed_cap_moves_operation_below_lock_without_predicting_hardware()
     assert "power-walled but stable" in decision.reason
 
 
-def test_s5_shipped_plan_shape_is_monotonic_and_clamped() -> None:
-    curve = rtx_5090_steep_synthetic_curve()
-    shipped = restore_stock_below_validated_floor(
-        build_flattened_plan(
-            curve,
-            lock_clock_mhz=2595,
-            candidate_voltage_mv=1000,
-        ),
-        floor_voltage_mv=1000,
-        lock_clock_mhz=2595,
-    )
-    stock_by_voltage = {
-        int(point["voltage_mv"]): int(point["base_mhz"]) for point in curve
-    }
-
-    targets = _editable_targets(shipped)
-    assert all(
-        earlier[1] <= later[1] for earlier, later in zip(targets, targets[1:])
-    ), "shipped 5090 plan must be monotonic"
-
-    below_floor = [(v, t) for v, t in targets if v < 1000]
-    assert below_floor
-    assert all(t <= stock_by_voltage[v] for v, t in below_floor)
-    assert all(t <= 2595 - 15 for t in (pair[1] for pair in below_floor))
-    # The clamp must actually bite: the weak curve's stock exceeds the
-    # below-lock ceiling in the band just under the floor (the old raw-stock
-    # graft drew the non-monotonic bump exactly there).
-    assert any(
-        stock_by_voltage[v] > 2595 - 15 and t == 2595 - 15 for v, t in below_floor
-    )
-
-
-def test_s6_5080_control_clamp_is_a_no_op() -> None:
-    curve = rtx_5080_20260524_high_oc_base_curve()
+def test_s5_selected_5090_ramp_stays_below_lock_without_downward_edge() -> None:
     plan = build_flattened_plan(
-        curve,
+        rtx_5090_steep_synthetic_curve(),
+        lock_clock_mhz=2595,
+        candidate_voltage_mv=1000,
+    )
+    assert_monotonic_editable_targets(plan)
+    targets = _editable_targets(plan)
+    below_lock = [(v, t) for v, t in targets if v < 1000]
+    assert below_lock
+    assert all(t <= 2595 - 15 for _, t in below_lock)
+    assert dict(targets)[1000] == 2595
+
+
+def test_s6_5080_selected_ramp_is_preserved_above_stock() -> None:
+    plan = build_flattened_plan(
+        rtx_5080_20260524_high_oc_base_curve(),
         lock_clock_mhz=2730,
         candidate_voltage_mv=1000,
     )
-    stock_by_voltage = {
-        int(point["voltage_mv"]): int(point["base_mhz"]) for point in curve
-    }
+    tested = [dict(point) for point in plan]
 
-    shipped = restore_stock_below_validated_floor(
-        plan,
-        floor_voltage_mv=1000,
-        lock_clock_mhz=2730,
+    assert_monotonic_editable_targets(plan)
+
+    assert plan == tested
+    # The tested approach contains raised points; restoring stock here would
+    # discard that ramp and no longer verify the selected curve.
+    assert any(
+        int(point["target_mhz"]) > int(point["base_mhz"])
+        for point in plan
+        if not point.get("preserve_base") and int(point["voltage_mv"]) < 1000
     )
-
-    # On the gentle 5080 curve stock never crosses the below-lock ceiling,
-    # so the power-bound clamp ships byte-identical raw stock below floor.
-    below_floor = [
-        (int(p["voltage_mv"]), int(p["target_mhz"]))
-        for p in shipped
-        if not p.get("preserve_base") and int(p["voltage_mv"]) < 1000
-    ]
-    assert below_floor
-    assert all(t == stock_by_voltage[v] for v, t in below_floor)
 
 
 def test_s7_negative_control_demotion_still_fails() -> None:
