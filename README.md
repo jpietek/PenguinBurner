@@ -282,9 +282,9 @@ Auto-UV makes real hardware changes — enabling persistence mode, setting board
 power limits, writing core/memory V/F offsets, and taking over fan control.
 
 The **Balanced** and **Efficiency** Auto-UV profiles use conservative voltage
-floors; Efficiency also caps board power by default. Efficiency accepts the
-deepest loaded-clock drop, then may reclaim stable clock without raising its
-proven voltage. Balanced keeps more loaded clock with a higher voltage and
+floors; Efficiency also caps board power by default and chooses the best measured
+FPS/W. It may reclaim stable clock without raising its proven voltage.
+Balanced favors measured performance with a higher voltage and
 the stock power budget (cap it per scan in the dialog if you want a watts
 ceiling too).
 

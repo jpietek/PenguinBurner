@@ -21,7 +21,7 @@ from auto_uv.base_uv_loop import BaseUvLoopIO, run_base_uv_loop
 from auto_uv.curve.measured_probe_lock_clock import probe_indicates_power_saturation
 from auto_uv.curve.vf_curve_flattening import build_flattened_plan
 from auto_uv.domain.scan_settings import AutoUvScanSettings
-from auto_uv.domain.types import FailureKind, VfCurveCandidate
+from auto_uv.domain.types import VfCurveCandidate
 from auto_uv.performance_uv_loop import select_power_bound_clock_reclaim_candidate
 from auto_uv.probes.stability_decision import (
     StabilityThresholds,
@@ -47,7 +47,6 @@ def _harness(
     *,
     power_limit_w: int,
     curve: list[dict] | None = None,
-    min_core_clock_pct: float = 94.0,
 ) -> GovernorProbeHarness:
     base_curve = curve if curve is not None else rtx_5090_steep_synthetic_curve()
     stock = settle_operating_point(
@@ -62,7 +61,6 @@ def _harness(
         baseline_core_clock_mhz=float(stock["clock_mhz"]),
         baseline_power_w=float(stock["power_w"]),
         baseline_fps=100.0,
-        min_core_clock_pct=float(min_core_clock_pct),
     )
 
 
@@ -311,9 +309,7 @@ def test_descent_walks_down_instead_of_stopping_at_the_capped_clock() -> None:
         settings=AutoUvScanSettings(
             start_voltage_mv=start_voltage_mv,
             min_search_voltage_mv=850,
-            baseline_core_clock_mhz=float(start_clock_mhz),
             auto_uv_mode="balanced",
-            min_core_clock_pct=94.0,
             tail_rise_bins=4,
         ),
         initial_stable_candidate=start,
@@ -346,72 +342,6 @@ def test_descent_walks_down_instead_of_stopping_at_the_capped_clock() -> None:
     )
 
 
-def test_low_clock_still_fails_when_the_cap_is_only_named_by_a_few_samples() -> None:
-    """A sparse sw-power minority must not buy a power-walled pass.
-
-    The summarizer's coverage gate is the only thing standing between an
-    occasional cap blip and an exemption that would hide real V/F demotion.
-    """
-    model = scenario_5090_blackwell_models()[1]
-    curve = rtx_5090_steep_synthetic_curve()
-    capped = settle_operating_point(
-        curve, model=model, power_limit_w=float(EFFICIENCY_CAP_W)
-    )
-    samples = synthesize_busy_samples(capped, count=12, model=model)
-    sparse = [
-        {
-            **sample,
-            # Far off the cap, so only the reason vote could grant a pass.
-            "power_w": 300.0,
-            "core_clock_mhz": 1900.0,
-            "perf_cap_reason": "sw-power" if index == 0 else None,
-        }
-        for index, sample in enumerate(samples)
-    ]
-
-    decision = evaluate_loaded_telemetry(
-        sparse,
-        baseline_power_w=float(capped["power_w"]),
-        baseline_core_clock_mhz=2595.0,
-        power_limit_w=EFFICIENCY_CAP_W,
-        thresholds=StabilityThresholds(min_core_clock_pct=94.0),
-        log_path=None,
-    )
-
-    assert not decision.passed
-    assert decision.failure_kind is FailureKind.LOW_CLOCK
-
-
-def test_thermal_cap_does_not_buy_a_power_walled_pass() -> None:
-    """Only a power cap explains a clock shortfall as the cap working."""
-    model = scenario_5090_blackwell_models()[1]
-    curve = rtx_5090_steep_synthetic_curve()
-    capped = settle_operating_point(
-        curve, model=model, power_limit_w=float(EFFICIENCY_CAP_W)
-    )
-    thermal = [
-        {
-            **sample,
-            "power_w": 300.0,
-            "core_clock_mhz": 1900.0,
-            "perf_cap_reason": "hw-thermal",
-        }
-        for sample in synthesize_busy_samples(capped, count=12, model=model)
-    ]
-
-    decision = evaluate_loaded_telemetry(
-        thermal,
-        baseline_power_w=float(capped["power_w"]),
-        baseline_core_clock_mhz=2595.0,
-        power_limit_w=EFFICIENCY_CAP_W,
-        thresholds=StabilityThresholds(min_core_clock_pct=94.0),
-        log_path=None,
-    )
-
-    assert not decision.passed
-    assert decision.failure_kind is FailureKind.LOW_CLOCK
-
-
 def test_ramp_samples_do_not_change_the_power_walled_verdict() -> None:
     """The idle/ramp head must not dilute the busy window's evidence."""
     model = scenario_5090_blackwell_models()[0]
@@ -427,9 +357,8 @@ def test_ramp_samples_do_not_change_the_power_walled_verdict() -> None:
             model=model,
         ),
         baseline_power_w=float(harness.baseline_power_w),
-        baseline_core_clock_mhz=float(harness.baseline_core_clock_mhz),
         power_limit_w=EFFICIENCY_CAP_W,
-        thresholds=StabilityThresholds(min_core_clock_pct=94.0),
+        thresholds=StabilityThresholds(),
         log_path=None,
     )
 

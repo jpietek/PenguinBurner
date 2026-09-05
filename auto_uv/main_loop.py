@@ -77,7 +77,6 @@ from auto_uv.probes.runtime_guardrails import (
 )
 from auto_uv.probes.voltage_probe import probe_voltage_candidate
 from auto_uv.run.scan_runtime_settings import (
-    adaptive_tier_clock_drop_margin_pct,
     adaptive_tier_option,
     final_verification_duration_s as resolve_final_verification_duration_s,
     read_scan_runtime_settings,
@@ -117,7 +116,6 @@ from auto_uv.scan_mode.uv_limits import (
     uv_limit_clock_target_range_for_gpu,
 )
 from auto_uv.scan_mode.target_overrides import (
-    custom_target_min_core_clock_pct,
     custom_tier_target,
     tier_target_overrides,
 )
@@ -137,7 +135,6 @@ class FinalScanCandidate:
     verification_duration_s: int
     auto_oc_metadata: dict
     tail_rise_bins: int
-    min_core_clock_pct: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,9 +258,6 @@ def run_voltage_frequency_undervolt_main_loop(
                             settings.short_probe_base_duration_s
                         ),
                         recovery_decision=recovery_decision,
-                        min_core_clock_pct=float(
-                            settings.min_performance_core_clock_pct
-                        ),
                     )
                 )
             else:
@@ -302,9 +296,6 @@ def run_voltage_frequency_undervolt_main_loop(
                                 settings.short_probe_base_duration_s
                             ),
                             recovery_decision=recovery_decision,
-                            min_core_clock_pct=float(
-                                settings.min_performance_core_clock_pct
-                            ),
                         )
                     )
             if pending_recovery_selection is not None:
@@ -404,7 +395,6 @@ def run_voltage_frequency_undervolt_main_loop(
             power_limit_w=gpu.power_limit_w,
             start_voltage_mv=int(baseline_candidate.voltage_mv),
             baseline_clock_mhz=float(baseline_target.measured_clock_mhz),
-            min_performance_core_clock_pct=float(settings.min_performance_core_clock_pct),
             short_probe_base_duration_s=int(settings.short_probe_base_duration_s),
             log=log,
             event_callback=event_callback,
@@ -545,10 +535,7 @@ def run_voltage_frequency_undervolt_main_loop(
             selection: FinalScanCandidate,
             final_auto_uv_mode: str | None = None,
             final_profile_tier: str | None = None,
-            # Adaptive tiers verify against THEIR clock-drop margin, not the
-            # scan-wide one; None keeps the scan-wide settings values.
-            final_min_core_clock_pct: float | None = None,
-            final_clock_drop_margin_pct: float | None = None,
+            # Each tier verifies against its own measured reference.
             final_stable_history: list[AutoUvProbeSummary] | None = None,
             final_discovery_summary: AutoUvProbeSummary | None = None,
             final_baseline_candidate: VfCurveCandidate | None = None,
@@ -575,10 +562,6 @@ def run_voltage_frequency_undervolt_main_loop(
                 if final_measured_baseline_clock_mhz is not None
                 else float(baseline_target.measured_clock_mhz)
             )
-            selection_clock_floor = getattr(selection, "min_core_clock_pct", None)
-            if selection_clock_floor is not None:
-                final_min_core_clock_pct = float(selection_clock_floor)
-                final_clock_drop_margin_pct = 100.0 - float(selection_clock_floor)
             return run_final_verification_and_save(
                 probe_voltage_candidate=probe_voltage_candidate,
                 build_voltage_scan_result=build_voltage_scan_result,
@@ -601,17 +584,7 @@ def run_voltage_frequency_undervolt_main_loop(
                 discovery_summary=selected_discovery_summary,
                 translated_gpu_policy=gpu.translated_gpu_policy,
                 gpu_identity=getattr(gpu, "gpu_identity", {}),
-                min_performance_core_clock_pct=float(
-                    final_min_core_clock_pct
-                    if final_min_core_clock_pct is not None
-                    else settings.min_performance_core_clock_pct
-                ),
                 runtime_default_plan=gpu.runtime_default_plan,
-                final_clock_drop_margin_pct=float(
-                    final_clock_drop_margin_pct
-                    if final_clock_drop_margin_pct is not None
-                    else settings.final_clock_drop_margin_pct
-                ),
                 tail_rise_bins=int(selection.tail_rise_bins),
                 auto_uv_mode=str(final_auto_uv_mode or settings.auto_uv_mode),
                 generated_profile_tier=(
@@ -629,9 +602,7 @@ def run_voltage_frequency_undervolt_main_loop(
             base_loop_settings = AutoUvScanSettings(
                 start_voltage_mv=int(baseline_candidate.voltage_mv),
                 min_search_voltage_mv=int(effective_min_search_voltage_mv),
-                baseline_core_clock_mhz=float(baseline_target.measured_clock_mhz),
                 auto_uv_mode=settings.auto_uv_mode,
-                min_core_clock_pct=float(settings.min_performance_core_clock_pct),
                 reference_actual_voltage_mv=stable_probe.avg_voltage_mv,
                 efficiency_stop_streak=int(efficiency_stop_streak_default.value),
                 min_efficiency_stop_voltage_drop_pct=float(
@@ -678,17 +649,12 @@ def run_voltage_frequency_undervolt_main_loop(
                     )
                 }
 
-                def configure_tier_probe_runner(
-                    min_core_clock_pct: float,
-                ) -> AutoUvProbeRunner:
-                    # Rebinds the closed-over runner so probe_candidate
-                    # evaluates this tier's probes against the tier's own
-                    # clock floor (the runner dataclass is frozen).
+                def configure_tier_probe_runner() -> AutoUvProbeRunner:
+                    # Keep probe load checks aligned with this tier's applied cap.
                     nonlocal runner
                     runner = replace(
                         runner,
                         power_limit_w=positive_int(gpu.power_limit_w),
-                        min_performance_core_clock_pct=float(min_core_clock_pct),
                     )
                     return runner
 
@@ -707,10 +673,7 @@ def run_voltage_frequency_undervolt_main_loop(
                     cached = baseline_cache.get(policy_key)
                     if cached is not None:
                         source_tier, measured = cached
-                        # Baseline probes establish the reference and do
-                        # not enforce a tier's clock floor. Rebind the
-                        # runner so subsequent probes use this tier's own
-                        # allowance against the shared measured reference.
+                        # Reuse the reference measured under matching settings.
                         prepared = replace(
                             measured,
                             runner=replace(
@@ -1018,7 +981,7 @@ def run_adaptive_tier_scans(
     *,
     base_curve: list[dict],
     gpu,
-    configure_tier_probe_runner: Callable[[float], AutoUvProbeRunner],
+    configure_tier_probe_runner: Callable[[], AutoUvProbeRunner],
     settings,
     runtime_options: dict,
     base_loop_settings: AutoUvScanSettings,
@@ -1044,7 +1007,7 @@ def run_adaptive_tier_scans(
     must descend with its OWN tail (efficiency +2 to the floor,
     balanced +2 to the FPS/W wall, performance +2 then the Auto-OC climb).
     Stock and flattened baselines are shared when power, memory and tail
-    settings match; each tier keeps its own clock-loss allowance. Because Balanced
+    settings match. Because Balanced
     and Performance descend with the same tail, Performance can reuse the
     Balanced descent only when those policy inputs also match (see
     performance_can_reuse_balanced_descent) and runs only its Auto-OC climb.
@@ -1082,7 +1045,6 @@ def run_adaptive_tier_scans(
             **event_details,
             reason=f"{stage}-failed",
         )
-    gpu_name = gpu.translated_gpu_policy.get("gpu_name")
     # A tier without its own option restores the scan-wide request or zero,
     # including when scan open already applied Efficiency's override.
     # The driver limit is a per-GPU constant, fetched
@@ -1104,20 +1066,6 @@ def run_adaptive_tier_scans(
             "next_tier": next_tier,
         }
         emit_auto_uv_event(event_callback, "tier_started", **tier_event_details)
-        # Each tier descends and verifies against its automatic GPU-table
-        # clock-drop allowance, with a generic fallback for unknown GPUs.
-        tier_clock_drop_margin_pct = adaptive_tier_clock_drop_margin_pct(
-            runtime_options,
-            tier_mode=str(tier_mode),
-            gpu_name=gpu_name,
-        )
-        tier_min_core_clock_pct = max(0.0, 100.0 - tier_clock_drop_margin_pct)
-        log_phase(
-            log,
-            "auto-uv",
-            f"adaptive {tier_mode} clock-drop allowance: "
-            f"{tier_clock_drop_margin_pct:.1f}%",
-        )
         apply_adaptive_tier_memory_offset(
             gpu,
             tier_mode=str(tier_mode),
@@ -1143,7 +1091,7 @@ def run_adaptive_tier_scans(
             log=log,
             purpose=f"adaptive {str(tier_mode)} scan",
         )
-        tier_runner = configure_tier_probe_runner(tier_min_core_clock_pct)
+        tier_runner = configure_tier_probe_runner()
         tier_baseline_candidate = baseline_candidate
         tier_initial_stable_outcome = initial_stable_outcome
         tier_stable_probe = stable_probe
@@ -1183,9 +1131,6 @@ def run_adaptive_tier_scans(
                 base_loop_settings,
                 start_voltage_mv=int(tier_baseline_candidate.voltage_mv),
                 min_search_voltage_mv=int(tier_effective_min_search_voltage_mv),
-                baseline_core_clock_mhz=float(
-                    tier_baseline_target.measured_clock_mhz
-                ),
                 reference_actual_voltage_mv=tier_stable_probe.avg_voltage_mv,
             )
         try:
@@ -1195,10 +1140,6 @@ def run_adaptive_tier_scans(
                 and performance_can_reuse_balanced_descent(
                     balanced_donation,
                     performance_memory_offset_mhz=tier_memory_offset_mhz,
-                    performance_min_core_clock_pct=float(tier_min_core_clock_pct),
-                    measured_baseline_clock_mhz=float(
-                        tier_baseline_target.measured_clock_mhz
-                    ),
                     performance_baseline_voltage_mv=int(
                         tier_baseline_candidate.voltage_mv
                     ),
@@ -1252,7 +1193,6 @@ def run_adaptive_tier_scans(
                         ),
                         runner=tier_runner,
                         probe_history=probe_history,
-                        min_core_clock_pct=float(tier_min_core_clock_pct),
                         gpu=gpu,
                         log=log,
                     )
@@ -1327,7 +1267,6 @@ def run_adaptive_tier_scans(
                 ),
                 request_reason=f"adaptive-{tier_mode}",
                 auto_uv_mode_override=str(tier_mode),
-                min_core_clock_pct_override=float(tier_min_core_clock_pct),
             )
             # The descent candidate is only the input to final selection. In
             # particular, Performance can replace it with a much higher
@@ -1346,8 +1285,6 @@ def run_adaptive_tier_scans(
                 selection=tier_selection,
                 final_auto_uv_mode=str(tier_mode),
                 final_profile_tier=str(tier_mode),
-                final_min_core_clock_pct=float(tier_min_core_clock_pct),
-                final_clock_drop_margin_pct=float(tier_clock_drop_margin_pct),
                 final_stable_history=tier_history,
                 final_discovery_summary=tier_discovery_summary,
                 final_baseline_candidate=tier_baseline_candidate,
@@ -1415,7 +1352,6 @@ def run_adaptive_tier_descent(
     effective_min_search_voltage_mv: int,
     runner: AutoUvProbeRunner,
     probe_history: list,
-    min_core_clock_pct: float,
     gpu,
     log: Callable[[str], None],
 ) -> tuple[VfCurveCandidate, int, AutoUvProbeSummary | None, list[AutoUvProbeSummary]]:
@@ -1430,7 +1366,6 @@ def run_adaptive_tier_descent(
         base_loop_settings,
         auto_uv_mode=tier_mode,
         tail_rise_bins=int(tier_descent_tail),
-        min_core_clock_pct=float(min_core_clock_pct),
     )
     tier_history: list[AutoUvProbeSummary] = (
         [fallback_probe] if fallback_probe is not None else []
@@ -1709,8 +1644,6 @@ def performance_can_reuse_balanced_descent(
     donation: BalancedDescentDonation | None,
     *,
     performance_memory_offset_mhz: int,
-    performance_min_core_clock_pct: float,
-    measured_baseline_clock_mhz: float,
     performance_baseline_voltage_mv: int,
     performance_baseline_target_mhz: int,
     performance_power_limit_w: int | None,
@@ -1724,12 +1657,8 @@ def performance_can_reuse_balanced_descent(
     Performance straight to the Auto-OC climb. Any input mismatch falls back
     to a full descent.
 
-    Balanced descends under a LOOSER clock-drop allowance than performance
-    (the efficiency-weighted blend), so the donated endpoint must also still
-    clear performance's own floor — the rising tail normally holds the
-    measured clock well above it, but a below-floor endpoint would only be
-    rejected later, at performance's final verification. No probe evidence
-    means no reuse."""
+    No probe evidence means no reuse.
+    """
     if donation is None:
         return False
     performance_tail = adaptive_tier_descent_tail_rise_bins(
@@ -1795,20 +1724,6 @@ def performance_can_reuse_balanced_descent(
             "carries no measured clock",
         )
         return False
-    floor_mhz = (
-        float(measured_baseline_clock_mhz)
-        * float(performance_min_core_clock_pct)
-        / 100.0
-    )
-    if float(donated_clock_mhz) < floor_mhz:
-        log_phase(
-            log,
-            "auto-uv",
-            "adaptive performance descending itself: balanced endpoint "
-            f"{float(donated_clock_mhz):.0f}MHz sits below performance's "
-            f"{floor_mhz:.0f}MHz clock floor",
-        )
-        return False
     return True
 
 
@@ -1840,7 +1755,7 @@ def log_lower_voltage_sweep_events(
     events: list[LowerVoltageSweepEvent],
 ) -> None:
     for event in events:
-        if event.name not in {"stop", "low-clock-skip"}:
+        if event.name != "stop":
             continue
         log_phase(log, "auto-uv", f"sweep-{event.name} {event.message}")
 
@@ -1869,17 +1784,10 @@ def select_final_scan_candidate(
     run_power_bound_clock_reclaim: bool = False,
     request_reason: str,
     auto_uv_mode_override: str | None = None,
-    min_core_clock_pct_override: float | None = None,
 ) -> FinalScanCandidate:
     # Adaptive scans select per tier: the tier name overrides the scan-wide
-    # mode so the OC pass and the choice dialog see the tier, not "adaptive";
-    # the clock-floor override likewise carries the tier's own allowance.
+    # mode so the OC pass and the choice dialog see the active tier.
     selection_mode = str(auto_uv_mode_override or settings.auto_uv_mode)
-    selection_min_core_clock_pct = float(
-        min_core_clock_pct_override
-        if min_core_clock_pct_override is not None
-        else settings.min_performance_core_clock_pct
-    )
     final_plan = stable_plan
     final_voltage_mv = int(stable_voltage_mv)
     final_lock_clock_mhz = int(stable_lock_clock_mhz)
@@ -1895,7 +1803,6 @@ def select_final_scan_candidate(
         gpu_name=gpu.translated_gpu_policy.get("gpu_name"),
         tier=selection_mode,
     )
-    custom_min_core_clock_pct = None
     if custom_target is not None:
         if (
             target_overrides.clock_mhz is not None
@@ -1925,14 +1832,6 @@ def select_final_scan_candidate(
                 raise AutoUvError(
                     f"Clock target must be within the GPU range {min(steps)}–{max(steps)} MHz"
                 )
-        target_clock = custom_target.clock_mhz
-        if target_clock is not None:
-            selection_min_core_clock_pct = custom_target_min_core_clock_pct(
-                target_clock_mhz=target_clock,
-                baseline_clock_mhz=float(measured_baseline_clock_mhz),
-                default_pct=selection_min_core_clock_pct,
-            )
-        custom_min_core_clock_pct = selection_min_core_clock_pct
         result = run_custom_tier_target_search(
             base_curve=base_curve,
             start_candidate=VfCurveCandidate(
@@ -1952,7 +1851,6 @@ def select_final_scan_candidate(
             overrides=custom_target,
             tail_rise_bins=tail_rise_bins,
             measured_baseline_clock_mhz=float(measured_baseline_clock_mhz),
-            min_core_clock_pct=selection_min_core_clock_pct,
         )
         final_plan = result.selected_candidate.flattened_plan
         final_voltage_mv = result.selected_candidate.voltage_mv
@@ -2026,14 +1924,10 @@ def select_final_scan_candidate(
     if custom_target is None and selection_mode == AUTO_UV_MODE_EFFICIENCY:
         # Select across the passed descent and climb, carrying the measured
         # candidate's actual plan rather than rebuilding it from its label.
-        clock_floor = (
-            float(measured_baseline_clock_mhz) * selection_min_core_clock_pct / 100.0
-        )
         measured_candidates = [
             probe
             for probe in stable_history
             if getattr(probe, "tested_plan", None) is not None
-            and float(probe.avg_core_clock_mhz or 0.0) >= clock_floor
         ]
         selected_index = best_efficiency_candidate_index(measured_candidates)
         if selected_index is not None:
@@ -2084,7 +1978,6 @@ def select_final_scan_candidate(
             short_probe_base_duration_s=int(settings.short_probe_base_duration_s),
             tail_rise_bins=int(tail_rise_bins),
             request_reason=str(request_reason or "sweep-complete"),
-            min_core_clock_pct=float(selection_min_core_clock_pct),
         )
         final_verification_duration_s = int(selected_final_verification_duration_s)
         if selected_stable_probe is not None:
@@ -2098,7 +1991,6 @@ def select_final_scan_candidate(
         verification_duration_s=int(final_verification_duration_s),
         auto_oc_metadata=dict(final_auto_oc_metadata or {}),
         tail_rise_bins=int(tail_rise_bins),
-        min_core_clock_pct=custom_min_core_clock_pct,
     )
 
 
@@ -2159,11 +2051,6 @@ def choose_next_candidate_after_final_failure(
             and probe.candidate_voltage_mv
             <= int(metadata["custom_selection_voltage_limit_mv"])
         ]
-    retry_clock_pct = (
-        failed_selection.min_core_clock_pct
-        if failed_selection.min_core_clock_pct is not None
-        else settings.min_performance_core_clock_pct
-    )
     recovery_decision = final_verification_failure_recovery_decision(
         failed_error,
         failed_selection=failed_selection,
@@ -2198,7 +2085,6 @@ def choose_next_candidate_after_final_failure(
         initial_target_voltage_mv=int(baseline_candidate.voltage_mv),
         short_probe_base_duration_s=int(short_probe_base_duration_s),
         recovery_decision=recovery_decision,
-        min_core_clock_pct=float(retry_clock_pct),
     )
     if selection is None:
         log_phase(
@@ -2237,7 +2123,6 @@ def choose_next_candidate_after_final_failure(
                 if str(key).startswith("auto_oc")
             },
         },
-        min_core_clock_pct=failed_selection.min_core_clock_pct,
         tail_rise_bins=int(selected_tail_rise_bins or tail_rise_bins),
     )
 
@@ -2361,7 +2246,6 @@ def run_recovered_previous_crash_selection(
         power_limit_w=gpu.power_limit_w,
         start_voltage_mv=int(baseline_candidate.voltage_mv),
         baseline_clock_mhz=float(baseline_target.measured_clock_mhz),
-        min_performance_core_clock_pct=float(settings.min_performance_core_clock_pct),
         short_probe_base_duration_s=int(settings.short_probe_base_duration_s),
         log=log,
         marker_details=auto_uv_run_marker_details(
@@ -2438,17 +2322,7 @@ def run_recovered_previous_crash_selection(
         discovery_summary=discovery_summary,
         translated_gpu_policy=gpu.translated_gpu_policy,
         gpu_identity=getattr(gpu, "gpu_identity", {}),
-        min_performance_core_clock_pct=float(
-            final_selection.min_core_clock_pct
-            if final_selection.min_core_clock_pct is not None
-            else settings.min_performance_core_clock_pct
-        ),
         runtime_default_plan=gpu.runtime_default_plan,
-        final_clock_drop_margin_pct=float(
-            100.0 - final_selection.min_core_clock_pct
-            if final_selection.min_core_clock_pct is not None
-            else settings.final_clock_drop_margin_pct
-        ),
         tail_rise_bins=int(final_tail_rise_bins),
         auto_uv_mode=str(settings.auto_uv_mode),
         generated_profile_tier=auto_uv_run_profile_tier(
@@ -2459,7 +2333,6 @@ def run_recovered_previous_crash_selection(
         auto_oc_metadata=dict(final_selection.auto_oc_metadata or {}),
         event_callback=event_callback,
     )
-
 
 
 def _format_optional_pct(value: float | None) -> str:

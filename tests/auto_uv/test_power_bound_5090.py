@@ -16,7 +16,7 @@ from auto_uv.curve.base_load_flatten_target import choose_base_load_flatten_targ
 from auto_uv.curve.measured_probe_lock_clock import lock_clock_from_probe_loaded_clock
 from auto_uv.curve.shipped_plan import assert_monotonic_editable_targets
 from auto_uv.curve.vf_curve_flattening import build_flattened_plan
-from auto_uv.domain.types import AutoUvProbeSummary, FailureKind
+from auto_uv.domain.types import AutoUvProbeSummary
 from auto_uv.probes.stability_decision import (
     StabilityThresholds,
     evaluate_loaded_telemetry,
@@ -123,9 +123,8 @@ def test_s2_honest_target_flat_holds_its_clock_under_the_cap(
     decision = evaluate_loaded_telemetry(
         synthesize_busy_samples(settle),
         baseline_power_w=float(baseline["power_w"]),
-        baseline_core_clock_mhz=float(lock_clock_mhz),
         power_limit_w=BALANCED_CAP_W,
-        thresholds=StabilityThresholds(min_core_clock_pct=94.0),
+        thresholds=StabilityThresholds(),
         log_path=None,
     )
 
@@ -198,16 +197,14 @@ def test_s4_changed_cap_moves_operation_below_lock_without_predicting_hardware()
     decision = evaluate_loaded_telemetry(
         synthesize_busy_samples(settle),
         baseline_power_w=500.0,
-        baseline_core_clock_mhz=2595.0,
         power_limit_w=EFFICIENCY_CAP_W,
-        thresholds=StabilityThresholds(min_core_clock_pct=94.0),
+        thresholds=StabilityThresholds(),
         log_path=None,
     )
 
     # The saturation-aware floor recognizes governor descent. The full probe
     # path still enforces same-cap FPS and crash/companion-load decisions.
     assert decision.passed
-    assert "power-walled but stable" in decision.reason
 
 
 def test_s5_selected_5090_ramp_stays_below_lock_without_downward_edge() -> None:
@@ -244,9 +241,9 @@ def test_s6_5080_selected_ramp_is_preserved_above_stock() -> None:
     )
 
 
-def test_s7_negative_control_demotion_still_fails() -> None:
+def test_s7_clock_demotion_alone_does_not_fail_loaded_telemetry() -> None:
     # Same low clock as S4, but power is far off the cap and the driver
-    # reports no power cap: silent reliability demotion must keep failing.
+    # reports no power cap: clock telemetry alone does not prove instability.
     curve = rtx_5090_steep_synthetic_curve()
     model = scenario_5090_power_models()[1]
     baseline = settle_operating_point(curve, model=model, power_limit_w=BALANCED_CAP_W)
@@ -260,14 +257,12 @@ def test_s7_negative_control_demotion_still_fails() -> None:
     decision = evaluate_loaded_telemetry(
         demoted_samples,
         baseline_power_w=float(baseline["power_w"]),
-        baseline_core_clock_mhz=float(baseline["clock_mhz"]),
         power_limit_w=BALANCED_CAP_W,
-        thresholds=StabilityThresholds(min_core_clock_pct=94.0),
+        thresholds=StabilityThresholds(),
         log_path=None,
     )
 
-    assert not decision.passed
-    assert decision.failure_kind is FailureKind.LOW_CLOCK
+    assert decision.passed
 
 
 def test_zotac_capture_matches_crosschecked_anchors() -> None:

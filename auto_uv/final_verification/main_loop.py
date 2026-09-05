@@ -19,7 +19,6 @@ from auto_uv.domain.types import (
 from ..curve.rising_tail import tail_ceiling_clock_mhz
 from ..shared.positive_int import positive_int
 from auto_uv.probes.stability_decision import (
-    StabilityThresholds,
     evaluate_stable_run,
 )
 from auto_uv.domain.events import (
@@ -72,9 +71,7 @@ def run_final_verification_and_save(
     discovery_summary,
     translated_gpu_policy,
     gpu_identity,
-    min_performance_core_clock_pct,
     runtime_default_plan,
-    final_clock_drop_margin_pct,
     tail_rise_bins: int = 0,
     auto_uv_mode: str = "",
     generated_profile_tier: str = "",
@@ -131,7 +128,6 @@ def run_final_verification_and_save(
         event_callback,
         candidate,
         stage="final-verify",
-        max_clock_drop_pct=float(final_clock_drop_margin_pct),
         target_duration_s=int(final_verification_duration_s),
     )
     log_final_probe_start(
@@ -185,8 +181,6 @@ def run_final_verification_and_save(
         phase_label="final-verify",
         log_context="",
         power_limit_w=gpu_policy.get("power_limit_w"),
-        min_performance_core_clock_pct=float(min_performance_core_clock_pct),
-        enforce_target_core_clock_floor=False,
         reset_plan=runtime_default_plan,
         marker_details=marker_details,
         expected_total_duration_s=int(final_verification_duration_s),
@@ -198,7 +192,6 @@ def run_final_verification_and_save(
         stable_history=stable_history,
         power_limit_w=gpu_policy.get("power_limit_w"),
         q2rtx_config=final_config,
-        min_performance_core_clock_pct=float(min_performance_core_clock_pct),
         performance_reference=(
             stable_probe if (auto_oc_metadata or {}).get("custom_target") else None
         ),
@@ -215,7 +208,6 @@ def run_final_verification_and_save(
         candidate,
         outcome,
         stage="final-verify",
-        max_clock_drop_pct=float(final_clock_drop_margin_pct),
     )
     log_benchmark(
         log,
@@ -317,7 +309,6 @@ def final_probe_stability_decision(
     stable_history: list[AutoUvProbeSummary],
     power_limit_w: int | None,
     q2rtx_config,
-    min_performance_core_clock_pct: float,
     performance_reference: AutoUvProbeSummary | None = None,
 ) -> StableRunDecision:
     baseline = stable_history[0] if stable_history else None
@@ -326,9 +317,6 @@ def final_probe_stability_decision(
         result,
         baseline_fps=(reference.avg_fps if reference is not None else None),
         baseline_power_w=reference.avg_power_w if reference is not None else None,
-        baseline_core_clock_mhz=(
-            baseline.avg_core_clock_mhz if baseline is not None else None
-        ),
         power_limit_w=power_limit_w,
         cuda_required=bool(getattr(q2rtx_config, "companion_command", None)),
         companion_result=(
@@ -338,9 +326,6 @@ def final_probe_stability_decision(
         ),
         fatal_output_found=bool(getattr(result, "fatal_output_matches", [])),
         xid_found=bool(getattr(result, "xid_messages", [])),
-        thresholds=StabilityThresholds(
-            min_core_clock_pct=float(min_performance_core_clock_pct)
-        ),
     )
 
 

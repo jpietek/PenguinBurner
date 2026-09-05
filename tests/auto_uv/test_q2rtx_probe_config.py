@@ -149,61 +149,7 @@ def test_scan_runtime_settings_keep_duration_config() -> None:
     # Empty options resolve to the efficiency mode, whose per-tier final
     # verification default is 60 s.
     assert settings.final_verification_duration_s == 60
-    assert round(settings.final_clock_drop_margin_pct, 4) == 11.1111
-    assert round(settings.min_performance_core_clock_pct, 4) == 88.8889
     assert settings.derive_efficiency_stop_streak is True
-
-
-def test_scan_runtime_settings_use_preset_aware_clock_drop_defaults() -> None:
-    source_config = Q2RTXStabilityConfig(duration_s=600, single_pass_timeout_s=999.0)
-
-    balanced = read_scan_runtime_settings(
-        {
-            "auto_uv_mode": "balanced",
-        },
-        source_config,
-        gpu_name="NVIDIA GeForce RTX 5080",
-    )
-    performance = read_scan_runtime_settings(
-        {"auto_uv_mode": "performance"},
-        source_config,
-        gpu_name="NVIDIA GeForce RTX 5080",
-    )
-    cli_balanced = read_scan_runtime_settings(
-        {
-            "auto_uv_requested_mode": "balanced",
-            "auto_uv_mode": "balanced",
-        },
-        source_config,
-        gpu_name="NVIDIA GeForce RTX 5080",
-    )
-    explicit = read_scan_runtime_settings(
-        {
-            "auto_uv_mode": "performance",
-            "auto_uv_max_clock_drop_pct": 9.0,
-        },
-        source_config,
-        gpu_name="NVIDIA GeForce RTX 5080",
-    )
-
-    # Balanced = 0.6*efficiency (11.1111%) + 0.4*performance (6.3492%).
-    assert round(balanced.final_clock_drop_margin_pct, 4) == 9.2063
-    assert round(balanced.min_performance_core_clock_pct, 4) == 90.7937
-    assert balanced.tail_rise_bins == 2
-    assert round(cli_balanced.final_clock_drop_margin_pct, 4) == 9.2063
-    assert round(performance.final_clock_drop_margin_pct, 4) == 6.3492
-    assert round(performance.min_performance_core_clock_pct, 4) == 93.6508
-    # Removed overrides cannot weaken the automatic tier policy.
-    assert explicit.final_clock_drop_margin_pct == performance.final_clock_drop_margin_pct
-
-
-def test_scan_runtime_settings_use_generic_clock_drop_for_unknown_gpu() -> None:
-    source_config = Q2RTXStabilityConfig(duration_s=600, single_pass_timeout_s=999.0)
-
-    settings = read_scan_runtime_settings({}, source_config)
-
-    assert settings.final_clock_drop_margin_pct == 12.5
-    assert settings.min_performance_core_clock_pct == 87.5
 
 
 def test_scan_runtime_settings_ignores_removed_efficiency_stop_override() -> None:
@@ -240,7 +186,6 @@ def test_scan_runtime_tail_rise_defaults_follow_auto_uv_mode() -> None:
 def test_cli_tail_defaults_and_overrides_preserve_tier(mode, override) -> None:
     from cli.arguments import parse_arguments
     from cli.effective_runtime_options import build_effective_auto_uv_runtime_options
-    from auto_uv.run.scan_runtime_settings import clock_drop_profile_id
     from profiles.uv.profile_tiers import generated_profile_tier
 
     argv = ["--auto-uv-voltage-scan", "--auto-uv-mode", mode]
@@ -250,22 +195,8 @@ def test_cli_tail_defaults_and_overrides_preserve_tier(mode, override) -> None:
     settings = read_scan_runtime_settings(options, Q2RTXStabilityConfig(duration_s=60))
 
     assert settings.tail_rise_bins == (2 if override is None else override)
-    assert clock_drop_profile_id(options) == mode
     profile = {**options, "tail_rise_bins": settings.tail_rise_bins}
     assert generated_profile_tier(profile) == mode
-
-
-@pytest.mark.parametrize(
-    ("tail", "expected_tier"),
-    [
-        (0, "efficiency"), (2, "efficiency"), (4, "balanced"),
-        (5, "performance"), (6, "performance"),
-    ],
-)
-def test_legacy_tail_only_requests_keep_clock_loss_policy(tail, expected_tier) -> None:
-    from auto_uv.run.scan_runtime_settings import clock_drop_profile_id
-
-    assert clock_drop_profile_id({"auto_uv_tail_rise_bins": tail}) == expected_tier
 
 
 def _companion_duration_s(command: tuple[str, ...] | None) -> int | None:

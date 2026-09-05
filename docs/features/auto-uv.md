@@ -37,7 +37,7 @@ The GUI offers that one-time setup automatically; from the CLI install it with
   **CUDA** companion load for a real, GPU-bound workload. Q2RTX is downloaded
   automatically if missing.
 - Walks voltage down step by step, verifying each candidate before accepting it.
-- Stops before unsafe points, excessive clock loss, crashes, or NVIDIA Xid errors.
+- Stops before unsafe points, workload failures, FPS regressions, or NVIDIA Xid errors.
 - Saves stable checkpoints as it goes, then runs a longer final verification
   (default `300s`) before publishing the curve.
 - If you stop the scan after stable checkpoints exist, PenguinBurner offers those
@@ -53,10 +53,9 @@ combine lower-voltage points from other candidates into a new curve.
 
 Final verification runs Q2RTX and CUDA on that complete curve, preserving its
 selected voltage, clock, tail, and power limit throughout the soak and save.
-It uses the tier's normal clock-loss rules against its measured baseline.
-For a deliberately lower custom clock, the clock guard accounts for that
-reduction and the final FPS check uses the passed lower-clock measurement.
-It does not replace the curve with separate low-clock transition sweeps.
+All tiers verify workload stability, load, and FPS without a measured-clock-loss
+cutoff. For a deliberately lower custom clock, the final FPS check uses the
+passed lower-clock measurement.
 Existing saved profiles are unchanged.
 
 When a tier includes a board-power limit, Auto-UV applies and reads back
@@ -65,22 +64,18 @@ verification. It stops instead of probing if the limit cannot be established.
 
 Full scans start directly with Efficiency's power limit and reuse that initial
 stock/flattened baseline for its search. Balanced and Performance share a second
-baseline when their power limit, memory offset, and tail settings match; each
-still enforces its own clock-loss allowance. For a 300 W / 360 W / 360 W scan,
+baseline when their power limit, memory offset, and tail settings match.
+For a 300 W / 360 W / 360 W scan,
 this means one baseline pair at 300 W and one shared pair at 360 W.
 
-On a genuinely power-limited card, the lower measured clock is treated as a
-governor operating point only while sustained cap evidence is present; ordinary
-clock regressions still fail. Efficiency and Balanced may then probe a bounded
-clock climb at the already-proven voltage, without raising the voltage or
-loosening the stability checks.
+On a power-limited card, Efficiency and Balanced may probe a bounded clock
+climb at the already-proven voltage. The climb keeps the same workload checks.
 
-Efficiency chooses the highest measured FPS/W among passed candidates inside
-its clock-loss allowance, including candidates from before the climb. Comparisons
-use unrounded measurements; the tables show four FPS/W decimal places. Equal
-FPS/W favors the higher measured clock, then lower power. Its table clock is an upper
-search limit, not a required final clock. Balanced keeps the faster stable choice
-within its own clock-loss allowance; Performance pursues its higher Auto-OC target.
+Efficiency chooses the highest measured FPS/W among passed candidates, including
+candidates from before the climb. Comparisons use unrounded measurements; the
+tables show four FPS/W decimal places. Equal FPS/W favors the higher measured
+clock, then lower power. Its table clock is an upper search limit. Balanced keeps
+the faster stable choice; Performance pursues its higher Auto-OC target.
 All three tiers remain available even when two happen to find the same best point.
 Lower measured watts break ties at equal measured clock and FPS/W. Driver V/F
 offsets must read back as requested before a probe starts.
@@ -90,14 +85,18 @@ search and final verification. The tail is tested with each candidate, never
 added after a successful probe. It provides boost headroom above the selected
 point, so the voltage target is an anchor, not a strict operating-voltage limit.
 Balanced and Performance retain matching tails so Performance can reuse a
-passed Balanced descent when power, memory, baseline, and clock-floor checks
+passed Balanced descent when power, memory, baseline, and measured-clock evidence
 also permit it.
 
 During voltage descent, passing probes keep their requested clock target even
 when the measured clock is lower. A measured shortfall is not repeatedly
 subtracted from the next target after power limiting clears. Higher measured
-clocks can still raise the target, and failed clock or stability checks still
-reject a candidate.
+clocks can still raise the target. No tier rejects a candidate for a fixed
+percentage of measured clock loss during descent, selection, recovery, or final
+verification. Workload failures, lost load, and FPS regressions still reject
+candidates. GPU table voltage/clock targets and power limits continue to guide
+the search, while measured clocks remain visible in results.
+
 
 Power-control support comes from the daemon's verified stock-reset setter result.
 Only an explicit driver rejection as unsupported permits platform-managed mobile
@@ -106,8 +105,7 @@ after probes, including the final soak; a mismatch stops the scan instead of sav
 a profile under an unverified limit.
 
 `hw-power-brake` is the board's own power-delivery protection, not the power
-limit you configured. A probe that trips it still counts as power-limited
-rather than unstable, so it is not failed on clock alone — but the event is
+limit you configured. A probe that trips it still records that power limitation. The event is
 always reported: the run's Cap column names it, the probe log line and JSON
 event carry the sample count, and the saved scan result records it. Repeated
 brakes on a candidate mean that board is hitting its delivery limit at that
@@ -161,14 +159,13 @@ Auto-UV state, including unsafe-voltage history and recovery candidates.
 
 ![Auto-UV setup with the same Advanced controls for every tier](../assets/auto-uv-setup.png)
 
-Presets share a two-bin rising tail and differ in power policy, clock-loss
-allowance, and search targets. They map directly to
+Presets share a two-bin rising tail and differ in power policy and search targets. They map directly to
 [adaptive UV tiers](./adaptive-uv.md):
 
 | Preset | Tail-rise bins | Extra |
 | --- | --- | --- |
 | Efficiency | `2` | lowest tier power; bounded fixed-voltage clock reclaim on power-bound baselines |
-| Balanced | `2` | balances performance and power savings within its clock-loss allowance |
+| Balanced | `2` | balances measured performance and power savings |
 | Performance | `2` | adds an Auto-OC ladder (raises V+clock to targets) |
 
 ## GPU selection and telemetry
@@ -186,11 +183,6 @@ The selected `--gpu-index` is used consistently for NVML/NVAPI control,
 telemetry, Q2RTX, CUDA, profile verification, and runtime profile application.
 On multi-GPU systems, pick the card in the tuning dialog or pass `--gpu-index N`
 so the benchmark and the curve writer target the same physical GPU.
-
-Clock-loss thresholds are automatic for each GPU and tier, with a 12.5% fallback
-for unknown GPUs. The scan still checks loaded clocks during probing and final
-verification, accounting for sustained power-limit evidence. These thresholds
-are not editable.
 
 ## Custom tier targets
 

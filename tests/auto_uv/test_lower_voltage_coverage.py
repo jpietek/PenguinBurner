@@ -20,7 +20,6 @@ from auto_uv.domain.types import (
 )
 from auto_uv.run.lower_voltage_probe_target import (
     lower_voltage_phase,
-    scan_clock_floor_mhz,
 )
 from auto_uv.run.lower_voltage_search import (
     filter_effective_voltage_candidates,
@@ -111,47 +110,13 @@ def test_lower_voltage_phase_returns_fine_below_medium_threshold() -> None:
     )
 
 
-def test_scan_clock_floor_snaps_up_to_respect_drop_limit() -> None:
-    assert scan_clock_floor_mhz(
-        baseline_core_clock_mhz=2730.0,
-        min_core_clock_pct=88.8889,
-    ) == 2430
-
-
-def test_lower_voltage_candidate_target_never_drops_below_scan_clock_floor() -> None:
+def test_lower_voltage_candidate_holds_requested_target_and_tail() -> None:
     curve = rtx_5080_20260524_high_oc_base_curve()
     candidate, _state = build_next_lower_voltage_candidate(
         curve,
         settings=AutoUvScanSettings(
             start_voltage_mv=1000,
             min_search_voltage_mv=860,
-            baseline_core_clock_mhz=2730.0,
-            min_core_clock_pct=88.8889,
-            reference_actual_voltage_mv=None,
-        ),
-        state=VoltageSweepState(
-            stable_voltage_mv=1000,
-            stable_target_mhz=2730,
-            stable_measured_target_mhz=None,
-            next_voltage_mv=860,
-        ),
-        probe_history=[],
-    )
-
-    assert candidate.voltage_mv == 860
-    assert candidate.target_mhz == 2430
-    assert candidate.metadata["scan_clock_floor_mhz"] == 2430
-
-
-def test_performance_lower_voltage_candidate_keeps_six_bin_tail_over_floor() -> None:
-    curve = rtx_5080_20260524_high_oc_base_curve()
-    candidate, _state = build_next_lower_voltage_candidate(
-        curve,
-        settings=AutoUvScanSettings(
-            start_voltage_mv=1000,
-            min_search_voltage_mv=860,
-            baseline_core_clock_mhz=2730.0,
-            min_core_clock_pct=94.6032,
             auto_uv_mode="performance",
             tail_rise_bins=6,
             reference_actual_voltage_mv=None,
@@ -159,7 +124,7 @@ def test_performance_lower_voltage_candidate_keeps_six_bin_tail_over_floor() -> 
         state=VoltageSweepState(
             stable_voltage_mv=1000,
             stable_target_mhz=2730,
-            stable_measured_target_mhz=None,
+            stable_measured_target_mhz=2730,
             next_voltage_mv=860,
         ),
         probe_history=[],
@@ -172,10 +137,9 @@ def test_performance_lower_voltage_candidate_keeps_six_bin_tail_over_floor() -> 
     ]
 
     assert candidate.voltage_mv == 860
-    assert candidate.target_mhz == 2595
+    assert candidate.target_mhz == 2730
     assert candidate.metadata["tail_rise_bins"] == 6
-    assert candidate.metadata["scan_clock_floor_mhz"] == 2595
-    assert tail_targets[:7] == [2595, 2610, 2625, 2640, 2655, 2670, 2685]
+    assert tail_targets[:7] == [2730, 2745, 2760, 2775, 2790, 2805, 2820]
 
 
 # ---------------------------------------------------------------------------
@@ -324,7 +288,6 @@ def test_decide_passed_probe_records_without_stopping() -> None:
     settings = AutoUvScanSettings(
         start_voltage_mv=1000,
         min_search_voltage_mv=900,
-        baseline_core_clock_mhz=2160.0,
         reference_actual_voltage_mv=1000.0,
         efficiency_stop_streak=2,
     )
@@ -410,7 +373,6 @@ def test_sweep_loop_stops_when_cached_unsafe_blocks_first_candidate() -> None:
         settings=AutoUvScanSettings(
             start_voltage_mv=1000,
             min_search_voltage_mv=900,
-            baseline_core_clock_mhz=2160.0,
             auto_uv_mode="performance",
             reference_actual_voltage_mv=1000.0,
         ),
@@ -459,7 +421,6 @@ def test_sweep_loop_efficiency_records_pending_curve_then_finishes() -> None:
         settings=AutoUvScanSettings(
             start_voltage_mv=1000,
             min_search_voltage_mv=950,
-            baseline_core_clock_mhz=2160.0,
             reference_actual_voltage_mv=1000.0,
             # high voltage-drop requirement so stop never arms; only one bin (950)
             min_efficiency_stop_voltage_drop_pct=99.0,
@@ -500,7 +461,6 @@ def test_sweep_loop_balanced_uses_fps_per_w_selection_wall() -> None:
         settings=AutoUvScanSettings(
             start_voltage_mv=1000,
             min_search_voltage_mv=950,
-            baseline_core_clock_mhz=2160.0,
             auto_uv_mode="balanced",
             reference_actual_voltage_mv=1000.0,
             min_efficiency_stop_voltage_drop_pct=99.0,
@@ -546,7 +506,6 @@ def test_sweep_loop_efficiency_stop_uses_current_curve() -> None:
         settings=AutoUvScanSettings(
             start_voltage_mv=1000,
             min_search_voltage_mv=875,
-            baseline_core_clock_mhz=2160.0,
             reference_actual_voltage_mv=1000.0,
             efficiency_stop_streak=0,  # arm + confirm quickly
             min_efficiency_stop_voltage_drop_pct=0.0,

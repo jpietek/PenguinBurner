@@ -234,6 +234,13 @@ def test_select_scan_tuning_mirrors_balanced_and_performance_memory(
         scan_tuning_dialog, "memory_offset_mhz_range", lambda **_kwargs: (0, 4000)
     )
 
+    from ui.features.tuning.gpu_selection import GpuChoice
+
+    monkeypatch.setattr(
+        scan_tuning_dialog, "gpu_choices_with_fallback",
+        lambda **_: ([GpuChoice(index=0, name="RTX 5080")], 0),
+    )
+
     checked: dict[str, bool] = {}
 
     def exec_and_probe(self):

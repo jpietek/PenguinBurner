@@ -28,10 +28,9 @@ from ..persistence.probe_in_progress_marker_file import (
     clear_probe_in_progress_marker,
     write_probe_in_progress_marker,
 )
+from auto_uv.shared.probe_data_fields import percent
 from .runtime_guardrails import (
-    percent,
     probe_failure_should_mark_voltage_unsafe,
-    target_core_clock_floor,
     telemetry_sample_is_busy,
 )
 from .live_abort import (
@@ -66,11 +65,9 @@ def probe_voltage_candidate(
     initial_target_voltage_mv: int | None = None,
     log_context: str | None = None,
     power_limit_w: int | None = None,
-    enforce_target_core_clock_floor: bool = True,
     show_candidate_target: bool = True,
     summarize_saturated_tail: bool = False,
     use_power_limit_floor: bool = False,
-    min_performance_core_clock_pct: float | None = None,
     reset_plan: list[dict] | None = None,
     marker_details: dict | None = None,
     suppress_unsafe_recording: bool = False,
@@ -81,20 +78,8 @@ def probe_voltage_candidate(
         verify_applied_power_limit_w(
             reader, requested_w=power_limit_w, reported_applied_w=power_limit_w
         )
-    if min_performance_core_clock_pct is None:
-        min_performance_core_clock_pct = (
-            AUTO_UV_METRIC_TUNING.min_performance_core_clock_pct
-        )
-    target_floor_mhz, floor_base_mhz = target_core_clock_floor(
-        lock_clock_mhz=int(lock_clock_mhz),
-        initial_probe_clock_mhz=initial_probe_clock_mhz,
-        min_performance_core_clock_pct=float(min_performance_core_clock_pct),
-        enforce_target_core_clock_floor=bool(enforce_target_core_clock_floor),
-    )
-
     latest_stable_probe = stable_history[-1] if stable_history else None
     progress_state = {
-        "low_core_clock_streak": 0,
         "low_power_streak": 0,
     }
 
@@ -103,7 +88,6 @@ def probe_voltage_candidate(
         # hang-confirmation re-probe shares this dict with the hung first run;
         # without a reset it starts with the first run's accumulated streaks
         # and can abort before its own samples justify it.
-        progress_state["low_core_clock_streak"] = 0
         progress_state["low_power_streak"] = 0
 
     busy_power_floor_w, proper_run_power_floor_w = (
@@ -155,13 +139,6 @@ def probe_voltage_candidate(
             parts.append(f"fan={float(latest_sample.fan_speed_pct):.0f}%")
         else:
             parts.append("fan=n/a")
-        if target_floor_mhz is not None:
-            assert floor_base_mhz is not None
-            parts.append(
-                f"target-floor={target_floor_mhz:.1f}MHz"
-                f"({float(min_performance_core_clock_pct):.1f}%"
-                f" of {floor_base_mhz:.1f}MHz baseline)"
-            )
         return " ".join(parts)
 
     def progress_callback(state: dict) -> None:
@@ -190,9 +167,7 @@ def probe_voltage_candidate(
             state,
             busy_power_floor_w=busy_power_floor_w,
             proper_run_power_floor_w=proper_run_power_floor_w,
-            target_core_clock_floor_mhz=target_floor_mhz,
             progress_state=progress_state,
-            power_limit_w=power_limit_w,
         )
         if telemetry_abort is not None:
             return telemetry_abort
@@ -210,7 +185,6 @@ def probe_voltage_candidate(
         stable_history=stable_history,
         initial_target_voltage_mv=initial_target_voltage_mv,
         initial_probe_clock_mhz=initial_probe_clock_mhz,
-        min_performance_core_clock_pct=min_performance_core_clock_pct,
         used_companion_load=bool(q2rtx_config.companion_command),
         expected_total_duration_s=expected_total_duration_s,
         marker_details=marker_details,
@@ -368,7 +342,7 @@ def run_probe_with_hang_confirmation(
 
     ``reset_live_abort_state`` clears live-abort state shared between the two
     runs through probe_config's abort callback; a hung first run leaves partial
-    low-power/low-clock streaks behind, and inheriting them would let the
+    low-power streaks behind, and inheriting them would let the
     confirmation run abort early with a blacklisting reason.
     """
     result = run_q2rtx_stability_test(probe_config)
@@ -631,7 +605,6 @@ def probe_crash_marker_details(
     stable_history: list[AutoUvProbeSummary],
     initial_target_voltage_mv: int | None,
     initial_probe_clock_mhz: float | None,
-    min_performance_core_clock_pct: float | None,
     used_companion_load: bool,
     expected_total_duration_s: int | None,
     marker_details: dict | None,
@@ -666,10 +639,6 @@ def probe_crash_marker_details(
         details["target_clock_pct_of_baseline"] = round(
             float(lock_clock_mhz) / baseline_clock_mhz * 100.0,
             4,
-        )
-    if min_performance_core_clock_pct is not None:
-        details["min_performance_core_clock_pct"] = float(
-            min_performance_core_clock_pct
         )
     if expected_total_duration_s is not None:
         details["expected_total_duration_s"] = int(expected_total_duration_s)

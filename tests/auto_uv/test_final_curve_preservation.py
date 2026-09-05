@@ -97,7 +97,7 @@ def test_efficiency_selects_run_21_and_preserves_every_tested_point() -> None:
     selected = select_final_scan_candidate(
         base_curve=stock,
         settings=SimpleNamespace(
-            auto_uv_mode="efficiency", min_performance_core_clock_pct=88.9
+            auto_uv_mode="efficiency",
         ),
         runtime_options={},
         stable_plan=run24_plan,
@@ -180,7 +180,7 @@ def test_performance_preserves_chosen_rung_instead_of_merging_earlier_rungs(
     result = select_final_scan_candidate(
         base_curve=stock,
         settings=SimpleNamespace(
-            auto_uv_mode="performance", min_performance_core_clock_pct=93.7,
+            auto_uv_mode="performance",
             short_probe_base_duration_s=20,
         ),
         runtime_options={"auto_uv_require_final_choice": require_choice},
@@ -323,9 +323,7 @@ def test_final_soak_preserves_selected_curve_and_power_limit(
             discovery_summary=_summary(1025, 2745),
             translated_gpu_policy={"power_limit_w": cap},
             gpu_identity={},
-            min_performance_core_clock_pct=90 * clock / 2800 if custom else 90,
             runtime_default_plan=[],
-            final_clock_drop_margin_pct=10,
             tail_rise_bins=tail,
             auto_oc_metadata={"custom_target": True} if custom else {},
             auto_uv_mode=tier,

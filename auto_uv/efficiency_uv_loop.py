@@ -1,8 +1,8 @@
 """Search Efficiency candidates using the same tested tail throughout.
 
 Both the initial sweep and the optional deeper search use the same tail setting
-(two rising bins by default). The deeper search can skip controlled low-clock failures,
-while only passing candidates become selectable or persisted checkpoints.
+(two rising bins by default). Only passing candidates become selectable or
+persisted checkpoints.
 """
 
 from __future__ import annotations
@@ -60,14 +60,11 @@ def run_efficiency_uv_loop(
         settings=AutoUvScanSettings(
             start_voltage_mv=int(settings.start_voltage_mv),
             min_search_voltage_mv=int(min_search_voltage_mv),
-            baseline_core_clock_mhz=settings.baseline_core_clock_mhz,
             auto_uv_mode="efficiency-floor-search",
-            min_core_clock_pct=float(settings.min_core_clock_pct),
             reference_actual_voltage_mv=_reference_voltage_mv(first_pass),
             efficiency_stop_streak=0,
             min_efficiency_stop_voltage_drop_pct=0.0,
             tail_rise_bins=int(tail_bins),
-            descend_through_low_clock=True,
         ),
         initial_stable_candidate=first_pass.stable_candidate,
         io=io,

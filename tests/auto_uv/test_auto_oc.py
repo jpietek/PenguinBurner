@@ -76,9 +76,9 @@ def _failed_outcome(probe: AutoUvProbeSummary) -> VoltageProbeOutcome:
     return VoltageProbeOutcome(
         decision=StableRunDecision(
             False,
-            FailureKind.LOW_CLOCK,
+            FailureKind.FPS_REGRESSION,
             FailureSeverity.RECOVERABLE,
-            "average busy core clock below floor",
+            "benchmark average FPS below floor",
         ),
         measured_core_clock_mhz=probe.avg_core_clock_mhz,
         measured_voltage_mv=probe.avg_voltage_mv,
@@ -323,7 +323,6 @@ def test_auto_oc_search_keeps_exploring_after_measured_clock_regression() -> Non
     class FakeRunner:
         def probe_candidate(self, candidate, **kwargs):
             assert kwargs["phase_label"] == "candidate"
-            assert kwargs["enforce_target_core_clock_floor"] is False
             tried.append((candidate.voltage_mv, candidate.target_mhz))
             if len(tried) == 1:
                 return _failed_outcome(
@@ -400,9 +399,9 @@ def test_auto_oc_search_retries_failed_clock_at_higher_voltage_before_climbing()
             return VoltageProbeOutcome(
                 decision=StableRunDecision(
                     False,
-                    FailureKind.LOW_CLOCK,
+                    FailureKind.FPS_REGRESSION,
                     FailureSeverity.RECOVERABLE,
-                    "core clock below floor",
+                    "benchmark average FPS below floor",
                 ),
                 measured_core_clock_mhz=probe.avg_core_clock_mhz,
                 measured_voltage_mv=probe.avg_voltage_mv,
@@ -462,9 +461,9 @@ def test_auto_oc_search_skips_more_mhz_until_failed_clock_is_stable(monkeypatch)
                 return VoltageProbeOutcome(
                     decision=StableRunDecision(
                         False,
-                        FailureKind.LOW_CLOCK,
+                        FailureKind.FPS_REGRESSION,
                         FailureSeverity.RECOVERABLE,
-                        "core clock below floor",
+                        "benchmark average FPS below floor",
                     ),
                     measured_core_clock_mhz=probe.avg_core_clock_mhz,
                     measured_voltage_mv=probe.avg_voltage_mv,

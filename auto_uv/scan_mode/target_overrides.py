@@ -83,15 +83,3 @@ def custom_tier_target(
             clock_mhz=overrides.clock_mhz or default.clock_mhz,
         )
     return overrides
-
-
-def custom_target_min_core_clock_pct(
-    *,
-    target_clock_mhz: int,
-    baseline_clock_mhz: float,
-    default_pct: float,
-) -> float:
-    """Retain the automatic loss allowance relative to a deliberately lower clock."""
-    if baseline_clock_mhz <= 0:
-        return default_pct
-    return min(default_pct, default_pct * target_clock_mhz / baseline_clock_mhz)

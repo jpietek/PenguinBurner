@@ -200,12 +200,12 @@ def select_scan_tuning(
     preset_tooltips = {
         "efficiency": (
             "Deepest undervolt: selects the highest measured FPS per watt "
-            "within the automatic GPU/tier clock-loss allowance, with "
+            "among stable candidates, with "
             "2 rising tail bins."
         ),
         "balanced": (
             "Try to maintain baseline clock while lowering the voltage; "
-            "the tail of the curve goes 4 V/F bins up."
+            "the tail of the curve goes 2 V/F bins up."
         ),
         "performance": auto_uv_performance_preset_tooltip(),
     }

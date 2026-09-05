@@ -4,7 +4,6 @@ import pytest
 
 from auto_uv.scan_mode.uv_limits import (
     uv_limit_clock_target_range_for_gpu,
-    uv_limit_clock_drop_pct_for_gpu,
     uv_limit_power_limit_pct_for_gpu,
     uv_limit_profile_target_for_gpu,
     uv_limit_voltage_floor_target_for_gpu,
@@ -59,28 +58,6 @@ def test_5080_voltage_table_exposes_efficiency_floor_and_performance_ceiling() -
 def test_unlisted_gpu_has_no_voltage_table_match() -> None:
     assert uv_limit_voltage_floor_target_for_gpu("NVIDIA GeForce GTX 1080") is None
     assert uv_limit_profile_target_for_gpu("NVIDIA GeForce GTX 1080", "performance") is None
-    assert uv_limit_clock_drop_pct_for_gpu("NVIDIA GeForce GTX 1080") is None
-
-
-def test_clock_drop_uses_preset_aware_gpu_table_ratio() -> None:
-    efficiency = uv_limit_clock_drop_pct_for_gpu("NVIDIA GeForce RTX 5080")
-    performance = uv_limit_clock_drop_pct_for_gpu(
-        "NVIDIA GeForce RTX 5080",
-        profile_id="performance",
-    )
-    assert efficiency is not None and performance is not None
-    assert efficiency == pytest.approx(11.111111111111116)
-    assert performance == pytest.approx(6.349206349206349)
-    # Balanced is a savings-biased blend (0.6 efficiency / 0.4 performance) of
-    # the two presets, so it stays centered-but-deeper on every GPU instead of
-    # collapsing toward a neighbour when the clock geometry is tight.
-    assert uv_limit_clock_drop_pct_for_gpu(
-        "NVIDIA GeForce RTX 5080",
-        profile_id="balanced",
-    ) == pytest.approx(efficiency * 0.6 + performance * 0.4)
-    assert uv_limit_clock_drop_pct_for_gpu(
-        "NVIDIA GeForce RTX 5090"
-    ) == pytest.approx(12.903225806451612)
 
 
 def test_rtx_5060_shares_the_5060_ti_vf_targets() -> None:

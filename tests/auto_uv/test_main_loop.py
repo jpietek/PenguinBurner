@@ -226,7 +226,7 @@ def test_auto_uv_final_choice_runs_before_final_verification(monkeypatch) -> Non
                 raw_probe=summary,
             )
 
-        def probe_sweep_candidate(self, candidate, *, stable_history, phase_label):
+        def probe_sweep_candidate(self, candidate, *, stable_history, phase_label, **_kwargs):
             _ = stable_history, phase_label
             captured["direct_probe_calls"].append(
                 (
@@ -264,7 +264,6 @@ def test_auto_uv_final_choice_runs_before_final_verification(monkeypatch) -> Non
                 int(settings.tail_rise_bins),
                 int(initial_stable_candidate.voltage_mv),
                 int(initial_stable_candidate.target_mhz),
-                bool(settings.descend_through_low_clock),
             )
         )
         assert (
@@ -332,9 +331,7 @@ def test_auto_uv_final_choice_runs_before_final_verification(monkeypatch) -> Non
             short_probe_base_duration_s=10,
             configured_min_voltage_mv=None,
             configured_max_drop_pct=15.0,
-            min_performance_core_clock_pct=90.0,
             final_verification_duration_s=600,
-            final_clock_drop_margin_pct=10.0,
             tail_rise_bins=0,
         ),
     )
@@ -377,11 +374,10 @@ def test_auto_uv_final_choice_runs_before_final_verification(monkeypatch) -> Non
     assert captured["choice_called"] is True
     assert captured["final_duration_s"] == 180
     assert captured["direct_probe_calls"] == []
-    # The deeper pass retains the flat tail and skips low-clock failures while
-    # searching toward the minimum. Failed points never become candidates.
+    # Both passes retain the flat tail while searching toward the minimum.
     assert captured["sweep_calls"] == [
-        ("efficiency", 0, 1000, 2200, False),
-        ("efficiency-floor-search", 0, 950, 2120, True),
+        ("efficiency", 0, 1000, 2200),
+        ("efficiency-floor-search", 0, 950, 2120),
     ]
     # Final verification keeps the chosen candidate flat.
     assert captured["final_tail_rise_bins"] == 0
@@ -540,9 +536,7 @@ def test_final_verification_failure_offers_safer_sorted_candidates(
             short_probe_base_duration_s=10,
             configured_min_voltage_mv=None,
             configured_max_drop_pct=15.0,
-            min_performance_core_clock_pct=90.0,
             final_verification_duration_s=300,
-            final_clock_drop_margin_pct=10.0,
             tail_rise_bins=6,
         ),
     )
@@ -759,9 +753,7 @@ def test_performance_auto_oc_runs_before_final_choice(monkeypatch) -> None:
             short_probe_base_duration_s=10,
             configured_min_voltage_mv=None,
             configured_max_drop_pct=15.0,
-            min_performance_core_clock_pct=90.0,
             final_verification_duration_s=600,
-            final_clock_drop_margin_pct=10.0,
             tail_rise_bins=6,
         ),
     )
@@ -1017,9 +1009,7 @@ def test_previous_crash_resume_starts_auto_oc_from_next_saved_voltage(
             short_probe_base_duration_s=10,
             configured_min_voltage_mv=None,
             configured_max_drop_pct=15.0,
-            min_performance_core_clock_pct=90.0,
             final_verification_duration_s=600,
-            final_clock_drop_margin_pct=10.0,
             tail_rise_bins=6,
         ),
     )
@@ -1203,9 +1193,7 @@ def test_auto_uv_user_stop_offers_stable_history_for_final_choice(monkeypatch) -
             short_probe_base_duration_s=10,
             configured_min_voltage_mv=None,
             configured_max_drop_pct=15.0,
-            min_performance_core_clock_pct=90.0,
             final_verification_duration_s=600,
-            final_clock_drop_margin_pct=10.0,
             tail_rise_bins=6,
         ),
     )
@@ -2159,9 +2147,7 @@ def _orchestration_settings(q2rtx_config, *, mode="efficiency"):
         short_probe_base_duration_s=10,
         configured_min_voltage_mv=None,
         configured_max_drop_pct=15.0,
-        min_performance_core_clock_pct=90.0,
         final_verification_duration_s=600,
-        final_clock_drop_margin_pct=10.0,
         tail_rise_bins=0,
     )
 
@@ -2364,10 +2350,10 @@ def test_orchestration_keyboard_interrupt_reraises_without_final_choice(
         )
 
 
-def test_orchestration_sweep_hooks_probe_and_record_candidates(monkeypatch) -> None:
+@pytest.mark.parametrize("mode", ["efficiency", "balanced", "performance"])
+def test_orchestration_sweep_hooks_probe_and_record_candidates(monkeypatch, mode) -> None:
     # Exercises the probe_candidate / record_passed_candidate closures, the
-    # clock-ceiling retarget for a sweep candidate, and the
-    # enforce_target_core_clock_floor=False path triggered by explicit flags.
+    # clock-ceiling retarget for a sweep candidate.
     curve = base_curve(900, 1025, 25, 2000, 40)
     captured: dict[str, object] = {"sweep_kwargs": [], "probe_history_lens": []}
 
@@ -2439,7 +2425,7 @@ def test_orchestration_sweep_hooks_probe_and_record_candidates(monkeypatch) -> N
         undervolt_main_loop,
         "read_scan_runtime_settings",
         lambda runtime_options, q2rtx_config, gpu_name=None: _orchestration_settings(
-            q2rtx_config
+            q2rtx_config, mode=mode
         ),
     )
     monkeypatch.setattr(undervolt_main_loop, "consume_crash_cache", lambda **_kwargs: [])
@@ -2491,14 +2477,6 @@ def test_orchestration_sweep_hooks_probe_and_record_candidates(monkeypatch) -> N
     )
 
     assert result == "done"
-    # The sweep candidate probe keeps the clock floor enforced (runner default):
-    # Pass 1 stops at the floor before the separate lower-voltage search.
-    assert captured["sweep_kwargs"]
-    assert (
-        "enforce_target_core_clock_floor" not in captured["sweep_kwargs"][0]
-    )
-    # The candidate's clock ceiling was retargeted for the sweep candidate.
-    assert captured.get("retargets")
 
 
 def test_adaptive_tier_power_limit_scales_from_the_balanced_anchor() -> None:
@@ -2623,8 +2601,7 @@ def test_adaptive_tier_progress_events_are_chronological(monkeypatch) -> None:
             2500 + index * 20,
             [],
         )
-        # A measured endpoint clock above any floor from the 2400MHz baseline
-        # lets the performance tier reuse the balanced descent.
+        # A measured endpoint lets Performance reuse the Balanced descent.
         probe = SimpleNamespace(avg_core_clock_mhz=2500.0 + index * 20)
         return candidate, index * 2, probe, []
 
@@ -2673,7 +2650,7 @@ def test_adaptive_tier_progress_events_are_chronological(monkeypatch) -> None:
                 get_memory_clock_offset_range_mhz=lambda: (0, 4000)
             ),
         ),
-        configure_tier_probe_runner=lambda _min_core_clock_pct: object(),
+        configure_tier_probe_runner=lambda: object(),
         settings=SimpleNamespace(),
         runtime_options={},
         base_loop_settings=SimpleNamespace(),
@@ -2771,8 +2748,6 @@ def test_performance_can_reuse_balanced_descent_gate() -> None:
 
     logs: list[str] = []
     gate_kwargs: dict[str, Any] = dict(
-        performance_min_core_clock_pct=94.6,
-        measured_baseline_clock_mhz=2742.5,
         performance_baseline_voltage_mv=1000,
         performance_baseline_target_mhz=2400,
         performance_power_limit_w=360,
@@ -2782,7 +2757,7 @@ def test_performance_can_reuse_balanced_descent_gate() -> None:
     assert not performance_can_reuse_balanced_descent(
         None, performance_memory_offset_mhz=0, **gate_kwargs
     )
-    # Matching tail/memory offset and an endpoint above performance's floor:
+    # Matching tail/memory offset and a measured stable endpoint:
     # the ladders are the same experiment.
     assert performance_can_reuse_balanced_descent(
         donation(descent_tail=performance_tail, memory_offset_mhz=6000),
@@ -2833,10 +2808,8 @@ def test_performance_can_reuse_balanced_descent_gate() -> None:
         performance_memory_offset_mhz=0,
         **gate_kwargs,
     )
-    # Balanced descends under a looser clock-drop allowance, so an endpoint
-    # below performance's own floor must not be adopted (it would only fail
-    # performance's final verification later).
-    assert not performance_can_reuse_balanced_descent(
+    # A stable endpoint is reusable even when its measured clock is lower.
+    assert performance_can_reuse_balanced_descent(
         donation(
             descent_tail=performance_tail,
             memory_offset_mhz=0,
@@ -2857,7 +2830,6 @@ def test_performance_can_reuse_balanced_descent_gate() -> None:
     assert any("power limit" in line for line in logs)
     assert any("capped baseline" in line for line in logs)
     assert any("tail" in line for line in logs)
-    assert any("clock floor" in line for line in logs)
 
 
 def _adaptive_scan_kwargs(*, events, descent_calls, runtime_options=None):
@@ -2875,9 +2847,7 @@ def _adaptive_scan_kwargs(*, events, descent_calls, runtime_options=None):
             2500 + index * 20,
             [],
         )
-        # The donated endpoint carries its measured clock (well above any
-        # floor derived from the 2400MHz baseline) so the reuse gate's
-        # clock-floor check passes unless a test diverges the inputs.
+        # Supply measured endpoint evidence for descent reuse.
         probe = SimpleNamespace(avg_core_clock_mhz=2500.0 + index * 20)
         return candidate, 4, probe, [object()]
 
@@ -2902,7 +2872,7 @@ def _adaptive_scan_kwargs(*, events, descent_calls, runtime_options=None):
                 }
             ),
         ),
-        configure_tier_probe_runner=lambda _min_core_clock_pct: object(),
+        configure_tier_probe_runner=lambda: object(),
         settings=SimpleNamespace(),
         runtime_options=dict(runtime_options or {}),
         base_loop_settings=SimpleNamespace(),
@@ -3106,7 +3076,6 @@ def test_adaptive_tier_cap_is_live_before_its_baseline_and_descent(
     kwargs["base_loop_settings"] = main_loop.AutoUvScanSettings(
         start_voltage_mv=1000,
         min_search_voltage_mv=800,
-        baseline_core_clock_mhz=2500.0,
     )
     baseline_caps: list[tuple[str, int]] = []
 
@@ -3199,7 +3168,6 @@ def test_rtx_5090_tier_cap_is_constant_across_every_phase(monkeypatch) -> None:
     kwargs["base_loop_settings"] = main_loop.AutoUvScanSettings(
         start_voltage_mv=1000,
         min_search_voltage_mv=800,
-        baseline_core_clock_mhz=2500.0,
     )
     phases: list[tuple[str, str, int]] = []
     reclaim_flags: list[tuple[str, bool]] = []
@@ -3339,7 +3307,6 @@ def test_adaptive_baseline_failure_skips_only_that_tier(monkeypatch) -> None:
     kwargs["base_loop_settings"] = main_loop.AutoUvScanSettings(
         start_voltage_mv=1000,
         min_search_voltage_mv=800,
-        baseline_core_clock_mhz=2500.0,
     )
     monkeypatch.setattr(main_loop, "run_adaptive_tier_descent", fake_descent)
     monkeypatch.setattr(main_loop, "select_final_scan_candidate", fake_selection)
@@ -3426,7 +3393,6 @@ def test_adaptive_power_limit_failure_aborts_before_tier_baseline(monkeypatch) -
     kwargs["base_loop_settings"] = main_loop.AutoUvScanSettings(
         start_voltage_mv=1000,
         min_search_voltage_mv=800,
-        baseline_core_clock_mhz=2500.0,
     )
     monkeypatch.setattr(main_loop, "run_adaptive_tier_descent", fake_descent)
     monkeypatch.setattr(
@@ -3486,28 +3452,6 @@ def test_per_tier_final_verification_durations() -> None:
     )
     # A non-adaptive/unknown mode keeps the plain default.
     assert final_verification_duration_s({}, auto_uv_mode="adaptive") == 300
-
-
-@pytest.mark.parametrize("gpu_name", ["Unknown GPU", "NVIDIA GeForce RTX 5080"])
-def test_adaptive_tier_clock_drop_margin_is_automatic(gpu_name) -> None:
-    from auto_uv.run.scan_runtime_settings import adaptive_tier_clock_drop_margin_pct
-    from auto_uv.domain.user_options import AUTO_UV_DEFAULTS
-    from auto_uv.scan_mode.uv_limits import uv_limit_clock_drop_pct_for_gpu
-
-    for tier in ("efficiency", "balanced", "performance"):
-        expected = uv_limit_clock_drop_pct_for_gpu(gpu_name, profile_id=tier)
-        if expected is None:
-            expected = AUTO_UV_DEFAULTS.max_core_clock_drop_pct
-        # Even stale caller payloads cannot override the internal guardrail.
-        assert adaptive_tier_clock_drop_margin_pct(
-            {"auto_uv_max_clock_drop_pct": 100.0,
-             f"auto_uv_{tier}_max_clock_drop_pct": 100.0},
-            tier_mode=tier,
-            gpu_name=gpu_name,
-        ) == expected
-        assert adaptive_tier_clock_drop_margin_pct(
-            {}, tier_mode=tier, gpu_name=gpu_name,
-        ) == expected
 
 
 def test_apply_adaptive_tier_power_limit_explicit_watts_wins() -> None:
@@ -3778,9 +3722,6 @@ def test_full_scan_reuses_only_matching_measured_baselines(
         gpu_index=0,
         runtime_options={
             "auto_uv_mode": "adaptive",
-            "auto_uv_efficiency_max_clock_drop_pct": 11.1,
-            "auto_uv_balanced_max_clock_drop_pct": 9.2,
-            "auto_uv_performance_max_clock_drop_pct": 6.3,
             **overrides,
         },
         q2rtx_config=Q2RTXStabilityConfig(duration_s=10),
@@ -3792,15 +3733,7 @@ def test_full_scan_reuses_only_matching_measured_baselines(
     # measures again when its actual policy differs from Balanced's.
     assert stock_policies == [entry[:2] for entry in expected_policies]
     assert flat_policies == expected_policies
-    for tier, floor_pct in [
-        ("efficiency", 88.88888888888889),
-        ("balanced", 90.7936507936508),
-        ("performance", 93.65079365079364),
-    ]:
-        assert runners[tier].min_performance_core_clock_pct == pytest.approx(floor_pct)
-        assert finals[tier]["min_performance_core_clock_pct"] == pytest.approx(
-            floor_pct
-        )
+    for tier in ("efficiency", "balanced", "performance"):
         assert runners[tier].baseline_clock_mhz == finals[tier]["measured_clock_mhz"]
     assert runners["efficiency"].baseline_clock_mhz == 2400
     assert runners["balanced"].baseline_clock_mhz == 2600
@@ -3920,23 +3853,20 @@ def test_apply_adaptive_tier_memory_offset_records_readback_and_survives_errors(
     assert gpu.translated_gpu_policy["mem_clk_vf_offset_mhz"] == 500
 
 
-def test_adaptive_tiers_flow_per_tier_limits_into_probe_and_selection(
+def test_adaptive_tiers_keep_power_requests(
     monkeypatch,
 ) -> None:
     import auto_uv.main_loop as main_loop
 
-    configured_floors = []
-    selection_floors = []
-    finish_margins = []
+    descent_tiers = []
     tier_power_requests = []
     events = []
 
-    def fake_descent(_base_curve, *, tier_mode, min_core_clock_pct, **_kwargs):
-        configured_floors.append((tier_mode, min_core_clock_pct))
+    def fake_descent(_base_curve, *, tier_mode, **_kwargs):
+        descent_tiers.append(tier_mode)
         return VfCurveCandidate(tier_mode, 900, 2500, []), 2, object(), []
 
     def fake_selection(**kwargs):
-        selection_floors.append(kwargs["min_core_clock_pct_override"])
         return SimpleNamespace(
             plan=list(kwargs["stable_plan"]),
             voltage_mv=int(kwargs["stable_voltage_mv"]),
@@ -3948,12 +3878,6 @@ def test_adaptive_tiers_flow_per_tier_limits_into_probe_and_selection(
         )
 
     def fake_finish(**kwargs):
-        finish_margins.append(
-            (
-                kwargs["final_min_core_clock_pct"],
-                kwargs["final_clock_drop_margin_pct"],
-            )
-        )
         tier_power_requests.append(gpu.requested_power_limit_w)
         return SimpleNamespace(
             final_voltage_mv=int(kwargs["selection"].voltage_mv),
@@ -3981,20 +3905,15 @@ def test_adaptive_tiers_flow_per_tier_limits_into_probe_and_selection(
     main_loop.run_adaptive_tier_scans(
         base_curve=[],
         gpu=gpu,
-        configure_tier_probe_runner=lambda pct: SimpleNamespace(
-            min_performance_core_clock_pct=pct
-        ),
+        configure_tier_probe_runner=lambda: SimpleNamespace(),
         settings=SimpleNamespace(),
         runtime_options={
-            "auto_uv_efficiency_max_clock_drop_pct": 15.0,
-            "auto_uv_balanced_max_clock_drop_pct": 6.0,
-            "auto_uv_performance_max_clock_drop_pct": 5.4,
             "auto_uv_efficiency_power_limit_w": 250,
             "auto_uv_balanced_power_limit_w": 300,
             "auto_uv_performance_power_limit_w": 360,
             # A diverging performance memory offset keeps performance on its
-            # own descent (no balanced-descent reuse) so every tier's floor
-            # is asserted through the full descent plumbing here; the reuse
+            # own descent (no balanced-descent reuse) so every tier's power
+            # request is asserted through the descent plumbing; the reuse
             # path has its own tests.
             "auto_uv_performance_memory_offset_mhz": 1000,
         },
@@ -4012,18 +3931,7 @@ def test_adaptive_tiers_flow_per_tier_limits_into_probe_and_selection(
         log=lambda _message: None,
     )
 
-    # Each tier's descent, probe runner, selection, and final verification all
-    # see the tier's OWN clock-drop allowance.
-    from auto_uv.scan_mode.uv_limits import uv_limit_clock_drop_pct_for_gpu
-
-    tiers = ("efficiency", "balanced", "performance")
-    margins = [uv_limit_clock_drop_pct_for_gpu("NVIDIA GeForce RTX 5080", tier)
-               for tier in tiers]
-    floors = [100.0 - margin for margin in margins]
-    assert configured_floors == list(zip(tiers, floors))
-    assert selection_floors == floors
-    assert [margin for _floor, margin in finish_margins] == margins
-    assert [floor for floor, _margin in finish_margins] == floors
+    assert descent_tiers == ["efficiency", "balanced", "performance"]
     # Each tier's explicit power request is applied before its verification.
     assert tier_power_requests == [250, 300, 360]
 
@@ -4054,7 +3962,6 @@ def test_power_capped_fps_failure_keeps_saved_candidate_ladder(monkeypatch) -> N
         base_curve=[],
         settings=SimpleNamespace(
             auto_uv_mode="balanced",
-            min_performance_core_clock_pct=94.0,
         ),
         stable_plan=[],
         stable_voltage_mv=1000,

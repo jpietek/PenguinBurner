@@ -16,6 +16,7 @@ import pytest
 import ui.features.profiles.profile_actions as actions_mod
 import ui.window as window_mod
 from ui.qt import import_qt
+from ui.features.tuning.gpu_selection import GpuChoice
 from ui.window import MainWindow
 
 
@@ -38,6 +39,10 @@ class _FakeController:
 
 @pytest.fixture
 def win(qapp, monkeypatch):
+    monkeypatch.setattr(
+        window_mod, "gpu_choices_with_fallback",
+        lambda **_: ([GpuChoice(index=0, name="RTX 5080", uuid="GPU-test")], 0),
+    )
     monkeypatch.setattr(window_mod, "load_profile_summaries", lambda: [])
     monkeypatch.setattr(
         window_mod, "systemd_autostart_profile_info", lambda: {"selector": "", "silent_fan_curve": False}

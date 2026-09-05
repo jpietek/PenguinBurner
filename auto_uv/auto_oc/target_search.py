@@ -48,7 +48,6 @@ def run_custom_tier_target_search(
     overrides: TierTargetOverrides,
     tail_rise_bins: int,
     measured_baseline_clock_mhz: float,
-    min_core_clock_pct: float,
 ) -> AutoOcSearchResult:
     endpoint = auto_oc_endpoint(
         gpu_name,
@@ -72,7 +71,6 @@ def run_custom_tier_target_search(
     selected, selected_probe = start_candidate, start_probe
     passed = [(selected, selected_probe)]
     unsafe = load_unsafe_voltage_blacklist()
-    floor = measured_baseline_clock_mhz * min_core_clock_pct / 100.0
 
     def probe(voltage: int, clock: int) -> bool:
         nonlocal selected, selected_probe
@@ -98,10 +96,9 @@ def run_custom_tier_target_search(
         outcome = runner.probe_candidate(
             candidate,
             # An intentional clock reduction establishes its own FPS reference.
-            # Workload failures and the explicit clock floor below still apply.
+            # Workload failures and complete measurements are still required.
             stable_history=[],
             phase_label="candidate",
-            enforce_target_core_clock_floor=False,
             summarize_saturated_tail=False,
             use_power_limit_floor=False,
             use_companion_load=True,
@@ -118,11 +115,11 @@ def run_custom_tier_target_search(
         if not outcome.decision.passed or summary is None:
             return False
         measured = summary.avg_core_clock_mhz
-        if measured is None or measured < floor:
+        if measured is None:
             log_phase(
                 log,
                 "custom-target",
-                f"{tier} measured clock below {floor:.0f}MHz floor",
+                f"{tier} measured clock missing",
             )
             return False
         stable_history.append(summary)
@@ -130,8 +127,7 @@ def run_custom_tier_target_search(
         selected, selected_probe = candidate, summary
         return True
 
-    # Lower clock at the proven voltage first. The normal descent's baseline
-    # allowance must not mistake this explicit reduction for a clock regression.
+    # Apply a lower custom clock at the voltage already proven by the sweep.
     if clock_limit < selected.target_mhz:
         initial_clock = selected.target_mhz
         steps = min(10, max(1, (initial_clock - clock_limit + 14) // 15))
@@ -189,7 +185,6 @@ def run_custom_tier_target_search(
         and candidate.voltage_mv <= voltage_selection_limit
         and summary is not None
         and summary.avg_core_clock_mhz is not None
-        and summary.avg_core_clock_mhz >= floor
     ]
     if not eligible:
         raise AutoUvError(

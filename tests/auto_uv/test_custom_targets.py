@@ -22,7 +22,6 @@ from auto_uv.run.voltage_sweep_state import VoltageProbeOutcome
 from auto_uv.probes.stability_decision import evaluate_stable_run, StabilityThresholds
 from auto_uv.scan_mode.target_overrides import (
     TierTargetOverrides,
-    custom_target_min_core_clock_pct,
     custom_tier_target,
     tier_target_overrides,
 )
@@ -94,7 +93,7 @@ def harness(monkeypatch, *, start_clock=2800, fail_clock=None, loss=0, stop_at=N
             if passed
             else FailureKind.USER_STOP
             if stopped
-            else FailureKind.LOW_CLOCK
+            else FailureKind.FPS_REGRESSION
         )
         history = kwargs["stable_history"]
         decision = (
@@ -104,11 +103,10 @@ def harness(monkeypatch, *, start_clock=2800, fail_clock=None, loss=0, stop_at=N
                 ),
                 baseline_fps=history[0].avg_fps if history else None,
                 baseline_power_w=history[0].avg_power_w if history else None,
-                baseline_core_clock_mhz=None,
                 power_limit_w=360,
                 cuda_required=True,
                 companion_result={"success": True},
-                thresholds=StabilityThresholds(min_core_clock_pct=0),
+                thresholds=StabilityThresholds(),
             )
             if passed
             else StableRunDecision(False, kind, FailureSeverity.RECOVERABLE, "test")
@@ -130,11 +128,6 @@ def harness(monkeypatch, *, start_clock=2800, fail_clock=None, loss=0, stop_at=N
         overrides=TierTargetOverrides(900, 2400),
         tail_rise_bins=2,
         measured_baseline_clock_mhz=float(start_clock),
-        min_core_clock_pct=custom_target_min_core_clock_pct(
-            target_clock_mhz=2400,
-            baseline_clock_mhz=float(start_clock),
-            default_pct=90.0,
-        ),
     )
     return kwargs, tried
 
@@ -163,10 +156,11 @@ def test_failed_lower_clock_never_enters_final_custom_selection(monkeypatch):
     assert all(p.lock_clock_mhz != 2400 for p in kwargs["stable_history"])
 
 
-def test_custom_clock_reduction_still_rejects_unexpected_clock_loss(monkeypatch):
+def test_custom_target_keeps_stable_measured_clock_shortfall(monkeypatch):
     kwargs, _ = harness(monkeypatch, loss=700)
-    with pytest.raises(AutoUvError, match="No stable efficiency candidate"):
-        target_search.run_custom_tier_target_search(**kwargs)
+    result = target_search.run_custom_tier_target_search(**kwargs)
+    assert result.selected_candidate.target_mhz == 2400
+    assert result.selected_probe.avg_core_clock_mhz == 1700
 
 
 def test_custom_target_search_stops_immediately_on_user_stop(monkeypatch):
@@ -204,7 +198,7 @@ def test_efficiency_keeps_peak_efficiency_within_custom_upper_targets(monkeypatc
     assert result.selected_candidate.target_mhz == 2400
 
 
-def test_final_selection_carries_custom_floor_and_filters_choice_history(monkeypatch):
+def test_final_selection_preserves_custom_targets_and_measured_curve(monkeypatch):
     import auto_uv.main_loop as main
 
     kwargs, _ = harness(monkeypatch)
@@ -225,7 +219,6 @@ def test_final_selection_carries_custom_floor_and_filters_choice_history(monkeyp
         base_curve=kwargs["base_curve"],
         settings=SimpleNamespace(
             auto_uv_mode="efficiency",
-            min_performance_core_clock_pct=90.0,
             short_probe_base_duration_s=10,
         ),
         runtime_options={
@@ -253,23 +246,11 @@ def test_final_selection_carries_custom_floor_and_filters_choice_history(monkeyp
         run_performance_auto_oc=False,
         request_reason="test",
     )
-    assert result.min_core_clock_pct == pytest.approx(90 * 2400 / 2800)
     assert all(
         p.lock_clock_mhz <= 2400 and p.candidate_voltage_mv <= 925
         for p in captured["stable_history"]
     )
     assert result.plan == result.probe.tested_plan
-    # The final guard accepts the intentional reduction, but remains armed.
-    for clock, expected in [(2400, True), (2000, False)]:
-        decision = final_probe_stability_decision(
-            stable_probe_result(clock_mhz=clock, fps=result.probe.avg_fps),
-            stable_history=[kwargs["start_probe"]],
-            power_limit_w=360,
-            q2rtx_config=Q2RTXStabilityConfig(),
-            min_performance_core_clock_pct=result.min_core_clock_pct,
-            performance_reference=result.probe,
-        )
-        assert decision.passed is expected
 
 
 @pytest.mark.parametrize(
@@ -321,7 +302,6 @@ def test_final_custom_fps_guard_rejects_regression_from_lowered_clock(monkeypatc
             stable_history=[kwargs["start_probe"]],
             power_limit_w=360,
             q2rtx_config=Q2RTXStabilityConfig(),
-            min_performance_core_clock_pct=kwargs["min_core_clock_pct"],
             performance_reference=result.selected_probe,
         )
         assert decision.passed is expected
@@ -353,13 +333,12 @@ def test_final_recovery_stays_within_custom_voltage_and_clock_limits(monkeypatch
             "custom_target_clock_mhz": 3098,
             "custom_selection_voltage_limit_mv": 925,
         },
-        min_core_clock_pct=90.0,
     )
     assert (
         main.choose_next_candidate_after_final_failure(
             base_curve=kwargs["base_curve"],
             settings=SimpleNamespace(
-                auto_uv_mode="performance", min_performance_core_clock_pct=95
+                auto_uv_mode="performance",
             ),
             stable_plan=failed.plan,
             stable_voltage_mv=failed.voltage_mv,

@@ -12,7 +12,6 @@ from types import SimpleNamespace
 import pytest
 
 from auto_uv.domain.user_options import (
-    AUTO_UV_CURVE_TUNING,
     AUTO_UV_DEFAULTS,
     AUTO_UV_STALL_TUNING,
 )
@@ -21,11 +20,9 @@ from auto_uv.probes.config import (
     cuda_companion_enabled_for_voltage_band,
     tiered_q2rtx_probe_duration_s,
 )
+from auto_uv.shared.probe_data_fields import percent
 from auto_uv.probes.runtime_guardrails import (
-    core_clock_below_floor,
-    percent,
     probe_failure_should_mark_voltage_unsafe,
-    target_core_clock_floor,
     telemetry_sample_is_busy,
 )
 from auto_uv.probes.summary import (
@@ -104,37 +101,6 @@ def test_percent_clamps_negative_to_zero() -> None:
     assert percent(50) == 0.5
 
 
-def test_target_core_clock_floor_disabled_returns_none_pair() -> None:
-    assert target_core_clock_floor(
-        lock_clock_mhz=2000,
-        initial_probe_clock_mhz=2100.0,
-        min_performance_core_clock_pct=90.0,
-        enforce_target_core_clock_floor=False,
-    ) == (None, None)
-
-
-def test_target_core_clock_floor_uses_lock_clock_when_no_probe_clock() -> None:
-    floor, base = target_core_clock_floor(
-        lock_clock_mhz=2000,
-        initial_probe_clock_mhz=None,
-        min_performance_core_clock_pct=90.0,
-        enforce_target_core_clock_floor=True,
-    )
-    assert base == 2000.0
-    assert floor == pytest.approx(1800.0)
-
-
-def test_target_core_clock_floor_prefers_higher_initial_probe_clock() -> None:
-    floor, base = target_core_clock_floor(
-        lock_clock_mhz=2000,
-        initial_probe_clock_mhz=2200.0,
-        min_performance_core_clock_pct=90.0,
-        enforce_target_core_clock_floor=True,
-    )
-    assert base == 2200.0
-    assert floor == pytest.approx(1980.0)
-
-
 def test_telemetry_sample_is_busy_returns_false_for_none_sample() -> None:
     assert telemetry_sample_is_busy(None, busy_power_floor_w=100.0) is False
 
@@ -153,14 +119,6 @@ def test_telemetry_sample_is_busy_true_on_power_floor() -> None:
 def test_telemetry_sample_is_busy_false_when_below_thresholds() -> None:
     sample = SimpleNamespace(gpu_util_pct=1.0, power_w=10.0)
     assert telemetry_sample_is_busy(sample, busy_power_floor_w=150.0) is False
-
-
-def test_core_clock_below_floor_respects_tolerance() -> None:
-    tol = AUTO_UV_CURVE_TUNING.clock_select_tolerance_mhz
-    # Just within tolerance is not "below floor".
-    assert core_clock_below_floor(2000.0 - tol, 2000.0) is False
-    # Beyond tolerance is below floor.
-    assert core_clock_below_floor(2000.0 - tol - 1.0, 2000.0) is True
 
 
 def test_probe_failure_controlled_reason_does_not_mark_unsafe() -> None:

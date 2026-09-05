@@ -61,9 +61,7 @@ def _settings(*, auto_uv_mode: str = "efficiency", min_search_voltage_mv: int) -
     return AutoUvScanSettings(
         start_voltage_mv=1000,
         min_search_voltage_mv=min_search_voltage_mv,
-        baseline_core_clock_mhz=None,
         auto_uv_mode=auto_uv_mode,
-        min_core_clock_pct=85.0,
         reference_actual_voltage_mv=None,
         efficiency_stop_streak=0,
         min_efficiency_stop_voltage_drop_pct=100.0,
@@ -80,13 +78,13 @@ def _tail_targets_above_lock(candidate: VfCurveCandidate) -> list[int]:
     ]
 
 
-def _recoverable_low_clock_outcome() -> VoltageProbeOutcome:
+def _fps_regression_outcome() -> VoltageProbeOutcome:
     return VoltageProbeOutcome(
         decision=StableRunDecision(
             passed=False,
-            failure_kind=FailureKind.LOW_CLOCK,
+            failure_kind=FailureKind.FPS_REGRESSION,
             severity=FailureSeverity.RECOVERABLE,
-            reason="average busy core clock below floor",
+            reason="benchmark average FPS below floor",
         ),
         measured_core_clock_mhz=None,
         measured_voltage_mv=None,
@@ -95,7 +93,7 @@ def _recoverable_low_clock_outcome() -> VoltageProbeOutcome:
     )
 
 
-def test_deeper_flat_search_skips_low_clock_failures_without_accepting_them() -> None:
+def test_deeper_search_stops_on_fps_regression_without_accepting_it() -> None:
     curve = base_curve()
     probed: list[VfCurveCandidate] = []
     written: list[VfCurveCandidate] = []
@@ -104,7 +102,7 @@ def test_deeper_flat_search_skips_low_clock_failures_without_accepting_them() ->
         probed.append(candidate)
         if candidate.voltage_mv >= 950:
             return _passing_outcome()
-        return _recoverable_low_clock_outcome()
+        return _fps_regression_outcome()
 
     result = run_efficiency_uv_loop(
         curve, settings=_settings(min_search_voltage_mv=950),
@@ -116,7 +114,7 @@ def test_deeper_flat_search_skips_low_clock_failures_without_accepting_them() ->
         ),
         min_search_voltage_mv=825, initial_tail_rise_bins=0, log=lambda _: None,
     )
-    assert min(c.voltage_mv for c in probed) == 825
+    assert len([c for c in probed if c.voltage_mv < 950]) == 1
     assert result.stable_candidate.voltage_mv == 950
     assert all(c.voltage_mv >= 950 for c in written)
     assert all(c.metadata["tail_rise_bins"] == 0 for c in probed)

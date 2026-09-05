@@ -5,7 +5,6 @@ Algorithm:
 - build and probe one lower-voltage VF curve at a time
 - accept passing candidates and descend again
 - Efficiency may keep an older FPS/W-best candidate instead of the latest pass
-- low-clock-only failures stop the first pass or are skipped in deeper search
 - hard failures are marked unsafe and stop the sweep
 
 GPU side effects stay behind IO callbacks; this file shows scan order and
@@ -18,9 +17,6 @@ from dataclasses import dataclass, replace
 from typing import Any, Callable, cast
 
 from auto_uv.domain.types import (
-    FailureKind,
-    FailureSeverity,
-    StableRunDecision,
     VfCurveCandidate,
 )
 from auto_uv.domain.scan_settings import AutoUvScanSettings
@@ -38,7 +34,6 @@ from auto_uv.curve.flattened_voltage_probe_curve import build_flattened_voltage_
 from auto_uv.run.lower_voltage_probe_target import (
     base_curve_target_for_lower_voltage,
     lower_voltage_phase,
-    scan_clock_floor_mhz,
 )
 from auto_uv.run.lower_voltage_search import select_next_lower_voltage
 from auto_uv.persistence.unsafe_voltage_cache import (
@@ -89,12 +84,6 @@ class PassedProbeStep:
     selected_result: SweepSelection
     state: VoltageSweepState
     should_stop: bool
-
-
-@dataclass(frozen=True, slots=True)
-class LowClockStep:
-    state: VoltageSweepState
-    should_continue: bool
 
 
 def run_base_uv_loop(
@@ -184,24 +173,8 @@ def run_base_uv_loop(
                 break
             continue
 
-        # 4. Low-clock-only probes are stable but below the clock floor. The
-        #    base pass stops; Efficiency's deeper search can keep descending.
-        if is_recoverable_low_clock(outcome.decision):
-            step = handle_low_clock_probe(
-                base_curve,
-                settings=settings,
-                state=state,
-                candidate=candidate,
-                outcome=outcome,
-                events=events,
-                min_search_voltage_mv=min_search_voltage_mv,
-            )
-            state = step.state
-            if step.should_continue:
-                continue
-            break
-
-        # 5. Real stability failures are cached unsafe and stop this sweep.
+        # 4. Failed probes stop this sweep. The persistence layer decides
+        #    which failures identify an unsafe voltage.
         io.mark_unsafe_candidate(candidate, outcome)
         events.append(LowerVoltageSweepEvent("stop", outcome.decision.reason))
         break
@@ -296,44 +269,6 @@ def accept_passing_probe(
     )
 
 
-def handle_low_clock_probe(
-    base_curve: list[dict],
-    *,
-    settings: AutoUvScanSettings,
-    state: VoltageSweepState,
-    candidate: VfCurveCandidate,
-    outcome: VoltageProbeOutcome,
-    events: list[LowerVoltageSweepEvent],
-    min_search_voltage_mv: int | None,
-) -> LowClockStep:
-    # The GPU stayed stable; only the core clock dipped below the floor.
-    # This is not an unstable voltage, so it must NOT be cached unsafe: doing so
-    # would also block the Efficiency lower-voltage pass from retrying it.
-    if settings.descend_through_low_clock:
-        events.append(
-            LowerVoltageSweepEvent(
-                "low-clock-skip",
-                f"{candidate.voltage_mv}mV below clock floor; descending further",
-            )
-        )
-        return LowClockStep(
-            state=advance_through_low_clock(
-                base_curve,
-                settings=settings,
-                state=state,
-                candidate=candidate,
-                outcome=outcome,
-                min_search_voltage_mv=min_search_voltage_mv,
-            ),
-            should_continue=True,
-        )
-
-    # First pass: the natural clock floor is reached. Stop here and let the
-    # Efficiency preset continue its lower-voltage search if applicable.
-    events.append(LowerVoltageSweepEvent("stop", outcome.decision.reason))
-    return LowClockStep(state=state, should_continue=False)
-
-
 def build_next_lower_voltage_candidate(
     base_curve: list[dict],
     *,
@@ -349,12 +284,6 @@ def build_next_lower_voltage_candidate(
         candidate_voltage_mv=int(state.next_voltage_mv),
         stable_target_mhz=int(state.stable_target_mhz),
         stable_measured_target_mhz=state.stable_measured_target_mhz,
-        baseline_core_clock_mhz=settings.baseline_core_clock_mhz,
-        min_core_clock_pct=settings.min_core_clock_pct,
-    )
-    floor_mhz = scan_clock_floor_mhz(
-        baseline_core_clock_mhz=settings.baseline_core_clock_mhz,
-        min_core_clock_pct=settings.min_core_clock_pct,
     )
     phase = lower_voltage_phase(
         start_voltage_mv=int(settings.start_voltage_mv),
@@ -372,17 +301,6 @@ def build_next_lower_voltage_candidate(
         metadata={
             "tail_rise_bins": int(tail_rise_bins),
             "target_policy": "hold-required-clock",
-            **(
-                {
-                    "scan_clock_floor_mhz": int(floor_mhz),
-                    "scan_clock_floor_pct": float(settings.min_core_clock_pct),
-                    "scan_clock_floor_reference_mhz": float(
-                        settings.baseline_core_clock_mhz or 0.0
-                    ),
-                }
-                if floor_mhz is not None
-                else {}
-            ),
         },
     )
     return candidate, state
@@ -548,45 +466,6 @@ def float_or_none(value: object) -> float | None:
         return None if raw_value is None else float(raw_value)
     except (TypeError, ValueError):
         return None
-
-
-def is_recoverable_low_clock(decision: StableRunDecision) -> bool:
-    return (
-        not decision.passed
-        and decision.failure_kind is FailureKind.LOW_CLOCK
-        and decision.severity is FailureSeverity.RECOVERABLE
-    )
-
-
-def advance_through_low_clock(
-    base_curve: list[dict],
-    *,
-    settings: AutoUvScanSettings,
-    state: VoltageSweepState,
-    candidate: VfCurveCandidate,
-    outcome: VoltageProbeOutcome,
-    min_search_voltage_mv: int | None,
-) -> VoltageSweepState:
-    """Skip a low-clock voltage and keep descending toward the minimum.
-
-    The stable point is left untouched (its measured clock stays the held
-    target), so only the next voltage to probe moves down one step.
-    """
-
-    reference_voltage_mv = (
-        float(outcome.measured_voltage_mv)
-        if outcome.measured_voltage_mv is not None
-        else settings.reference_actual_voltage_mv
-    )
-    next_voltage_mv = select_next_lower_voltage(
-        base_curve,
-        start_voltage_mv=int(settings.start_voltage_mv),
-        stable_voltage_mv=int(candidate.voltage_mv),
-        reference_actual_voltage_mv=reference_voltage_mv,
-        min_search_voltage_mv=min_search_voltage_mv,
-        failed_floor_voltage_mv=state.failed_floor_voltage_mv,
-    )
-    return replace(state, next_voltage_mv=next_voltage_mv)
 
 
 def accept_voltage_probe(

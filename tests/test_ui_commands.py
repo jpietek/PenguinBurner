@@ -1076,7 +1076,7 @@ def _run_backend_final_choice(tmp_path, monkeypatch, *, request_reason: str):
         log=lambda _message: None,
         event_callback=None,
         auto_uv_mode="efficiency",
-        base_probe=None,
+        base_probe=_final_choice_probe(1000, 3150, fps=150.0, fpsw=0.5),
         stable_plan=curve,
         stable_voltage_mv=850,
         stable_lock_clock_mhz=2430,
@@ -1588,17 +1588,6 @@ def test_auto_uv_target_default_uses_gpu_table_target() -> None:
     assert target.clock_mhz == 2645
 
 
-def test_auto_uv_clock_loss_policy_uses_gpu_and_tier_defaults() -> None:
-    from auto_uv.run.scan_runtime_settings import clock_drop_margin_pct
-
-    gpu = "NVIDIA GeForce RTX 5080"
-    efficiency = clock_drop_margin_pct({}, gpu_name=gpu, profile_id="efficiency")
-    balanced = clock_drop_margin_pct({}, gpu_name=gpu, profile_id="balanced")
-    performance = clock_drop_margin_pct({}, gpu_name=gpu, profile_id="performance")
-    assert efficiency == pytest.approx(11.111111111111116)
-    assert balanced == pytest.approx(efficiency * 0.6 + performance * 0.4)
-    assert performance == pytest.approx(6.349206349206349)
-    assert clock_drop_margin_pct({}, gpu_name="NVIDIA GeForce GTX 1080") == 12.5
 
 
 def test_progress_text_stays_light_until_bar_is_full() -> None:
@@ -2268,7 +2257,6 @@ def test_auto_uv_preset_control_has_breathing_room_and_autofill_note() -> None:
     assert "Max voltage drop" not in source
     assert "Base verification length" not in source
     assert '"auto_uv_short_seconds"' not in source
-    assert "automatic GPU/tier clock-loss allowance" in source
     assert "sync_voltage_floor_from_drop" not in source
     assert "sync_voltage_drop_from_floor" not in source
     assert "Try to maintain baseline clock" in source
@@ -2888,6 +2876,10 @@ def test_scan_tuning_dialog_returns_power_limit_from_slider(monkeypatch) -> None
             supported_memory_clocks_mhz=(),
             supported_graphics_clock_steps_mhz=(),
         ),
+    )
+
+    monkeypatch.setattr(
+        scan_tuning, "auto_uv_voltage_floor_range_mv", lambda **_: (800, 1100)
     )
 
     def accept_with_power_limit(dialog):

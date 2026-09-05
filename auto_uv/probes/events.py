@@ -17,13 +17,11 @@ def emit_voltage_probe_started(
     candidate: VfCurveCandidate,
     *,
     stage: str,
-    max_clock_drop_pct: float | int | None = None,
     target_duration_s: float | int | None = None,
 ) -> None:
     identity = voltage_probe_identity(
         candidate,
         stage=stage,
-        max_clock_drop_pct=max_clock_drop_pct,
         target_duration_s=target_duration_s,
     )
     emit_auto_uv_event(
@@ -41,7 +39,6 @@ def emit_voltage_probe_finished(
     outcome: VoltageProbeOutcome,
     *,
     stage: str,
-    max_clock_drop_pct: float | int | None = None,
 ) -> None:
     emit_auto_uv_event(
         event_callback,
@@ -50,7 +47,6 @@ def emit_voltage_probe_finished(
             candidate,
             outcome,
             stage=stage,
-            max_clock_drop_pct=max_clock_drop_pct,
         ),
     )
 
@@ -59,7 +55,6 @@ def voltage_probe_identity(
     candidate: VfCurveCandidate,
     *,
     stage: str,
-    max_clock_drop_pct: float | int | None = None,
     target_duration_s: float | int | None = None,
 ) -> dict:
     payload = {
@@ -69,7 +64,6 @@ def voltage_probe_identity(
         "label": str(candidate.label),
     }
     payload.update(_ui_candidate_metadata(candidate))
-    _ = max_clock_drop_pct
     rounded_target = _rounded(target_duration_s)
     if rounded_target is not None:
         payload["elapsed_s"] = 0.0
@@ -82,7 +76,6 @@ def voltage_probe_result_payload(
     outcome: VoltageProbeOutcome,
     *,
     stage: str,
-    max_clock_drop_pct: float | int | None = None,
 ) -> dict:
     decision = outcome.decision
     if outcome.raw_probe is not None:
@@ -98,7 +91,6 @@ def voltage_probe_result_payload(
         **voltage_probe_identity(
             candidate,
             stage=stage,
-            max_clock_drop_pct=max_clock_drop_pct,
         ),
         "measured_clock_mhz": _rounded(outcome.measured_core_clock_mhz),
         "avg_voltage_mv": _rounded(outcome.measured_voltage_mv),

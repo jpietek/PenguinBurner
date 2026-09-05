@@ -15,12 +15,11 @@ class AutoUvDefaults:
     balanced_final_duration_s: int = 180
     performance_final_duration_s: int = 300
     max_drop_pct: float = 10.0
-    max_core_clock_drop_pct: float = 12.5
     efficiency_stop_streak: int = 2
     tail_rise_bins: int = 2
     # Keep modest boost headroom (+30 MHz nominal) above each selected point.
     # Matching tails preserve Balanced-to-Performance descent reuse when
-    # the remaining policy inputs and measured clock floor also match.
+    # the remaining policy inputs also match.
     balanced_tail_rise_bins: int = 2
     performance_tail_rise_bins: int = 2
     max_tail_rise_bins: int = 8
@@ -36,7 +35,6 @@ class AutoUvCurveTuning:
     lower_voltage_nominal_drop_mv: int = 5
     lower_voltage_effective_gap_mv: float = 5.0
     clock_step_mhz: int = 15
-    clock_select_tolerance_mhz: float = 5.0
     flatten_ramp_window_mv: int = 40
 
 
@@ -50,22 +48,16 @@ class AutoUvMetricTuning:
     saturated_tail_power_pct: float = 90.0
     saturated_tail_core_clock_pct: float = 98.0
     saturated_tail_min_samples: int = 2
-    min_performance_core_clock_pct: float = 85.0
     min_proper_run_power_pct: float = 50.0
     efficiency_stop_high_fps_variance_pct: float = 2.0
     efficiency_stop_low_variance_streak: int = 2
     efficiency_stop_high_variance_streak: int = 4
-    target_core_clock_low_streak_samples: int = 3
     power_saturation_headroom_pct: float = 2.0
     loaded_sample_power_floor_pct: float = 75.0
     loaded_sample_gpu_util_pct: float = 60.0
     active_core_clock_percentile: float = 0.75
     loaded_voltage_floor_percentile: float = 0.10
     loaded_voltage_ceiling_percentile: float = 0.90
-
-    @property
-    def max_core_clock_drop_pct(self) -> float:
-        return max(0.0, 100.0 - float(self.min_performance_core_clock_pct))
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,10 +71,10 @@ class AutoUvProbeTuning:
 
 @dataclass(frozen=True, slots=True)
 class AutoUvStallTuning:
+    load_lost_min_samples: int = 8
+    load_lost_streak_samples: int = 3
     timeout_min_s: float = 15.0
     timeout_multiplier: float = 2.5
-    live_core_clock_abort_min_samples: int = 8
-    avg_core_clock_abort_min_samples: int = 12
     selected_gpu_idle_min_s: float = 12.0
     selected_gpu_idle_min_samples: int = 8
     selected_gpu_idle_max_util_pct: float = 5.0

@@ -20,12 +20,10 @@ from auto_uv.persistence.auto_uv_persisted_json_files import (
     safe_json_write,
 )
 from auto_uv.domain.types import (
-    AutoUvError,
     AutoUvFinalChoiceDiscarded,
     AutoUvProbeSummary,
 )
 from auto_uv.domain.events import AutoUvEventCallback, emit_auto_uv_event
-from auto_uv.run.lower_voltage_probe_target import scan_clock_floor_mhz
 from auto_uv.curve.vf_curve_flattening import build_flattened_plan
 
 
@@ -46,7 +44,6 @@ def choose_final_verification_candidate(
     short_probe_base_duration_s: int,
     tail_rise_bins: int = 0,
     request_reason: str = "sweep-complete",
-    min_core_clock_pct: float | None = None,
 ) -> tuple[list[dict], int, int, AutoUvProbeSummary | None, int]:
     normalized_mode = normalize_auto_uv_mode(auto_uv_mode)
     candidates_by_id = candidate_records_from_history(
@@ -70,18 +67,7 @@ def choose_final_verification_candidate(
         existing_record=candidates_by_id.get(current_stable_id),
     )
 
-    candidate_records, skipped_low_clock = filter_candidates_by_scan_clock_floor(
-        list(candidates_by_id.values()),
-        base_probe=base_probe,
-        min_core_clock_pct=min_core_clock_pct,
-    )
-    if skipped_low_clock:
-        log(
-            "Auto-UV phase=final-choice "
-            f"filtered-low-clock-candidates count={skipped_low_clock}"
-        )
-    if not candidate_records:
-        raise AutoUvError("Auto-UV found no candidates inside the clock-drop limit.")
+    candidate_records = list(candidates_by_id.values())
 
     candidates, sort_label = sorted_final_choice_candidates(
         candidate_records,
@@ -142,7 +128,6 @@ def choose_recovery_final_verification_candidate(
     initial_target_voltage_mv: int,
     short_probe_base_duration_s: int,
     recovery_decision: dict | None = None,
-    min_core_clock_pct: float | None = None,
 ) -> tuple[list[dict], int, int, AutoUvProbeSummary | None, int, int, dict] | None:
     normalized_mode = normalize_auto_uv_mode(auto_uv_mode)
     candidates_by_id = {}
@@ -167,16 +152,7 @@ def choose_recovery_final_verification_candidate(
             continue
         candidates_by_id[candidate_id] = dict(record)
 
-    candidates, skipped_low_clock = filter_candidates_by_scan_clock_floor(
-        list(candidates_by_id.values()),
-        base_probe=base_probe,
-        min_core_clock_pct=min_core_clock_pct,
-    )
-    if skipped_low_clock:
-        log(
-            "Auto-UV phase=final-choice "
-            f"filtered-low-clock-recovery-candidates count={skipped_low_clock}"
-        )
+    candidates = list(candidates_by_id.values())
     sort_label = "last-failed-run"
     if not candidates:
         return None
@@ -238,7 +214,6 @@ def choose_next_final_verification_candidate_after_failure(
     initial_target_voltage_mv: int,
     short_probe_base_duration_s: int,
     recovery_decision: dict | None = None,
-    min_core_clock_pct: float | None = None,
 ) -> tuple[list[dict], int, int, AutoUvProbeSummary | None, int, int, dict] | None:
     normalized_mode = normalize_auto_uv_mode(auto_uv_mode)
     candidates_by_id = {}
@@ -260,17 +235,7 @@ def choose_next_final_verification_candidate_after_failure(
             continue
         candidates_by_id[candidate_id] = dict(record)
 
-    candidate_records, skipped_low_clock = filter_candidates_by_scan_clock_floor(
-        list(candidates_by_id.values()),
-        base_probe=base_probe,
-        min_core_clock_pct=min_core_clock_pct,
-    )
-    if skipped_low_clock:
-        log(
-            "Auto-UV phase=final-choice "
-            f"filtered-low-clock-retry-candidates count={skipped_low_clock}"
-        )
-
+    candidate_records = list(candidates_by_id.values())
     candidates, sort_label = sorted_final_choice_candidates(
         candidate_records,
         auto_uv_mode=normalized_mode,
@@ -566,60 +531,6 @@ def sorted_final_choice_candidates(
     return (
         sort_candidates_for_final_choice(candidates, normalized_mode),
         final_choice_sort_label(normalized_mode),
-    )
-
-
-def filter_candidates_by_scan_clock_floor(
-    candidates: list[dict],
-    *,
-    base_probe: AutoUvProbeSummary | None,
-    min_core_clock_pct: float | None,
-) -> tuple[list[dict], int]:
-    if min_core_clock_pct is None:
-        return list(candidates), 0
-
-    kept: list[dict] = []
-    skipped = 0
-    for candidate in candidates:
-        floor_mhz = candidate_scan_clock_floor_mhz(
-            candidate,
-            base_probe=base_probe,
-            min_core_clock_pct=float(min_core_clock_pct),
-        )
-        lock_clock_mhz = float_or_none(candidate.get("lock_clock_mhz"))
-        if (
-            floor_mhz is not None
-            and lock_clock_mhz is not None
-            and float(lock_clock_mhz) < float(floor_mhz)
-        ):
-            skipped += 1
-            continue
-        kept.append(candidate)
-    return kept, skipped
-
-
-def candidate_scan_clock_floor_mhz(
-    candidate: dict,
-    *,
-    base_probe: AutoUvProbeSummary | None,
-    min_core_clock_pct: float,
-) -> int | None:
-    baseline_mhz = _candidate_or_probe_base_metric(
-        candidate,
-        "base_avg_core_clock_mhz",
-        base_probe,
-        "avg_core_clock_mhz",
-    )
-    if baseline_mhz is None:
-        baseline_mhz = _candidate_or_probe_base_metric(
-            candidate,
-            "base_lock_clock_mhz",
-            base_probe,
-            "lock_clock_mhz",
-        )
-    return scan_clock_floor_mhz(
-        baseline_core_clock_mhz=baseline_mhz,
-        min_core_clock_pct=float(min_core_clock_pct),
     )
 
 

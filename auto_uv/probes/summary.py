@@ -185,11 +185,8 @@ def count_hw_power_brake_samples(samples: Sequence) -> int:
 
     ``hw-power-brake`` is not the configured power limit doing its job — it is
     an external protection signal (EDPp/OCP) from the board's power delivery.
-    A candidate that trips it is still allowed to pass the power-walled clock
-    exemption, because the clock loss really is caused by power rather than by
-    V/F instability, but the event must never be invisible: it is reported per
-    probe so a brake-heavy scan is legible in the log, events, and saved
-    result instead of reading as an ordinary capped run.
+    Report it per probe so a brake-heavy scan is visible in the log, events,
+    and saved result.
     """
     brake = 0
     for sample in samples:

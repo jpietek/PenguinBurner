@@ -27,7 +27,6 @@ from auto_uv.main_loop import (
     select_final_scan_candidate,
 )
 from auto_uv.scan_mode.uv_limits import (
-    uv_limit_clock_drop_pct_for_gpu,
     uv_limit_power_limit_pct_for_gpu,
     uv_limit_profile_target_for_gpu,
 )
@@ -84,14 +83,11 @@ def test_fe_tier_search_preserves_measured_curve_under_power_limits(
         power_limit_w=cap, fallback_clock_mhz=stock["clock_mhz"],
     )
     efficiency_target = uv_limit_profile_target_for_gpu(gpu, "efficiency")
-    drop_pct = uv_limit_clock_drop_pct_for_gpu(gpu, tier)
-    assert efficiency_target is not None and drop_pct is not None
+    assert efficiency_target is not None
     floor = efficiency_target.voltage_mv
     bins = adaptive_tier_descent_tail_rise_bins(tier)
-    minimum_pct = 100 - drop_pct
     harness = GovernorProbeHarness(
         curve, model, cap, target.measured_clock_mhz, stock["power_w"], 100,
-        min_core_clock_pct=minimum_pct,
     )
     history = []
     tested = []
@@ -120,8 +116,8 @@ def test_fe_tier_search_preserves_measured_curve_under_power_limits(
         curve,
         settings=AutoUvScanSettings(
             start_voltage_mv=start.voltage_mv, min_search_voltage_mv=floor,
-            baseline_core_clock_mhz=target.measured_clock_mhz, auto_uv_mode=tier,
-            min_core_clock_pct=minimum_pct, tail_rise_bins=bins,
+            auto_uv_mode=tier,
+            tail_rise_bins=bins,
         ),
         initial_stable_candidate=start,
         io=BaseUvLoopIO(probe, lambda *_: None, lambda *_: None),
@@ -133,7 +129,7 @@ def test_fe_tier_search_preserves_measured_curve_under_power_limits(
     selected = select_final_scan_candidate(
         base_curve=curve,
         settings=SimpleNamespace(
-            auto_uv_mode=tier, min_performance_core_clock_pct=minimum_pct,
+            auto_uv_mode=tier,
         ),
         runtime_options={}, stable_plan=result.stable_candidate.flattened_plan,
         stable_voltage_mv=result.stable_candidate.voltage_mv,
@@ -162,9 +158,8 @@ def test_fe_tier_search_preserves_measured_curve_under_power_limits(
     tail = [p["target_mhz"] for p in selected.plan if p["voltage_mv"] > selected.voltage_mv]
     assert len(set(tail)) == bins
     if tier == "efficiency":
-        eligible = [p for p in history if p.avg_core_clock_mhz >= target.measured_clock_mhz * minimum_pct / 100]
         assert selected.probe.avg_fps / selected.probe.avg_power_w == max(
-            p.avg_fps / p.avg_power_w for p in eligible
+            p.avg_fps / p.avg_power_w for p in history
         )
     final = probe(VfCurveCandidate(
         "final", selected.voltage_mv, selected.lock_clock_mhz, selected.plan,

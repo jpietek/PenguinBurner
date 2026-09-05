@@ -96,7 +96,6 @@ class AutoUvVoltageScanResult:
 
 class FailureKind(str, Enum):
     NONE = "none"
-    LOW_CLOCK = "low-clock"
     FPS_REGRESSION = "fps-regression"
     LOAD_LOST = "load-lost"
     TIMED_OUT = "timed-out"

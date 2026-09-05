@@ -11,9 +11,6 @@ from ..curve.base_load_telemetry import derive_active_power_floor_w
 from ..shared.probe_data_fields import percent as _percent
 from ..shared.probe_data_fields import read_field
 from .summary import (
-    POWER_CAP_BUSY_SAMPLE_FRACTION,
-    POWER_CAP_MIN_REASON_COVERAGE,
-    POWER_CAP_MIN_REASON_SAMPLES,
     count_hw_power_brake_samples,
 )
 
@@ -22,16 +19,7 @@ from .summary import (
 class StabilityThresholds:
     min_average_fps_pct: float = 90.0
     min_power_pct: float = 50.0
-    min_core_clock_pct: float = 85.0
-    clock_tolerance_mhz: float = 5.0
     busy_gpu_util_pct: float = 60.0
-    power_saturation_headroom_pct: float = 2.0
-    power_cap_busy_sample_fraction: float = POWER_CAP_BUSY_SAMPLE_FRACTION
-    # The perf-cap-reason vote only counts when enough of the busy window
-    # actually reports reasons; a sparse reason-bearing subset must not speak
-    # for the whole run (it falls through to the avg-power signal instead).
-    power_cap_min_reason_samples: int = POWER_CAP_MIN_REASON_SAMPLES
-    power_cap_min_reason_coverage: float = POWER_CAP_MIN_REASON_COVERAGE
 
 
 FATAL_REASON_PREFIXES = (
@@ -53,19 +41,11 @@ FATAL_REASON_PREFIXES = (
     "q2rtx-selected-nvidia-gpu-idle",
 )
 
-LOW_CLOCK_PREFIXES = (
-    "telemetry-live-core_clock",
-    "telemetry-live-core_clock-avg",
-    "core_clock-regression",
-)
-
-
 def evaluate_stable_run(
     result: Any,
     *,
     baseline_fps: float | None,
     baseline_power_w: float | None,
-    baseline_core_clock_mhz: float | None,
     power_limit_w: int | None,
     cuda_required: bool,
     companion_result: Any | None = None,
@@ -120,11 +100,10 @@ def evaluate_stable_run(
     if not metrics_decision.passed:
         return metrics_decision
 
-    # Telemetry proves Q2RTX was under real load and held the requested clock.
+    # Telemetry proves Q2RTX was under real load.
     telemetry_decision = evaluate_loaded_telemetry(
         _measurement_telemetry_samples(result),
         baseline_power_w=baseline_power_w,
-        baseline_core_clock_mhz=baseline_core_clock_mhz,
         power_limit_w=power_limit_w,
         thresholds=thresholds,
         log_path=log_path,
@@ -168,13 +147,6 @@ def classify_failed_result(
     log_path: Path | None,
 ) -> StableRunDecision:
     text = str(reason or "")
-    if text.startswith(LOW_CLOCK_PREFIXES):
-        return _fail(
-            FailureKind.LOW_CLOCK,
-            FailureSeverity.RECOVERABLE,
-            text or "loaded core clock below floor",
-            log_path=log_path,
-        )
     if text.startswith(FATAL_REASON_PREFIXES):
         if text.startswith("nvidia-xid"):
             kind = FailureKind.NVIDIA_XID
@@ -278,7 +250,6 @@ def evaluate_loaded_telemetry(
     telemetry_samples: list[Any],
     *,
     baseline_power_w: float | None,
-    baseline_core_clock_mhz: float | None,
     power_limit_w: int | None,
     thresholds: StabilityThresholds,
     log_path: Path | None,
@@ -324,117 +295,14 @@ def evaluate_loaded_telemetry(
         if brake_samples
         else ""
     )
-    if baseline_core_clock_mhz is not None:
-        floor_mhz = float(baseline_core_clock_mhz) * _percent(
-            thresholds.min_core_clock_pct
+    if not any(read_field(sample, "core_clock_mhz") is not None for sample in busy_samples):
+        return _fail(
+            FailureKind.METRICS_MISSING,
+            FailureSeverity.RECOVERABLE,
+            "busy core-clock telemetry missing",
+            log_path=log_path,
         )
-        clocks = [
-            float(read_field(sample, "core_clock_mhz"))
-            for sample in busy_samples
-            if read_field(sample, "core_clock_mhz") is not None
-        ]
-        if not clocks:
-            return _fail(
-                FailureKind.LOW_CLOCK,
-                FailureSeverity.RECOVERABLE,
-                "busy core-clock telemetry missing",
-                log_path=log_path,
-            )
-        avg_clock_mhz = sum(clocks) / len(clocks)
-        if avg_clock_mhz < floor_mhz - float(thresholds.clock_tolerance_mhz):
-            power_capped, power_cap_evidence = busy_samples_indicate_power_cap(
-                busy_samples,
-                power_limit_w=power_limit_w,
-                thresholds=thresholds,
-            )
-            if power_capped:
-                # A clock shortfall while the power governor holds the board
-                # at its cap is the cap working, not V/F instability. The
-                # exemption disarms itself as an undervolt succeeds: once
-                # power drops off the limit, the clock floor regains full
-                # force, so genuinely demoted clocks still fail here.
-                return _pass(
-                    "loaded telemetry power-walled but stable "
-                    f"avg={avg_clock_mhz:.1f}MHz floor={floor_mhz:.1f}MHz"
-                    f"{brake_note}",
-                    log_path=log_path,
-                )
-            return _fail(
-                FailureKind.LOW_CLOCK,
-                FailureSeverity.RECOVERABLE,
-                "average busy core clock below floor",
-                evidence={
-                    "avg_core_clock_mhz": avg_clock_mhz,
-                    "floor_mhz": floor_mhz,
-                    "busy_samples": len(busy_samples),
-                    **power_cap_evidence,
-                },
-                log_path=log_path,
-            )
     return _pass(f"loaded telemetry stable{brake_note}", log_path=log_path)
-
-
-def busy_samples_indicate_power_cap(
-    busy_samples: list[Any],
-    *,
-    power_limit_w: int | None,
-    thresholds: StabilityThresholds = StabilityThresholds(),
-) -> tuple[bool, dict[str, Any]]:
-    """Whether the busy window ran against the board-power cap.
-
-    Two independent signals, either suffices: the driver's perf-cap reason
-    names a power cap on most busy samples that report one (robust even when
-    per-frame spikes hold the *average* power below the limit), or the
-    average busy power sits within the saturation headroom of the applied
-    limit. The reason vote requires minimum evidence — enough reason-bearing
-    samples covering enough of the busy window — so a lone sw-power sample
-    among reason-less telemetry cannot grant a false power-walled pass.
-    """
-    reason_samples = [
-        sample
-        for sample in busy_samples
-        if read_field(sample, "perf_cap_reason") not in (None, "")
-    ]
-    capped_samples = [
-        sample
-        for sample in reason_samples
-        if perf_cap_reason_indicates_power(read_field(sample, "perf_cap_reason"))
-    ]
-    reason_vote_qualified = (
-        len(reason_samples) >= int(thresholds.power_cap_min_reason_samples)
-        and len(reason_samples)
-        >= float(thresholds.power_cap_min_reason_coverage) * len(busy_samples)
-    )
-    if reason_vote_qualified:
-        capped_fraction = len(capped_samples) / len(reason_samples)
-        if capped_fraction >= float(thresholds.power_cap_busy_sample_fraction):
-            return True, {
-                "power_cap_sample_fraction": round(capped_fraction, 3),
-                "power_cap_reason_samples": len(reason_samples),
-            }
-    powers = [
-        float(read_field(sample, "power_w"))
-        for sample in busy_samples
-        if read_field(sample, "power_w") is not None
-    ]
-    if powers and power_limit_w is not None and int(power_limit_w) > 0:
-        avg_power_w = sum(powers) / len(powers)
-        saturation_floor_w = float(power_limit_w) * (
-            1.0 - max(0.0, float(thresholds.power_saturation_headroom_pct)) / 100.0
-        )
-        if avg_power_w >= saturation_floor_w:
-            return True, {
-                "avg_busy_power_w": round(avg_power_w, 1),
-                "power_saturation_floor_w": round(saturation_floor_w, 1),
-            }
-    return False, {}
-
-
-def perf_cap_reason_indicates_power(reason_text: Any) -> bool:
-    reason = str(reason_text or "").lower()
-    return any(
-        "power" in token.strip() for token in reason.replace(",", "+").split("+")
-    )
 
 
 def evaluate_cuda_companion(

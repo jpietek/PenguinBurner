@@ -83,7 +83,6 @@ def run_discovery_probe(
         power_limit_w=reference_power_limit_w,
         start_voltage_mv=int(point.voltage_mv),
         baseline_clock_mhz=None,
-        min_performance_core_clock_pct=90.0,
         short_probe_base_duration_s=int(short_probe_base_duration_s),
         log=log,
         marker_details=marker_details,
