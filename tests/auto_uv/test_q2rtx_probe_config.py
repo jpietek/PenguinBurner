@@ -226,7 +226,7 @@ def test_scan_runtime_tail_rise_defaults_follow_auto_uv_mode() -> None:
         source_config,
     )
 
-    assert efficiency.tail_rise_bins == 0
+    assert efficiency.tail_rise_bins == 2
     assert balanced.tail_rise_bins == 4
     assert performance.tail_rise_bins == 4
     assert overridden.tail_rise_bins == 4

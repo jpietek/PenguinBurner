@@ -488,7 +488,9 @@ def candidate_record_from_probe(
 ) -> dict | None:
     voltage_mv = int(probe.candidate_voltage_mv)
     lock_clock_mhz = int(probe.lock_clock_mhz)
-    if voltage_mv == int(stable_voltage_mv) and lock_clock_mhz == int(
+    if probe.tested_plan is not None:
+        plan = [dict(point) for point in probe.tested_plan]
+    elif voltage_mv == int(stable_voltage_mv) and lock_clock_mhz == int(
         stable_lock_clock_mhz
     ):
         plan = list(stable_plan)

@@ -4,7 +4,7 @@ import inspect
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -32,6 +32,7 @@ from auto_uv.run.voltage_sweep_state import (
 )
 from ui.features.auto_uv import candidate_choice as candidate_choice_module
 from auto_uv_test_data import base_curve
+from auto_uv.curve.vf_curve_flattening import build_flattened_plan
 
 
 def _summary(voltage_mv: int, clock_mhz: int) -> AutoUvProbeSummary:
@@ -301,7 +302,11 @@ def test_auto_uv_final_choice_runs_before_final_verification(monkeypatch) -> Non
     def fake_choice(**kwargs):
         captured["choice_called"] = True
         return (
-            kwargs["stable_plan"],
+            build_flattened_plan(
+                curve,
+                candidate_voltage_mv=kwargs["stable_voltage_mv"],
+                lock_clock_mhz=kwargs["stable_lock_clock_mhz"],
+            ),
             kwargs["stable_voltage_mv"],
             kwargs["stable_lock_clock_mhz"],
             kwargs["stable_probe"],
@@ -372,15 +377,14 @@ def test_auto_uv_final_choice_runs_before_final_verification(monkeypatch) -> Non
     assert captured["choice_called"] is True
     assert captured["final_duration_s"] == 180
     assert captured["direct_probe_calls"] == []
-    # The tail-tune pass raises the tail by two bins beyond the descent tail and
-    # descends through low-clock dips so it can hold the floor clock at lower
-    # voltage and push toward the minimum. The first descent does neither.
+    # The deeper pass retains the flat tail and skips low-clock failures while
+    # searching toward the minimum. Failed points never become candidates.
     assert captured["sweep_calls"] == [
         ("efficiency", 0, 1000, 2200, False),
-        ("efficiency-tail-tune", 2, 950, 2120, True),
+        ("efficiency-floor-search", 0, 950, 2120, True),
     ]
-    # Final verification keeps the chosen tail-tune candidate's raised tail.
-    assert captured["final_tail_rise_bins"] == 2
+    # Final verification keeps the chosen candidate flat.
+    assert captured["final_tail_rise_bins"] == 0
 
 
 def test_final_verification_failure_offers_safer_sorted_candidates(
@@ -481,7 +485,11 @@ def test_final_verification_failure_offers_safer_sorted_candidates(
 
     def fake_choice(**kwargs):
         return (
-            kwargs["stable_plan"],
+            build_flattened_plan(
+                curve,
+                candidate_voltage_mv=kwargs["stable_voltage_mv"],
+                lock_clock_mhz=kwargs["stable_lock_clock_mhz"],
+            ),
             kwargs["stable_voltage_mv"],
             kwargs["stable_lock_clock_mhz"],
             kwargs["stable_probe"],
@@ -574,7 +582,11 @@ def test_final_verification_failure_offers_safer_sorted_candidates(
         undervolt_main_loop,
         "select_performance_auto_oc_candidate",
         lambda _base_curve, **kwargs: (
-            kwargs["stable_plan"],
+            build_flattened_plan(
+                curve,
+                candidate_voltage_mv=kwargs["stable_voltage_mv"],
+                lock_clock_mhz=kwargs["stable_lock_clock_mhz"],
+            ),
             kwargs["stable_voltage_mv"],
             kwargs["stable_lock_clock_mhz"],
             kwargs["stable_probe"],
@@ -718,7 +730,11 @@ def test_performance_auto_oc_runs_before_final_choice(monkeypatch) -> None:
             for probe in kwargs["stable_history"]
         ]
         return (
-            kwargs["stable_plan"],
+            build_flattened_plan(
+                curve,
+                candidate_voltage_mv=kwargs["stable_voltage_mv"],
+                lock_clock_mhz=kwargs["stable_lock_clock_mhz"],
+            ),
             kwargs["stable_voltage_mv"],
             kwargs["stable_lock_clock_mhz"],
             kwargs["stable_probe"],
@@ -950,7 +966,11 @@ def test_previous_crash_resume_starts_auto_oc_from_next_saved_voltage(
         captured["auto_oc_probe"] = kwargs["stable_probe"]
         captured["auto_oc_baseline"] = kwargs["measured_baseline_clock_mhz"]
         return (
-            kwargs["stable_plan"],
+            build_flattened_plan(
+                curve,
+                candidate_voltage_mv=kwargs["stable_voltage_mv"],
+                lock_clock_mhz=kwargs["stable_lock_clock_mhz"],
+            ),
             kwargs["stable_voltage_mv"],
             kwargs["stable_lock_clock_mhz"],
             kwargs["stable_probe"],
@@ -968,7 +988,11 @@ def test_previous_crash_resume_starts_auto_oc_from_next_saved_voltage(
             for probe in kwargs["stable_history"]
         ]
         return (
-            kwargs["stable_plan"],
+            build_flattened_plan(
+                curve,
+                candidate_voltage_mv=kwargs["stable_voltage_mv"],
+                lock_clock_mhz=kwargs["stable_lock_clock_mhz"],
+            ),
             kwargs["stable_voltage_mv"],
             kwargs["stable_lock_clock_mhz"],
             kwargs["stable_probe"],
@@ -1154,7 +1178,11 @@ def test_auto_uv_user_stop_offers_stable_history_for_final_choice(monkeypatch) -
             for probe in kwargs["stable_history"]
         ]
         return (
-            kwargs["stable_plan"],
+            build_flattened_plan(
+                curve,
+                candidate_voltage_mv=kwargs["stable_voltage_mv"],
+                lock_clock_mhz=kwargs["stable_lock_clock_mhz"],
+            ),
             kwargs["stable_voltage_mv"],
             kwargs["stable_lock_clock_mhz"],
             kwargs["stable_probe"],
@@ -1243,6 +1271,7 @@ def test_auto_uv_user_stop_offers_stable_history_for_final_choice(monkeypatch) -
 def test_performance_uv_loop_runs_before_final_verification(monkeypatch) -> None:
     curve = base_curve(900, 1000, 25, 2000, 40)
     start_probe = _summary(925, 2600)
+    selected_probe = _summary(950, 2745)
     captured = {}
 
     def fake_auto_oc_search(**kwargs):
@@ -1254,6 +1283,7 @@ def test_performance_uv_loop_runs_before_final_verification(monkeypatch) -> None
                 2745,
                 curve,
             ),
+            selected_probe=selected_probe,
         )
 
     monkeypatch.setattr(
@@ -1285,7 +1315,7 @@ def test_performance_uv_loop_runs_before_final_verification(monkeypatch) -> None
     assert plan is curve
     assert voltage_mv == 950
     assert clock_mhz == 2745
-    assert probe is None
+    assert probe is selected_probe
     assert captured["start_candidate"].voltage_mv == 925
     assert captured["start_candidate"].target_mhz == 2600
     assert captured["tail_rise_bins"] == 6
@@ -1977,13 +2007,14 @@ def test_adjust_baseline_rebuilds_plan_without_clock_ceiling() -> None:
     assert result.label == "baseline-measured-clock-adjusted"
 
 
-# --- select_performance_auto_oc_candidate: performance-sweep log branch ---
+# --- select_performance_auto_oc_candidate: selected measurement ---
 
 
-def test_select_performance_auto_oc_logs_performance_sweep_profile(
+def test_select_performance_auto_oc_keeps_selected_curve_and_probe(
     monkeypatch,
 ) -> None:
     curve = base_curve(900, 1025, 25, 2000, 40)
+    selected_probe = _summary(950, 2745)
     log_messages: list[str] = []
 
     monkeypatch.setattr(
@@ -1991,25 +2022,9 @@ def test_select_performance_auto_oc_logs_performance_sweep_profile(
         "run_auto_oc_candidate_search",
         lambda **_kwargs: SimpleNamespace(
             selected_candidate=VfCurveCandidate("oc", 950, 2745, curve),
+            selected_probe=selected_probe,
             attempts=(),
         ),
-    )
-
-    swept = VfCurveCandidate(
-        "oc performance-sweep",
-        950,
-        2745,
-        curve,
-        metadata={
-            "profile_curve": "performance-sweep",
-            "profile_curve_start_voltage_mv": 900,
-            "profile_curve_anchor_count": 3,
-        },
-    )
-    monkeypatch.setattr(
-        performance_uv_loop,
-        "build_performance_sweep_profile_candidate",
-        lambda *_args, **_kwargs: swept,
     )
 
     plan, voltage_mv, clock_mhz, probe, _oc_metadata = (
@@ -2031,13 +2046,8 @@ def test_select_performance_auto_oc_logs_performance_sweep_profile(
 
     assert plan is curve
     assert (voltage_mv, clock_mhz) == (950, 2745)
-    # Selection changed -> the prior probe is dropped.
-    assert probe is None
-    assert any(
-        "profile-curve=performance-sweep" in message for message in log_messages
-    )
-    assert any("start=900mV" in message for message in log_messages)
-    assert any("anchors=3" in message for message in log_messages)
+    assert probe is selected_probe
+    assert not any("profile-curve=performance-sweep" in message for message in log_messages)
 
 
 def test_select_performance_auto_oc_keeps_probe_when_selection_unchanged(
@@ -2051,14 +2061,9 @@ def test_select_performance_auto_oc_keeps_probe_when_selection_unchanged(
         "run_auto_oc_candidate_search",
         lambda **_kwargs: SimpleNamespace(
             selected_candidate=VfCurveCandidate("oc", 925, 2600, curve),
+            selected_probe=start_probe,
             attempts=(),
         ),
-    )
-    # Plain selected candidate (no performance-sweep metadata).
-    monkeypatch.setattr(
-        performance_uv_loop,
-        "build_performance_sweep_profile_candidate",
-        lambda *_args, **_kwargs: VfCurveCandidate("oc", 925, 2600, curve),
     )
 
     _plan, voltage_mv, clock_mhz, probe, _oc_metadata = (
@@ -2150,14 +2155,10 @@ def test_select_performance_auto_oc_candidate_returns_oc_metadata(monkeypatch) -
         "run_auto_oc_candidate_search",
         lambda **_kwargs: SimpleNamespace(
             selected_candidate=VfCurveCandidate("oc", 950, 2745, curve),
+            selected_probe=_summary(950, 2745),
             endpoint=SimpleNamespace(clock_mhz=2980),
             attempts=(),
         ),
-    )
-    monkeypatch.setattr(
-        performance_uv_loop,
-        "build_performance_sweep_profile_candidate",
-        lambda *_args, **_kwargs: VfCurveCandidate("oc", 950, 2745, curve),
     )
 
     *_unused, oc_metadata = performance_uv_loop.select_performance_auto_oc_candidate(
@@ -2242,6 +2243,34 @@ def test_power_bound_clock_reclaim_uses_fixed_voltage_tier_target(monkeypatch) -
         "clock_reclaim_selected_mhz": 2550,
         "clock_reclaim_voltage_mv": 900,
     }
+
+
+@pytest.mark.parametrize("higher_fps,expected_clock", [(59.856, 2445), (65.0, 2800)])
+def test_efficiency_clock_reclaim_requires_better_fps_per_w(monkeypatch, higher_fps, expected_clock) -> None:
+    curve = base_curve(800, 1000, 5, 1950, 15)
+    start = _summary(850, 2445)
+    start.avg_fps, start.avg_power_w = 55.944, 231.4028
+    higher = _summary(850, 2800)
+    higher.avg_fps, higher.avg_power_w = higher_fps, 255.8975
+    start_plan = build_flattened_plan(curve, candidate_voltage_mv=850, lock_clock_mhz=2445)
+    higher_plan = build_flattened_plan(curve, candidate_voltage_mv=850, lock_clock_mhz=2800)
+    candidate = VfCurveCandidate("higher", 850, 2800, higher_plan)
+    monkeypatch.setattr(performance_uv_loop, "run_auto_oc_candidate_search", lambda **_: SimpleNamespace(
+        selected_candidate=candidate, selected_probe=higher,
+        attempts=(SimpleNamespace(candidate=candidate, outcome=SimpleNamespace(
+            decision=SimpleNamespace(passed=True), raw_probe=higher,
+        )),),
+    ))
+    plan, voltage, clock, probe, metadata = performance_uv_loop.select_power_bound_clock_reclaim_candidate(
+        curve, auto_uv_mode="efficiency", stable_plan=start_plan, stable_voltage_mv=850,
+        stable_lock_clock_mhz=2445, stable_probe=start, stable_history=[start],
+        runner=cast(Any, object()), gpu_name="NVIDIA GeForce RTX 5080",
+        clock_ceiling=None, probe_history=[], log=lambda _: None,
+    )
+    assert (voltage, clock) == (850, expected_clock)
+    assert plan == (start_plan if expected_clock == 2445 else higher_plan)
+    assert probe is (start if expected_clock == 2445 else higher)
+    assert metadata["clock_reclaim_selected_mhz"] == expected_clock
 
 
 # --- orchestration: discovery / baseline failure guards -------------------
@@ -2509,7 +2538,10 @@ def test_orchestration_sweep_hooks_probe_and_record_candidates(monkeypatch) -> N
         **_kwargs,
     ):
         _ = settings, unsafe_entries, initial_stable_outcome
-        sweep_candidate = VfCurveCandidate("sweep", 925, 2080, curve)
+        sweep_candidate = VfCurveCandidate(
+            "sweep", 925, 2080,
+            build_flattened_plan(curve, candidate_voltage_mv=925, lock_clock_mhz=2080),
+        )
         # Drive the probe_candidate closure (lines 246-256).
         outcome = io.probe_candidate(sweep_candidate)
         assert outcome.decision.passed is True
@@ -2584,7 +2616,7 @@ def test_orchestration_sweep_hooks_probe_and_record_candidates(monkeypatch) -> N
 
     assert result == "done"
     # The sweep candidate probe keeps the clock floor enforced (runner default):
-    # pass 1 must stop at the floor so the tail-tune pass owns the deep region.
+    # Pass 1 stops at the floor before the separate lower-voltage search.
     assert captured["sweep_kwargs"]
     assert (
         "enforce_target_core_clock_floor" not in captured["sweep_kwargs"][0]
@@ -2682,8 +2714,7 @@ def test_adaptive_tier_order_and_descent_tails() -> None:
     assert ADAPTIVE_TIER_ORDER == ("efficiency", "balanced", "performance")
     # Each tier descends WITH its own tail — the tail compounds through the
     # measured-clock ratchet, so it cannot be decorated on after a tail-less
-    # descent. Efficiency descends tail-less in pass 1 (its loop raises +2 in
-    # the tail-tune pass); balanced/performance carry their full tail.
+    # descent. Efficiency carries two bins; balanced/performance carry four.
     assert adaptive_tier_descent_tail_rise_bins("efficiency") == int(
         AUTO_UV_DEFAULTS.tail_rise_bins
     )

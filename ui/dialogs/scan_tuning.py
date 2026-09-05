@@ -201,7 +201,8 @@ def select_scan_tuning(
     preset_tooltips = {
         "efficiency": (
             "Deepest undervolt: accepts the largest loaded clock drop and "
-            "prefers the best FPS per watt. The exact clock-drop allowance is "
+            "prefers high measured clock near the best FPS per watt, with "
+            "2 rising tail bins. The exact clock-drop allowance is "
             "editable under Advanced."
         ),
         "balanced": (
@@ -315,10 +316,12 @@ def select_scan_tuning(
                 text="Min voltage",
                 widget=floor_spin,
                 tooltip=(
-                    "Lowest V/F voltage bin Auto-UV may try in Efficiency. The "
+                    "Lowest voltage for the selected Efficiency point. The "
                     "default comes from PenguinBurner's GPU table when detected; "
                     "unknown GPUs use Auto (-10%), calculated from the loaded "
-                    "starting voltage measured during the baseline probe."
+                    "starting voltage measured during the baseline probe. "
+                    "The connecting curve below this point is checked separately "
+                    "at its lower clocks before saving."
                 ),
             )
 

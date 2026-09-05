@@ -17,7 +17,7 @@ class AutoUvDefaults:
     max_drop_pct: float = 10.0
     max_core_clock_drop_pct: float = 12.5
     efficiency_stop_streak: int = 2
-    tail_rise_bins: int = 0
+    tail_rise_bins: int = 2
     balanced_tail_rise_bins: int = 4
     # 6 bins (+90 MHz) predates the per-tier scan reaching the full NV-UV
     # table lock; with the lock on target it overshoots in gameplay (3060

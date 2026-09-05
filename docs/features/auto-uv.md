@@ -44,6 +44,19 @@ The GUI offers that one-time setup automatically; from the CLI install it with
   previously stable candidates for final verification instead of throwing the
   work away.
 
+All three tiers build their candidate curves with a gradual transition into
+the selected V/F point. The exact curve applied during each probe is kept with
+its measurements. Selection and final verification preserve every point,
+including the lower ramp and rising tail; no final rewrite introduces a jump.
+Performance keeps the selected Auto-OC candidate intact as well; it does not
+combine lower-voltage points from other candidates into a new curve.
+
+Final verification runs Q2RTX and CUDA on that complete curve, preserving its
+selected voltage, clock, tail, and power limit throughout the soak and save.
+It uses the tier's normal clock-loss rules against its measured baseline.
+It does not replace the curve with separate low-clock transition sweeps.
+Existing saved profiles are unchanged.
+
 When a tier includes a board-power limit, Auto-UV applies and reads back
 that exact limit before the tier's stock baseline, voltage sweep, and final
 verification. It stops instead of probing if the limit cannot be established.
@@ -60,6 +73,24 @@ clock regressions still fail. Efficiency and Balanced may then probe a bounded
 clock climb at the already-proven voltage, without raising the voltage or
 loosening the stability checks.
 
+Efficiency chooses the highest measured FPS/W among passed candidates inside
+its clock-loss allowance, including candidates from before the climb. Comparisons
+use unrounded measurements; the tables show four FPS/W decimal places. Equal
+FPS/W favors the higher measured clock, then lower power. Its table clock is an upper
+search limit, not a required final clock. Balanced keeps the faster stable choice
+within its own clock-loss allowance; Performance pursues its higher Auto-OC target.
+All three tiers remain available even when two happen to find the same best point.
+Lower measured watts break ties at equal measured clock and FPS/W. Driver V/F
+offsets must read back as requested before a probe starts.
+
+Efficiency keeps two rising tail bins throughout the search, clock reclaim,
+and final verification. The tail is tested with each candidate, never added
+after a successful probe.
+Balanced retains four rising bins, allowing more boost headroom above its selected
+point. This makes the curve policies distinct even on GPUs whose Efficiency and
+Balanced clock targets are equal; measured power and performance still depend on
+the workload.
+
 During voltage descent, passing probes keep their requested clock target even
 when the measured clock is lower. A measured shortfall is not repeatedly
 subtracted from the next target after power limiting clears. Higher measured
@@ -71,8 +102,6 @@ Only an explicit driver rejection as unsupported permits platform-managed mobile
 power. A missing result stops the scan. Configured caps are read back before and
 after probes, including the final soak; a mismatch stops the scan instead of saving
 a profile under an unverified limit.
-
-Driver V/F offsets must read back as requested before a probe starts.
 
 `hw-power-brake` is the board's own power-delivery protection, not the power
 limit you configured. A probe that trips it still counts as power-limited
@@ -126,9 +155,9 @@ directly to [adaptive UV tiers](./adaptive-uv.md):
 
 | Preset | Tail-rise bins | Extra |
 | --- | --- | --- |
-| Efficiency | `0` (flat) | lowest tier power; bounded fixed-voltage clock reclaim on power-bound baselines |
+| Efficiency | `2` | lowest tier power; bounded fixed-voltage clock reclaim on power-bound baselines |
 | Balanced | `4` | moderate clock tail |
-| Performance | `6` | adds an Auto-OC ladder (raises V+clock to targets) |
+| Performance | `4` | adds an Auto-OC ladder (raises V+clock to targets) |
 
 ## GPU selection and telemetry
 

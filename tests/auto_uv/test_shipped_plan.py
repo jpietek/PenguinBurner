@@ -80,9 +80,7 @@ def test_steep_stock_curve_is_clamped_below_lock_without_downward_edge() -> None
         lock_clock_mhz=2595,
     )
 
-    targets = {
-        int(point["voltage_mv"]): int(point["target_mhz"]) for point in shipped
-    }
+    targets = {int(point["voltage_mv"]): int(point["target_mhz"]) for point in shipped}
     assert targets[925] == 2347
     assert targets[950] == 2580
     assert targets[975] == 2580

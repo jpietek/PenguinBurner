@@ -19,9 +19,9 @@ class AutoUvScanSettings:
     efficiency_stop_streak: int = 2
     min_efficiency_stop_voltage_drop_pct: float = 10.0
     tail_rise_bins: int = 0
-    # When True (the efficiency tail-tune pass), a recoverable low-clock probe
+    # When True (the efficiency lower-voltage pass), a recoverable low-clock probe
     # does not stop the descent: the voltage is skipped and the sweep keeps
-    # dropping toward the minimum, relying on the raised tail to hold the floor
-    # clock at lower voltages. The first pass leaves this False and stops at the
+    # dropping toward the minimum. Only candidates that pass the clock floor
+    # are accepted. The first pass leaves this False and stops at the
     # natural clock floor.
     descend_through_low_clock: bool = False

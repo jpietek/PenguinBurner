@@ -1,18 +1,7 @@
-"""Sanitize a final plan so only scan-validated curve geometry ships.
+"""Validate saved curve ordering and retain legacy stock-restoration helpers.
 
-The scan's probe curves shape bins below the candidate for load saturation
-(the baseline flatten floor and soft decay). Those shapes are scan machinery,
-not validated operating points — a real game dips through them on every load
-transition. Below the lowest voltage the current scan actually probed, the
-shipped profile must remain at or below the stock curve (2026-07-13: shipping
-raised probe debris and archive-envelope points there crashed fullscreen Q2RTX
-repeatedly while every synthetic soak passed, because the soak pins at the
-lock voltage and never operates the mid-ramp).
-
-Raw stock is not always safe curve *geometry*, though. On steep Blackwell
-curves stock immediately below the validated floor can exceed the selected
-lock clock, creating a downward V/F edge at the lock. Clamp those restored
-points to the same one-clock-step-below-lock ceiling used by probe curves.
+Current scans preserve the exact tested ramp; they do not restore stock or
+rebuild lower points during final selection.
 """
 
 from __future__ import annotations
@@ -27,13 +16,11 @@ def restore_stock_below_validated_floor(
     lock_clock_mhz: int,
     below_lock_gap_mhz: int = 15,
 ) -> list[dict]:
-    """Restore safe stock geometry below the floor without a lock-edge cliff.
+    """Remove probe-only shaping and prevent downward edges at the floor.
 
     Every rewritten target is at most its stock clock and at least one clock
-    step below the selected lock. The result is rejected if the complete
-    editable curve is still non-monotonic; silently raising a point would ship
-    unverified frequency, while silently lowering a validated point would no
-    longer be the plan that passed its probe.
+    step below the selected lock. This intermediate result can have an upward
+    step. Current scans keep their measured candidate plan instead.
     """
     floor = int(floor_voltage_mv)
     below_lock_cap_mhz = max(

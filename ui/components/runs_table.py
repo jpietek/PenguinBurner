@@ -97,7 +97,7 @@ class RunsTable:
                 self.TEMP_COLUMN: "100.00",
                 self.FAN_COLUMN: "100.00",
                 self.PERF_CAP_COLUMN: "sw-power",
-                self.FPSW_COLUMN: "0.25 (+28.34%)",
+                self.FPSW_COLUMN: "0.2500 (+28.34%)",
                 self.DECISION_COLUMN: "discarded",
             },
             QtCore=QtCore,
@@ -316,7 +316,7 @@ class RunsTable:
         return _payload_oc_from_measured_baseline(payload, self.base_baseline)
 
     def _metric_text_with_delta(self, value, baseline_key: str) -> str:
-        value_text = _format_float(value)
+        value_text = _format_float(value, precision=4 if baseline_key == "efficiency_fps_per_w" else 2)
         if not value_text:
             return ""
         delta_text = self._delta_text(value, baseline_key)
@@ -990,8 +990,8 @@ def _format_signed_mhz(value: int) -> str:
     return f"{int(value):+d} MHz"
 
 
-def _format_float(value) -> str:
+def _format_float(value, *, precision: int = 2) -> str:
     number = _to_float(value)
     if number is None:
         return ""
-    return f"{number:.2f}"
+    return f"{number:.{precision}f}"

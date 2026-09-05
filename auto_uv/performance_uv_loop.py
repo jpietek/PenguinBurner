@@ -12,9 +12,6 @@ from typing import Callable
 from auto_uv.domain.console_log import log_phase
 from auto_uv.domain.types import AutoUvProbeSummary, VfCurveCandidate
 from auto_uv.base_uv_loop import BaseUvLoopIO, run_base_uv_loop
-from auto_uv.curve.performance_sweep_profile import (
-    build_performance_sweep_profile_candidate,
-)
 from auto_uv.domain.scan_settings import AutoUvScanSettings
 from auto_uv.probes.runner import AutoUvProbeRunner
 from auto_uv.run.voltage_sweep_state import LowerVoltageSweepResult, VoltageProbeOutcome
@@ -24,6 +21,9 @@ from auto_uv.scan_mode.auto_uv_mode import (
     AUTO_UV_MODE_PERFORMANCE,
 )
 from auto_uv.scan_mode.uv_limits import uv_limit_profile_target_for_gpu
+from auto_uv.scan_mode.efficiency_fps_per_w_policy import (
+    best_efficiency_candidate_index,
+)
 
 
 def run_performance_uv_loop(
@@ -111,24 +111,9 @@ def select_performance_auto_oc_candidate(
                 and attempt.outcome.raw_probe is not None
             ):
                 stable_history.append(attempt.outcome.raw_probe)
-    selected = build_performance_sweep_profile_candidate(
-        base_curve,
-        selected_candidate=result.selected_candidate,
-        stable_history=stable_history,
-        auto_oc_attempts=getattr(result, "attempts", ()) or (),
-    )
-    if selected.metadata.get("profile_curve") == "performance-sweep":
-        log_phase(
-            log,
-            "auto-oc",
-            "profile-curve=performance-sweep "
-            f"start={int(selected.metadata['profile_curve_start_voltage_mv'])}mV "
-            f"anchors={int(selected.metadata['profile_curve_anchor_count'])}",
-        )
-    selected_changed = (
-        int(selected.voltage_mv) != int(stable_voltage_mv)
-        or int(selected.target_mhz) != int(stable_lock_clock_mhz)
-    )
+    # The chosen rung already contains its tested ramp and tail. Combining
+    # lower-voltage anchors from other rungs would create an untested curve.
+    selected = result.selected_candidate
     auto_oc_metadata = performance_auto_oc_progress_metadata(
         endpoint=getattr(result, "endpoint", None),
         measured_baseline_clock_mhz=measured_baseline_clock_mhz,
@@ -138,7 +123,7 @@ def select_performance_auto_oc_candidate(
         selected.flattened_plan,
         int(selected.voltage_mv),
         int(selected.target_mhz),
-        None if selected_changed else stable_probe,
+        result.selected_probe,
         auto_oc_metadata,
     )
 
@@ -212,6 +197,25 @@ def select_power_bound_clock_reclaim_candidate(
         if attempt.outcome.decision.passed and attempt.outcome.raw_probe is not None:
             stable_history.append(attempt.outcome.raw_probe)
     selected = result.selected_candidate
+    selected_probe = result.selected_probe
+    if mode == AUTO_UV_MODE_EFFICIENCY:
+        # Keep the highest measured FPS/W, including
+        # the point from which the ladder started.
+        selected, selected_probe = start_candidate, stable_probe
+        candidates = [(start_candidate, stable_probe)] + [
+            (attempt.candidate, attempt.outcome.raw_probe)
+            for attempt in result.attempts
+            if attempt.outcome.decision.passed
+        ]
+        selected_index = best_efficiency_candidate_index([probe for _, probe in candidates])
+        if selected_index is not None:
+            selected, selected_probe = candidates[selected_index]
+        log_phase(
+            log,
+            "clock-reclaim",
+            f"Efficiency selected {selected.voltage_mv}mV@{selected.target_mhz}MHz "
+            "by highest measured FPS/W",
+        )
     selected_changed = int(selected.target_mhz) != int(stable_lock_clock_mhz)
     metadata = {
         "clock_reclaim": True,
@@ -224,7 +228,7 @@ def select_power_bound_clock_reclaim_candidate(
         selected.flattened_plan,
         int(selected.voltage_mv),
         int(selected.target_mhz),
-        result.selected_probe if selected_changed else stable_probe,
+        selected_probe if selected_changed else stable_probe,
         metadata,
     )
 

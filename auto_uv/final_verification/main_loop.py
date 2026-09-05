@@ -38,6 +38,7 @@ from .crash_marker import (
     final_probe_crash_marker_details,
     memory_offset_from_gpu_policy,
 )
+from auto_uv.curve.shipped_plan import assert_monotonic_editable_targets
 from .fan_curve import (
     FinalVerificationFanCurveResult,
     write_final_verification_fan_curve_payload,
@@ -85,6 +86,10 @@ def run_final_verification_and_save(
     final_lock_clock_mhz = int(stable_lock_clock_mhz)
     final_plan = stable_plan
     final_status = "not-run"
+
+    # Verify the selected smooth curve intact. A separate sweep of flattened
+    # lower points would replace its operating point and plot during the soak.
+    assert_monotonic_editable_targets(final_plan)
 
     log_phase(
         log,

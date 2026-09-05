@@ -855,7 +855,7 @@ def _format_number(value, *, precision: int) -> str:
     number = _to_float(value)
     if number is None:
         return ""
-    precision = max(0, min(int(precision), 2))
+    precision = max(0, min(int(precision), 4))
     if precision <= 0:
         return str(int(round(number)))
     return f"{number:.{precision}f}"

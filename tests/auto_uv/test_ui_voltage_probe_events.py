@@ -14,6 +14,16 @@ from auto_uv.run.voltage_sweep_state import VoltageProbeOutcome
 from auto_uv_test_data import base_curve
 
 
+def test_fpsw_event_precision_preserves_distinct_efficiency_candidates() -> None:
+    from auto_uv.probes.event_payload import probe_summary_event_payload
+
+    values = [
+        probe_summary_event_payload({"candidate_voltage_mv": 850, "lock_clock_mhz": 2700, "efficiency_fps_per_w": value}, stage="candidate", decision="pass", reason="ok")["efficiency_fps_per_w"]
+        for value in (0.2417602874, 0.2407566677, 0.2362143808)
+    ]
+    assert values == [0.2418, 0.2408, 0.2362]
+
+
 def test_ui_probe_start_events_create_curve_and_table_row() -> None:
     events: list[tuple[str, dict]] = []
     candidate = VfCurveCandidate(

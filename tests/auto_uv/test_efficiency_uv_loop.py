@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
+import pytest
+
 from auto_uv.base_uv_loop import BaseUvLoopIO
 from auto_uv.curve.vf_curve_flattening import build_flattened_plan
 from auto_uv.domain.scan_settings import AutoUvScanSettings
@@ -91,62 +95,35 @@ def _recoverable_low_clock_outcome() -> VoltageProbeOutcome:
     )
 
 
-def test_first_pass_stops_at_clock_floor_and_tail_tune_descends_through() -> None:
-    # The confirmed two-pass design: pass 1 (flat tail) stops at the first
-    # recoverable low-clock probe instead of sweeping on with a sagging clock;
-    # the tail-tune pass then owns the deep voltage region, where the raised
-    # tail must hold the clock and low-clock bins are skipped, not fatal.
+def test_deeper_flat_search_skips_low_clock_failures_without_accepting_them() -> None:
     curve = base_curve()
-    probed: list[tuple[int, int]] = []
+    probed: list[VfCurveCandidate] = []
+    written: list[VfCurveCandidate] = []
 
     def probe(candidate: VfCurveCandidate) -> VoltageProbeOutcome:
-        voltage_mv = int(candidate.voltage_mv)
-        tail_bins = int(dict(candidate.metadata or {}).get("tail_rise_bins") or 0)
-        probed.append((voltage_mv, tail_bins))
-        if tail_bins == 0:
-            floor_mv = 950  # flat curve sags below the clock floor under 950mV
-        else:
-            floor_mv = 850  # the raised tail holds the clock down to 850mV
-        if voltage_mv >= floor_mv:
+        probed.append(candidate)
+        if candidate.voltage_mv >= 950:
             return _passing_outcome()
         return _recoverable_low_clock_outcome()
 
     result = run_efficiency_uv_loop(
-        curve,
-        settings=_settings(min_search_voltage_mv=825),
+        curve, settings=_settings(min_search_voltage_mv=950),
         initial_stable_candidate=_initial_candidate(curve, voltage_mv=1000, lock_mhz=2240),
         io=BaseUvLoopIO(
             probe_candidate=probe,
-            write_verified_candidate=lambda _candidate, _outcome: None,
+            write_verified_candidate=lambda candidate, _outcome: written.append(candidate),
             mark_unsafe_candidate=lambda _candidate, _outcome: None,
         ),
-        min_search_voltage_mv=825,
-        initial_tail_rise_bins=0,
-        log=lambda _message: None,
+        min_search_voltage_mv=825, initial_tail_rise_bins=0, log=lambda _: None,
     )
-
-    flat_probes = [(v, bins) for v, bins in probed if bins == 0]
-    tail_probes = [(v, bins) for v, bins in probed if bins == 2]
-
-    # Pass 1 stopped at its first low-clock probe: exactly one flat probe below
-    # the flat floor, and no flat probes after the tail-tune pass began.
-    flat_low_clock = [v for v, _bins in flat_probes if v < 950]
-    assert len(flat_low_clock) == 1
-    assert probed.index((flat_low_clock[0], 0)) == len(flat_probes) - 1
-
-    # The deep region was probed only with the raised tail, past where the
-    # flat pass stopped, and the low-clock bins below 850 were skipped without
-    # ending the sweep.
-    assert tail_probes
-    assert min(v for v, _bins in tail_probes) < min(v for v, _bins in flat_probes)
-    assert any(v < 850 for v, _bins in tail_probes)
-
-    candidate = result.stable_candidate
-    assert candidate.voltage_mv == 850
-    assert int(candidate.metadata["tail_rise_bins"]) == 2
+    assert min(c.voltage_mv for c in probed) == 825
+    assert result.stable_candidate.voltage_mv == 950
+    assert all(c.voltage_mv >= 950 for c in written)
+    assert all(c.metadata["tail_rise_bins"] == 0 for c in probed)
+    assert all(all(t == c.target_mhz for t in _tail_targets_above_lock(c)) for c in probed)
 
 
-def test_floor_reached_first_pass_still_ships_raised_tail() -> None:
+def test_floor_reached_first_pass_keeps_flat_tail() -> None:
     curve = base_curve()
     result = run_efficiency_uv_loop(
         curve,
@@ -159,38 +136,48 @@ def test_floor_reached_first_pass_still_ships_raised_tail() -> None:
     )
 
     candidate = result.stable_candidate
-    # The sweep descended to the floor voltage in pass 1, so tail tune never
-    # ran; the final candidate must still carry the efficiency +2 rising tail.
+    # Reaching the floor must not decorate the tested flat curve afterward.
     assert candidate.voltage_mv == 900
-    assert int(candidate.metadata["tail_rise_bins"]) == 2
+    assert int(candidate.metadata["tail_rise_bins"]) == 0
     lock_clock = int(candidate.target_mhz)
     tail = _tail_targets_above_lock(candidate)
-    assert max(tail) == lock_clock + 30
-    assert any(target > lock_clock for target in tail)
+    assert all(target == lock_clock for target in tail)
 
 
-def test_tail_tune_pass_result_keeps_raised_tail_metadata() -> None:
+@pytest.mark.parametrize("tail_bins", [0, 2])
+def test_deeper_pass_keeps_the_tested_tail_to_the_floor(tail_bins) -> None:
     curve = base_curve()
+    initial = _initial_candidate(curve, voltage_mv=1000, lock_mhz=2240)
+    probed: list[VfCurveCandidate] = []
+
+    def probe(candidate: VfCurveCandidate) -> VoltageProbeOutcome:
+        probed.append(candidate)
+        return _passing_outcome()
+
     result = run_efficiency_uv_loop(
         curve,
-        settings=_settings(min_search_voltage_mv=950),
-        initial_stable_candidate=_initial_candidate(curve, voltage_mv=1000, lock_mhz=2240),
-        io=_all_pass_io(),
+        settings=replace(_settings(min_search_voltage_mv=950), tail_rise_bins=tail_bins),
+        initial_stable_candidate=initial,
+        io=BaseUvLoopIO(
+            probe_candidate=probe,
+            write_verified_candidate=lambda *_: None,
+            mark_unsafe_candidate=lambda *_: None,
+        ),
         min_search_voltage_mv=825,
-        initial_tail_rise_bins=0,
+        initial_tail_rise_bins=tail_bins,
         log=lambda _message: None,
     )
 
     candidate = result.stable_candidate
-    # Pass 1 stopped at 950 (its own floor); the tail-tune pass continued to
-    # the efficiency floor with the raised tail built into every candidate.
+    # Pass 1 stopped at 950; every deeper candidate retains the tested tail.
     assert candidate.voltage_mv == 825
-    assert int(candidate.metadata["tail_rise_bins"]) == 2
+    assert int(candidate.metadata["tail_rise_bins"]) == tail_bins
+    assert all(c.metadata["tail_rise_bins"] == tail_bins for c in probed)
     tail = _tail_targets_above_lock(candidate)
-    assert max(tail) == int(candidate.target_mhz) + 30
+    assert max(tail) == int(candidate.target_mhz) + 15 * tail_bins
 
 
-def test_raised_tail_rebuild_is_persisted_through_sweep_io() -> None:
+def test_flat_tail_candidate_is_persisted_through_sweep_io() -> None:
     curve = base_curve()
     written: list[VfCurveCandidate] = []
     probe_marker = object()
@@ -209,12 +196,10 @@ def test_raised_tail_rebuild_is_persisted_through_sweep_io() -> None:
         log=lambda _message: None,
     )
 
-    # Crash recovery and the final-choice UI restore from the persisted
-    # verified-candidate records, so the raised-tail rebuild must be written
-    # back through the sweep IO, not only returned in memory.
+    # Crash recovery and final choice must retain the tested flat shape.
     assert written
     assert written[-1] is result.stable_candidate
-    assert int(written[-1].metadata["tail_rise_bins"]) == 2
+    assert int(written[-1].metadata["tail_rise_bins"]) == 0
 
 
 def test_non_efficiency_mode_returns_first_pass_unchanged() -> None:

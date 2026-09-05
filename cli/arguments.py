@@ -116,8 +116,9 @@ def parse_arguments(argv):
         default=None,
         metavar="mV",
         help=(
-            "Lowest voltage bin Auto-UV may try. Overrides the detected GPU "
-            "table floor and the percentage-drop fallback."
+            "Lowest voltage for the selected undervolt point. Overrides the detected GPU "
+            "table floor and the percentage-drop fallback. Lower-voltage curve "
+            "transitions are checked separately at their lower clocks."
         ),
     )
     auto_uv_group.add_argument(

@@ -65,6 +65,9 @@ class AutoUvProbeSummary:
     telemetry_sample_count: int = 0
     fps_stddev: float | None = None
     fps_variance_pct: float | None = None
+    # Exact applied geometry belonging to these measurements. Selection must
+    # not reconstruct another curve from the voltage/clock label.
+    tested_plan: list[dict] | None = None
 
 
 @dataclass(slots=True)

@@ -705,7 +705,7 @@ def test_runs_table_compacts_metric_delta_columns() -> None:
     assert table.widget.item(1, table.FPS_COLUMN).text() == "160.00 (+6.67%)"
     assert table.widget.item(1, table.POWER_COLUMN).text() == "270.00 (-10.00%)"
     assert table.widget.item(1, table.PERF_CAP_COLUMN).text() == ("sw-power+hw-thermal")
-    assert table.widget.item(1, table.FPSW_COLUMN).text() == "0.75 (+50.00%)"
+    assert table.widget.item(1, table.FPSW_COLUMN).text() == "0.7500 (+50.00%)"
     assert (
         table.widget.item(1, table.POWER_COLUMN)
         .toolTip()
@@ -1432,10 +1432,10 @@ def test_final_choice_table_uses_profile_delta_rendering_for_fps_columns() -> No
     regressed_fps = item_for("regressed", FINAL_CHOICE_FPS_SORT_COLUMN)
     regressed_power = item_for("regressed", 6)
 
-    assert efficient_fpsw.text() == "0.75 (+50.00%)"
+    assert efficient_fpsw.text() == "0.7500 (+50.00%)"
     assert efficient_fps.text() == "160.00 (+6.67%)"
     assert efficient_power.text() == "200.00 (-20.00%)"
-    assert regressed_fpsw.text() == "0.45 (-10.00%)"
+    assert regressed_fpsw.text() == "0.4500 (-10.00%)"
     assert regressed_fps.text() == "140.00 (-6.67%)"
     assert regressed_power.text() == "270.00 (+8.00%)"
     assert efficient_fpsw.foreground().color().name() == "#55d27a"
@@ -1558,7 +1558,7 @@ def test_auto_uv_preset_defaults_and_gpu_table_default() -> None:
     assert DEFAULT_AUTO_UV_MAX_DROP_PCT == 10.0
     assert AUTO_UV_DROP_REFERENCE_VOLTAGE_MV == 1000
     assert DEFAULT_AUTO_UV_MAX_CLOCK_DROP_PCT == 12.5
-    assert DEFAULT_AUTO_UV_TAIL_RISE_BINS == 0
+    assert DEFAULT_AUTO_UV_TAIL_RISE_BINS == 2
     assert DEFAULT_AUTO_UV_BALANCED_TAIL_RISE_BINS == 4
     assert DEFAULT_AUTO_UV_PERFORMANCE_TAIL_RISE_BINS == 4
     efficiency = _auto_uv_preset(AUTO_UV_PRESET_EFFICIENCY)
@@ -1566,7 +1566,7 @@ def test_auto_uv_preset_defaults_and_gpu_table_default() -> None:
     performance = _auto_uv_preset(AUTO_UV_PRESET_PERFORMANCE)
     assert (efficiency.auto_uv_mode, efficiency.tail_rise_bins) == (
         "efficiency",
-        0,
+        2,
     )
     assert (balanced.auto_uv_mode, balanced.tail_rise_bins) == (
         "balanced",

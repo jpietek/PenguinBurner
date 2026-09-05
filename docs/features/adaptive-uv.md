@@ -17,9 +17,9 @@ tab (right-click a profile → **Assign Tier**) or from the CLI:
 
 | Tier | Intent | Auto-UV tail-rise bins |
 | --- | --- | --- |
-| **Efficiency** | Lowest practical power, flat post-lock curve | `0` |
-| **Balanced** | Moderate clock tail | `≥ 4` |
-| **Performance** | Preserve clock, highest headroom | `≥ 6` |
+| **Efficiency** | Lowest practical power, modest clock tail | `2` |
+| **Balanced** | Moderate clock tail | `4` |
+| **Performance** | Higher Auto-OC clock target | `4` |
 
 Choose **None** to remove a tier assignment. The tier of a freshly generated
 profile is inferred from the scan's performance-bias preset, so a normal

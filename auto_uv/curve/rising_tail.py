@@ -1,6 +1,6 @@
 """Shape the optional rising tail above an Auto-UV lock voltage.
 
-The default Auto-UV curve remains flat. A non-zero tail lets a small number of
+A zero-bin curve remains flat. A non-zero tail lets a small number of
 higher-voltage bins rise softly while still capping the rest of the tail.
 """
 

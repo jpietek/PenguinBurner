@@ -334,20 +334,19 @@ def probe_voltage_candidate(
                 f"using saturated telemetry tail samples={len(summary_samples)}/"
                 f"{len(measurement_samples)} for base-load measurement",
             )
-        return (
-            summarize_q2rtx_cuda_probe(
-                candidate_voltage_mv=candidate_voltage_mv,
-                lock_clock_mhz=lock_clock_mhz,
-                live_voltage_before_mv=live_voltage_before_mv,
-                live_voltage_after_mv=live_voltage_after_mv,
-                used_companion_load=bool(q2rtx_config.companion_command),
-                power_limit_w=power_limit_w,
-                result=result,
-                telemetry_samples=summary_samples,
-                use_power_limit_floor=use_power_limit_floor,
-            ),
-            result,
+        summary = summarize_q2rtx_cuda_probe(
+            candidate_voltage_mv=candidate_voltage_mv,
+            lock_clock_mhz=lock_clock_mhz,
+            live_voltage_before_mv=live_voltage_before_mv,
+            live_voltage_after_mv=live_voltage_after_mv,
+            used_companion_load=bool(q2rtx_config.companion_command),
+            power_limit_w=power_limit_w,
+            result=result,
+            telemetry_samples=summary_samples,
+            use_power_limit_floor=use_power_limit_floor,
         )
+        summary.tested_plan = [dict(point) for point in candidate_plan]
+        return summary, result
     finally:
         if mark_in_progress:
             clear_probe_in_progress_marker()

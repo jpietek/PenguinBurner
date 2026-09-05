@@ -88,6 +88,7 @@ from auto_uv.gpu.memory_clock_offset_user_option import (
     driver_memory_offset_limit_mhz,
 )
 from auto_uv.scan_mode.efficiency_fps_per_w_policy import (
+    best_efficiency_candidate_index,
     derive_efficiency_stop_streak_from_fps_variance,
 )
 from auto_uv.domain.events import AutoUvEventCallback, emit_auto_uv_event
@@ -104,10 +105,6 @@ from auto_uv.run.voltage_sweep_state import (
     LowerVoltageSweepEvent,
     LowerVoltageSweepResult,
     VoltageProbeOutcome,
-)
-from auto_uv.curve.shipped_plan import (
-    restore_stock_below_validated_floor,
-    validated_floor_voltage_mv,
 )
 from auto_uv.final_verification.crash_marker import memory_offset_from_gpu_policy
 from auto_uv.final_verification.main_loop import run_final_verification_and_save
@@ -1056,7 +1053,7 @@ def run_adaptive_tier_scans(
 
     A single tail-less sweep cannot reproduce the per-tier held clocks — the
     rising tail compounds through the measured-clock ratchet, so each tier
-    must descend with its OWN tail (efficiency +2 tail-tune to the floor,
+    must descend with its OWN tail (efficiency +2 to the floor,
     balanced +4 to the FPS/W wall, performance +4 then the Auto-OC climb).
     Stock and flattened baselines are shared when power, memory and tail
     settings match; each tier keeps its own clock-loss allowance. Because Balanced
@@ -1698,8 +1695,7 @@ ADAPTIVE_TIER_ORDER = (
 def adaptive_tier_descent_tail_rise_bins(tier_mode: str) -> int:
     """The rising tail each tier descends WITH.
 
-    Efficiency descends tail-less in pass 1 and raises the tail by two bins
-    in its tail-tune pass (run_efficiency_uv_loop). Balanced and performance
+    Efficiency keeps two rising bins through both voltage passes. Balanced and performance
     descend with their full tail the whole way — the tail is what holds the
     measured clock up through the ratchet, so it must be applied on descent,
     not decorated on afterward."""
@@ -1964,6 +1960,34 @@ def select_final_scan_candidate(
             measured_baseline_clock_mhz=float(measured_baseline_clock_mhz),
         )
 
+    if selection_mode == AUTO_UV_MODE_EFFICIENCY:
+        # Select across the passed descent and climb, carrying the measured
+        # candidate's actual plan rather than rebuilding it from its label.
+        clock_floor = (
+            float(measured_baseline_clock_mhz) * selection_min_core_clock_pct / 100.0
+        )
+        measured_candidates = [
+            probe
+            for probe in stable_history
+            if getattr(probe, "tested_plan", None) is not None
+            and float(probe.avg_core_clock_mhz or 0.0) >= clock_floor
+        ]
+        selected_index = best_efficiency_candidate_index(measured_candidates)
+        if selected_index is not None:
+            final_probe = measured_candidates[selected_index]
+            final_plan = [dict(point) for point in final_probe.tested_plan or []]
+            final_voltage_mv = int(final_probe.candidate_voltage_mv)
+            final_lock_clock_mhz = int(final_probe.lock_clock_mhz)
+            if "clock_reclaim_selected_mhz" in final_auto_oc_metadata:
+                final_auto_oc_metadata["clock_reclaim_selected_mhz"] = (
+                    final_lock_clock_mhz
+                )
+
+    # Every tier carries the selected measurement's complete curve into the
+    # final choice and soak, including Performance's Auto-OC selection.
+    if final_probe is not None and final_probe.tested_plan is not None:
+        final_plan = [dict(point) for point in final_probe.tested_plan]
+
     if bool(runtime_options.get("auto_uv_require_final_choice")):
         (
             final_plan,
@@ -1992,20 +2016,6 @@ def select_final_scan_candidate(
         final_verification_duration_s = int(selected_final_verification_duration_s)
         if selected_stable_probe is not None:
             final_probe = selected_stable_probe
-
-    # Whatever plan leaves selection — descent candidate, Auto-OC sweep, or a
-    # dialog pick — bins below the lowest voltage this scan actually probed
-    # are scan machinery, not validated operating points; they ship as stock
-    # (the 0.6.6 contract). Applied before final verification so the soak
-    # tests the exact curve that ships.
-    final_plan = restore_stock_below_validated_floor(
-        final_plan,
-        floor_voltage_mv=validated_floor_voltage_mv(
-            stable_history,
-            fallback_voltage_mv=int(final_voltage_mv),
-        ),
-        lock_clock_mhz=int(final_lock_clock_mhz),
-    )
 
     return FinalScanCandidate(
         plan=final_plan,
@@ -2124,16 +2134,6 @@ def choose_next_candidate_after_final_failure(
         "final-verify",
         "retrying saved candidate "
         f"{int(selected_voltage_mv)}mV@{int(selected_lock_clock_mhz)}MHz",
-    )
-    # Retry candidates ship under the same contract as first selections:
-    # stock below the scan's validated floor.
-    selected_plan = restore_stock_below_validated_floor(
-        selected_plan,
-        floor_voltage_mv=validated_floor_voltage_mv(
-            stable_history,
-            fallback_voltage_mv=int(selected_voltage_mv),
-        ),
-        lock_clock_mhz=int(selected_lock_clock_mhz),
     )
     return FinalScanCandidate(
         plan=selected_plan,
