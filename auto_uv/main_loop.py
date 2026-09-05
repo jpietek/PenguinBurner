@@ -62,11 +62,9 @@ from ui.features.auto_uv.candidate_choice import (
 )
 from auto_uv.efficiency_tune.voltage_floor import min_search_voltage_mv
 from auto_uv.gpu.gpu_vf_curve_applier import open_live_gpu_vf_curve_applier
-from auto_uv.base_uv_loop import BaseUvLoopIO
-from auto_uv.balanced_uv_loop import run_balanced_uv_loop
+from auto_uv.base_uv_loop import BaseUvLoopIO, run_base_uv_loop
 from auto_uv.efficiency_uv_loop import run_efficiency_uv_loop
 from auto_uv.performance_uv_loop import (
-    run_performance_uv_loop,
     select_power_bound_clock_reclaim_candidate,
     select_performance_auto_oc_candidate,
 )
@@ -531,17 +529,10 @@ def run_voltage_frequency_undervolt_main_loop(
             mark_unsafe_candidate=lambda _candidate, _outcome: None,
             record_passed_candidate=record_passed_candidate,
         )
-        resumed_previous_crash = False
 
         def finish_with_final_verification(
             *,
-            final_stable_plan: list[dict],
-            final_stable_voltage_mv: int,
-            final_stable_lock_clock_mhz: int,
-            final_stable_probe: AutoUvProbeSummary | None,
-            selected_final_verification_duration_s: int,
-            final_tail_rise_bins: int,
-            final_auto_oc_metadata: dict | None = None,
+            selection: FinalScanCandidate,
             final_auto_uv_mode: str | None = None,
             final_profile_tier: str | None = None,
             # Adaptive tiers verify against THEIR clock-drop margin, not the
@@ -579,15 +570,15 @@ def run_voltage_frequency_undervolt_main_loop(
                 build_voltage_scan_result=build_voltage_scan_result,
                 log=log,
                 reader=gpu.reader,
-                stable_plan=final_stable_plan,
-                stable_voltage_mv=int(final_stable_voltage_mv),
-                stable_lock_clock_mhz=int(final_stable_lock_clock_mhz),
-                stable_probe=final_stable_probe,
+                stable_plan=selection.plan,
+                stable_voltage_mv=int(selection.voltage_mv),
+                stable_lock_clock_mhz=int(selection.lock_clock_mhz),
+                stable_probe=selection.probe,
                 stable_history=selected_stable_history,
                 probe_history=probe_history,
                 q2rtx_config=q2rtx_config,
                 final_verification_duration_s=int(
-                    selected_final_verification_duration_s
+                    selection.verification_duration_s
                 ),
                 start_voltage_mv=int(selected_baseline_candidate.voltage_mv),
                 measured_clock_mhz=float(selected_measured_baseline_clock_mhz),
@@ -607,275 +598,274 @@ def run_voltage_frequency_undervolt_main_loop(
                     if final_clock_drop_margin_pct is not None
                     else settings.final_clock_drop_margin_pct
                 ),
-                tail_rise_bins=int(final_tail_rise_bins),
+                tail_rise_bins=int(selection.tail_rise_bins),
                 auto_uv_mode=str(final_auto_uv_mode or settings.auto_uv_mode),
                 generated_profile_tier=(
                     final_profile_tier
                     if final_profile_tier is not None
                     else run_profile_tier
                 ),
-                auto_oc_metadata=dict(final_auto_oc_metadata or {}),
+                auto_oc_metadata=dict(selection.auto_oc_metadata or {}),
                 event_callback=event_callback,
             )
 
         user_stop_final_choice = False
         adaptive_tier_phase = False
         try:
-            if not bool(resumed_previous_crash):
-                base_loop_settings = AutoUvScanSettings(
-                    start_voltage_mv=int(baseline_candidate.voltage_mv),
-                    min_search_voltage_mv=int(effective_min_search_voltage_mv),
-                    baseline_core_clock_mhz=float(baseline_target.measured_clock_mhz),
-                    auto_uv_mode=settings.auto_uv_mode,
-                    min_core_clock_pct=float(settings.min_performance_core_clock_pct),
-                    reference_actual_voltage_mv=stable_probe.avg_voltage_mv,
-                    efficiency_stop_streak=int(efficiency_stop_streak_default.value),
-                    min_efficiency_stop_voltage_drop_pct=float(
-                        getattr(
-                            settings,
-                            "min_efficiency_stop_voltage_drop_pct",
-                            10.0,
-                        )
-                    ),
-                    tail_rise_bins=int(descent_tail_rise_bins),
-                )
-                initial_stable_outcome = VoltageProbeOutcome(
-                    decision=baseline_outcome.decision,
-                    measured_core_clock_mhz=stable_probe.avg_core_clock_mhz,
-                    measured_voltage_mv=stable_probe.avg_voltage_mv,
-                    raw_probe=stable_probe,
-                    raw_result=baseline_outcome.raw_result,
-                )
-                if settings.auto_uv_mode == AUTO_UV_MODE_ADAPTIVE:
-                    # A stop anywhere in the adaptive run must abort cleanly:
-                    # the classic user-stop final-choice fallback would save a
-                    # fourth, tier-less profile shadowing the confirmed ones,
-                    # so the guard is armed before the first tier's descent.
-                    adaptive_tier_phase = True
-                    baseline_cache = {
-                        (
-                            positive_int(gpu.power_limit_w),
-                            memory_offset_from_gpu_policy(gpu.translated_gpu_policy)
-                            or 0,
-                            int(tail_rise_bins),
-                        ): (
-                            AUTO_UV_MODE_EFFICIENCY,
-                            AdaptiveTierBaseline(
-                                runner=runner,
-                                candidate=baseline_candidate,
-                                target=baseline_target,
-                                outcome=initial_stable_outcome,
-                                stable_probe=stable_probe,
-                                discovery_summary=discovery_summary,
-                                min_search_voltage_mv=int(
-                                    effective_min_search_voltage_mv
+            base_loop_settings = AutoUvScanSettings(
+                start_voltage_mv=int(baseline_candidate.voltage_mv),
+                min_search_voltage_mv=int(effective_min_search_voltage_mv),
+                baseline_core_clock_mhz=float(baseline_target.measured_clock_mhz),
+                auto_uv_mode=settings.auto_uv_mode,
+                min_core_clock_pct=float(settings.min_performance_core_clock_pct),
+                reference_actual_voltage_mv=stable_probe.avg_voltage_mv,
+                efficiency_stop_streak=int(efficiency_stop_streak_default.value),
+                min_efficiency_stop_voltage_drop_pct=float(
+                    getattr(
+                        settings,
+                        "min_efficiency_stop_voltage_drop_pct",
+                        10.0,
+                    )
+                ),
+                tail_rise_bins=int(descent_tail_rise_bins),
+            )
+            initial_stable_outcome = VoltageProbeOutcome(
+                decision=baseline_outcome.decision,
+                measured_core_clock_mhz=stable_probe.avg_core_clock_mhz,
+                measured_voltage_mv=stable_probe.avg_voltage_mv,
+                raw_probe=stable_probe,
+                raw_result=baseline_outcome.raw_result,
+            )
+            if settings.auto_uv_mode == AUTO_UV_MODE_ADAPTIVE:
+                # A stop anywhere in the adaptive run must abort cleanly:
+                # the classic user-stop final-choice fallback would save a
+                # fourth, tier-less profile shadowing the confirmed ones,
+                # so the guard is armed before the first tier's descent.
+                adaptive_tier_phase = True
+                baseline_cache = {
+                    (
+                        positive_int(gpu.power_limit_w),
+                        memory_offset_from_gpu_policy(gpu.translated_gpu_policy)
+                        or 0,
+                        int(tail_rise_bins),
+                    ): (
+                        AUTO_UV_MODE_EFFICIENCY,
+                        AdaptiveTierBaseline(
+                            runner=runner,
+                            candidate=baseline_candidate,
+                            target=baseline_target,
+                            outcome=initial_stable_outcome,
+                            stable_probe=stable_probe,
+                            discovery_summary=discovery_summary,
+                            min_search_voltage_mv=int(
+                                effective_min_search_voltage_mv
+                            ),
+                        ),
+                    )
+                }
+
+                def configure_tier_probe_runner(
+                    min_core_clock_pct: float,
+                ) -> AutoUvProbeRunner:
+                    # Rebinds the closed-over runner so probe_candidate
+                    # evaluates this tier's probes against the tier's own
+                    # clock floor (the runner dataclass is frozen).
+                    nonlocal runner
+                    runner = replace(
+                        runner,
+                        power_limit_w=positive_int(gpu.power_limit_w),
+                        min_performance_core_clock_pct=float(min_core_clock_pct),
+                    )
+                    return runner
+
+                def prepare_tier_baseline(
+                    *,
+                    tier_mode: str,
+                    tier_runner: AutoUvProbeRunner,
+                    tier_tail_rise_bins: int,
+                ) -> AdaptiveTierBaseline:
+                    policy_key = (
+                        positive_int(gpu.power_limit_w),
+                        memory_offset_from_gpu_policy(gpu.translated_gpu_policy)
+                        or 0,
+                        int(tier_tail_rise_bins),
+                    )
+                    cached = baseline_cache.get(policy_key)
+                    if cached is not None:
+                        source_tier, measured = cached
+                        # Baseline probes establish the reference and do
+                        # not enforce a tier's clock floor. Rebind the
+                        # runner so subsequent probes use this tier's own
+                        # allowance against the shared measured reference.
+                        prepared = replace(
+                            measured,
+                            runner=replace(
+                                tier_runner,
+                                start_voltage_mv=int(measured.candidate.voltage_mv),
+                                baseline_clock_mhz=float(
+                                    measured.target.measured_clock_mhz
                                 ),
                             ),
-                        )
-                    }
-
-                    def configure_tier_probe_runner(
-                        min_core_clock_pct: float,
-                    ) -> AutoUvProbeRunner:
-                        # Rebinds the closed-over runner so probe_candidate
-                        # evaluates this tier's probes against the tier's own
-                        # clock floor (the runner dataclass is frozen).
-                        nonlocal runner
-                        runner = replace(
-                            runner,
-                            power_limit_w=positive_int(gpu.power_limit_w),
-                            min_performance_core_clock_pct=float(min_core_clock_pct),
-                        )
-                        return runner
-
-                    def prepare_tier_baseline(
-                        *,
-                        tier_mode: str,
-                        tier_runner: AutoUvProbeRunner,
-                        tier_tail_rise_bins: int,
-                    ) -> AdaptiveTierBaseline:
-                        policy_key = (
-                            positive_int(gpu.power_limit_w),
-                            memory_offset_from_gpu_policy(gpu.translated_gpu_policy)
-                            or 0,
-                            int(tier_tail_rise_bins),
-                        )
-                        cached = baseline_cache.get(policy_key)
-                        if cached is not None:
-                            source_tier, measured = cached
-                            # Baseline probes establish the reference and do
-                            # not enforce a tier's clock floor. Rebind the
-                            # runner so subsequent probes use this tier's own
-                            # allowance against the shared measured reference.
-                            prepared = replace(
-                                measured,
-                                runner=replace(
-                                    tier_runner,
-                                    start_voltage_mv=int(measured.candidate.voltage_mv),
-                                    baseline_clock_mhz=float(
-                                        measured.target.measured_clock_mhz
-                                    ),
-                                ),
-                            )
-                            retarget_clock_ceiling_for_candidate(
-                                gpu.clock_ceiling, prepared.candidate
-                            )
-                            log_phase(
-                                log,
-                                "auto-uv",
-                                f"adaptive {tier_mode} reusing {source_tier} stock "
-                                "and flattened baselines "
-                                f"power-limit={_format_power_limit_w(gpu.power_limit_w)}",
-                            )
-                            emit_auto_uv_event(
-                                event_callback,
-                                "tier_baseline_reused",
-                                tier=tier_mode,
-                                source_tier=source_tier,
-                                power_limit_w=positive_int(gpu.power_limit_w),
-                            )
-                            return prepared
-                        # A stock baseline must not inherit the dynamic core
-                        # ceiling from the previous flattened candidate.
-                        if gpu.clock_ceiling is not None:
-                            gpu.clock_ceiling.close()
-                        tier_discovery_summary, tier_discovery_result = (
-                            run_discovery_probe_with_runner(
-                                base_curve,
-                                runner=tier_runner,
-                                log=log,
-                                event_callback=event_callback,
-                                label=f"{str(tier_mode)} stock curve",
-                            )
-                        )
-                        probe_history.append(tier_discovery_summary)
-                        if not bool(getattr(tier_discovery_result, "success", False)):
-                            raise AutoUvError(
-                                f"adaptive {str(tier_mode)} stock baseline failed "
-                                "the Q2RTX probe: "
-                                f"{getattr(tier_discovery_result, 'reason', 'unknown')}"
-                            )
-                        tier_baseline_candidate, tier_baseline_target = (
-                            build_loaded_baseline_candidate(
-                                base_curve,
-                                discovery_summary=tier_discovery_summary,
-                                discovery_result=tier_discovery_result,
-                                power_limit_w=positive_int(gpu.power_limit_w),
-                                tail_rise_bins=int(tier_tail_rise_bins),
-                            )
                         )
                         retarget_clock_ceiling_for_candidate(
-                            gpu.clock_ceiling,
-                            tier_baseline_candidate,
-                        )
-                        tier_runner = replace(
-                            tier_runner,
-                            power_limit_w=positive_int(gpu.power_limit_w),
-                            start_voltage_mv=int(tier_baseline_candidate.voltage_mv),
-                            baseline_clock_mhz=float(
-                                tier_baseline_target.measured_clock_mhz
-                            ),
-                        )
-                        tier_baseline_outcome = tier_runner.probe_baseline_candidate(
-                            tier_baseline_candidate
-                        )
-                        if tier_baseline_outcome.raw_probe is not None:
-                            probe_history.append(tier_baseline_outcome.raw_probe)
-                        if not tier_baseline_outcome.decision.passed:
-                            raise AutoUvError(
-                                f"adaptive {str(tier_mode)} flattened baseline "
-                                "failed the Q2RTX probe: "
-                                f"{tier_baseline_outcome.decision.reason}"
-                            )
-                        tier_stable_probe = require_probe_summary(
-                            tier_baseline_outcome
-                        )
-                        tier_baseline_candidate = adjust_baseline_to_measured_clock(
-                            base_curve,
-                            candidate=tier_baseline_candidate,
-                            stable_probe=tier_stable_probe,
-                            gpu=gpu,
-                            tail_rise_bins=int(tier_tail_rise_bins),
-                        )
-                        write_verified_candidate(
-                            tier_baseline_candidate,
-                            tier_stable_probe,
-                            discovery_summary=tier_discovery_summary,
-                            tail_rise_bins=int(tier_tail_rise_bins),
-                            configured_power_limit_w=positive_int(
-                                gpu.power_limit_w
-                            ),
-                        )
-                        tier_min_search_voltage_mv = min_search_voltage_mv(
-                            start_voltage_mv=int(tier_baseline_candidate.voltage_mv),
-                            configured_min_voltage_mv=settings.configured_min_voltage_mv,
-                            configured_max_drop_pct=float(
-                                settings.configured_max_drop_pct
-                            ),
-                            gpu_name=gpu.translated_gpu_policy.get("gpu_name"),
+                            gpu.clock_ceiling, prepared.candidate
                         )
                         log_phase(
                             log,
                             "auto-uv",
-                            f"adaptive {str(tier_mode)} capped baseline accepted "
-                            f"{int(tier_baseline_candidate.voltage_mv)}mV@"
-                            f"{int(tier_baseline_candidate.target_mhz)}MHz "
+                            f"adaptive {tier_mode} reusing {source_tier} stock "
+                            "and flattened baselines "
                             f"power-limit={_format_power_limit_w(gpu.power_limit_w)}",
                         )
-                        prepared = AdaptiveTierBaseline(
-                            runner=tier_runner,
-                            candidate=tier_baseline_candidate,
-                            target=tier_baseline_target,
-                            outcome=tier_baseline_outcome,
-                            stable_probe=tier_stable_probe,
-                            discovery_summary=tier_discovery_summary,
-                            min_search_voltage_mv=int(tier_min_search_voltage_mv),
+                        emit_auto_uv_event(
+                            event_callback,
+                            "tier_baseline_reused",
+                            tier=tier_mode,
+                            source_tier=source_tier,
+                            power_limit_w=positive_int(gpu.power_limit_w),
                         )
-                        baseline_cache[policy_key] = (tier_mode, prepared)
                         return prepared
-
-                    return run_adaptive_tier_scans(
-                        base_curve=base_curve,
-                        gpu=gpu,
-                        configure_tier_probe_runner=configure_tier_probe_runner,
-                        settings=settings,
-                        runtime_options=runtime_options,
-                        base_loop_settings=base_loop_settings,
-                        baseline_candidate=baseline_candidate,
-                        initial_stable_outcome=initial_stable_outcome,
-                        stable_probe=stable_probe,
-                        discovery_summary=discovery_summary,
-                        probe_history=probe_history,
-                        baseline_target=baseline_target,
-                        effective_min_search_voltage_mv=int(
-                            effective_min_search_voltage_mv
-                        ),
-                        unsafe_entries=unsafe_entries,
-                        prepare_tier_baseline=prepare_tier_baseline,
-                        finish_with_final_verification=finish_with_final_verification,
-                        event_callback=event_callback,
-                        log=log,
+                    # A stock baseline must not inherit the dynamic core
+                    # ceiling from the previous flattened candidate.
+                    if gpu.clock_ceiling is not None:
+                        gpu.clock_ceiling.close()
+                    tier_discovery_summary, tier_discovery_result = (
+                        run_discovery_probe_with_runner(
+                            base_curve,
+                            runner=tier_runner,
+                            log=log,
+                            event_callback=event_callback,
+                            label=f"{str(tier_mode)} stock curve",
+                        )
                     )
-                loop_result = run_preset_uv_loop(
-                    base_curve,
-                    settings=base_loop_settings,
-                    initial_stable_candidate=stable_candidate,
-                    io=loop_io,
-                    unsafe_entries=unsafe_entries,
+                    probe_history.append(tier_discovery_summary)
+                    if not bool(getattr(tier_discovery_result, "success", False)):
+                        raise AutoUvError(
+                            f"adaptive {str(tier_mode)} stock baseline failed "
+                            "the Q2RTX probe: "
+                            f"{getattr(tier_discovery_result, 'reason', 'unknown')}"
+                        )
+                    tier_baseline_candidate, tier_baseline_target = (
+                        build_loaded_baseline_candidate(
+                            base_curve,
+                            discovery_summary=tier_discovery_summary,
+                            discovery_result=tier_discovery_result,
+                            power_limit_w=positive_int(gpu.power_limit_w),
+                            tail_rise_bins=int(tier_tail_rise_bins),
+                        )
+                    )
+                    retarget_clock_ceiling_for_candidate(
+                        gpu.clock_ceiling,
+                        tier_baseline_candidate,
+                    )
+                    tier_runner = replace(
+                        tier_runner,
+                        power_limit_w=positive_int(gpu.power_limit_w),
+                        start_voltage_mv=int(tier_baseline_candidate.voltage_mv),
+                        baseline_clock_mhz=float(
+                            tier_baseline_target.measured_clock_mhz
+                        ),
+                    )
+                    tier_baseline_outcome = tier_runner.probe_baseline_candidate(
+                        tier_baseline_candidate
+                    )
+                    if tier_baseline_outcome.raw_probe is not None:
+                        probe_history.append(tier_baseline_outcome.raw_probe)
+                    if not tier_baseline_outcome.decision.passed:
+                        raise AutoUvError(
+                            f"adaptive {str(tier_mode)} flattened baseline "
+                            "failed the Q2RTX probe: "
+                            f"{tier_baseline_outcome.decision.reason}"
+                        )
+                    tier_stable_probe = require_probe_summary(
+                        tier_baseline_outcome
+                    )
+                    tier_baseline_candidate = adjust_baseline_to_measured_clock(
+                        base_curve,
+                        candidate=tier_baseline_candidate,
+                        stable_probe=tier_stable_probe,
+                        gpu=gpu,
+                        tail_rise_bins=int(tier_tail_rise_bins),
+                    )
+                    write_verified_candidate(
+                        tier_baseline_candidate,
+                        tier_stable_probe,
+                        discovery_summary=tier_discovery_summary,
+                        tail_rise_bins=int(tier_tail_rise_bins),
+                        configured_power_limit_w=positive_int(
+                            gpu.power_limit_w
+                        ),
+                    )
+                    tier_min_search_voltage_mv = min_search_voltage_mv(
+                        start_voltage_mv=int(tier_baseline_candidate.voltage_mv),
+                        configured_min_voltage_mv=settings.configured_min_voltage_mv,
+                        configured_max_drop_pct=float(
+                            settings.configured_max_drop_pct
+                        ),
+                        gpu_name=gpu.translated_gpu_policy.get("gpu_name"),
+                    )
+                    log_phase(
+                        log,
+                        "auto-uv",
+                        f"adaptive {str(tier_mode)} capped baseline accepted "
+                        f"{int(tier_baseline_candidate.voltage_mv)}mV@"
+                        f"{int(tier_baseline_candidate.target_mhz)}MHz "
+                        f"power-limit={_format_power_limit_w(gpu.power_limit_w)}",
+                    )
+                    prepared = AdaptiveTierBaseline(
+                        runner=tier_runner,
+                        candidate=tier_baseline_candidate,
+                        target=tier_baseline_target,
+                        outcome=tier_baseline_outcome,
+                        stable_probe=tier_stable_probe,
+                        discovery_summary=tier_discovery_summary,
+                        min_search_voltage_mv=int(tier_min_search_voltage_mv),
+                    )
+                    baseline_cache[policy_key] = (tier_mode, prepared)
+                    return prepared
+
+                return run_adaptive_tier_scans(
+                    base_curve=base_curve,
+                    gpu=gpu,
+                    configure_tier_probe_runner=configure_tier_probe_runner,
+                    settings=settings,
+                    runtime_options=runtime_options,
+                    base_loop_settings=base_loop_settings,
+                    baseline_candidate=baseline_candidate,
                     initial_stable_outcome=initial_stable_outcome,
-                    min_search_voltage_mv=int(effective_min_search_voltage_mv),
-                    initial_tail_rise_bins=int(descent_tail_rise_bins),
+                    stable_probe=stable_probe,
+                    discovery_summary=discovery_summary,
+                    probe_history=probe_history,
+                    baseline_target=baseline_target,
+                    effective_min_search_voltage_mv=int(
+                        effective_min_search_voltage_mv
+                    ),
+                    unsafe_entries=unsafe_entries,
+                    prepare_tier_baseline=prepare_tier_baseline,
+                    finish_with_final_verification=finish_with_final_verification,
+                    event_callback=event_callback,
                     log=log,
                 )
-                log_lower_voltage_sweep_events(log, loop_result.events)
-                stable_candidate = loop_result.stable_candidate
-                selected_probe = (
-                    loop_result.stable_outcome.raw_probe
-                    if loop_result.stable_outcome is not None
-                    else None
-                )
-                if selected_probe is not None:
-                    stable_probe = selected_probe
+            loop_result = run_preset_uv_loop(
+                base_curve,
+                settings=base_loop_settings,
+                initial_stable_candidate=stable_candidate,
+                io=loop_io,
+                unsafe_entries=unsafe_entries,
+                initial_stable_outcome=initial_stable_outcome,
+                min_search_voltage_mv=int(effective_min_search_voltage_mv),
+                initial_tail_rise_bins=int(descent_tail_rise_bins),
+                log=log,
+            )
+            log_lower_voltage_sweep_events(log, loop_result.events)
+            stable_candidate = loop_result.stable_candidate
+            selected_probe = (
+                loop_result.stable_outcome.raw_probe
+                if loop_result.stable_outcome is not None
+                else None
+            )
+            if selected_probe is not None:
+                stable_probe = selected_probe
         except KeyboardInterrupt:
             if adaptive_tier_phase:
                 # A stop during the per-tier dialogs/finals aborts cleanly;
@@ -932,15 +922,7 @@ def run_voltage_frequency_undervolt_main_loop(
         while True:
             try:
                 return finish_with_final_verification(
-                    final_stable_plan=final_selection.plan,
-                    final_stable_voltage_mv=int(final_selection.voltage_mv),
-                    final_stable_lock_clock_mhz=int(final_selection.lock_clock_mhz),
-                    final_stable_probe=final_selection.probe,
-                    selected_final_verification_duration_s=int(
-                        final_selection.verification_duration_s
-                    ),
-                    final_tail_rise_bins=int(final_tail_rise_bins),
-                    final_auto_oc_metadata=final_selection.auto_oc_metadata,
+                    selection=final_selection,
                 )
             except AutoUvError as exc:
                 if not final_verification_failure_can_offer_retry(
@@ -1007,16 +989,8 @@ def run_preset_uv_loop(
             initial_tail_rise_bins=int(initial_tail_rise_bins),
             log=log,
         )
-    if settings.auto_uv_mode == AUTO_UV_MODE_PERFORMANCE:
-        return run_performance_uv_loop(
-            base_curve,
-            settings=settings,
-            initial_stable_candidate=initial_stable_candidate,
-            io=io,
-            unsafe_entries=unsafe_entries,
-            initial_stable_outcome=initial_stable_outcome,
-        )
-    return run_balanced_uv_loop(
+    # Performance adds its Auto-OC climb after this shared descent.
+    return run_base_uv_loop(
         base_curve,
         settings=settings,
         initial_stable_candidate=initial_stable_candidate,
@@ -1355,15 +1329,7 @@ def run_adaptive_tier_scans(
                 points=vf_curve_event_points(tier_selection.plan),
             )
             tier_scan_result = finish_with_final_verification(
-                final_stable_plan=tier_selection.plan,
-                final_stable_voltage_mv=int(tier_selection.voltage_mv),
-                final_stable_lock_clock_mhz=int(tier_selection.lock_clock_mhz),
-                final_stable_probe=tier_selection.probe,
-                selected_final_verification_duration_s=int(
-                    tier_selection.verification_duration_s
-                ),
-                final_tail_rise_bins=int(tier_selection.tail_rise_bins),
-                final_auto_oc_metadata=tier_selection.auto_oc_metadata,
+                selection=tier_selection,
                 final_auto_uv_mode=str(tier_mode),
                 final_profile_tier=str(tier_mode),
                 final_min_core_clock_pct=float(tier_min_core_clock_pct),
@@ -2359,7 +2325,6 @@ def run_recovered_previous_crash_selection(
         auto_oc_metadata=dict(final_selection.auto_oc_metadata or {}),
         event_callback=event_callback,
     )
-
 
 
 

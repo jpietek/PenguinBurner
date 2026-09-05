@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Protocol, cast
+from typing import Callable, Protocol
+
+from auto_uv.shared.positive_int import positive_int
 
 from auto_uv.domain.console_log import log_phase
 from auto_uv.domain.types import (
@@ -38,7 +40,13 @@ class AutoOcProbeRunner(Protocol):
     def probe_candidate(
         self,
         candidate: VfCurveCandidate,
-        **kwargs: Any,
+        *,
+        stable_history: list[AutoUvProbeSummary],
+        phase_label: str,
+        enforce_target_core_clock_floor: bool,
+        summarize_saturated_tail: bool,
+        use_power_limit_floor: bool,
+        use_companion_load: bool,
     ) -> VoltageProbeOutcome: ...
 
 
@@ -82,7 +90,9 @@ def run_auto_oc_candidate_search(
         target_profile_id=str(target_profile_id),
     )
     if endpoint is None:
-        return _skip(start_candidate, start_probe, "no-auto-oc-target")
+        return AutoOcSearchResult(
+            selected_candidate=start_candidate, selected_probe=start_probe
+        )
 
     ladder = build_auto_oc_ladder(
         base_curve,
@@ -450,26 +460,5 @@ def auto_oc_retry_voltages(
     ]
 
 
-def _skip(
-    candidate: VfCurveCandidate,
-    probe: AutoUvProbeSummary | None,
-    _reason: str,
-) -> AutoOcSearchResult:
-    return AutoOcSearchResult(
-        selected_candidate=candidate,
-        selected_probe=probe,
-    )
-
-
 def _format_clock(value: float | None) -> str:
     return "n/a" if value is None else f"{float(value):.0f}MHz"
-
-
-def positive_int(value: object | None) -> int | None:
-    if value is None:
-        return None
-    try:
-        parsed = int(cast(Any, value))
-    except (TypeError, ValueError):
-        return None
-    return parsed if parsed > 0 else None

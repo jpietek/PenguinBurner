@@ -1411,26 +1411,6 @@ def test_require_probe_summary_raises_without_probe() -> None:
         undervolt_main_loop.require_probe_summary(outcome)
 
 
-# --- run_auto_oc_candidate_search lazy import -----------------------------
-
-
-def test_run_auto_oc_candidate_search_delegates_to_auto_oc(monkeypatch) -> None:
-    import auto_uv.auto_oc.search as auto_oc_search
-
-    captured: dict[str, object] = {}
-
-    def fake_search(**kwargs):
-        captured.update(kwargs)
-        return "auto-oc-result"
-
-    monkeypatch.setattr(auto_oc_search, "run_auto_oc_candidate_search", fake_search)
-
-    result = performance_uv_loop.run_auto_oc_candidate_search(foo=1, bar="baz")
-
-    assert result == "auto-oc-result"
-    assert captured == {"foo": 1, "bar": "baz"}
-
-
 # --- consume_crash_cache --------------------------------------------------
 
 
@@ -2670,8 +2650,8 @@ def test_adaptive_tier_progress_events_are_chronological(monkeypatch) -> None:
 
     def fake_finish(**kwargs):
         return SimpleNamespace(
-            final_voltage_mv=int(kwargs["final_stable_voltage_mv"]),
-            lock_clock_mhz=int(kwargs["final_stable_lock_clock_mhz"]),
+            final_voltage_mv=int(kwargs["selection"].voltage_mv),
+            lock_clock_mhz=int(kwargs["selection"].lock_clock_mhz),
         )
 
     monkeypatch.setattr(main_loop, "run_adaptive_tier_descent", fake_descent)
@@ -2900,8 +2880,8 @@ def _adaptive_scan_kwargs(*, events, descent_calls, runtime_options=None):
 
     def fake_finish(**kwargs):
         return SimpleNamespace(
-            final_voltage_mv=int(kwargs["final_stable_voltage_mv"]),
-            lock_clock_mhz=int(kwargs["final_stable_lock_clock_mhz"]),
+            final_voltage_mv=int(kwargs["selection"].voltage_mv),
+            lock_clock_mhz=int(kwargs["selection"].lock_clock_mhz),
         )
 
     return main_loop, fake_descent, dict(
@@ -3266,8 +3246,8 @@ def test_rtx_5090_tier_cap_is_constant_across_every_phase(monkeypatch) -> None:
         tier = finish_kwargs["final_profile_tier"]
         phases.append((tier, "final-verification", int(gpu.power_limit_w)))
         return SimpleNamespace(
-            final_voltage_mv=int(finish_kwargs["final_stable_voltage_mv"]),
-            lock_clock_mhz=int(finish_kwargs["final_stable_lock_clock_mhz"]),
+            final_voltage_mv=int(finish_kwargs["selection"].voltage_mv),
+            lock_clock_mhz=int(finish_kwargs["selection"].lock_clock_mhz),
         )
 
     kwargs["prepare_tier_baseline"] = prepare_tier_baseline
@@ -3417,7 +3397,7 @@ def test_adaptive_power_limit_failure_aborts_before_tier_baseline(monkeypatch) -
         def apply_requested_power_limit(self, *, log, purpose):
             watts = int(self.requested_power_limit_w)
             if watts == 300:
-                raise AutoUvPowerLimitApplyError("503W-style tier cap write failed")
+                raise AutoUvPowerLimitApplyError("tier cap write failed")
             self.translated_gpu_policy["power_limit_w"] = watts
             self.requested_power_limit_w = None
             return watts
@@ -4001,8 +3981,8 @@ def test_adaptive_tiers_flow_per_tier_limits_into_probe_and_selection(
         )
         tier_power_requests.append(gpu.requested_power_limit_w)
         return SimpleNamespace(
-            final_voltage_mv=int(kwargs["final_stable_voltage_mv"]),
-            lock_clock_mhz=int(kwargs["final_stable_lock_clock_mhz"]),
+            final_voltage_mv=int(kwargs["selection"].voltage_mv),
+            lock_clock_mhz=int(kwargs["selection"].lock_clock_mhz),
         )
 
     monkeypatch.setattr(main_loop, "run_adaptive_tier_descent", fake_descent)

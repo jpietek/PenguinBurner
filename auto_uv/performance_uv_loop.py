@@ -9,12 +9,10 @@ from __future__ import annotations
 
 from typing import Callable
 
+from auto_uv.auto_oc.search import run_auto_oc_candidate_search
 from auto_uv.domain.console_log import log_phase
 from auto_uv.domain.types import AutoUvProbeSummary, VfCurveCandidate
-from auto_uv.base_uv_loop import BaseUvLoopIO, run_base_uv_loop
-from auto_uv.domain.scan_settings import AutoUvScanSettings
 from auto_uv.probes.runner import AutoUvProbeRunner
-from auto_uv.run.voltage_sweep_state import LowerVoltageSweepResult, VoltageProbeOutcome
 from auto_uv.scan_mode.auto_uv_mode import (
     AUTO_UV_MODE_BALANCED,
     AUTO_UV_MODE_EFFICIENCY,
@@ -24,37 +22,6 @@ from auto_uv.scan_mode.uv_limits import uv_limit_profile_target_for_gpu
 from auto_uv.scan_mode.efficiency_fps_per_w_policy import (
     best_efficiency_candidate_index,
 )
-
-
-def run_performance_uv_loop(
-    base_curve: list[dict],
-    *,
-    settings: AutoUvScanSettings,
-    initial_stable_candidate: VfCurveCandidate,
-    io: BaseUvLoopIO,
-    unsafe_entries: list[dict] | None = None,
-    initial_stable_outcome: VoltageProbeOutcome | None = None,
-) -> LowerVoltageSweepResult:
-    """Run the Performance preset's base undervolt pass.
-
-    The high-clock Auto-OC ladder runs later, after the base undervolt candidate
-    is known and before final verification.
-    """
-
-    return run_base_uv_loop(
-        base_curve,
-        settings=settings,
-        initial_stable_candidate=initial_stable_candidate,
-        io=io,
-        unsafe_entries=unsafe_entries,
-        initial_stable_outcome=initial_stable_outcome,
-    )
-
-
-def run_auto_oc_candidate_search(**kwargs):
-    from auto_uv.auto_oc.search import run_auto_oc_candidate_search as run_search
-
-    return run_search(**kwargs)
 
 
 def select_performance_auto_oc_candidate(

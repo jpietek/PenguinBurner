@@ -17,8 +17,7 @@ from dataclasses import replace
 from typing import Any, cast
 
 from auto_uv.auto_oc.search import AUTO_OC_WALL_SHORTFALL_TOLERANCE_MHZ
-from auto_uv.balanced_uv_loop import run_balanced_uv_loop
-from auto_uv.base_uv_loop import BaseUvLoopIO
+from auto_uv.base_uv_loop import BaseUvLoopIO, run_base_uv_loop
 from auto_uv.curve.measured_probe_lock_clock import probe_indicates_power_saturation
 from auto_uv.curve.vf_curve_flattening import build_flattened_plan
 from auto_uv.domain.scan_settings import AutoUvScanSettings
@@ -307,7 +306,7 @@ def test_descent_walks_down_instead_of_stopping_at_the_capped_clock() -> None:
     )
     unsafe: list[dict] = []
 
-    result = run_balanced_uv_loop(
+    result = run_base_uv_loop(
         curve,
         settings=AutoUvScanSettings(
             start_voltage_mv=start_voltage_mv,
