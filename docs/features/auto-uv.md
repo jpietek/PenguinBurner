@@ -54,6 +54,8 @@ combine lower-voltage points from other candidates into a new curve.
 Final verification runs Q2RTX and CUDA on that complete curve, preserving its
 selected voltage, clock, tail, and power limit throughout the soak and save.
 It uses the tier's normal clock-loss rules against its measured baseline.
+For a deliberately lower custom clock, the clock guard accounts for that
+reduction and the final FPS check uses the passed lower-clock measurement.
 It does not replace the curve with separate low-clock transition sweeps.
 Existing saved profiles are unchanged.
 
@@ -148,7 +150,7 @@ Auto-UV state, including unsafe-voltage history and recovery candidates.
 
 ## Presets / tiers
 
-![Auto-UV setup: GPU, preset, and Auto-OC targets](../assets/auto-uv-setup.png)
+![Auto-UV setup with the same Advanced controls for every tier](../assets/auto-uv-setup.png)
 
 Presets share a two-bin rising tail and differ in power policy, clock-loss
 allowance, and search targets. They map directly to
@@ -176,6 +178,48 @@ telemetry, Q2RTX, CUDA, profile verification, and runtime profile application.
 On multi-GPU systems, pick the card in the tuning dialog or pass `--gpu-index N`
 so the benchmark and the curve writer target the same physical GPU.
 
+Clock-loss thresholds are automatic for each GPU and tier, with a 12.5% fallback
+for unknown GPUs. The scan still checks loaded clocks during probing and final
+verification, accounting for sustained power-limit evidence. These thresholds
+are not editable.
+
+## Custom tier targets
+
+Each tier's Advanced page exposes voltage and clock targets. Default targets
+are optimized for most GPUs. Change them only if you understand GPU
+voltage/frequency tuning and the risks of instability or crashes.
+
+All three pages use the same order: voltage target (mV), core clock target
+(MHz), memory offset (MHz), and power limit (W).
+
+Clock ranges use the GPU table's default targets, independently of edits to
+other tiers:
+
+| Tier | Minimum clock | Maximum clock |
+| --- | --- | --- |
+| Efficiency | Default Efficiency minus 15% | Default Balanced |
+| Balanced | Default Efficiency | Default Performance |
+| Performance | Default Balanced | Default Performance plus 5%, rounded to the nearest MHz |
+
+These are allowed tuning ranges, not guaranteed stable operating points.
+For an RTX 5080 they are 2380–2800, 2800–2950, and 2800–3098 MHz.
+Voltage inputs use the editable live curve's range. The rising tail can operate
+above the target anchor.
+
+The normal voltage sweep runs first. When a custom clock target is lower than
+its result, Auto-UV tests decreasing clocks at that result's stable voltage,
+then verifies the selected combination. It does not run another voltage-down
+sweep. If the original sweep stopped above the requested voltage target, the
+scan reports that it retained the stable voltage. Higher clock targets use the
+existing tested Auto-OC climb toward the voltage and clock targets.
+Unchanged defaults preserve automatic tier selection and compatible
+Balanced-to-Performance sweep reuse.
+
+GPUs without table entries show **Auto**. Custom clock ranges use driver-reported
+supported clocks when available; if no range can be read, the clock remains
+Auto. An unavailable editable voltage range likewise keeps voltage Auto.
+No desktop GPU target is substituted for an unknown card.
+
 ## Useful flags
 
 | Flag | Purpose |
@@ -184,16 +228,17 @@ so the benchmark and the curve writer target the same physical GPU.
 | `--auto-uv-mode efficiency\|balanced\|performance` | select the same preset family as the GUI |
 | `--gpu-index N` | select one NVIDIA GPU on multi-GPU systems |
 | `--auto-uv-min-voltage-mv N` | explicit lowest voltage bin |
-| `--auto-uv-max-clock-drop-pct N` | allowed loaded-clock loss (preset-aware GPU table default, else `12.5`) |
 | `--auto-uv-memory-offset-mhz N` | memory clock V/F offset saved with the profile |
 | `--auto-uv-power-limit-w N` | power limit applied during the scan and saved with the profile |
 | `--auto-uv-tail-rise-bins N` | bins above lock point that may rise (`0` = flat) |
-| `--auto-oc-target-voltage-mv N` / `--auto-oc-target-clock-mhz N` | Performance Auto-OC ceilings |
-| `--auto-uv-<tier>-max-clock-drop-pct N` | full-scan per-tier clock-drop override (`<tier>` = `efficiency`/`balanced`/`performance`) |
+| `--auto-uv-<tier>-target-voltage-mv N` / `--auto-uv-<tier>-target-clock-mhz N` | tier targets for single or full scans |
+| `--auto-oc-target-voltage-mv N` / `--auto-oc-target-clock-mhz N` | legacy Performance target options, used when per-tier targets are absent |
 | `--auto-uv-<tier>-power-limit-w N` | full-scan per-tier power limit |
 | `--auto-uv-<tier>-memory-offset-mhz N` | full-scan per-tier memory offset |
 
-The CLI Auto-UV scan flags mirror the options exposed by the GUI tuning modal.
+Tier target flags mirror the GUI tuning modal. `<tier>` is `efficiency`,
+`balanced`, or `performance`. The older `--auto-uv-min-voltage-mv` option
+continues to control the initial voltage sweep floor.
 
 ## After the scan
 

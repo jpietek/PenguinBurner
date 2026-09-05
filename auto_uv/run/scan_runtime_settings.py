@@ -20,6 +20,7 @@ from auto_uv.domain.user_options import (
     AUTO_UV_METRIC_TUNING,
 )
 from auto_uv.scan_mode.uv_limits import uv_limit_clock_drop_pct_for_gpu
+from auto_uv.scan_mode.target_overrides import validate_tier_target_overrides
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +47,7 @@ def read_scan_runtime_settings(
     if int(q2rtx_config.duration_s) <= 0:
         raise AutoUvError("auto-UV voltage scan needs positive benchmark duration")
 
+    validate_tier_target_overrides(runtime_options, gpu_name=gpu_name)
     auto_uv_mode = normalize_auto_uv_mode(runtime_options.get("auto_uv_mode"))
     final_clock_drop_margin_pct = clock_drop_margin_pct(
         runtime_options,
@@ -80,15 +82,13 @@ def clock_drop_margin_pct(
     gpu_name: object | None = None,
     profile_id: str | None = None,
 ) -> float:
-    value = runtime_options.get("auto_uv_max_clock_drop_pct")
-    if value is None:
-        value = uv_limit_clock_drop_pct_for_gpu(
-            gpu_name,
-            profile_id=(
-                profile_id
-                or clock_drop_profile_id(runtime_options, auto_uv_mode=auto_uv_mode)
-            ),
-        )
+    value = uv_limit_clock_drop_pct_for_gpu(
+        gpu_name,
+        profile_id=(
+            profile_id
+            or clock_drop_profile_id(runtime_options, auto_uv_mode=auto_uv_mode)
+        ),
+    )
     if value is None:
         value = AUTO_UV_DEFAULTS.max_core_clock_drop_pct
     return max(0.0, min(100.0, float(value)))
@@ -119,20 +119,7 @@ def adaptive_tier_clock_drop_margin_pct(
     tier_mode: str,
     gpu_name: object | None = None,
 ) -> float:
-    """One adaptive tier's loaded clock-drop allowance in percent.
-
-    The tier's own option wins; otherwise the scan-wide chain resolves with
-    the tier's GPU-table row. Each tier descends with ITS margin — sharing
-    one scan-wide margin let the balanced tier descend with the efficiency
-    (loosest) allowance.
-    """
-    value = adaptive_tier_option(
-        runtime_options,
-        tier_mode=tier_mode,
-        option="max_clock_drop_pct",
-    )
-    if value is not None:
-        return max(0.0, min(100.0, float(cast(Any, value))))
+    """Resolve the automatic GPU-table clock-loss allowance for this tier."""
     return clock_drop_margin_pct(
         runtime_options,
         gpu_name=gpu_name,

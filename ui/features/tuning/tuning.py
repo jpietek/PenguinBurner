@@ -9,11 +9,8 @@ from auto_uv.scan_mode.auto_uv_mode import AUTO_UV_MODE_EFFICIENCY
 from auto_uv.scan_mode.auto_uv_mode import AUTO_UV_MODE_PERFORMANCE
 from auto_uv.scan_mode.uv_limits import (
     AUTO_UV_PERFORMANCE_OC_PROFILE_ID,
-    uv_limit_clock_drop_pct_for_gpu,
     uv_limit_power_limit_pct_for_gpu,
     uv_limit_profile_target_for_gpu,
-    uv_limit_voltage_floor_target_for_gpu,
-    voltage_drop_pct,
 )
 from common.penguin_burner_paths import default_runtime_config_path
 from drivers.nvidia.daemon_gpu import DaemonGpuClient
@@ -21,9 +18,6 @@ from drivers.nvidia.daemon_gpu import DaemonGpuClient
 from ui.features.tuning.gpu_selection import runtime_gpu_index
 
 
-DEFAULT_AUTO_UV_MAX_DROP_PCT = AUTO_UV_DEFAULTS.max_drop_pct
-AUTO_UV_DROP_REFERENCE_VOLTAGE_MV = 1000
-DEFAULT_AUTO_UV_MAX_CLOCK_DROP_PCT = AUTO_UV_DEFAULTS.max_core_clock_drop_pct
 DEFAULT_AUTO_UV_TAIL_RISE_BINS = AUTO_UV_DEFAULTS.tail_rise_bins
 DEFAULT_AUTO_UV_BALANCED_TAIL_RISE_BINS = AUTO_UV_DEFAULTS.balanced_tail_rise_bins
 DEFAULT_AUTO_UV_PERFORMANCE_TAIL_RISE_BINS = AUTO_UV_DEFAULTS.performance_tail_rise_bins
@@ -53,30 +47,12 @@ GPU_UNDERVOLTING_PURPOSE_TEXT = (
 
 
 @dataclass(frozen=True, slots=True)
-class AutoUvVoltageDropDefault:
-    value_pct: float
-    gpu_name: str | None
-    gpu_family: str | None
-    floor_voltage_mv: int | None
-    reference_voltage_mv: int | None
-    preset_matched: bool
-
-
-@dataclass(frozen=True, slots=True)
-class AutoUvPerformanceTargetDefault:
+class AutoUvTargetDefault:
     gpu_name: str | None
     gpu_family: str | None
     voltage_mv: int | None
     clock_mhz: int | None
     profile_id: str
-    preset_matched: bool
-
-
-@dataclass(frozen=True, slots=True)
-class AutoUvClockDropDefault:
-    value_pct: float
-    gpu_name: str | None
-    gpu_family: str | None
     preset_matched: bool
 
 
@@ -145,15 +121,6 @@ def auto_uv_preset(preset_id: object) -> AutoUvPreset:
     )
 
 
-def auto_uv_presets() -> tuple[AutoUvPreset, ...]:
-    return (
-        auto_uv_preset(AUTO_UV_PRESET_EFFICIENCY),
-        auto_uv_preset(AUTO_UV_PRESET_BALANCED),
-        auto_uv_preset(AUTO_UV_PRESET_PERFORMANCE),
-        auto_uv_preset(AUTO_UV_PRESET_ADAPTIVE),
-    )
-
-
 def auto_uv_scan_estimate_minutes(preset_id: object) -> tuple[int, int]:
     preset = auto_uv_preset(preset_id)
     return AUTO_UV_SCAN_ESTIMATE_MINUTES[preset.preset_id]
@@ -162,74 +129,6 @@ def auto_uv_scan_estimate_minutes(preset_id: object) -> tuple[int, int]:
 def auto_uv_scan_estimate_text(preset_id: object) -> str:
     minimum, maximum = auto_uv_scan_estimate_minutes(preset_id)
     return f"about {minimum}-{maximum} minutes"
-
-
-def auto_uv_voltage_drop_default(
-    *,
-    gpu_name: object | None = None,
-    gpu_index: int | None = None,
-    auto_uv_mode: object | None = None,
-    reference_voltage_mv: int = AUTO_UV_DROP_REFERENCE_VOLTAGE_MV,
-) -> AutoUvVoltageDropDefault:
-    detected_name = str(gpu_name).strip() if gpu_name else _query_gpu_name(gpu_index)
-    target = uv_limit_voltage_floor_target_for_gpu(
-        detected_name,
-        auto_uv_mode,
-    )
-    if target is None:
-        return AutoUvVoltageDropDefault(
-            value_pct=float(DEFAULT_AUTO_UV_MAX_DROP_PCT),
-            gpu_name=detected_name or None,
-            gpu_family=None,
-            # The loaded starting voltage is discovered by the baseline probe,
-            # not while this dialog helper runs. Leave the generic floor unset
-            # so the scan can derive 10% from that measured starting point.
-            floor_voltage_mv=None,
-            reference_voltage_mv=None,
-            preset_matched=False,
-        )
-    return AutoUvVoltageDropDefault(
-        value_pct=voltage_drop_pct(
-            start_voltage_mv=int(reference_voltage_mv),
-            floor_voltage_mv=int(target.voltage_mv),
-        ),
-        gpu_name=detected_name or None,
-        gpu_family=str(target.gpu_family),
-        floor_voltage_mv=int(target.voltage_mv),
-        reference_voltage_mv=int(reference_voltage_mv),
-        preset_matched=True,
-    )
-
-
-def auto_uv_clock_drop_default(
-    *,
-    gpu_name: object | None = None,
-    gpu_index: int | None = None,
-    preset_id: object | None = AUTO_UV_PRESET_EFFICIENCY,
-) -> AutoUvClockDropDefault:
-    detected_name = str(gpu_name).strip() if gpu_name else _query_gpu_name(gpu_index)
-    preset = auto_uv_preset(preset_id)
-    value_pct = uv_limit_clock_drop_pct_for_gpu(
-        detected_name,
-        # Callers pass a real tier id (the dialog keeps one page per profile);
-        # a plain "adaptive" request falls back to the efficiency (loosest)
-        # allowance, which bounds the deepest descent.
-        profile_id=_defaults_profile_id(preset, AUTO_UV_PRESET_EFFICIENCY),
-    )
-    target = uv_limit_profile_target_for_gpu(detected_name, "efficiency")
-    if value_pct is None:
-        return AutoUvClockDropDefault(
-            value_pct=float(DEFAULT_AUTO_UV_MAX_CLOCK_DROP_PCT),
-            gpu_name=detected_name or None,
-            gpu_family=None,
-            preset_matched=False,
-        )
-    return AutoUvClockDropDefault(
-        value_pct=float(value_pct),
-        gpu_name=detected_name or None,
-        gpu_family=str(target.gpu_family) if target is not None else None,
-        preset_matched=True,
-    )
 
 
 def auto_uv_power_limit_default(
@@ -306,16 +205,16 @@ def _positive_float(value: object) -> float | None:
     return number if number > 0.0 else None
 
 
-def auto_uv_performance_target_default(
+def auto_uv_target_default(
     *,
     gpu_name: object | None = None,
     gpu_index: int | None = None,
-) -> AutoUvPerformanceTargetDefault:
+    profile_id: str = AUTO_UV_PERFORMANCE_OC_PROFILE_ID,
+) -> AutoUvTargetDefault:
     detected_name = str(gpu_name).strip() if gpu_name else _query_gpu_name(gpu_index)
-    profile_id = AUTO_UV_PERFORMANCE_OC_PROFILE_ID
     target = uv_limit_profile_target_for_gpu(detected_name, profile_id)
     if target is None:
-        return AutoUvPerformanceTargetDefault(
+        return AutoUvTargetDefault(
             gpu_name=detected_name or None,
             gpu_family=None,
             voltage_mv=None,
@@ -323,7 +222,7 @@ def auto_uv_performance_target_default(
             profile_id=str(profile_id),
             preset_matched=False,
         )
-    return AutoUvPerformanceTargetDefault(
+    return AutoUvTargetDefault(
         gpu_name=detected_name or None,
         gpu_family=str(target.gpu_family),
         voltage_mv=int(target.voltage_mv),
@@ -459,17 +358,16 @@ def auto_uv_voltage_floor_range_mv(
     gpu_index: int | None = None,
     *,
     gpu_client: DaemonGpuClient | None = None,
-) -> tuple[int, int]:
+) -> tuple[int, int] | None:
     """Settable voltage-floor range (mV), derived from the live V/F curve.
 
     Lower bound = the curve "knee": the lowest voltage that still holds a real
     boost clock (at/above half the card's max base clock). Below the knee the
     curve is the flat idle shelf (e.g. 180 MHz on Blackwell), so those voltages
     are unreachable-under-load and pointless as a floor. Upper bound = the
-    curve's max voltage point. Falls back to (800, 1250) when the live curve
-    cannot be read (no GPU, non-editable driver, etc.).
+    curve's max voltage point. Returns None when the live curve
+    cannot be read, so the dialog keeps the voltage target automatic.
     """
-    fallback = (800, 1250)
     index = (
         runtime_gpu_index(default_runtime_config_path())
         if gpu_index is None
@@ -482,10 +380,10 @@ def auto_uv_voltage_floor_range_mv(
             for p in client.editable_core_points()
         ]
     except Exception:
-        return fallback
+        return None
     points = [(v, c) for v, c in points if v > 0 and c > 0]
     if not points:
-        return fallback
+        return None
     max_clock = max(c for _, c in points)
     max_voltage = max(v for v, _ in points)
     # Knee: lowest voltage that reaches at least half the max base clock. Snap to

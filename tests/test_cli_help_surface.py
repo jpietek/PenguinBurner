@@ -26,7 +26,6 @@ def test_main_cli_help_includes_gui_auto_uv_scan_options(capsys):
         "--auto-uv-mode",
         "--gpu-index",
         "--auto-uv-min-voltage-mv",
-        "--auto-uv-max-clock-drop-pct",
         "--auto-uv-memory-offset-mhz",
         "--auto-uv-power-limit-w",
         "--auto-uv-tail-rise-bins",
@@ -45,6 +44,17 @@ def test_main_cli_help_includes_profile_tier_assignment(capsys):
     assert "balanced" in help_text
     assert "performance" in help_text
     assert "none" in help_text
+
+
+@pytest.mark.parametrize("tier", [None, "efficiency", "balanced", "performance"])
+def test_clock_loss_overrides_are_removed(tier, capsys):
+    prefix = "--auto-uv-" if tier is None else f"--auto-uv-{tier}-"
+    flag = prefix + "max-clock-drop-pct"
+    assert flag not in _help_output(capsys, parse_arguments)
+    with pytest.raises(SystemExit) as exc:
+        parse_arguments([flag, "20"])
+    assert exc.value.code == 2
+    assert "unrecognized arguments" in capsys.readouterr().err
 
 
 def test_main_cli_help_includes_main_gpu_controls(capsys):
@@ -160,8 +170,6 @@ def test_gui_auto_uv_scan_flags_are_accepted():
             "1",
             "--auto-uv-min-voltage-mv",
             "850",
-            "--auto-uv-max-clock-drop-pct",
-            "10",
             "--auto-uv-memory-offset-mhz",
             "500",
             "--auto-uv-power-limit-w",
@@ -179,7 +187,6 @@ def test_gui_auto_uv_scan_flags_are_accepted():
     assert args.auto_uv_mode == "performance"
     assert args.gpu_index == 1
     assert args.auto_uv_min_voltage_mv == 850
-    assert args.auto_uv_max_clock_drop_pct == 10
     assert args.auto_uv_memory_offset_mhz == 500
     assert args.auto_uv_power_limit_w == 390
     assert args.auto_uv_tail_rise_bins == 6

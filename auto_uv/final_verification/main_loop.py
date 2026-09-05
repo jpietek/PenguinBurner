@@ -1,7 +1,4 @@
-"""Run the final long verification loop for the selected Auto-UV curve.
-
-The loop either proves the selected curve or raises voltage to the next stable bin.
-"""
+"""Verify and save the selected Auto-UV curve, preserving its tested shape."""
 
 from __future__ import annotations
 
@@ -155,6 +152,8 @@ def run_final_verification_and_save(
             "auto_uv_mode": str(auto_uv_mode or ""),
             "generated_profile_tier": str(generated_profile_tier or ""),
             "tail_rise_bins": int(tail_rise_bins),
+            "custom_target": bool((auto_oc_metadata or {}).get("custom_target")),
+            "auto_oc": bool((auto_oc_metadata or {}).get("auto_oc")),
         }
     )
     final_probe, raw_result = probe_voltage_candidate(
@@ -163,7 +162,12 @@ def run_final_verification_and_save(
         candidate_voltage_mv=int(final_voltage_mv),
         lock_clock_mhz=int(final_lock_clock_mhz),
         q2rtx_config=final_config,
-        stable_history=stable_history,
+        stable_history=(
+            [stable_probe]
+            if stable_probe is not None
+            and (auto_oc_metadata or {}).get("custom_target")
+            else stable_history
+        ),
         initial_probe_clock_mhz=measured_clock_mhz,
         nvml_session=nvml_session,
         log=log,
@@ -184,6 +188,9 @@ def run_final_verification_and_save(
         power_limit_w=gpu_policy.get("power_limit_w"),
         q2rtx_config=final_config,
         min_performance_core_clock_pct=float(min_performance_core_clock_pct),
+        performance_reference=(
+            stable_probe if (auto_oc_metadata or {}).get("custom_target") else None
+        ),
     )
     outcome = VoltageProbeOutcome(
         decision=decision,
@@ -296,12 +303,14 @@ def final_probe_stability_decision(
     power_limit_w: int | None,
     q2rtx_config,
     min_performance_core_clock_pct: float,
+    performance_reference: AutoUvProbeSummary | None = None,
 ) -> StableRunDecision:
     baseline = stable_history[0] if stable_history else None
+    reference = performance_reference or baseline
     return evaluate_stable_run(
         result,
-        baseline_fps=baseline.avg_fps if baseline is not None else None,
-        baseline_power_w=baseline.avg_power_w if baseline is not None else None,
+        baseline_fps=(reference.avg_fps if reference is not None else None),
+        baseline_power_w=reference.avg_power_w if reference is not None else None,
         baseline_core_clock_mhz=(
             baseline.avg_core_clock_mhz if baseline is not None else None
         ),

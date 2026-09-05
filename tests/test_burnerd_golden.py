@@ -715,7 +715,7 @@ def test_scan_value_formatting_skips_null_empty_and_formats_float(make_daemon, t
                     "gpu_index": 1,
                     "auto_uv_mode": None,  # None -> skipped
                     "auto_uv_min_voltage_mv": "",  # "" -> skipped
-                    "auto_uv_max_clock_drop_pct": 6.5,  # float -> "6.5" (%.6g)
+                    "auto_oc_target_voltage_mv": 925.0,  # float -> "925" (%.6g)
                     "auto_uv_power_limit_w": 300,  # int -> "300"
                 },
             },
@@ -731,22 +731,28 @@ def test_scan_value_formatting_skips_null_empty_and_formats_float(make_daemon, t
         "--auto-uv-require-final-choice",
         "--gpu-index",
         "1",
-        "--auto-uv-max-clock-drop-pct",
-        "6.5",
         "--auto-uv-power-limit-w",
         "300",
+        "--auto-oc-target-voltage-mv",
+        "925",
     ]
 
 
-def test_unknown_scan_option_is_rejected(make_daemon):
+@pytest.mark.parametrize("option", [
+    "bogus", "auto_uv_max_clock_drop_pct",
+    "auto_uv_efficiency_max_clock_drop_pct",
+    "auto_uv_balanced_max_clock_drop_pct",
+    "auto_uv_performance_max_clock_drop_pct",
+])
+def test_unknown_scan_option_is_rejected(make_daemon, option):
     daemon = make_daemon()
     frames = list(
         daemon_stream_request(
-            {"method": "start_auto_uv_scan", "options": {"bogus": 1}},
+            {"method": "start_auto_uv_scan", "options": {option: 1}},
             socket_path=daemon.socket_path,
         )
     )
-    assert frames == [{"ok": False, "error": "unknown Auto-UV option: bogus"}]
+    assert frames == [{"ok": False, "error": f"unknown Auto-UV option: {option}"}]
 
 
 def test_second_scan_is_refused_while_one_runs(make_daemon):
@@ -860,3 +866,30 @@ def test_autostart_runs_the_persisted_runtime_profile(make_daemon):
     status = daemon_status(socket_path=daemon.socket_path)
     assert status["state"] == "runtime_profile_running"
     assert status["active_job"]["runtime_mode"] == "stock"
+
+
+def test_all_tier_targets_survive_gui_socket_and_worker_cli(make_daemon, tmp_path):
+    from cli.arguments import parse_arguments
+    from cli.effective_runtime_options import build_effective_auto_uv_runtime_options
+    from ui.commands import scan_command
+
+    targets = {
+        f"auto_uv_{tier}_target_{field}": value
+        for tier, voltage, clock in [
+            ("efficiency", 850, 2380), ("balanced", 900, 2850),
+            ("performance", 925, 3000),
+        ]
+        for field, value in [("voltage_mv", voltage), ("clock_mhz", clock)]
+    }
+    command = scan_command({"auto_uv_mode": "adaptive", **targets})
+    options = json.loads(command[-1])
+    argv_file = tmp_path / "tier-target-argv.json"
+    daemon = make_daemon(exit_after_lines=True, argv_file=argv_file)
+    frames = list(daemon_stream_request(
+        {"method": "start_auto_uv_scan", "options": options},
+        socket_path=daemon.socket_path,
+    ))
+    assert frames[-1]["control"] == "finished" and frames[-1]["exit_code"] == 0
+    launched = json.loads(argv_file.read_text())
+    effective = build_effective_auto_uv_runtime_options(parse_arguments(launched))
+    assert {key: effective[key] for key in targets} == targets

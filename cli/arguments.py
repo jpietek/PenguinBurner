@@ -89,25 +89,14 @@ def parse_arguments(argv):
         help=argparse.SUPPRESS,
     )
     auto_uv_group.add_argument(
-        "--auto-uv-max-clock-drop-pct",
-        type=float,
-        default=None,
-        metavar="N",
-        help=(
-            "Maximum loaded GPU core clock drop allowed during Auto-UV; "
-            "default is preset-aware from the GPU table when detected, otherwise "
-            "12.5. Example: 12 allows up to a 12%% clock drop."
-        ),
-    )
-    auto_uv_group.add_argument(
         "--auto-uv-mode",
         choices=AUTO_UV_MODES,
         default=None,
         metavar="MODE",
         help=(
             "Auto-UV preset path. efficiency uses a 2-bin tail sweep plus a "
-            "deeper low-voltage search; balanced uses the 4-bin tail sweep; "
-            "performance uses the 4-bin tail sweep plus Auto-OC."
+            "deeper low-voltage search; balanced uses the 2-bin tail sweep; "
+            "performance uses the 2-bin tail sweep plus Auto-OC."
         ),
     )
     auto_uv_group.add_argument(
@@ -178,18 +167,6 @@ def parse_arguments(argv):
     for tier in ADAPTIVE_TIER_MODES:
         tier_label = tier.capitalize()
         auto_uv_group.add_argument(
-            f"--auto-uv-{tier}-max-clock-drop-pct",
-            type=float,
-            default=None,
-            metavar="N",
-            help=(
-                f"Full-scan override: the {tier_label} tier's maximum loaded "
-                "clock drop. Only meaningful with --auto-uv-mode adaptive; "
-                "absent tiers fall back to --auto-uv-max-clock-drop-pct, then "
-                "the GPU table."
-            ),
-        )
-        auto_uv_group.add_argument(
             f"--auto-uv-{tier}-power-limit-w",
             type=int,
             default=None,
@@ -214,6 +191,18 @@ def parse_arguments(argv):
                 "--auto-uv-mode adaptive."
             ),
         )
+        for field, unit in (("voltage", "mV"), ("clock", "MHz")):
+            suffix = "voltage_mv" if field == "voltage" else "clock_mhz"
+            auto_uv_group.add_argument(
+                f"--auto-uv-{tier}-target-{suffix.replace('_', '-')}",
+                type=int, default=None, metavar=unit,
+                help=(
+                    f"Custom {tier_label} {field} target for a single-tier or full scan. "
+                    "Defaults use the GPU table. Clock ranges: Efficiency -15%% to Balanced; "
+                    "Balanced from Efficiency to Performance; Performance from Balanced "
+                    "to Performance +5%%. Change only if you understand GPU tuning."
+                ),
+            )
     auto_uv_group.add_argument(
         "--auto-oc-target-voltage-mv",
         type=int,
@@ -221,7 +210,8 @@ def parse_arguments(argv):
         metavar="mV",
         help=(
             "Performance-mode Auto-OC voltage cap in mV. Overrides the detected "
-            "GPU table target."
+            "GPU table target. Defaults are optimized for most GPUs; change only "
+            "if you understand voltage/frequency tuning and instability risks."
         ),
     )
     auto_uv_group.add_argument(
@@ -231,7 +221,8 @@ def parse_arguments(argv):
         metavar="MHz",
         help=(
             "Performance-mode Auto-OC core clock cap in MHz. Overrides the detected "
-            "GPU table target."
+            "GPU table target. Defaults are optimized for most GPUs; change only "
+            "if you understand voltage/frequency tuning and instability risks."
         ),
     )
     daemon_group.add_argument(

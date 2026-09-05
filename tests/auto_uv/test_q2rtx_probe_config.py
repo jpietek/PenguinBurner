@@ -193,7 +193,8 @@ def test_scan_runtime_settings_use_preset_aware_clock_drop_defaults() -> None:
     assert round(cli_balanced.final_clock_drop_margin_pct, 4) == 9.2063
     assert round(performance.final_clock_drop_margin_pct, 4) == 6.3492
     assert round(performance.min_performance_core_clock_pct, 4) == 93.6508
-    assert explicit.final_clock_drop_margin_pct == 9.0
+    # Removed overrides cannot weaken the automatic tier policy.
+    assert explicit.final_clock_drop_margin_pct == performance.final_clock_drop_margin_pct
 
 
 def test_scan_runtime_settings_use_generic_clock_drop_for_unknown_gpu() -> None:

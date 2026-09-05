@@ -366,6 +366,27 @@ def uv_limit_profile_target_for_gpu(
     return _uv_limit_profile_target_from_entry(entry, profile_id)
 
 
+def uv_limit_clock_target_range_for_gpu(
+    gpu_name: object | None,
+    profile_id: str,
+) -> tuple[int, int] | None:
+    """Editable anchor-clock bounds, derived from the GPU's default tiers."""
+    efficiency = uv_limit_profile_target_for_gpu(gpu_name, "efficiency")
+    balanced = uv_limit_profile_target_for_gpu(gpu_name, "balanced")
+    performance = uv_limit_profile_target_for_gpu(gpu_name, "performance")
+    if efficiency is None or balanced is None or performance is None:
+        return None
+    profile = str(profile_id).strip().lower()
+    if profile == "efficiency":
+        return (efficiency.clock_mhz * 17 + 19) // 20, balanced.clock_mhz
+    if profile == "balanced":
+        return efficiency.clock_mhz, performance.clock_mhz
+    if profile == "performance":
+        # Round the +5% ceiling to the nearest MHz (2950 -> 3098 MHz).
+        return balanced.clock_mhz, (performance.clock_mhz * 21 + 10) // 20
+    return None
+
+
 def _uv_limit_entry_for_gpu(gpu_name: object | None) -> dict[str, object] | None:
     normalized_name = str(gpu_name or "").upper()
     if not normalized_name:

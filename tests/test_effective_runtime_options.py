@@ -49,7 +49,7 @@ def test_effective_runtime_options_apply_gui_scan_options_and_clamps() -> None:
     assert effective["auto_uv_tail_rise_bins"] == AUTO_UV_DEFAULTS.max_tail_rise_bins
     assert effective["auto_oc_target_voltage_mv"] == 925
     assert effective["auto_oc_target_clock_mhz"] == 2670
-    assert effective["auto_uv_max_clock_drop_pct"] == 0.0
+    assert "auto_uv_max_clock_drop_pct" not in effective
     assert effective["auto_uv_mode"] == "performance"
     assert effective["auto_uv_require_final_choice"] is True
 
@@ -88,12 +88,12 @@ def test_effective_runtime_options_map_per_tier_full_scan_overrides() -> None:
     )
 
     assert effective["auto_uv_mode"] == "adaptive"
-    assert effective["auto_uv_efficiency_max_clock_drop_pct"] == 15.0
+    assert "auto_uv_efficiency_max_clock_drop_pct" not in effective
     assert effective["auto_uv_efficiency_power_limit_w"] == 250
     assert effective["auto_uv_efficiency_memory_offset_mhz"] == 500
-    assert effective["auto_uv_balanced_max_clock_drop_pct"] == 6.0
+    assert "auto_uv_balanced_max_clock_drop_pct" not in effective
     assert effective["auto_uv_balanced_power_limit_w"] == 300
     assert effective["auto_uv_balanced_memory_offset_mhz"] == 0
-    assert effective["auto_uv_performance_max_clock_drop_pct"] == 5.4
+    assert "auto_uv_performance_max_clock_drop_pct" not in effective
     assert effective["auto_uv_performance_power_limit_w"] == 360
     assert effective["auto_uv_performance_memory_offset_mhz"] == 1000

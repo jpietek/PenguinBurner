@@ -3488,54 +3488,26 @@ def test_per_tier_final_verification_durations() -> None:
     assert final_verification_duration_s({}, auto_uv_mode="adaptive") == 300
 
 
-def test_adaptive_tier_clock_drop_margin_resolution_order() -> None:
-    from auto_uv.run.scan_runtime_settings import (
-        adaptive_tier_clock_drop_margin_pct,
-    )
+@pytest.mark.parametrize("gpu_name", ["Unknown GPU", "NVIDIA GeForce RTX 5080"])
+def test_adaptive_tier_clock_drop_margin_is_automatic(gpu_name) -> None:
+    from auto_uv.run.scan_runtime_settings import adaptive_tier_clock_drop_margin_pct
     from auto_uv.domain.user_options import AUTO_UV_DEFAULTS
-
-    # The tier's own option wins over the scan-wide key.
-    assert (
-        adaptive_tier_clock_drop_margin_pct(
-            {
-                "auto_uv_balanced_max_clock_drop_pct": 6.0,
-                "auto_uv_max_clock_drop_pct": 15.0,
-            },
-            tier_mode="balanced",
-            gpu_name="Unknown GPU",
-        )
-        == 6.0
-    )
-    # Without a per-tier key the scan-wide key still applies to every tier.
-    assert (
-        adaptive_tier_clock_drop_margin_pct(
-            {"auto_uv_max_clock_drop_pct": 12.0},
-            tier_mode="performance",
-            gpu_name="Unknown GPU",
-        )
-        == 12.0
-    )
-    # No options at all: the GPU table per-tier limit, then the generic
-    # fallback for unknown GPUs.
-    assert adaptive_tier_clock_drop_margin_pct(
-        {},
-        tier_mode="efficiency",
-        gpu_name="Unknown GPU",
-    ) == float(AUTO_UV_DEFAULTS.max_core_clock_drop_pct)
-    # Known GPU: each tier resolves ITS table row, so balanced no longer
-    # inherits the efficiency (loosest) allowance.
     from auto_uv.scan_mode.uv_limits import uv_limit_clock_drop_pct_for_gpu
 
-    gpu_name = "NVIDIA GeForce RTX 5080"
     for tier in ("efficiency", "balanced", "performance"):
         expected = uv_limit_clock_drop_pct_for_gpu(gpu_name, profile_id=tier)
         if expected is None:
-            continue
+            expected = AUTO_UV_DEFAULTS.max_core_clock_drop_pct
+        # Even stale caller payloads cannot override the internal guardrail.
         assert adaptive_tier_clock_drop_margin_pct(
-            {},
+            {"auto_uv_max_clock_drop_pct": 100.0,
+             f"auto_uv_{tier}_max_clock_drop_pct": 100.0},
             tier_mode=tier,
             gpu_name=gpu_name,
-        ) == float(expected)
+        ) == expected
+        assert adaptive_tier_clock_drop_margin_pct(
+            {}, tier_mode=tier, gpu_name=gpu_name,
+        ) == expected
 
 
 def test_apply_adaptive_tier_power_limit_explicit_watts_wins() -> None:
@@ -3821,9 +3793,9 @@ def test_full_scan_reuses_only_matching_measured_baselines(
     assert stock_policies == [entry[:2] for entry in expected_policies]
     assert flat_policies == expected_policies
     for tier, floor_pct in [
-        ("efficiency", 88.9),
-        ("balanced", 90.8),
-        ("performance", 93.7),
+        ("efficiency", 88.88888888888889),
+        ("balanced", 90.7936507936508),
+        ("performance", 93.65079365079364),
     ]:
         assert runners[tier].min_performance_core_clock_pct == pytest.approx(floor_pct)
         assert finals[tier]["min_performance_core_clock_pct"] == pytest.approx(
@@ -3994,7 +3966,7 @@ def test_adaptive_tiers_flow_per_tier_limits_into_probe_and_selection(
     gpu = SimpleNamespace(
         power_limit_w=360,
         requested_power_limit_w=None,
-        translated_gpu_policy={"gpu_name": "Unknown GPU"},
+        translated_gpu_policy={"gpu_name": "NVIDIA GeForce RTX 5080"},
         clamp_power_limit_w=lambda watts: int(watts),
         policy_controller=SimpleNamespace(
             get_memory_clock_offset_range_mhz=lambda: (0, 4000)
@@ -4042,14 +4014,16 @@ def test_adaptive_tiers_flow_per_tier_limits_into_probe_and_selection(
 
     # Each tier's descent, probe runner, selection, and final verification all
     # see the tier's OWN clock-drop allowance.
-    assert configured_floors == [
-        ("efficiency", 85.0),
-        ("balanced", 94.0),
-        ("performance", 94.6),
-    ]
-    assert selection_floors == [85.0, 94.0, 94.6]
-    assert [margin for _floor, margin in finish_margins] == [15.0, 6.0, 5.4]
-    assert [floor for floor, _margin in finish_margins] == [85.0, 94.0, 94.6]
+    from auto_uv.scan_mode.uv_limits import uv_limit_clock_drop_pct_for_gpu
+
+    tiers = ("efficiency", "balanced", "performance")
+    margins = [uv_limit_clock_drop_pct_for_gpu("NVIDIA GeForce RTX 5080", tier)
+               for tier in tiers]
+    floors = [100.0 - margin for margin in margins]
+    assert configured_floors == list(zip(tiers, floors))
+    assert selection_floors == floors
+    assert [margin for _floor, margin in finish_margins] == margins
+    assert [floor for floor, _margin in finish_margins] == floors
     # Each tier's explicit power request is applied before its verification.
     assert tier_power_requests == [250, 300, 360]
 

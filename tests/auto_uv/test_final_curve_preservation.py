@@ -101,7 +101,7 @@ def test_efficiency_selects_run_21_and_preserves_every_tested_point() -> None:
         stable_probe=run24,
         stable_history=[run21, run24],
         runner=None,
-        gpu=None,
+        gpu=SimpleNamespace(translated_gpu_policy={"gpu_name": "RTX 5080"}),
         probe_history=[],
         log=lambda _: None,
         tail_rise_bins=2,

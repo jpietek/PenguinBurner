@@ -253,7 +253,7 @@ def test_select_scan_tuning_mirrors_balanced_and_performance_memory(
                 page.parentWidget(), qtwidgets.QStackedWidget
             ):
                 page = page.parentWidget()
-            if page.findChild(qtwidgets.QSpinBox, "voltageFloorSpin"):
+            if page.findChild(qtwidgets.QSpinBox, "efficiencyVoltageSpin"):
                 return "efficiency"
             if page.findChild(qtwidgets.QSpinBox, "performanceVoltageSpin"):
                 return "performance"

@@ -3,12 +3,41 @@ from __future__ import annotations
 import pytest
 
 from auto_uv.scan_mode.uv_limits import (
+    uv_limit_clock_target_range_for_gpu,
     uv_limit_clock_drop_pct_for_gpu,
     uv_limit_power_limit_pct_for_gpu,
     uv_limit_profile_target_for_gpu,
     uv_limit_voltage_floor_target_for_gpu,
     voltage_drop_pct,
 )
+
+
+@pytest.mark.parametrize(
+    ("profile", "expected"),
+    [
+        ("efficiency", (2380, 2800)),
+        ("balanced", (2800, 2950)),
+        ("performance", (2800, 3098)),
+    ],
+)
+def test_5080_editable_clock_target_ranges(profile, expected) -> None:
+    assert uv_limit_clock_target_range_for_gpu("RTX 5080", profile) == expected
+
+
+def test_clock_target_ranges_contain_all_gpu_defaults() -> None:
+    from auto_uv.scan_mode.uv_limits import _UV_LIMIT_TARGETS
+
+    for entry in _UV_LIMIT_TARGETS:
+        for tier in ("efficiency", "balanced", "performance"):
+            bounds = uv_limit_clock_target_range_for_gpu(entry["family"], tier)
+            target = uv_limit_profile_target_for_gpu(entry["family"], tier)
+            assert bounds is not None and target is not None
+            assert bounds[0] <= target.clock_mhz <= bounds[1], (entry["family"], tier)
+
+
+def test_clock_target_range_requires_known_gpu_and_tier() -> None:
+    assert uv_limit_clock_target_range_for_gpu("Unknown GPU", "efficiency") is None
+    assert uv_limit_clock_target_range_for_gpu("RTX 5080", "adaptive") is None
 
 
 def test_5080_voltage_table_exposes_efficiency_floor_and_performance_ceiling() -> None:
