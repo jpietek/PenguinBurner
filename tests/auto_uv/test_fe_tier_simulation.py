@@ -21,6 +21,7 @@ from auto_uv.curve.vf_curve_flattening import build_flattened_plan
 from auto_uv.domain.scan_settings import AutoUvScanSettings
 from auto_uv.domain.types import VfCurveCandidate
 from auto_uv.main_loop import (
+    adaptive_tier_descent_tail_rise_bins,
     adaptive_tier_power_limit_w,
     run_preset_uv_loop,
     select_final_scan_candidate,
@@ -86,7 +87,7 @@ def test_fe_tier_search_preserves_measured_curve_under_power_limits(
     drop_pct = uv_limit_clock_drop_pct_for_gpu(gpu, tier)
     assert efficiency_target is not None and drop_pct is not None
     floor = efficiency_target.voltage_mv
-    bins = 2 if tier == "efficiency" else 4
+    bins = adaptive_tier_descent_tail_rise_bins(tier)
     minimum_pct = 100 - drop_pct
     harness = GovernorProbeHarness(
         curve, model, cap, target.measured_clock_mhz, stock["power_w"], 100,

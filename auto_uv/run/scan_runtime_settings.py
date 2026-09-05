@@ -158,12 +158,12 @@ def clock_drop_profile_id(
     value = runtime_options.get("auto_uv_tail_rise_bins")
     if value is not None:
         tail_bins = int(value)
-        # Performance and balanced share the same default tail; only a tail
-        # explicitly above the balanced default signals a performance scan,
-        # so a shared value falls to the stricter balanced clock-drop limits.
-        if tail_bins > int(AUTO_UV_DEFAULTS.balanced_tail_rise_bins):
+        # Preserve legacy tail-only requests independently of current defaults.
+        # Two bins are now shared by every tier; explicit mode identifies new
+        # requests, while old requests keep their original clock-loss policy.
+        if tail_bins > 4:
             return "performance"
-        if tail_bins >= int(AUTO_UV_DEFAULTS.balanced_tail_rise_bins):
+        if tail_bins >= 4:
             return "balanced"
     return "efficiency"
 

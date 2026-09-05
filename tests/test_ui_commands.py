@@ -1559,8 +1559,8 @@ def test_auto_uv_preset_defaults_and_gpu_table_default() -> None:
     assert AUTO_UV_DROP_REFERENCE_VOLTAGE_MV == 1000
     assert DEFAULT_AUTO_UV_MAX_CLOCK_DROP_PCT == 12.5
     assert DEFAULT_AUTO_UV_TAIL_RISE_BINS == 2
-    assert DEFAULT_AUTO_UV_BALANCED_TAIL_RISE_BINS == 4
-    assert DEFAULT_AUTO_UV_PERFORMANCE_TAIL_RISE_BINS == 4
+    assert DEFAULT_AUTO_UV_BALANCED_TAIL_RISE_BINS == 2
+    assert DEFAULT_AUTO_UV_PERFORMANCE_TAIL_RISE_BINS == 2
     efficiency = _auto_uv_preset(AUTO_UV_PRESET_EFFICIENCY)
     balanced = _auto_uv_preset(AUTO_UV_PRESET_BALANCED)
     performance = _auto_uv_preset(AUTO_UV_PRESET_PERFORMANCE)
@@ -1570,18 +1570,18 @@ def test_auto_uv_preset_defaults_and_gpu_table_default() -> None:
     )
     assert (balanced.auto_uv_mode, balanced.tail_rise_bins) == (
         "balanced",
-        4,
+        2,
     )
     assert (performance.auto_uv_mode, performance.tail_rise_bins) == (
         "performance",
-        4,
+        2,
     )
 
 
 def test_auto_uv_performance_preset_describes_auto_oc() -> None:
     assert _auto_uv_performance_preset_label() == "Performance"
     tooltip = _auto_uv_performance_preset_tooltip()
-    assert "4-bin tail curve" in tooltip
+    assert "2-bin tail curve" in tooltip
     assert "Performance Auto-OC ladder" in tooltip
 
 

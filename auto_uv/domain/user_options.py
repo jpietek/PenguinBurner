@@ -18,12 +18,11 @@ class AutoUvDefaults:
     max_core_clock_drop_pct: float = 12.5
     efficiency_stop_streak: int = 2
     tail_rise_bins: int = 2
-    balanced_tail_rise_bins: int = 4
-    # 6 bins (+90 MHz) predates the per-tier scan reaching the full NV-UV
-    # table lock; with the lock on target it overshoots in gameplay (3060
-    # on a 2970 lock). Keep the default boost headroom modest; the
-    # --auto-uv-tail-rise-bins expert flag still allows up to the max.
-    performance_tail_rise_bins: int = 4
+    # Keep modest boost headroom (+30 MHz nominal) above each selected point.
+    # Matching tails preserve Balanced-to-Performance descent reuse when
+    # the remaining policy inputs and measured clock floor also match.
+    balanced_tail_rise_bins: int = 2
+    performance_tail_rise_bins: int = 2
     max_tail_rise_bins: int = 8
 
 

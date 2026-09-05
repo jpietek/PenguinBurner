@@ -152,7 +152,7 @@ def parse_arguments(argv):
         metavar="N",
         help=(
             "How many voltage bins can the voltage curve rise above the locked "
-            "undervolt point."
+            "undervolt point. Defaults to 2 for every tier; 0 makes the tail flat."
         ),
     )
     auto_uv_group.add_argument(

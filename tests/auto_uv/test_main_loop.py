@@ -2590,7 +2590,7 @@ def test_adaptive_tier_order_and_descent_tails() -> None:
     assert ADAPTIVE_TIER_ORDER == ("efficiency", "balanced", "performance")
     # Each tier descends WITH its own tail — the tail compounds through the
     # measured-clock ratchet, so it cannot be decorated on after a tail-less
-    # descent. Efficiency carries two bins; balanced/performance carry four.
+    # descent. Every tier carries two bins by default.
     assert adaptive_tier_descent_tail_rise_bins("efficiency") == int(
         AUTO_UV_DEFAULTS.tail_rise_bins
     )
@@ -2600,6 +2600,9 @@ def test_adaptive_tier_order_and_descent_tails() -> None:
     assert adaptive_tier_descent_tail_rise_bins("performance") == int(
         AUTO_UV_DEFAULTS.performance_tail_rise_bins
     )
+    assert [
+        adaptive_tier_descent_tail_rise_bins(tier) for tier in ADAPTIVE_TIER_ORDER
+    ] == [2, 2, 2]
 
 
 def test_adaptive_tier_progress_events_are_chronological(monkeypatch) -> None:
@@ -3651,23 +3654,23 @@ def test_full_scan_open_paths_fall_back_to_per_tier_options() -> None:
 @pytest.mark.parametrize(
     ("overrides", "performance_tail", "expected_policies"),
     [
-        ({}, 4, [(300, 0, 2), (360, 0, 4)]),
-        ({"auto_uv_power_limit_w": 320}, 4, [(300, 0, 2), (320, 0, 4)]),
+        ({}, 2, [(300, 0, 2), (360, 0, 2)]),
+        ({"auto_uv_power_limit_w": 320}, 2, [(300, 0, 2), (320, 0, 2)]),
         (
             {"auto_uv_performance_power_limit_w": 340},
-            4,
-            [(300, 0, 2), (360, 0, 4), (340, 0, 4)],
+            2,
+            [(300, 0, 2), (360, 0, 2), (340, 0, 2)],
         ),
         (
             {"auto_uv_performance_memory_offset_mhz": 500},
-            4,
-            [(300, 0, 2), (360, 0, 4), (360, 500, 4)],
+            2,
+            [(300, 0, 2), (360, 0, 2), (360, 500, 2)],
         ),
-        ({}, 6, [(300, 0, 2), (360, 0, 4), (360, 0, 6)]),
+        ({}, 4, [(300, 0, 2), (360, 0, 2), (360, 0, 4)]),
         (
             {"auto_uv_efficiency_memory_offset_mhz": 500},
-            4,
-            [(300, 500, 2), (360, 0, 4)],
+            2,
+            [(300, 500, 2), (360, 0, 2)],
         ),
     ],
 )
@@ -3795,7 +3798,7 @@ def test_full_scan_reuses_only_matching_measured_baselines(
             if tier == "efficiency"
             else performance_tail
             if tier == "performance"
-            else 4
+            else 2
         ),
     )
 

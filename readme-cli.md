@@ -91,14 +91,14 @@ Efficiency preset controls:
 Balanced preset controls:
 
 - `--auto-uv-mode balanced`: use the GUI Balanced preset path.
-- `--auto-uv-tail-rise-bins 4`: the GUI Balanced preset shape. The CLI fills this in automatically when omitted.
+- `--auto-uv-tail-rise-bins 2`: the GUI Balanced preset shape. The CLI fills this in automatically when omitted.
 
 Performance preset controls:
 
 - `--auto-uv-mode performance`: use the GUI Performance preset path.
 - `--auto-oc-target-voltage-mv N`: Performance Auto-OC voltage target.
 - `--auto-oc-target-clock-mhz N`: Performance Auto-OC clock target.
-- `--auto-uv-tail-rise-bins 4`: the GUI Performance preset shape. The runtime fills this in automatically when omitted.
+- `--auto-uv-tail-rise-bins 2`: the GUI Performance preset shape. The runtime fills this in automatically when omitted.
 
 Examples:
 
@@ -123,7 +123,7 @@ Balanced with the preset shape made explicit:
 ```bash
 ./penguin_burner.sh --auto-uv-voltage-scan \
   --auto-uv-mode balanced \
-  --auto-uv-tail-rise-bins 4
+  --auto-uv-tail-rise-bins 2
 ```
 
 Efficiency with explicit GUI knobs:
@@ -151,7 +151,7 @@ Performance with a custom Auto-OC target:
   --auto-uv-mode performance \
   --auto-oc-target-voltage-mv 910 \
   --auto-oc-target-clock-mhz 2950 \
-  --auto-uv-tail-rise-bins 4
+  --auto-uv-tail-rise-bins 2
 ```
 
 Performance with common scan limits too:

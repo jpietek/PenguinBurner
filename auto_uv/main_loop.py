@@ -1028,7 +1028,7 @@ def run_adaptive_tier_scans(
     A single tail-less sweep cannot reproduce the per-tier held clocks — the
     rising tail compounds through the measured-clock ratchet, so each tier
     must descend with its OWN tail (efficiency +2 to the floor,
-    balanced +4 to the FPS/W wall, performance +4 then the Auto-OC climb).
+    balanced +2 to the FPS/W wall, performance +2 then the Auto-OC climb).
     Stock and flattened baselines are shared when power, memory and tail
     settings match; each tier keeps its own clock-loss allowance. Because Balanced
     and Performance descend with the same tail, Performance can reuse the

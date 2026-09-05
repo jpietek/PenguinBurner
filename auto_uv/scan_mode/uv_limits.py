@@ -45,11 +45,9 @@ class UvTierTarget:
     clock_mhz: int
 
 
-# Performance targets sit ~1% (two 15 MHz clock bins on the RTX 5080) below the
-# borrowed reference table so the default four-bin rising tail (+60 MHz nominal)
-# stays below every family's `clock_drop_ceiling_mhz`. At the raw reference
-# values the tail's top bins exceeded the ceiling on several families
-# (5070 Ti, 3070 Ti, 3060 Ti, 3060) and sat exactly at it on others.
+# Performance targets retain the ~1% reduction from the borrowed reference
+# table (two 15 MHz clock bins on the RTX 5080). The two-bin default tail adds
+# 30 MHz nominal headroom above these anchors; targets remain unchanged.
 _UV_LIMIT_TARGETS: tuple[dict[str, object], ...] = (
     {
         "family": "RTX 5090",
@@ -65,7 +63,7 @@ _UV_LIMIT_TARGETS: tuple[dict[str, object], ...] = (
         "patterns": ("5080",),
         "efficiency": (850, 2800),
         "balanced": (900, 2800),
-        # 2950 + (4 * 15) = 3010 MHz nominal instead of the reference 3040 MHz.
+        # 2950 + (2 * 15) = 2980 MHz nominal with the default rising tail.
         "performance": (925, 2950),
         "clock_drop_ceiling_mhz": 3150,
         "efficiency_power_limit_pct": 88,

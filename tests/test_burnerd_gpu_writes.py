@@ -561,7 +561,7 @@ def test_apply_plan_produces_byte_identical_offsets(make_daemon, rpc_spy):
 # --- rising-tail region: byte-identical plan through the transport -------------
 #
 # RULE ZERO watch: the sweep raises a small number of high-voltage "tail" bins
-# for each preset (efficiency = 2, balanced = 4, performance = 4).
+# for each preset (two bins by default), with larger custom tails supported.
 # The transport swap must ship EXACTLY the offsets the old direct-ctypes SET
 # applied for that raised-tail curve -- same tail indices, same offset_khz,
 # same clamping. We drive the REAL sweep flattening code (imported read-only;
@@ -598,7 +598,7 @@ def _expected_ship_from_plan(plan, base_curve):
 
 @pytest.mark.parametrize(
     ("tail_rise_bins", "preset"),
-    [(2, "efficiency"), (4, "balanced"), (4, "performance"), (6, "custom")],
+    [(2, "efficiency"), (2, "balanced"), (2, "performance"), (4, "custom"), (6, "custom")],
 )
 def test_rising_tail_plan_ships_byte_identical(
     make_daemon, rpc_spy, tail_rise_bins, preset
@@ -650,7 +650,7 @@ def test_rising_tail_plan_ships_byte_identical(
 
 
 def test_rising_tail_bin_count_changes_the_shipped_tail(make_daemon, rpc_spy):
-    """A larger tail-rise (performance 4 vs efficiency 2) ships a DIFFERENT,
+    """A larger custom tail-rise (4 vs the default 2) ships a DIFFERENT,
     higher tail -- proving the raised bins flow through the transport unaltered
     rather than being flattened by the client."""
     from auto_uv.curve.vf_curve_flattening import build_flattened_plan

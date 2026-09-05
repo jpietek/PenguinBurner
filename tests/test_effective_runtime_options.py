@@ -64,11 +64,11 @@ def test_effective_runtime_options_balanced_mode_uses_balanced_tail_default() ->
 
 def test_effective_runtime_options_balanced_mode_keeps_explicit_tail_override() -> None:
     effective = build_effective_auto_uv_runtime_options(
-        _args(auto_uv_mode="balanced", auto_uv_tail_rise_bins=2)
+        _args(auto_uv_mode="balanced", auto_uv_tail_rise_bins=4)
     )
 
     assert effective["auto_uv_mode"] == "balanced"
-    assert effective["auto_uv_tail_rise_bins"] == 2
+    assert effective["auto_uv_tail_rise_bins"] == 4
 
 
 def test_effective_runtime_options_map_per_tier_full_scan_overrides() -> None:

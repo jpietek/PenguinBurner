@@ -83,13 +83,13 @@ All three tiers remain available even when two happen to find the same best poin
 Lower measured watts break ties at equal measured clock and FPS/W. Driver V/F
 offsets must read back as requested before a probe starts.
 
-Efficiency keeps two rising tail bins throughout the search, clock reclaim,
-and final verification. The tail is tested with each candidate, never added
-after a successful probe.
-Balanced retains four rising bins, allowing more boost headroom above its selected
-point. This makes the curve policies distinct even on GPUs whose Efficiency and
-Balanced clock targets are equal; measured power and performance still depend on
-the workload.
+All three tiers keep two rising tail bins (+30 MHz nominal) throughout the
+search and final verification. The tail is tested with each candidate, never
+added after a successful probe. It provides boost headroom above the selected
+point, so the voltage target is an anchor, not a strict operating-voltage limit.
+Balanced and Performance retain matching tails so Performance can reuse a
+passed Balanced descent when power, memory, baseline, and clock-floor checks
+also permit it.
 
 During voltage descent, passing probes keep their requested clock target even
 when the measured clock is lower. A measured shortfall is not repeatedly
@@ -150,14 +150,15 @@ Auto-UV state, including unsafe-voltage history and recovery candidates.
 
 ![Auto-UV setup: GPU, preset, and Auto-OC targets](../assets/auto-uv-setup.png)
 
-The performance-bias preset sets how much clock tail the curve keeps. These map
-directly to [adaptive UV tiers](./adaptive-uv.md):
+Presets share a two-bin rising tail and differ in power policy, clock-loss
+allowance, and search targets. They map directly to
+[adaptive UV tiers](./adaptive-uv.md):
 
 | Preset | Tail-rise bins | Extra |
 | --- | --- | --- |
 | Efficiency | `2` | lowest tier power; bounded fixed-voltage clock reclaim on power-bound baselines |
-| Balanced | `4` | moderate clock tail |
-| Performance | `4` | adds an Auto-OC ladder (raises V+clock to targets) |
+| Balanced | `2` | balances performance and power savings within its clock-loss allowance |
+| Performance | `2` | adds an Auto-OC ladder (raises V+clock to targets) |
 
 ## GPU selection and telemetry
 

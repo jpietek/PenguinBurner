@@ -222,7 +222,7 @@ def test_persist_runtime_gpu_index_never_rewrites_an_unreadable_config(
 
 def test_performance_preset_label_and_tooltip() -> None:
     assert auto_uv_performance_preset_label() == "Performance"
-    assert "4-bin tail curve" in auto_uv_performance_preset_tooltip()
+    assert "2-bin tail curve" in auto_uv_performance_preset_tooltip()
     assert "Performance Auto-OC ladder" in auto_uv_performance_preset_tooltip()
 
 
