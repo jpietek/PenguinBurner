@@ -190,7 +190,7 @@ def test_main_run_launches_app(monkeypatch) -> None:
     integration_checks = []
     monkeypatch.setattr(
         ui_main,
-        "ensure_steam_integration",
+        "ensure_host_integration",
         lambda: integration_checks.append(True),
     )
 
@@ -206,7 +206,7 @@ def test_main_warns_but_starts_on_incomplete_flatpak_integration(
     created = _patch_gui_run(monkeypatch)
     monkeypatch.setattr(
         ui_main,
-        "ensure_steam_integration",
+        "ensure_host_integration",
         lambda: (_ for _ in ()).throw(RuntimeError("missing shim")),
     )
 

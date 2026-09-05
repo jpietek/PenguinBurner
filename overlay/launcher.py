@@ -25,6 +25,7 @@ from .state import (
     overlay_state_path,
 )
 from .telemetry.steam_launch_check import PENGUIN_BURNER_WRAPPER
+from .wrapper_tokens import LUTRIS_GAME_ID_ENV, LUTRIS_ID_FLAG_PREFIX
 
 MASTER_ENABLE_ENV = "PENGUIN_BURNER"
 LATENCY_ENABLE_ENV = "PENGUIN_BURNER_LATENCY_LAYER"
@@ -102,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
         # historical strip: the config file may enable the overlay mid-game.
         _remove_mangohud_environment(env)
     _prepare_overlay_paths(env)
-    _apply_steam_game_profile(env)
+    _apply_game_profile(env)
     if shim_active:
         # Proton clobbers our pre-exec shim during prefix setup; this detached
         # watcher re-fronts it across that window and survives the exec below.
@@ -149,26 +150,57 @@ def _session_helper_environment(
 def _consume_wrapper_flags(args: list[str], env: dict[str, str]) -> list[str]:
     """Strip leading --pb-* wrapper flags off the command.
 
-    The Steam tab injects the per-game overlay switch as a flag rather than a
+    The tabs inject the per-game overlay switch as a flag rather than a
     PB_OVERLAY=x env token, because launchers that exec their child directly
     (gamescope after its "--") cannot start an env assignment as a program.
     The flag carries the same meaning, so it lands in the same env vars.
+
+    The Lutris tab also injects the game identity here. Steam publishes
+    SteamAppId in the environment, but Lutris regenerates LUTRIS_GAME_UUID on
+    every launch, so the id it stores its settings under has to travel as a
+    flag we wrote ourselves.
     """
-    while args and args[0].startswith("--pb-overlay="):
-        value = args.pop(0).partition("=")[2].strip()
-        if value in _TRUTHY | _FALSEY:
-            env[OVERLAY_ENABLE_ENV_ALIAS] = value
-            env[OVERLAY_ENABLE_ENV] = value
+    while args and (
+        args[0].startswith("--pb-overlay=")
+        or args[0].startswith("--pb-ingame-latency=")
+        or args[0].startswith(LUTRIS_ID_FLAG_PREFIX)
+    ):
+        flag = args.pop(0)
+        name, _, value = flag.partition("=")
+        value = value.strip()
+        if name == "--pb-overlay":
+            if value in _TRUTHY | _FALSEY:
+                env[OVERLAY_ENABLE_ENV_ALIAS] = value
+                env[OVERLAY_ENABLE_ENV] = value
+        elif name == "--pb-ingame-latency":
+            # Lands in the same env vars the assignment form sets, so
+            # everything downstream reads one opt-in and not two.
+            if value in _TRUTHY | _FALSEY:
+                env[INGAME_LATENCY_ENV_ALIAS] = value
+                env[INGAME_LATENCY_ENV] = value
+        elif value:
+            env[LUTRIS_GAME_ID_ENV] = value
     return args
 
 
-def _apply_steam_game_profile(env: dict[str, str]) -> None:
-    # Per-game Auto-UV preset (Steam tab): the root daemon applies it and
-    # watches this PID -- the exec below makes it the game session's PID, so
-    # the daemon restores the standing profile when the game exits. Runs
-    # before exec, outside pressure-vessel, so the daemon socket is reachable.
-    # Any failure is only reported: it must never block a game launch.
+def _apply_game_profile(env: dict[str, str]) -> None:
+    # Per-game Auto-UV preset: the root daemon applies it and watches this PID
+    # -- the exec below makes it the game session's PID, so the daemon restores
+    # the standing profile when the game exits. Runs before exec, outside
+    # pressure-vessel, so the daemon socket is reachable. Any failure is only
+    # reported: it must never block a game launch.
+    #
+    # A launch belongs to exactly one launcher: the Lutris id only exists when
+    # the Lutris tab wrote it onto argv, and Steam's app id only when Steam set
+    # it in the environment.
     try:
+        if env.get(LUTRIS_GAME_ID_ENV):
+            from integrations.lutris.game_runtime import (
+                apply_lutris_game_runtime_profile,
+            )
+
+            apply_lutris_game_runtime_profile(env)
+            return
         from integrations.steam.game_runtime import apply_game_runtime_profile
 
         apply_game_runtime_profile(env)

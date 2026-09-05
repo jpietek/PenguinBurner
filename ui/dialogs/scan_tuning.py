@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import html
-
 from auto_uv.scan_mode.auto_uv_mode import adaptive_tier_option_key
 from drivers.nvidia.daemon_gpu import DaemonGpuClient
 from ..assets import asset_image_path
@@ -25,6 +23,10 @@ from ui.features.tuning.tuning import auto_uv_voltage_drop_default
 from ui.features.tuning.tuning import memory_offset_mhz_range
 from ui.features.tuning.tuning import read_auto_uv_nvml_info
 from .error_details import qt_flags
+from .form_rows import add_form_row
+from .form_rows import dialog_form_layout
+from .form_rows import install_spinbox_enter_commit_filter
+from .form_rows import wrapped_tooltip
 
 
 SCAN_SCOPE_FULL = "full"
@@ -91,10 +93,10 @@ def select_scan_tuning(
 
     gpu_group = QtWidgets.QGroupBox("GPU")
     gpu_group.setObjectName("gpuSelectionGroup")
-    gpu_layout = _advanced_form_layout(QtCore=QtCore, QtWidgets=QtWidgets)
+    gpu_layout = dialog_form_layout(QtCore=QtCore, QtWidgets=QtWidgets)
     gpu_layout.setContentsMargins(14, 18, 14, 12)
     gpu_group.setLayout(gpu_layout)
-    _add_form_row(
+    add_form_row(
         QtCore=QtCore,
         QtWidgets=QtWidgets,
         form_layout=gpu_layout,
@@ -113,7 +115,7 @@ def select_scan_tuning(
         qt_flags(QtCore.Qt, "TextInteractionFlag", "TextSelectableByMouse")
     )
     gpu_nvml_info.setMinimumWidth(360)
-    _add_form_row(
+    add_form_row(
         QtCore=QtCore,
         QtWidgets=QtWidgets,
         form_layout=gpu_layout,
@@ -142,7 +144,7 @@ def select_scan_tuning(
     full_scan_button.setCheckable(True)
     full_scan_button.setProperty("scopeId", SCAN_SCOPE_FULL)
     full_scan_button.setToolTip(
-        _wrapped_tooltip(
+        wrapped_tooltip(
             "Scan Efficiency, Balanced, and Performance in one run. The "
             f"scan-only estimate is {auto_uv_scan_estimate_text(AUTO_UV_PRESET_ADAPTIVE)}. "
             "Each profile keeps its own Advanced settings: click a profile "
@@ -156,7 +158,7 @@ def select_scan_tuning(
         "scopeId", SCAN_SCOPE_SELECTED_PROFILE
     )
     selected_profile_button.setToolTip(
-        _wrapped_tooltip(
+        wrapped_tooltip(
             "Scan only the Efficiency, Balanced, or Performance preset selected below."
         )
     )
@@ -226,7 +228,7 @@ def select_scan_tuning(
         button.setDefault(False)
         button.setProperty("presetId", preset.preset_id)
         button.setProperty("scanIncluded", "false")
-        button.setToolTip(_wrapped_tooltip(preset_tooltips[preset.preset_id]))
+        button.setToolTip(wrapped_tooltip(preset_tooltips[preset.preset_id]))
         button.setToolTipDuration(20000)
         preset_button_group.addButton(button)
         preset_buttons[preset.preset_id] = button
@@ -292,7 +294,7 @@ def select_scan_tuning(
     tier_controls: dict[str, dict] = {}
     for preset_id in _PRESET_ORDER:
         page = QtWidgets.QWidget()
-        form = _advanced_form_layout(QtCore=QtCore, QtWidgets=QtWidgets)
+        form = dialog_form_layout(QtCore=QtCore, QtWidgets=QtWidgets)
         page.setLayout(form)
         controls: dict = {"page": page}
         tier_controls[preset_id] = controls
@@ -305,7 +307,7 @@ def select_scan_tuning(
             floor_spin.setFixedWidth(136)
             controls["floor"] = floor_spin
             _latched(floor_spin, controls, "floor")
-            _add_form_row(
+            add_form_row(
                 QtCore=QtCore,
                 QtWidgets=QtWidgets,
                 form_layout=form,
@@ -336,7 +338,7 @@ def select_scan_tuning(
             controls["oc_clock"] = oc_clock_spin
             _latched(oc_voltage_spin, controls, "oc_voltage")
             _latched(oc_clock_spin, controls, "oc_clock")
-            _add_form_row(
+            add_form_row(
                 QtCore=QtCore,
                 QtWidgets=QtWidgets,
                 form_layout=form,
@@ -346,7 +348,7 @@ def select_scan_tuning(
                     "Editable voltage cap for the internal Performance Auto-OC pass."
                 ),
             )
-            _add_form_row(
+            add_form_row(
                 QtCore=QtCore,
                 QtWidgets=QtWidgets,
                 form_layout=form,
@@ -361,7 +363,7 @@ def select_scan_tuning(
         clock_drop_spin.setObjectName("maxClockDropSpin")
         controls["clock_drop"] = clock_drop_spin
         _latched(clock_drop_spin, controls, "clock_drop")
-        _add_form_row(
+        add_form_row(
             QtCore=QtCore,
             QtWidgets=QtWidgets,
             form_layout=form,
@@ -419,7 +421,7 @@ def select_scan_tuning(
                 "so Performance can reuse the Balanced downsweep instead of "
                 "re-running it."
             )
-        _add_form_row(
+        add_form_row(
             QtCore=QtCore,
             QtWidgets=QtWidgets,
             form_layout=form,
@@ -449,7 +451,7 @@ def select_scan_tuning(
         controls["power_slider"] = power_slider
         controls["power_spin"] = power_spin
         _latched(power_spin, controls, "power")
-        _add_form_row(
+        add_form_row(
             QtCore=QtCore,
             QtWidgets=QtWidgets,
             form_layout=form,
@@ -712,7 +714,7 @@ def select_scan_tuning(
         for key in ("floor", "oc_voltage", "oc_clock"):
             if key in controls:
                 commit_spinboxes.append(controls[key])
-    _install_spinbox_enter_commit_filter(
+    install_spinbox_enter_commit_filter(
         QtCore=QtCore,
         QtWidgets=QtWidgets,
         parent=dialog,
@@ -835,67 +837,6 @@ def _bias_icon(*, QtCore, QtGui, QtWidgets, filename: str, tooltip: str):
     return label
 
 
-def _add_form_row(
-    *,
-    QtCore,
-    QtWidgets,
-    form_layout,
-    text: str,
-    widget,
-    tooltip: str = "",
-) -> None:
-    label_widget = QtWidgets.QLabel(text)
-    if not tooltip:
-        form_layout.addRow(label_widget, widget)
-        return
-
-    wrapped = _wrapped_tooltip(tooltip)
-    label_widget.setToolTip(wrapped)
-    widget.setToolTip(wrapped)
-    widget.setToolTipDuration(20000)
-    label_container = QtWidgets.QWidget()
-    label_layout = QtWidgets.QHBoxLayout(label_container)
-    label_layout.setContentsMargins(0, 2, 12, 2)
-    label_layout.setSpacing(8)
-    info_button = QtWidgets.QToolButton()
-    info_button.setObjectName("infoButton")
-    info_button.setText("i")
-    info_button.setToolTip(wrapped)
-    info_button.setToolTipDuration(20000)
-    info_button.setCursor(QtCore.Qt.WhatsThisCursor)
-    info_button.setFocusPolicy(QtCore.Qt.NoFocus)
-    info_button.setFixedSize(18, 18)
-
-    def show_tooltip(_checked=False, *, button=info_button, tip=wrapped):
-        position = button.mapToGlobal(button.rect().bottomLeft())
-        QtWidgets.QToolTip.showText(position, tip, button)
-
-    info_button.clicked.connect(show_tooltip)
-    label_layout.addWidget(label_widget)
-    label_layout.addWidget(info_button)
-    label_layout.addStretch(1)
-    form_layout.addRow(label_container, widget)
-
-
-def _advanced_form_layout(*, QtCore, QtWidgets):
-    form = QtWidgets.QFormLayout()
-    form.setContentsMargins(0, 0, 0, 0)
-    form.setHorizontalSpacing(24)
-    form.setVerticalSpacing(10)
-    form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
-    form.setFormAlignment(qt_flags(QtCore.Qt, "AlignmentFlag", "AlignLeft", "AlignTop"))
-    form.setLabelAlignment(
-        qt_flags(QtCore.Qt, "AlignmentFlag", "AlignLeft", "AlignVCenter")
-    )
-    return form
-
-
-def _wrapped_tooltip(text: str) -> str:
-    normalized = " ".join(str(text).split())
-    escaped = html.escape(normalized)
-    return f"<qt><table width='680'><tr><td>{escaped}</td></tr></table></qt>"
-
-
 def _install_hover_tooltip_filter(*, QtCore, QtWidgets, parent, widgets) -> None:
     """Show important preset help on every pointer entry.
 
@@ -944,55 +885,6 @@ def _double_spin(QtWidgets, minimum: float, maximum: float, value: float, suffix
     spin.setFixedWidth(116)
     spin.setValue(float(value))
     return spin
-
-
-def _install_spinbox_enter_commit_filter(
-    *, QtCore, QtWidgets, parent, spinboxes
-) -> None:
-    event_type = getattr(getattr(QtCore.QEvent, "Type", QtCore.QEvent), "KeyPress")
-    key_enum = getattr(QtCore.Qt, "Key", QtCore.Qt)
-    enter_keys = {
-        _qt_enum_value(getattr(key_enum, "Key_Return")),
-        _qt_enum_value(getattr(key_enum, "Key_Enter")),
-    }
-
-    class _SpinBoxEnterFilter(QtCore.QObject):
-        def __init__(self):
-            super().__init__(parent)
-            self._spinboxes_by_target = {}
-            for spinbox in spinboxes:
-                self._spinboxes_by_target[spinbox] = spinbox
-                try:
-                    editor = spinbox.lineEdit()
-                except AttributeError:
-                    editor = None
-                if editor is not None:
-                    self._spinboxes_by_target[editor] = spinbox
-
-        def eventFilter(self, watched, event):  # noqa: N802 - Qt override name
-            if watched not in self._spinboxes_by_target:
-                return False
-            if event.type() != event_type:
-                return False
-            try:
-                key = _qt_enum_value(event.key())
-            except AttributeError:
-                return False
-            if key not in enter_keys:
-                return False
-            spinbox = self._spinboxes_by_target[watched]
-            spinbox.interpretText()
-            event.accept()
-            return True
-
-    event_filter = _SpinBoxEnterFilter()
-    for target in event_filter._spinboxes_by_target:
-        target.installEventFilter(event_filter)
-    parent._penguin_burner_spinbox_enter_filter = event_filter
-
-
-def _qt_enum_value(value) -> int:
-    return int(getattr(value, "value", value))
 
 
 def _aspect_mode(QtCore):

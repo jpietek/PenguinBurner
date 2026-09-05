@@ -190,7 +190,7 @@ def _memory_offset_summary(value) -> str:
     return f"mem {text}"
 
 
-def runner_status_text(
+def runner_status_parts(
     profiles: list[dict],
     *,
     running_selector: str = "",
@@ -202,7 +202,14 @@ def runner_status_text(
     game_override: bool = False,
     standing_selector: str = "",
     standing_adaptive: bool = False,
-) -> str:
+) -> tuple[list[str], list[str]]:
+    """The status split into what is running and everything behind it.
+
+    Two groups, not one sentence. The headline -- the profile actually applied,
+    which is what the bar exists to say -- kept losing the race for width: the
+    whole thing runs to ~170 characters and the interesting half sits in the
+    middle, so it was the first part to disappear.
+    """
     running_selector = str(running_selector or "").strip()
     autostart_selector = str(autostart_selector or "").strip()
     standing_selector = str(standing_selector or "").strip()
@@ -211,7 +218,10 @@ def runner_status_text(
     # clock/voltage numbers -- those are the V/F ceiling, not the live point).
     if defaults_restored or running_selector == STOCK_PROFILE_SELECTOR:
         autostarts = "Yes" if autostart_selector else "No"
-        return f"Currently running profile: Default; Autostart: {autostarts}."
+        return (
+            ["Currently running profile: Default"],
+            [f"Autostart: {autostarts}"],
+        )
     if running_selector:
         autostarts = _profile_selectors_match(
             profiles,
@@ -228,7 +238,8 @@ def runner_status_text(
             markers.append("per-game")
         if markers:
             running_label = f"{running_label} ({', '.join(markers)})"
-        parts = [f"Currently running profile: {running_label}"]
+        head = [f"Currently running profile: {running_label}"]
+        parts: list[str] = []
         if game_override:
             if standing_selector and standing_selector != STOCK_PROFILE_SELECTOR:
                 standing_label = profile_status_label(profiles, standing_selector)
@@ -248,15 +259,47 @@ def runner_status_text(
             parts.append(
                 f"Autostart profile: {profile_status_label(profiles, autostart_selector)}"
             )
-        return "; ".join(parts) + "."
+        return head, parts
     if autostart_selector:
         return (
-            f"Autostart profile: {profile_status_label(profiles, autostart_selector)}; "
-            "Autostart: Yes; "
-            f"Silent fan curve: {_on_off(autostart_silent_fan)}; "
-            "Not running now."
+            [f"Autostart profile: {profile_status_label(profiles, autostart_selector)}"],
+            [
+                "Autostart: Yes",
+                f"Silent fan curve: {_on_off(autostart_silent_fan)}",
+                "Not running now",
+            ],
         )
-    return "No running/autostart profile available yet."
+    return ["No running/autostart profile available yet."], []
+
+
+def runner_status_text(
+    profiles: list[dict],
+    *,
+    running_selector: str = "",
+    running_adaptive: bool = False,
+    autostart_selector: str = "",
+    running_silent_fan: bool = False,
+    autostart_silent_fan: bool = False,
+    defaults_restored: bool = False,
+    game_override: bool = False,
+    standing_selector: str = "",
+    standing_adaptive: bool = False,
+) -> str:
+    """The same status as one sentence -- tooltips, the CLI, and old callers."""
+    head, details = runner_status_parts(
+        profiles,
+        running_selector=running_selector,
+        running_adaptive=running_adaptive,
+        autostart_selector=autostart_selector,
+        running_silent_fan=running_silent_fan,
+        autostart_silent_fan=autostart_silent_fan,
+        defaults_restored=defaults_restored,
+        game_override=game_override,
+        standing_selector=standing_selector,
+        standing_adaptive=standing_adaptive,
+    )
+    text = "; ".join(head + details)
+    return text if text.endswith(".") else f"{text}."
 
 
 def systemd_autostart_profile_info(*, gpu_uuid: str = "") -> dict[str, object]:

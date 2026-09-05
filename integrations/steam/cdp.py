@@ -15,6 +15,7 @@ read-back; callers fall back to the Steam-stopped localconfig path.
 from __future__ import annotations
 
 import base64
+from collections.abc import Iterable
 from dataclasses import dataclass
 import hashlib
 import http.client
@@ -376,14 +377,40 @@ class SteamCdpClient:
         when Steam selected Proton through its global/default policy and no
         explicit per-game mapping exists on disk.
         """
+        return self.app_details_many((app_id,), timeout_s=timeout_s).get(str(int(app_id)))
+
+    def app_details_many(
+        self,
+        app_ids: Iterable[str],
+        *,
+        timeout_s: float = 2.0,
+    ) -> dict[str, SteamAppDetails]:
+        """Read a library in one round trip with concurrent subscriptions.
+
+        Each subscription has its own timeout and cleanup. A missing app
+        leaves a hole in the result without discarding successful reads.
+        """
+        ids = list(dict.fromkeys(str(int(app_id)) for app_id in app_ids))
+        if not ids:
+            return {}
         timeout_ms = max(100, int(timeout_s * 1000))
         value = self.evaluate(
-            "new Promise((resolve) => {"
+            f"Promise.all({json.dumps(ids)}.map((appId) => new Promise((resolve) => {{"
             "  let done = false;"
-            "  const finish = (value) => { if (!done) { done = true; resolve(value); } };"
-            f"  const reg = SteamClient.Apps.RegisterForAppDetails({int(app_id)},"
+            "  let reg = null;"
+            "  let timer = null;"
+            "  const cleanup = () => {"
+            "    if (timer !== null) clearTimeout(timer);"
+            "    try { reg?.unregister(); } catch (err) {}"
+            "  };"
+            "  const finish = (value) => {"
+            "    if (done) return;"
+            "    done = true; cleanup(); resolve(value);"
+            "  };"
+            f"  timer = setTimeout(() => finish(null), {timeout_ms});"
+            "  try {"
+            "  reg = SteamClient.Apps.RegisterForAppDetails(Number(appId),"
             "    (details) => {"
-            "      try { reg.unregister(); } catch (err) {}"
             "      finish(details ? {"
             "        launchOptions: typeof details.strLaunchOptions === 'string'"
             "          ? details.strLaunchOptions : '',"
@@ -398,10 +425,20 @@ class SteamCdpClient:
             "          ? details.vecPlatforms : []"
             "      } : null);"
             "    });"
-            f"  setTimeout(() => {{ try {{ reg.unregister(); }} catch (err) {{}}"
-            f"    finish(null); }}, {timeout_ms});"
-            "})"
+            "  if (done) cleanup();"  # Steam may deliver cached details synchronously.
+            "  } catch (err) { finish(null); }"
+            "})))"
         )
+        if not isinstance(value, list) or len(value) != len(ids):
+            return {}
+        return {
+            app_id: details
+            for app_id, payload in zip(ids, value)
+            if (details := self._parse_app_details(payload)) is not None
+        }
+
+    @staticmethod
+    def _parse_app_details(value: object) -> SteamAppDetails | None:
         if not isinstance(value, dict):
             return None
         platforms = value.get("platforms")

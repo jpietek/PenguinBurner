@@ -2,8 +2,10 @@ import base64
 import hashlib
 import http.server
 import json
+import shutil
 import socket
 import struct
+import subprocess
 import threading
 
 import pytest
@@ -173,21 +175,25 @@ def fake_steam():
             state["launch_options"][app_id.strip()] = json.loads(value.strip())
             return None
         if "RegisterForAppDetails(" in expression:
-            app_id = expression.partition("RegisterForAppDetails(")[2].partition(",")[
-                0
-            ].strip()
-            tool_name = state["compat_tool"].get(app_id, "")
-            return {
-                "launchOptions": state["launch_options"].get(app_id, ""),
-                "compatToolName": tool_name,
-                "compatToolDisplayName": (
-                    "Proton Experimental"
-                    if tool_name == "proton_experimental"
-                    else tool_name
-                ),
-                "compatToolPriority": 75,
-                "platforms": ["windows", "linux"],
-            }
+            app_ids = json.loads(
+                expression.partition("Promise.all(")[2].partition(".map(")[0]
+            )
+
+            def details(app_id):
+                tool_name = state["compat_tool"].get(app_id, "")
+                return {
+                    "launchOptions": state["launch_options"].get(app_id, ""),
+                    "compatToolName": tool_name,
+                    "compatToolDisplayName": (
+                        "Proton Experimental"
+                        if tool_name == "proton_experimental"
+                        else tool_name
+                    ),
+                    "compatToolPriority": 75,
+                    "platforms": ["windows", "linux"],
+                }
+
+            return [details(app_id) for app_id in app_ids]
         raise AssertionError(f"unexpected expression: {expression}")
 
     server = _FakeSteamCdp(evaluate)
@@ -227,6 +233,76 @@ def test_read_app_details_reports_steams_effective_compat_tool(fake_steam) -> No
     assert details.compat_tool_display_name == "Proton Experimental"
     assert details.compat_tool_priority == 75
     assert details.platforms == ("windows", "linux")
+
+
+def test_empty_batch_does_not_contact_steam(monkeypatch) -> None:
+    client = object.__new__(SteamCdpClient)
+    monkeypatch.setattr(client, "evaluate", lambda *_: pytest.fail("empty request"))
+    assert client.app_details_many([]) == {}
+
+
+def test_batch_preserves_identity_and_successes_when_an_app_times_out(monkeypatch) -> None:
+    client = object.__new__(SteamCdpClient)
+    calls = []
+
+    def evaluate(expression):
+        calls.append(expression)
+        return [
+            {"launchOptions": "first %command%", "compatToolName": "proton"},
+            None,
+            {"launchOptions": 'env TITLE="third game" %command%'},
+        ]
+
+    monkeypatch.setattr(client, "evaluate", evaluate)
+    details = client.app_details_many(["10", "20", "30", "10"])
+    assert len(calls) == 1
+    assert set(details) == {"10", "30"}
+    assert details["10"].launch_options == "first %command%"
+    assert details["10"].compat_tool_name == "proton"
+    assert details["30"].launch_options == 'env TITLE="third game" %command%'
+
+
+def test_batch_javascript_bounds_wait_and_cleans_up_every_subscription(monkeypatch) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is required to execute the Steam subscription fixture")
+    client = object.__new__(SteamCdpClient)
+    observed = {}
+
+    def evaluate(expression):
+        script = """
+const active = new Set();
+const removed = {};
+globalThis.SteamClient = {Apps: {RegisterForAppDetails(id, callback) {
+    if (id === 4) throw new Error('app unavailable');
+    active.add(id);
+    if (id === 1) callback({strLaunchOptions: 'sync %command%'});
+    if (id === 2) {
+        setTimeout(() => callback({strLaunchOptions: 'async %command%'}), 5);
+        setTimeout(() => callback({strLaunchOptions: 'duplicate'}), 10);
+    }
+    return {unregister() {
+        active.delete(id); removed[id] = (removed[id] || 0) + 1;
+    }};
+}}};
+""" + f"""
+const value = await ({expression});
+console.log(JSON.stringify({{value, active: [...active], removed}}));
+"""
+        result = subprocess.run(
+            [node, "--input-type=module"], input=script, text=True,
+            capture_output=True, timeout=5, check=True,
+        )
+        observed.update(json.loads(result.stdout))
+        return observed["value"]
+
+    monkeypatch.setattr(client, "evaluate", evaluate)
+    details = client.app_details_many(["1", "2", "3", "4"], timeout_s=0.1)
+    assert set(details) == {"1", "2"}
+    assert details["1"].launch_options == "sync %command%"
+    assert details["2"].launch_options == "async %command%"
+    assert observed["active"] == []
+    assert observed["removed"] == {"1": 1, "2": 1, "3": 1}
 
 
 def test_write_verifies_by_read_back(fake_steam) -> None:

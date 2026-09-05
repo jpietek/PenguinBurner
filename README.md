@@ -147,7 +147,7 @@ PenguinBurner discovers your installed Steam library and makes undervolting
 PenguinBurner applies it automatically when the game launches and restores your
 standing profile when it exits, with no password prompt.
 
-![Steam tab: per-game mode, adaptive target FPS, and Play/Stop](docs/assets/steam-tab.png)
+![Game Library: per-game mode, adaptive target FPS, and Play/Stop](docs/assets/steam-tab.png)
 
 Steam integration is what unlocks the fully customizable, **per-game** setup:
 
@@ -160,7 +160,8 @@ Steam integration is what unlocks the fully customizable, **per-game** setup:
 - **In-game overlay** and **live launch/stop** from the tab.
 
 These per-game features **require the Steam integration** — they are delivered
-through the launch wrapper, so a game must be enabled on the Steam tab to get an
+through the launch wrapper, so a game must be enabled in the Game Library tab
+to get an
 adaptive per-game FPS target or the overlay. A one-click **All games** menu can
 enable or disable the wrapper across your whole library at once.
 

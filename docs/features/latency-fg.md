@@ -39,10 +39,13 @@ layer's own marker tap. Opt out with `PB_INGAME_LATENCY=0`.
 
 #### Markers without the overlay
 
-Latency defaults to the overlay's state, so `--pb-overlay=0` turns the marker
-capture off with it. That is the right default for someone who only wanted the
-HUD gone, but it also takes away the pacing signal adaptive tier switching reads.
-To keep the markers while leaving the HUD off, ask for latency explicitly:
+For launcher-managed games, selecting **Adaptive** keeps marker capture enabled
+automatically even when the overlay is off. The overlay switch controls the HUD;
+it does not take Adaptive's base-frame pacing signal away. Fixed tiers and Stock
+do not capture hidden markers when their overlay is off.
+
+For a wrapper command managed by hand, request the same headless marker mode
+explicitly:
 
 ```text
 env PB_INGAME_LATENCY=1 PENGUIN_BURNER --pb-overlay=0

@@ -195,3 +195,47 @@ def test_default_localconfig_paths_deduplicates_steam_symlink(tmp_path) -> None:
     alias.symlink_to(real)
 
     assert default_localconfig_paths(tmp_path) == [config]
+
+
+# -- quotes inside a launch line -------------------------------------------
+#
+# Steam stores LD_PRELOAD="" as \"\", which is ordinary in a Proton command
+# line. A reader that stops at the first quote returns LD_PRELOAD=\ and drops
+# the rest -- and because enabling the wrapper composes the new line from what
+# was read, that truncation is what would then be written back to Steam.
+
+REAL_WORLD_OPTIONS = (
+    'LD_PRELOAD="" PROTON_VKD3D_BRATAN=1 PROTON_ENABLE_WAYLAND=0 '
+    "game-performance %command% --nologo"
+)
+
+
+def test_a_launch_line_containing_quotes_is_read_whole() -> None:
+    from overlay.telemetry.steam_launch_check import _vdf_escape
+
+    text = _localconfig(_vdf_escape(REAL_WORLD_OPTIONS))
+
+    assert launch_options_from_localconfig(text, APP_ID) == REAL_WORLD_OPTIONS
+
+
+def test_what_the_writer_escapes_the_reader_gets_back_unchanged() -> None:
+    """The invariant that matters: one file, two helpers, no drift.
+
+    Asserted as a round trip rather than against a hand-escaped fixture, so it
+    keeps holding if the escaping itself ever changes.
+    """
+    for options in (
+        REAL_WORLD_OPTIONS,
+        'A="1" %command%',
+        r"WINEDLLOVERRIDES=\"nvapi64=n\" %command%",
+        'trailing="" ',
+    ):
+        rewritten = rewrite_launch_options_in_localconfig(
+            _localconfig("%command%"), APP_ID, options
+        )
+        assert rewritten is not None
+        text, previous = rewritten
+        assert previous == "%command%"
+        assert launch_options_from_localconfig(text, APP_ID) == options
+        # The neighbouring app must not be disturbed by the quotes either.
+        assert launch_options_from_localconfig(text, "4180480") == "OTHER=1 %command%"

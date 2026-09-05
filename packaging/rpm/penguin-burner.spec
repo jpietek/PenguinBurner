@@ -37,6 +37,7 @@ BuildRequires:  rust
 Requires:       python3-pyside6 >= 6.7
 Requires:       python3-colorama >= 0.4
 Requires:       python3-pyqtgraph >= 0.13
+Requires:       python3-pyyaml >= 6.0
 Requires:       hicolor-icon-theme
 Requires:       bash
 Requires:       systemd

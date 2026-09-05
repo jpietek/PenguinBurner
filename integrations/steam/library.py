@@ -10,7 +10,7 @@ from overlay.telemetry.steam_game_setup import (
     default_steamapps_dirs,
 )
 
-from .users import default_steam_root
+from .users import active_steam_user, default_steam_root
 from .vdf import parse_vdf, vdf_lookup
 
 
@@ -202,3 +202,56 @@ def _compat_tool_mapping(steam_root: Path | None) -> dict[str, str]:
         if name:
             tools[str(app_id)] = name
     return tools
+
+
+#: Where localconfig.vdf keeps the per-app record Steam updates after a session.
+_LOCALCONFIG_APPS_PATH = ("UserLocalConfigStore", "Software", "Valve", "Steam", "apps")
+
+
+def steam_playtime_hours(
+    home: Path | None = None,
+    *,
+    localconfig_path: Path | None = None,
+) -> dict[str, float]:
+    """Hours played per app id, from the signed-in account's localconfig.
+
+    The install manifests carry `LastPlayed` but no duration, so a library that
+    wants to sort by time played has to come here. Parsed in one pass and
+    returned as a map: walking the file once per game turns a hundred-game
+    library into a hundred full-text scans.
+
+    Steam records minutes; the caller wants hours, and every launcher in the
+    library has to agree on the unit for the sort to mean anything. Missing or
+    unreadable state yields an empty map rather than raising -- a library that
+    cannot be sorted by playtime is still a library.
+    """
+    path = localconfig_path
+    if path is None:
+        user = active_steam_user(home)
+        path = user.localconfig_path if user is not None else None
+    if path is None:
+        return {}
+    try:
+        text = Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {}
+    # parse_vdf is total -- it never raises on malformed input, and
+    # vdf_lookup answers None for any miss -- so a bad file lands on the
+    # isinstance check below rather than needing a guard of its own.
+    apps = vdf_lookup(parse_vdf(text), *_LOCALCONFIG_APPS_PATH)
+    if not isinstance(apps, dict):
+        return {}
+    hours: dict[str, float] = {}
+    for app_id, entry in apps.items():
+        if not isinstance(entry, dict):
+            continue
+        raw = entry.get("Playtime")
+        if raw is None:
+            continue
+        try:
+            minutes = float(str(raw).strip())
+        except (TypeError, ValueError):
+            continue
+        if minutes > 0:
+            hours[str(app_id)] = minutes / 60.0
+    return hours

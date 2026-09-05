@@ -331,24 +331,30 @@ def install_vulkan_layer_manifest(
     return target
 
 
-def ensure_steam_integration() -> Path | None:
-    """Repair and verify every host-facing Flatpak Steam component.
+def ensure_host_integration() -> Path | None:
+    """Repair and verify every host-facing Flatpak launcher component.
 
-    The shim is deployed into each Proton prefix by ``overlay.launcher`` at
+    The shim is deployed into each wine prefix by ``overlay.launcher`` at
     game start because Proton can overwrite nvapi64.dll during prefix setup.
     Here we verify that the immutable shim payload is shipped and that the
     generated host wrapper points the launch at that full launcher path.
+    Steam launch options and Lutris prefix_commands both exec that same
+    wrapper, so either launcher being present is reason to install it.
 
-    Hosts without a Steam installation are skipped: no wrapper, manifest, or
-    shim files are written, and nothing here may keep the rest of the app
+    Hosts without any launcher are skipped: no wrapper, manifest, or shim
+    files are written, and nothing here may keep the rest of the app
     (Auto-UV, profiles) from working. Managed files that already exist (an
     earlier version, or a manual penguin-burner-install-wrappers run) keep
-    being repaired even without Steam, so a flatpak update never strands
+    being repaired even without a launcher, so a flatpak update never strands
     stale generated files.
     """
     if not running_in_flatpak():
         return None
-    if not _host_has_steam() and not _managed_integration_present():
+    if (
+        not _host_has_steam()
+        and not _host_has_lutris()
+        and not _managed_integration_present()
+    ):
         return None
     ensure_flatpak_wrappers()
     wrapper = _default_bin_dir() / "PENGUIN_BURNER"
@@ -371,6 +377,15 @@ def _host_has_steam() -> bool:
     from integrations.steam.users import default_steam_root
 
     return default_steam_root() is not None
+
+
+def _host_has_lutris() -> bool:
+    # The library database, not the binary: the sandbox cannot see the host
+    # PATH, but the host home is mounted, and a machine with a Lutris library
+    # is exactly one whose games may carry our wrapper in a prefix_command.
+    from integrations.lutris.paths import lutris_installed
+
+    return lutris_installed()
 
 
 def _managed_integration_present() -> bool:

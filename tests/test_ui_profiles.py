@@ -578,3 +578,80 @@ def test_static_status_ignores_the_published_state(monkeypatch) -> None:
     monkeypatch.setattr(profiles, "read_overlay_state", lambda: _state("something-else"))
 
     assert profiles.running_auto_uv_profile_info()["selector"] == "pinned"
+
+
+def test_the_status_splits_into_what_runs_and_what_stands_behind_it() -> None:
+    """One line ran to ~170 characters with the headline buried in the middle.
+
+    The profile actually applied is what the bar exists to say, so it gets a
+    line of its own and everything else follows underneath.
+    """
+    catalog = [_P1, _P2]
+
+    head, detail = profiles.runner_status_parts(
+        catalog,
+        running_selector="p1",
+        running_adaptive=True,
+        autostart_selector="p2",
+        game_override=True,
+        standing_selector="p2",
+    )
+
+    assert len(head) == 1
+    assert head[0].startswith("Currently running profile:")
+    assert any(part.startswith("Standing:") for part in detail)
+    assert any(part.startswith("Autostart:") for part in detail)
+    # Nothing about the standing profile may leak into the headline, which is
+    # how a per-game fact once ended up reading as a claim about another one.
+    assert "Standing" not in head[0]
+
+
+def test_the_one_sentence_form_still_reads_the_same() -> None:
+    """The tooltip and the CLI keep the joined sentence they always had."""
+    catalog = [_P1, _P2]
+    kwargs = dict(running_selector="p1", autostart_selector="p2")
+
+    head, detail = profiles.runner_status_parts(catalog, **kwargs)
+    text = profiles.runner_status_text(catalog, **kwargs)
+
+    assert text == "; ".join(head + detail) + "."
+    assert text.endswith(".")
+    # The empty state is already a sentence and must not gain a second period.
+    assert profiles.runner_status_text(catalog).endswith("yet.")
+
+
+def test_the_status_line_no_longer_pins_the_window_open(qapp) -> None:
+    """A plain QLabel reports its whole string as its minimum width.
+
+    That is why the window would not narrow and why a smaller one snapped back
+    out to fit the text. The bar has to shrink and elide instead.
+    """
+    from ui.components.scan_controls import ScanControls
+    from ui.qt import import_qt
+
+    QtCore, QtGui, QtWidgets, _pg = import_qt()
+    if QtWidgets is None:
+        import pytest
+
+        pytest.skip("PySide6 not available")
+
+    controls = ScanControls(QtWidgets=QtWidgets, QtCore=QtCore)
+    long_line = "Currently running profile: " + "2920 MHz 925 mV, " * 12
+
+    controls.set_status_text(long_line, "Standing: 2730 MHz 850 mV · Autostart: Yes")
+
+    assert controls.status_label.minimumSizeHint().width() == 0
+    # The precise property: how wide the bar may shrink to must not depend on
+    # how long the status is. It used to, which is why a smaller window snapped
+    # back out to fit the text.
+    wide = controls.widget.minimumSizeHint().width()
+    controls.set_status_text("Idle", "")
+    assert controls.widget.minimumSizeHint().width() == wide
+    controls.set_status_text(long_line, "Standing: 2730 MHz 850 mV · Autostart: Yes")
+    # The second line carries its own subject and appears only when it has one.
+    assert controls.status_detail_label.isVisibleTo(controls.widget)
+    # Elided on screen, whole in the tooltip.
+    assert controls.status_label.toolTip().startswith("Currently running profile:")
+    # A one-off message clears the detail, so the bar keeps its single-line height.
+    controls.set_status_text("Idle")
+    assert not controls.status_detail_label.isVisibleTo(controls.widget)

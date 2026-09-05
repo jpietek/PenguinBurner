@@ -1,8 +1,73 @@
 from __future__ import annotations
 
+import importlib
+
+
+def _elided_label_class(QtWidgets, QtCore):
+    """A one-line label that shrinks instead of pinning the window open.
+
+    A plain QLabel reports its whole string as its minimum width, so a status
+    line of ~170 characters puts a floor of about a thousand pixels under the
+    window -- more at a larger font -- and a smaller window snaps back out to
+    fit it. This one reports nothing and elides whatever it is given to
+    whatever width it ends up with; the full text lives in the tooltip.
+    """
+
+    class ElidedLabel(QtWidgets.QLabel):
+        def __init__(self, text: str = ""):
+            super().__init__()
+            self._full_text = ""
+            self.setSizePolicy(
+                QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred
+            )
+            self.setFullText(text)
+
+        def setFullText(self, text: str) -> None:
+            self._full_text = str(text)
+            self.setToolTip(self._full_text)
+            self._render()
+
+        def fullText(self) -> str:
+            return self._full_text
+
+        def minimumSizeHint(self):
+            # QLabel derives this from its text even under an Ignored policy,
+            # which is exactly the floor this class exists to remove.
+            hint = super().minimumSizeHint()
+            hint.setWidth(0)
+            return hint
+
+        def resizeEvent(self, event):
+            super().resizeEvent(event)
+            self._render()
+
+        def showEvent(self, event):
+            # Laid out but never resized afterwards, the label would keep the
+            # text it was given at width zero -- the whole string.
+            super().showEvent(event)
+            self._render()
+
+        def _render(self) -> None:
+            metrics = self.fontMetrics()
+            width = max(0, self.width())
+            if width <= 0:
+                super().setText(self._full_text)
+                return
+            super().setText(
+                metrics.elidedText(self._full_text, QtCore.Qt.ElideRight, width)
+            )
+
+    return ElidedLabel
+
 
 class ScanControls:
-    def __init__(self, *, QtWidgets):
+    def __init__(self, *, QtWidgets, QtCore=None):
+        # Derived rather than required, so the one caller that only ever had
+        # QtWidgets keeps working.
+        if QtCore is None:
+            QtCore = importlib.import_module(
+                QtWidgets.__name__.replace("QtWidgets", "QtCore")
+            )
         self.widget = QtWidgets.QWidget()
         layout = QtWidgets.QHBoxLayout(self.widget)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -12,28 +77,38 @@ class ScanControls:
         self.import_afterburner_button.setObjectName("importAfterburnerButton")
         self.import_afterburner_button.setIcon(
             self.widget.style().standardIcon(
-                getattr(
-                    getattr(QtWidgets.QStyle, "StandardPixmap", QtWidgets.QStyle),
-                    "SP_DialogOpenButton",
-                )
+                getattr(QtWidgets.QStyle, "StandardPixmap", QtWidgets.QStyle).SP_DialogOpenButton
             )
         )
         self.about_button = QtWidgets.QPushButton("About")
         self.about_button.setObjectName("aboutButton")
         self.about_button.setIcon(
             self.widget.style().standardIcon(
-                getattr(
-                    getattr(QtWidgets.QStyle, "StandardPixmap", QtWidgets.QStyle),
-                    "SP_MessageBoxInformation",
-                )
+                getattr(QtWidgets.QStyle, "StandardPixmap", QtWidgets.QStyle).SP_MessageBoxInformation
             )
         )
         self.stop_button = QtWidgets.QPushButton("Stop")
         self.stop_button.setObjectName("stopButton")
         self.stop_button.setEnabled(False)
-        self.status_label = QtWidgets.QLabel(
+        # Two lines, each on one subject: the first says what is running, the
+        # second what stands behind it and what boot will do. As one
+        # semicolon-joined run the headline sat in the middle and was the first
+        # thing elision took away.
+        elided_label = _elided_label_class(QtWidgets, QtCore)
+        self.status_label = elided_label(
             "Auto-UV profiles are stored automatically in the main profile store."
         )
+        self.status_label.setObjectName("statusLabel")
+        self.status_detail_label = elided_label("")
+        self.status_detail_label.setObjectName("statusDetailLabel")
+        # Hidden while empty so a one-line message keeps the bar's height.
+        self.status_detail_label.hide()
+        status_box = QtWidgets.QWidget()
+        status_layout = QtWidgets.QVBoxLayout(status_box)
+        status_layout.setContentsMargins(0, 0, 0, 0)
+        status_layout.setSpacing(2)
+        status_layout.addWidget(self.status_label)
+        status_layout.addWidget(self.status_detail_label)
         self.dependency_progress = QtWidgets.QProgressBar()
         self.dependency_progress.setObjectName("dependencyProgress")
         self.dependency_progress.setRange(0, 100)
@@ -43,15 +118,29 @@ class ScanControls:
         self.dependency_progress.setFixedHeight(20)
         self.dependency_progress.setMinimumWidth(260)
         self.dependency_progress.hide()
-        layout.addWidget(self.status_label, 1)
+        layout.addWidget(status_box, 1)
         layout.addWidget(self.dependency_progress)
         layout.addWidget(self.start_button)
         layout.addWidget(self.stop_button)
         layout.addWidget(self.import_afterburner_button)
         layout.addWidget(self.about_button)
 
-    def set_status_text(self, text: str) -> None:
-        self.status_label.setText(str(text))
+    def set_status_text(self, text: str, detail: str = "") -> None:
+        """Set the status line, optionally with a muted second line.
+
+        Every one-off message (an error, a step of a scan) passes text alone
+        and so clears any detail left by the running-profile line, which is the
+        only caller that has a second line to show.
+        """
+        self.status_label.setFullText(str(text))
+        detail_text = str(detail or "")
+        self.status_detail_label.setFullText(detail_text)
+        self.status_detail_label.setVisible(bool(detail_text))
+        # Both carry the whole status, so hovering anywhere over the line shows
+        # what elision took away.
+        full = f"{text} {detail_text}".strip() if detail_text else str(text)
+        self.status_label.setToolTip(full)
+        self.status_detail_label.setToolTip(full)
 
     def set_dependency_progress(self, percent, *, detail: str = "") -> None:
         self.set_progress(

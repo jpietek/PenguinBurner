@@ -2,17 +2,20 @@ from pathlib import Path
 import json
 
 from integrations.steam.settings import (
+    SteamGameSetting,
+    load_steam_game_settings,
+    remove_steam_game_setting,
+    steam_game_setting,
+    store_steam_game_setting,
+)
+from profiles.game_profile import (
     GAME_MODE_ADAPTIVE,
     GAME_MODE_DEFAULT,
     GAME_MODE_NONE,
     GAME_MODE_STOCK,
-    SteamGameSetting,
-    load_steam_game_settings,
+    game_mode_uses_latency_markers,
     normalize_game_mode,
     normalize_game_target_fps,
-    remove_steam_game_setting,
-    steam_game_setting,
-    store_steam_game_setting,
 )
 
 
@@ -59,6 +62,12 @@ def test_normalize_game_mode_accepts_tier_aliases() -> None:
     assert normalize_game_mode("none") == GAME_MODE_NONE
     assert normalize_game_mode("bogus") == GAME_MODE_DEFAULT
     assert normalize_game_mode(None) == GAME_MODE_DEFAULT
+
+
+def test_only_adaptive_mode_uses_hidden_latency_markers() -> None:
+    assert game_mode_uses_latency_markers(GAME_MODE_ADAPTIVE)
+    assert not game_mode_uses_latency_markers("balanced")
+    assert not game_mode_uses_latency_markers(GAME_MODE_STOCK)
 
 
 def test_setting_active_property() -> None:

@@ -50,6 +50,193 @@ QLabel#gpuNvmlInfo {{
     font-size: 11px;
     padding: 7px 9px;
 }}
+/* --- Game Library ------------------------------------------------------- */
+/* One library tab now holds every launcher, so these names carry no launcher
+   in them. The Steam block below is the old per-launcher panel's and goes
+   when that panel does. */
+/* No alternating bands: a rounded hover and selection, as both old library
+   tabs drew their rows. */
+QListWidget#gameList {{
+    background: {theme.SURFACE_BG};
+    outline: 0;
+}}
+QListWidget#gameList::item {{
+    border-radius: 5px;
+    color: {theme.TEXT};
+    padding: 5px 7px;
+}}
+QListWidget#gameList::item:hover {{
+    background: {theme.CONTROL_HOVER_BG};
+}}
+QListWidget#gameList::item:selected {{
+    background: {theme.PROFILE_SELECTED_BG};
+    color: {theme.TEXT_STRONG};
+}}
+QFrame#libraryPane {{
+    background: {theme.SURFACE_BG};
+    border: 1px solid {theme.BORDER};
+    border-radius: 7px;
+}}
+QFrame#libraryLoadingPane {{
+    background: {theme.WINDOW_BG};
+    border: 1px solid {theme.BORDER};
+    border-radius: 7px;
+}}
+QLabel#libraryLoadingTitle {{
+    color: {theme.TEXT_STRONG};
+    font-size: 14px;
+}}
+QLabel#libraryLoadingSources {{
+    color: {theme.TEXT_MUTED};
+    font-size: 12px;
+}}
+/* The settings page is a field the cards sit on, so it takes the window tone
+   rather than the raised surface the list uses. Styled on the frame around the
+   scroll area -- see _build_settings for why the scroll area is left alone. */
+QFrame#gameDetailsPane {{
+    background: {theme.WINDOW_BG};
+    border: 1px solid {theme.BORDER};
+    border-radius: 7px;
+}}
+QWidget#gameSettingsPage {{
+    background: transparent;
+}}
+QLabel#libraryPaneTitle {{
+    color: {theme.TEXT_STRONG};
+    font-size: 14px;
+    font-weight: 700;
+}}
+QLabel#libraryLabel {{
+    color: {theme.TEXT_MUTED};
+}}
+QLabel#gameTitle {{
+    color: {theme.TEXT_PROGRESS};
+    font-size: 21px;
+    font-weight: 700;
+}}
+QLabel#gameMetadata {{
+    color: {theme.TEXT_MUTED};
+}}
+/* Matched by property, not by name: the launcher declares these rows, so
+   there is more than one and their names are not known here. */
+QLineEdit[launcherField="true"], QPlainTextEdit[launcherField="true"] {{
+    background: {theme.SURFACE_BG};
+    border: 1px solid {theme.BORDER};
+    border-radius: 5px;
+    color: {theme.TEXT};
+    font-family: monospace;
+    padding: 8px;
+}}
+QLineEdit[launcherField="true"]:focus,
+QPlainTextEdit[launcherField="true"]:focus {{
+    border-color: {theme.BORDER_STRONG};
+}}
+QComboBox#gameMode, QComboBox#gameGpu, QComboBox#librarySort {{
+    padding: 5px 8px;
+}}
+/* Without this a gated combo still drew its value in full-strength text, so a
+   disabled row read as an active one. */
+QComboBox#gameMode:disabled,
+QComboBox#gameGpu:disabled {{
+    background: {theme.CONTROL_BG};
+    border-color: {theme.BORDER};
+    color: {theme.TEXT_DISABLED};
+}}
+QLabel#gameTargetFollow {{
+    color: {theme.TEXT_MUTED};
+    font-size: 11px;
+}}
+QPushButton#gamePlayButton {{
+    background: {theme.PRIMARY_BUTTON_BG};
+    border-color: {theme.PRIMARY_BUTTON_BORDER};
+    color: {theme.PRIMARY_BUTTON_TEXT};
+    font-size: 14px;
+    font-weight: 700;
+}}
+QPushButton#gamePlayButton:hover {{
+    border-color: {theme.PRIMARY_BUTTON_HOVER_BORDER};
+}}
+QPushButton#gamePlayButton:pressed {{
+    background: {theme.PRIMARY_BUTTON_PRESSED_BG};
+    border-color: {theme.PRIMARY_BUTTON_PRESSED_BORDER};
+}}
+/* Running turns the same button into Stop, so it takes the danger colour
+   rather than growing a second button beside it. */
+QPushButton#gamePlayButton[playState="running"] {{
+    background: {theme.DANGER_BUTTON_BG};
+    border-color: {theme.DANGER_BUTTON_BORDER};
+    color: {theme.DANGER_BUTTON_TEXT};
+}}
+QPushButton#gamePlayButton[playState="running"]:hover {{
+    border-color: {theme.DANGER_BUTTON_HOVER_BORDER};
+}}
+QPushButton#gamePlayButton[playState="running"]:pressed {{
+    background: {theme.DANGER_BUTTON_PRESSED_BG};
+    border-color: {theme.DANGER_BUTTON_PRESSED_BORDER};
+}}
+QPushButton#gamePlayButton[playState="starting"],
+QPushButton#gamePlayButton[playState="stopping"] {{
+    background: {theme.CONTROL_BG};
+    border-color: {theme.BORDER_STRONG};
+    color: {theme.TEXT_MUTED};
+}}
+QLabel#libraryStatus, QLabel#libraryPlaceholder {{
+    color: {theme.TEXT_MUTED};
+    font-size: 11px;
+}}
+/* --- boxed preference groups (GNOME-style rows) ------------------------- */
+/* Qt style sheets support neither letter-spacing nor text-transform, so the
+   overline look is set on the text itself in preference_group(). */
+QLabel#prefGroupHeading {{
+    color: {theme.TEXT_MUTED};
+    font-size: 11px;
+    font-weight: 700;
+}}
+/* Breeze keeps surface steps small (its view/window is 1.1:1) and lets a
+   visible separator do the work. Measured here: the card sat at 1.09:1 on the
+   pane with a 1.38:1 border, which is no boundary at all. The card steps up to
+   the control surface, the pane drops to the window field under it, and the
+   edge uses the strong border -- 1.30:1 and 1.73:1 respectively. */
+QFrame#prefGroupCard {{
+    background: {theme.CONTROL_BG};
+    border: 1px solid {theme.BORDER_STRONG};
+    border-radius: 6px;
+}}
+QFrame#prefRow {{
+    background: transparent;
+    border: 0;
+}}
+/* Hairline between rows only -- the card's own edge closes the group, so a
+   separator on the first row would double it. */
+QFrame#prefRow[hasSeparator="true"] {{
+    border-top: 1px solid {theme.BORDER_STRONG};
+}}
+QLabel#prefRowTitle {{
+    color: {theme.TEXT_STRONG};
+    font-size: 13px;
+    font-weight: 600;
+}}
+QLabel#prefRowTitle:disabled {{
+    color: {theme.TEXT_DISABLED};
+}}
+QLabel#prefRowSubtitle {{
+    color: {theme.TEXT_MUTED};
+    font-size: 11px;
+}}
+QLabel#prefRowSubtitle:disabled {{
+    color: {theme.TEXT_DISABLED};
+}}
+/* Same framed panes, pane title and field label as the Steam tab, so the two
+   library tabs read as one application rather than two. */
+/* The frame belongs to the scroll area, not to the page inside it: on the
+   page it would scroll away with the content and leave the pane unbounded. */
+/* The settings page is a field the cards sit on, so it takes the window tone
+   rather than the raised surface the list uses. Styled on the frame around the
+   scroll area -- see _build_settings for why the scroll area itself is left
+   alone. */
+/* Same greying as the Steam tab's selectors: without this a gated combo still
+   drew its value in full-strength text, so a disabled row read as an active
+   one. */
 QGroupBox#autoUvPresetGroup {{
     margin-top: 6px;
 }}
@@ -144,102 +331,6 @@ QComboBox#profileTargetGpu:disabled {{
     border-color: {theme.BORDER};
     color: {theme.TEXT_DISABLED};
 }}
-QFrame#steamLibrarySetupCard {{
-    background: {theme.SURFACE_BG};
-    border: 1px solid {theme.BORDER_STRONG};
-    border-radius: 12px;
-}}
-QLabel#steamLibrarySetupTitle {{
-    background: transparent;
-    border: 0;
-    color: {theme.TEXT_PROGRESS};
-    font-size: 24px;
-    font-weight: 700;
-}}
-QLabel#steamLibrarySetupText {{
-    background: transparent;
-    border: 0;
-    color: {theme.TEXT_MUTED};
-    font-size: 13px;
-}}
-QPushButton#steamLibrarySetupButton {{
-    background: {theme.PRIMARY_BUTTON_BG};
-    border-color: {theme.PRIMARY_BUTTON_BORDER};
-    color: {theme.PRIMARY_BUTTON_TEXT};
-    font-size: 15px;
-    font-weight: 700;
-    padding: 12px 24px;
-}}
-QPushButton#steamLibrarySetupButton:hover {{
-    border-color: {theme.PRIMARY_BUTTON_HOVER_BORDER};
-}}
-QPushButton#steamLibrarySetupButton:pressed {{
-    background: {theme.PRIMARY_BUTTON_PRESSED_BG};
-    border-color: {theme.PRIMARY_BUTTON_PRESSED_BORDER};
-}}
-QFrame#steamLibraryPane, QFrame#steamGameDetailsPane {{
-    background: {theme.SURFACE_BG};
-    border: 1px solid {theme.BORDER};
-    border-radius: 7px;
-}}
-QLabel#steamPaneTitle {{
-    color: {theme.TEXT_STRONG};
-    font-size: 14px;
-    font-weight: 700;
-}}
-QLabel#steamGameTitle {{
-    color: {theme.TEXT_PROGRESS};
-    font-size: 21px;
-    font-weight: 700;
-}}
-QLabel#steamGameMetadata {{
-    color: {theme.TEXT_MUTED};
-}}
-QLabel#steamGameStatus {{
-    color: {theme.TEXT_MUTED};
-    font-weight: 600;
-}}
-QLabel#steamGameStatus[gameState="launching"],
-QLabel#steamGameStatus[gameState="running"] {{
-    color: {theme.GOOD};
-}}
-QLabel#steamGameStatus[gameState="stopping"] {{
-    color: {theme.WARNING};
-}}
-QLabel#steamFieldLabel {{
-    color: {theme.TEXT_STRONG};
-    font-weight: 600;
-}}
-QLabel#steamFieldLabel:disabled {{
-    color: {theme.TEXT_DISABLED};
-}}
-QListWidget#steamGameList {{
-    outline: 0;
-}}
-QListWidget#steamGameList::item {{
-    border-radius: 5px;
-    padding: 5px 7px;
-}}
-QListWidget#steamGameList::item:hover {{
-    background: {theme.CONTROL_HOVER_BG};
-}}
-QListWidget#steamGameList::item:selected {{
-    background: {theme.PROFILE_SELECTED_BG};
-    color: {theme.TEXT_STRONG};
-}}
-QComboBox#steamGameSort, QComboBox#steamAutoUvMode {{
-    padding: 5px 8px;
-}}
-QComboBox#steamAutoUvMode:disabled,
-QComboBox#steamCompatTool:disabled {{
-    background: {theme.CONTROL_BG};
-    border-color: {theme.BORDER};
-    color: {theme.TEXT_DISABLED};
-}}
-QLineEdit#steamLaunchOptions {{
-    font-family: monospace;
-    padding: 8px;
-}}
 QGroupBox {{
     border: 1px solid {theme.BORDER};
     border-radius: 6px;
@@ -271,38 +362,6 @@ QPushButton#autoUvScopeButton:checked {{
     background: {theme.PRIMARY_BUTTON_BG};
     border-color: {theme.PRIMARY_BUTTON_BORDER};
     color: {theme.PRIMARY_BUTTON_TEXT};
-}}
-QPushButton#steamPlayButton {{
-    background: {theme.PRIMARY_BUTTON_BG};
-    border-color: {theme.PRIMARY_BUTTON_BORDER};
-    color: {theme.PRIMARY_BUTTON_TEXT};
-    font-size: 14px;
-    font-weight: 700;
-}}
-QPushButton#steamPlayButton:hover {{
-    border-color: {theme.PRIMARY_BUTTON_HOVER_BORDER};
-}}
-QPushButton#steamPlayButton:pressed {{
-    background: {theme.PRIMARY_BUTTON_PRESSED_BG};
-    border-color: {theme.PRIMARY_BUTTON_PRESSED_BORDER};
-}}
-QPushButton#steamPlayButton[playState="running"] {{
-    background: {theme.DANGER_BUTTON_BG};
-    border-color: {theme.DANGER_BUTTON_BORDER};
-    color: {theme.DANGER_BUTTON_TEXT};
-}}
-QPushButton#steamPlayButton[playState="running"]:hover {{
-    border-color: {theme.DANGER_BUTTON_HOVER_BORDER};
-}}
-QPushButton#steamPlayButton[playState="running"]:pressed {{
-    background: {theme.DANGER_BUTTON_PRESSED_BG};
-    border-color: {theme.DANGER_BUTTON_PRESSED_BORDER};
-}}
-QPushButton#steamPlayButton[playState="starting"],
-QPushButton#steamPlayButton[playState="stopping"] {{
-    background: {theme.CONTROL_BG};
-    border-color: {theme.BORDER_STRONG};
-    color: {theme.TEXT_MUTED};
 }}
 QPushButton#autoUvPresetButton {{
     min-width: 108px;

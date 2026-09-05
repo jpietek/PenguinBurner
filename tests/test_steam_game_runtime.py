@@ -3,19 +3,25 @@ from types import SimpleNamespace
 
 import pytest
 
+from profiles import game_profile
+
 import integrations.steam.game_runtime as game_runtime
 from integrations.steam.game_runtime import (
     apply_game_runtime_profile,
     game_account_id,
     game_app_id,
     game_runtime_profile_argv,
+)
+from profiles.game_profile import (
     game_gpu_target,
     profile_argv_for_setting,
 )
 from integrations.steam.settings import (
-    GAME_MODE_NONE,
     SteamGameSetting,
     store_steam_game_setting,
+)
+from profiles.game_profile import (
+    GAME_MODE_NONE,
 )
 from integrations.steam.users import STEAMID64_BASE
 
@@ -65,9 +71,9 @@ def test_profile_argv_for_explicit_stock_pins_factory_state() -> None:
 
 
 def _stub_adaptive_profiles(monkeypatch) -> None:
-    monkeypatch.setattr(game_runtime, "read_auto_uv_profiles", lambda: [])
+    monkeypatch.setattr(game_profile, "read_auto_uv_profiles", lambda: [])
     monkeypatch.setattr(
-        game_runtime,
+        game_profile,
         "resolve_profile_tier_profiles",
         lambda profiles, **kwargs: {
             "efficiency": {"profile_id": "efficiency-profile"},
@@ -118,9 +124,9 @@ def test_profile_argv_for_non_adaptive_ignores_target_fps() -> None:
 
 
 def test_profile_argv_for_fixed_tier_resolves_profile(monkeypatch) -> None:
-    monkeypatch.setattr(game_runtime, "read_auto_uv_profiles", lambda: [])
+    monkeypatch.setattr(game_profile, "read_auto_uv_profiles", lambda: [])
     monkeypatch.setattr(
-        game_runtime,
+        game_profile,
         "resolve_profile_tier_profiles",
         lambda profiles: {"balanced": {"profile_id": "profile-123"}},
     )
@@ -129,9 +135,9 @@ def test_profile_argv_for_fixed_tier_resolves_profile(monkeypatch) -> None:
 
 
 def test_profile_argv_for_unresolved_tier_is_none(monkeypatch) -> None:
-    monkeypatch.setattr(game_runtime, "read_auto_uv_profiles", lambda: [])
+    monkeypatch.setattr(game_profile, "read_auto_uv_profiles", lambda: [])
     monkeypatch.setattr(
-        game_runtime,
+        game_profile,
         "resolve_profile_tier_profiles",
         lambda profiles: {"balanced": None},
     )
@@ -174,7 +180,7 @@ def test_game_runtime_profile_argv_keeps_legacy_profile_on_single_gpu(
         path=settings_path,
     )
     monkeypatch.setattr(
-        game_runtime,
+        game_profile,
         "read_auto_uv_profiles",
         lambda: [
             {
@@ -388,9 +394,9 @@ def test_game_gpu_target_requires_choice_with_multiple_gpus() -> None:
 
 def test_profile_argv_filters_tiers_by_gpu_uuid(monkeypatch) -> None:
     seen: list[str] = []
-    monkeypatch.setattr(game_runtime, "read_auto_uv_profiles", lambda: [])
+    monkeypatch.setattr(game_profile, "read_auto_uv_profiles", lambda: [])
     monkeypatch.setattr(
-        game_runtime,
+        game_profile,
         "resolve_profile_tier_profiles",
         lambda profiles, *, gpu_uuid="", **_kwargs: seen.append(gpu_uuid)
         or {"balanced": {"profile_id": "profile-b"}},
@@ -413,7 +419,7 @@ def test_profile_argv_keeps_legacy_tiers_on_unambiguous_single_gpu(
         "final_verified": True,
         "profile_tier": "balanced",
     }
-    monkeypatch.setattr(game_runtime, "read_auto_uv_profiles", lambda: [legacy])
+    monkeypatch.setattr(game_profile, "read_auto_uv_profiles", lambda: [legacy])
 
     argv = profile_argv_for_setting(
         SteamGameSetting(enabled=True, mode="balanced"),
@@ -490,34 +496,6 @@ def test_launch_steam_game_validates_app_id(monkeypatch) -> None:
     assert launched == [["/usr/bin/steam", "-applaunch", "3606110"]]
     assert not launch_steam_game("rm -rf /")
     assert len(launched) == 1
-
-
-def test_steam_game_running_matches_reaper_session(monkeypatch) -> None:
-    import integrations.steam.process as process
-
-    monkeypatch.setattr(process, "running_in_flatpak", lambda: False)
-    calls = []
-
-    def fake_run(command, **kwargs):
-        calls.append(command)
-        return process.subprocess.CompletedProcess(command, 0)
-
-    monkeypatch.setattr(process.subprocess, "run", fake_run)
-
-    assert process.steam_game_running("3606110")
-    # [S] keeps the pattern from matching a command line carrying the pattern
-    # itself (the flatpak-spawn helper, a sibling checker).
-    assert calls == [
-        ["/usr/bin/pgrep", "-f", r"[S]teamLaunch AppId=3606110([^0-9]|$)"]
-    ]
-    import re
-
-    pattern = calls[0][2]
-    assert re.search(pattern, "reaper SteamLaunch AppId=3606110 -- /game/bin")
-    assert not re.search(pattern, f"pgrep -f {pattern}")
-    assert not re.search(pattern, "reaper SteamLaunch AppId=36061100 -- /game/bin")
-    assert not process.steam_game_running("rm -rf /")
-    assert len(calls) == 1
 
 
 def test_running_steam_game_ids_batches_one_pgrep(monkeypatch) -> None:

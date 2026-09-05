@@ -1722,10 +1722,13 @@ def test_overlay_tab_hides_runs_panel_and_scrolls_options(monkeypatch) -> None:
         )
         is None
     )
+    # The overlay tab lost its global checkbox, but the per-game switch in the
+    # library tab is a different control and must survive. It is a toggle
+    # switch, not a checkbox: a QAbstractButton painted from the theme.
     assert (
-        window.steam_panel.widget.findChild(
-            QtWidgets.QCheckBox,
-            "steamOverlayToggle",
+        window.game_library_panel.widget.findChild(
+            QtWidgets.QAbstractButton,
+            "gameOverlay",
         )
         is not None
     )
@@ -2356,13 +2359,16 @@ def test_advanced_tuning_group_has_breathing_room() -> None:
     assert "layout.setSpacing(8)" in source
     assert "preset_layout.setContentsMargins(14, 18, 14, 12)" in source
     assert "advanced_layout.setContentsMargins(18, 28, 18, 16)" in source
-    assert "form.setHorizontalSpacing(24)" in source
-    assert "form.setVerticalSpacing(10)" in source
     assert "dialog.setMinimumWidth(860)" in source
     assert "dialog.resize(860, dialog.sizeHint().height())" in source
     assert "dialog.adjustSize()" not in source
     assert "dialog.setFixedSize" not in source
-    assert "label_layout.setContentsMargins(0, 2, 12, 2)" in source
+    # Row metrics moved into the shared helpers so every settings dialog gets
+    # the same spacing rather than each dialog re-deciding it.
+    rows = Path("ui/dialogs/form_rows.py").read_text(encoding="utf-8")
+    assert "form.setHorizontalSpacing(24)" in rows
+    assert "form.setVerticalSpacing(10)" in rows
+    assert "label_layout.setContentsMargins(0, 2, 12, 2)" in rows
 
 
 def test_scan_tuning_power_limit_controls_disabled_when_power_management_disabled():

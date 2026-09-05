@@ -11,13 +11,12 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from common.flatpak_wrappers import ensure_steam_integration
+from common.flatpak_wrappers import ensure_host_integration
 from overlay.telemetry.steam_launch_check import (
     launch_options_from_localconfig,
     rewrite_launch_options,
 )
-from profiles.uv.profile_store import STOCK_PROFILE_SELECTOR, resolve_auto_uv_profile
-from profiles.uv.profile_tiers import profile_tier_label
+from profiles.uv.profile_store import STOCK_PROFILE_SELECTOR
 
 from .cdp import (
     SteamAppDetails,
@@ -34,16 +33,19 @@ from .launch_options import (
     remove_injection,
 )
 from .library import InstalledSteamGame, installed_steam_games
-from .process import running_steam_game_ids, steam_game_running, steam_running
+from .process import running_steam_game_ids, steam_running
 from .settings import (
+    SteamGameSetting,
+    load_steam_game_settings,
+    store_steam_game_setting,
+)
+from profiles.game_profile import (
     GAME_MODE_ADAPTIVE,
     GAME_MODE_DEFAULT,
     GAME_MODE_NONE,
-    SteamGameSetting,
-    load_steam_game_settings,
+    game_mode_uses_latency_markers,
     normalize_game_mode,
     normalize_game_target_fps,
-    store_steam_game_setting,
 )
 from .users import SteamUser, active_steam_user
 
@@ -73,6 +75,10 @@ class SteamIntegrationManager:
         self._settings_path = settings_path
         self._launch_options: dict[str, str] = {}
         self._compat_tools: dict[str, tuple[tuple[str, str], ...]] = {}
+        # "This Steam session cannot answer" is a global fact, remembered so
+        # browsing a game list does not pay a fresh 5s CDP attempt per row.
+        # Cleared on the next deep refresh, when Steam may have come back.
+        self._compat_tools_unavailable = False
         self._app_details: dict[str, SteamAppDetails] = {}
 
     # -- status ------------------------------------------------------------
@@ -88,13 +94,6 @@ class SteamIntegrationManager:
 
     def cdp_ready(self) -> bool:
         return cdp_available(timeout_s=1.0)
-
-    def live_apply_ready(self) -> bool:
-        """Writes can land right now: CDP up, or Steam stopped (disk path)."""
-        return self.cdp_ready() or not self.steam_running()
-
-    def game_running(self, app_id: str) -> bool:
-        return steam_game_running(app_id)
 
     def running_game_ids(self) -> frozenset[str] | None:
         """Every running Steam game's app id in one subprocess (for polling).
@@ -133,38 +132,6 @@ class SteamIntegrationManager:
                 )
             return ApplyResult(False, f"stop failed: {error}")
 
-    def standing_mode_label(self) -> str:
-        """What an unconfigured game runs under: the user's standing action
-        from the Profiles tab (Adaptive, a tier's profile, or Stock)."""
-        from runtime.daemon_client import daemon_status
-
-        try:
-            status = daemon_status(timeout_s=1.0)
-        except Exception:
-            return "Stock"
-
-        game_runtime = status.get("game_runtime")
-        if isinstance(game_runtime, dict):
-            mode = str(game_runtime.get("standing_runtime_mode") or "")
-            selector = str(game_runtime.get("standing_profile_id") or "")
-        else:
-            active_job = status.get("active_job")
-            if not isinstance(active_job, dict):
-                return "Stock"
-            mode = str(active_job.get("runtime_mode") or "")
-            selector = str(active_job.get("profile_id") or "")
-
-        if mode == "adaptive":
-            return "Adaptive"
-        if mode != "static" or not selector or selector == STOCK_PROFILE_SELECTOR:
-            return "Stock"
-        resolved = resolve_auto_uv_profile(selector)
-        if resolved is not None:
-            label = profile_tier_label(resolved[1].get("profile_tier"))
-            if label:
-                return label
-        return selector
-
     def initialize(self) -> ApplyResult:
         if not ensure_cdp_marker(self._home):
             return ApplyResult(False, "Steam installation not found")
@@ -181,11 +148,13 @@ class SteamIntegrationManager:
         self,
         *,
         read_launch_options: bool = True,
-        initialize_defaults: bool = False,
     ) -> tuple[SteamGameRow, ...]:
         games = installed_steam_games(self._home)
         if read_launch_options:
             games = self._read_all_app_details(games)
+            # Steam may have come back (or gone away) since the last deep
+            # pass; let the next compat-tool question ask it again.
+            self._compat_tools_unavailable = False
         else:
             games = self._merge_cached_app_details(games)
         user = self.active_user()
@@ -194,8 +163,7 @@ class SteamIntegrationManager:
             if user is not None
             else {}
         )
-        if initialize_defaults:
-            self._initialize_discovered_games(games, settings)
+        if self._adopt_wrapped_games(games, settings):
             settings = (
                 load_steam_game_settings(self._settings_path).get(user.account_id, {})
                 if user is not None
@@ -210,30 +178,44 @@ class SteamIntegrationManager:
             for game in games
         )
 
-    def _initialize_discovered_games(
+    def _adopt_wrapped_games(
         self,
         games: tuple[InstalledSteamGame, ...],
         settings: dict[str, SteamGameSetting],
-    ) -> None:
-        """Give each newly scanned game the safe PenguinBurner defaults."""
+    ) -> bool:
+        """Recreate the settings entry of a game that already runs our wrapper.
+
+        The wrapper in a launch line IS user intent, durably recorded in
+        Steam's own config. After a reinstall or a migrated home the settings
+        file is gone while the wrapper still runs; without adoption such a game
+        shows "Not wrapped" and launches with no per-game profile behind the
+        wrapper. This repairs our own bookkeeping -- it never writes to Steam
+        -- and only touches wrapped games with no entry, so a scan of an
+        already-consistent library writes nothing.
+        """
+        if self.active_user() is None:
+            return False
+        adopted = False
         for game in games:
             if game.app_id in settings:
                 continue
             current = self._launch_options.get(game.app_id, "")
             state = injection_state(current)
-            if state.wrapped:
-                self._store(
-                    game.app_id,
-                    SteamGameSetting(
-                        enabled=True,
-                        mode=GAME_MODE_ADAPTIVE,
-                        overlay=state.overlay,
-                        original_launch_options=remove_injection(current),
-                        injected_launch_options=current,
-                    ),
-                )
+            if not state.wrapped:
                 continue
-            self._apply(game.app_id, SteamGameSetting())
+            self._store(
+                game.app_id,
+                SteamGameSetting(
+                    enabled=True,
+                    mode=GAME_MODE_ADAPTIVE,
+                    overlay=state.overlay,
+                    ingame_latency=state.ingame_latency,
+                    original_launch_options=remove_injection(current),
+                    injected_launch_options=current,
+                ),
+            )
+            adopted = True
+        return adopted
 
     def _read_all_app_details(
         self,
@@ -246,11 +228,7 @@ class SteamIntegrationManager:
         """
         try:
             with SteamCdpClient(timeout_s=3.0) as client:
-                fresh_details = {
-                    game.app_id: details
-                    for game in games
-                    if (details := client.app_details(game.app_id)) is not None
-                }
+                fresh_details = client.app_details_many(game.app_id for game in games)
         except SteamCdpError:
             fresh_details = {}
         if fresh_details:
@@ -353,9 +331,10 @@ class SteamIntegrationManager:
             app_ids,
             lambda app_id: self.set_game_overlay(app_id, bool(overlay)),
             "overlay shown" if overlay else "overlay hidden",
+            live_overlay=True,
         )
 
-    def _apply_to_games(self, app_ids, action, label: str) -> ApplyResult:
+    def _apply_to_games(self, app_ids, action, label: str, *, live_overlay: bool = False) -> ApplyResult:
         ids = [str(app_id) for app_id in app_ids]
         failed: list[str] = []
         for app_id in ids:
@@ -366,16 +345,25 @@ class SteamIntegrationManager:
         # One daemon-status probe instead of one per game: only games the
         # daemon is currently watching can pick the change up live.
         applied = set(ids) - set(failed)
-        for app_id in self._watched_running_app_ids() & applied:
-            self.hot_reapply(app_id)
+        live_problems: list[str] = []
+        if live_overlay:
+            for app_id in (self.running_game_ids() or frozenset()) & applied:
+                result = self.hot_reapply_overlay(app_id)
+                if result is not None and not result.ok:
+                    live_problems.append(result.message)
+        else:
+            for app_id in self._watched_running_app_ids() & applied:
+                self.hot_reapply(app_id)
         games_word = "game" if changed == 1 else "games"
         message = f"PenguinBurner {label} for {changed} {games_word}."
+        if live_problems:
+            message += " " + " ".join(live_problems)
         if failed:
             return ApplyResult(
                 False,
                 f"{message} Failed for {len(failed)}: {', '.join(failed[:5])}.",
             )
-        return ApplyResult(True, message)
+        return ApplyResult(not live_problems, message)
 
     def _watched_running_app_ids(self) -> frozenset[str]:
         from runtime.daemon_client import daemon_status
@@ -394,12 +382,16 @@ class SteamIntegrationManager:
     def available_compat_tools(self, app_id: str) -> tuple[tuple[str, str], ...]:
         if app_id in self._compat_tools:
             return self._compat_tools[app_id]
+        if self._compat_tools_unavailable:
+            return ()
         try:
             with SteamCdpClient(timeout_s=5.0) as client:
                 if not client.compat_tool_selection_supported():
+                    self._compat_tools_unavailable = True
                     return ()
                 tools = client.available_compat_tools(app_id)
         except SteamCdpError:
+            self._compat_tools_unavailable = True
             return ()
         self._compat_tools[app_id] = tools
         return tools
@@ -447,6 +439,15 @@ class SteamIntegrationManager:
                 replace(
                     setting,
                     overlay=state.overlay,
+                    # Injection deliberately leaves the latency flag out while
+                    # the overlay is on (the wrapper runs the markers anyway),
+                    # so its absence on such a line says nothing about the
+                    # stored opt-in; only an overlay-off line speaks for it.
+                    ingame_latency=(
+                        setting.ingame_latency
+                        if state.overlay
+                        else state.ingame_latency
+                    ),
                     original_launch_options=(
                         setting.original_launch_options
                         if setting.active
@@ -481,7 +482,7 @@ class SteamIntegrationManager:
 
         from drivers.nvidia.daemon_gpu import DaemonGpuClient
 
-        from .game_runtime import game_gpu_target, profile_argv_for_setting
+        from profiles.game_profile import game_gpu_target, profile_argv_for_setting
 
         try:
             status = daemon_status(timeout_s=1.0)
@@ -550,20 +551,61 @@ class SteamIntegrationManager:
             return ApplyResult(False, f"live profile re-apply skipped: {reason}")
         return ApplyResult(True, "Profile re-applied to the running game.")
 
+    def hot_reapply_overlay(self, app_id: str) -> ApplyResult | None:
+        """Update the native layer only when this game's session is running."""
+        from overlay.state import write_overlay_override
+
+        running = self.running_game_ids()
+        if running is None or str(app_id) not in running:
+            return None
+        enabled = self._setting(app_id).overlay
+        if not write_overlay_override(enabled):
+            return ApplyResult(False, "Overlay saved, but live visibility update failed.")
+        return ApplyResult(True, f"Overlay switched {'on' if enabled else 'off'} live.")
+
     def _apply(self, app_id: str, setting: SteamGameSetting) -> ApplyResult:
-        current = self._launch_options.get(app_id, "")
+        # Marker capture is an Adaptive prerequisite, not a second preference
+        # users must keep in sync with the selected mode. The overlay still
+        # controls only whether the HUD is drawn.
+        setting = replace(
+            setting,
+            ingame_latency=game_mode_uses_latency_markers(setting.mode),
+        )
+        current = self._launch_options.get(app_id)
+        if current is None:
+            # No cache entry means this game's last read failed (a per-app CDP
+            # timeout leaves the others populated). Composing a new line from
+            # "" would overwrite whatever the user really has in Steam, and
+            # recording "" as the original destroys the restore path -- so
+            # refuse rather than guess.
+            return ApplyResult(
+                False,
+                "this game's current launch options could not be read; "
+                "rescan and try again",
+            )
         if setting.active:
             try:
-                ensure_steam_integration()
+                ensure_host_integration()
             except (OSError, RuntimeError) as error:
                 return ApplyResult(
                     False,
                     f"PenguinBurner Steam integration repair failed: {error}",
                 )
-            desired = inject_launch_options(current, overlay=setting.overlay)
+            desired = inject_launch_options(
+                current,
+                overlay=setting.overlay,
+                ingame_latency=setting.ingame_latency,
+            )
+            # The stored original is a snapshot taken when the wrapper last
+            # went in, and it is only still the original while the wrapper is
+            # still there. On an unwrapped line the live command *is* the
+            # original: the user may have edited it in Steam since, or taken
+            # our wrapper out by hand. Preferring a stale snapshot over it
+            # restores an older command -- and if that snapshot was itself
+            # recorded from a bad read, hands the user back a broken one.
             original = (
                 setting.original_launch_options
-                if setting.original_launch_options
+                if setting.original_launch_options and injection_state(current).wrapped
                 else remove_injection(current)
             )
         else:
@@ -643,12 +685,15 @@ class SteamIntegrationManager:
         user = self.active_user()
         if user is None:
             return ApplyResult(False, "No Steam account found")
-        # Default verify delay: catches Steam clobbering the file from memory
-        # when a shutdown was still flushing while pgrep already saw it gone.
+        # Steam was checked immediately above and is not running. Read the
+        # file back, but do not impose the generic delayed-clobber watch: an
+        # absent client has nothing left to flush and every toggle otherwise
+        # pays that fixed latency.
         result = rewrite_launch_options(
             app_id=app_id,
             launch_options=value,
             config_paths=[user.localconfig_path],
+            verify_delay_s=0.0,
         )
         if not result.persisted:
             return ApplyResult(False, "Failed to write localconfig.vdf")

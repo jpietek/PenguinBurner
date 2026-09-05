@@ -12,54 +12,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 import json
-import math
 from pathlib import Path
 
 from auto_uv.persistence.auto_uv_persisted_json_files import safe_json_write
 from common.penguin_burner_paths import default_user_config_dir
-from profiles.uv.profile_tiers import PROFILE_TIERS, normalize_profile_tier
-from runtime.support.adaptive_target_fps import (
-    MAX_ADAPTIVE_TARGET_FPS,
-    MIN_ADAPTIVE_TARGET_FPS,
+from overlay.wrapper_tokens import ingame_latency_present
+from profiles.game_profile import (
+    GAME_MODE_ADAPTIVE,
+    GAME_MODE_NONE,
+    GAME_MODES,
+    normalize_game_mode,
+    normalize_game_target_fps,
 )
 
-
-# Steam integration is opt-in per game. New games keep the wrapper disabled,
-# preselect Adaptive, and keep overlay visibility off. Hidden legacy modes stay
-# readable and migrate to Adaptive.
-GAME_MODE_NONE = "none"
-GAME_MODE_DEFAULT = "default"
-GAME_MODE_STOCK = "stock"
-GAME_MODE_ADAPTIVE = "adaptive"
-# Modes a stored per-game setting may hold. Stock is a real choice: pin the
-# factory GPU state for this game while the system-wide profile stays tuned.
-GAME_MODES = (GAME_MODE_ADAPTIVE, *PROFILE_TIERS, GAME_MODE_STOCK)
-
 STEAM_GAME_SETTINGS_FILENAME = "steam-game-settings.json"
-
-
-def normalize_game_mode(
-    value: object | None, *, default: str = GAME_MODE_DEFAULT
-) -> str:
-    text = str(value or "").strip().lower()
-    if not text:
-        return default
-    if text in (GAME_MODE_NONE, GAME_MODE_DEFAULT, GAME_MODE_STOCK, GAME_MODE_ADAPTIVE):
-        return text
-    return normalize_profile_tier(text, default=default)
-
-
-def normalize_game_target_fps(value: object | None) -> float | None:
-    """Per-game adaptive target FPS; None means "use the global default"."""
-    try:
-        fps = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(fps):
-        return None
-    if not MIN_ADAPTIVE_TARGET_FPS <= fps <= MAX_ADAPTIVE_TARGET_FPS:
-        return None
-    return fps
 
 
 @dataclass(frozen=True)
@@ -67,6 +33,10 @@ class SteamGameSetting:
     enabled: bool = False
     mode: str = GAME_MODE_ADAPTIVE
     overlay: bool = False
+    #: Launch-line read-back for marker capture. Managed writes derive this
+    #: from the mode: Adaptive enables it and fixed modes do not. Keeping the
+    #: field readable preserves old settings and exact raw-line parsing.
+    ingame_latency: bool = False
     original_launch_options: str = ""
     injected_launch_options: str = ""
     # None = follow the global [adaptive] target_fps from the runtime config.
@@ -115,6 +85,11 @@ def load_steam_game_settings(
                 ),
                 mode=mode,
                 overlay=bool(entry.get("overlay")),
+                # Falls back to the launch line for settings written before
+                # this key existed, so a hand-added opt-in is not read as off.
+                ingame_latency=bool(
+                    entry.get("ingame_latency", ingame_latency_present(injected))
+                ),
                 original_launch_options=str(entry.get("original_launch_options") or ""),
                 injected_launch_options=injected,
                 target_fps=normalize_game_target_fps(entry.get("target_fps")),
@@ -214,6 +189,7 @@ def _write_settings(
                         "enabled": setting.enabled,
                         "mode": setting.mode,
                         "overlay": setting.overlay,
+                        "ingame_latency": setting.ingame_latency,
                         **(
                             {"target_fps": setting.target_fps}
                             if setting.target_fps is not None

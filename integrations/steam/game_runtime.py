@@ -11,24 +11,14 @@ a daemon problem must never block a game launch.
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
 import os
 from pathlib import Path
 import sys
 
 from drivers.nvidia.daemon_gpu import DaemonGpuClient
-from profiles.gpu_identity import gpu_index_for_uuid
-from profiles.uv.profile_store import STOCK_PROFILE_SELECTOR, read_auto_uv_profiles
-from profiles.uv.profile_tiers import PROFILE_TIERS, resolve_profile_tier_profiles
+from profiles.game_profile import game_gpu_target, profile_argv_for_setting
 
-from .settings import (
-    GAME_MODE_ADAPTIVE,
-    GAME_MODE_DEFAULT,
-    GAME_MODE_NONE,
-    GAME_MODE_STOCK,
-    SteamGameSetting,
-    steam_game_setting,
-)
+from .settings import steam_game_setting
 from .users import list_steam_users
 
 
@@ -57,84 +47,10 @@ def game_account_id(env: dict[str, str], *, home: Path | None = None) -> str:
     return users[0].account_id if users else ""
 
 
-def profile_argv_for_setting(
-    setting: SteamGameSetting,
-    *,
-    gpu_index: int | None = None,
-    gpu_uuid: str = "",
-    include_legacy_profiles: bool = False,
-) -> list[str] | None:
-    """Daemon runtime argv for a preset; None when there is nothing to apply."""
-    if not setting.enabled:
-        return None
-    if setting.mode in (GAME_MODE_NONE, GAME_MODE_DEFAULT):
-        return None
-    if setting.mode == GAME_MODE_STOCK:
-        # Explicit per-game stock: pin factory GPU state while this game
-        # runs, even when a standing adaptive/tier profile is active.
-        argv = ["--auto-uv-profile", STOCK_PROFILE_SELECTOR]
-        return _argv_with_gpu_index(argv, gpu_index)
-    selected_uuid = str(gpu_uuid or setting.gpu_uuid or "").strip()
-    profiles = read_auto_uv_profiles()
-    resolved = (
-        resolve_profile_tier_profiles(
-            profiles,
-            gpu_uuid=selected_uuid,
-            include_legacy_profiles=include_legacy_profiles,
-        )
-        if selected_uuid
-        else resolve_profile_tier_profiles(profiles)
-    )
-    if setting.mode == GAME_MODE_ADAPTIVE:
-        # Start from the highest explicitly assigned/available tier, not the
-        # newest file. "latest" lets a newer scratch or verification profile
-        # silently replace the user's Performance assignment in the runtime
-        # spec before adaptive switching even begins.
-        profile_id = ""
-        for tier in reversed(PROFILE_TIERS):
-            profile = resolved.get(tier)
-            if isinstance(profile, dict):
-                profile_id = str(profile.get("profile_id") or "").strip()
-            if profile_id:
-                break
-        if not profile_id:
-            return None
-        argv = ["--auto-uv-profile", profile_id, "--adaptive-auto-uv"]
-        if setting.target_fps is not None:
-            argv += ["--adaptive-target-fps", f"{float(setting.target_fps):g}"]
-        return _argv_with_gpu_index(argv, gpu_index)
-    profile = resolved.get(setting.mode)
-    profile_id = (
-        str(profile.get("profile_id") or "").strip()
-        if isinstance(profile, dict)
-        else ""
-    )
-    if not profile_id:
-        return None
-    return _argv_with_gpu_index(["--auto-uv-profile", profile_id], gpu_index)
 
 
-def _argv_with_gpu_index(argv: list[str], gpu_index: int | None) -> list[str]:
-    if gpu_index is None:
-        return argv
-    return [*argv, "--gpu-index", str(max(0, int(gpu_index)))]
 
 
-def game_gpu_target(
-    setting: SteamGameSetting,
-    identities: Sequence[object],
-) -> tuple[str, int] | None:
-    """Resolve a saved UUID to today's index, or infer the only physical GPU."""
-    selected_uuid = str(setting.gpu_uuid or "").strip()
-    if selected_uuid:
-        index = gpu_index_for_uuid(identities, selected_uuid)
-        return (selected_uuid, index) if index is not None else None
-    if len(identities) != 1:
-        return None
-    identity = identities[0]
-    uuid = str(getattr(identity, "uuid", "") or "").strip()
-    index = gpu_index_for_uuid(identities, uuid)
-    return (uuid, index) if uuid and index is not None else None
 
 
 def game_runtime_profile_argv(

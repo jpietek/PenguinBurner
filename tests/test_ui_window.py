@@ -367,9 +367,10 @@ def test_window_simple_helpers(main_window) -> None:
 
 def test_window_tab_order_and_bins_visibility(main_window) -> None:
     win = main_window
-    # Tabs are Auto-UV, Profiles, Steam, Overlay (no separate fan-curve tab).
+    # Tabs are Auto-UV, Profiles, the one library tab that holds every
+    # launcher, then Overlay (no separate fan-curve tab).
     labels = [win.tabs.tabText(i) for i in range(win.tabs.count())]
-    assert labels == ["Auto-UV", "Profiles", "Steam", "In-Game Overlay"]
+    assert labels == ["Auto-UV", "Profiles", "Game Library", "In-Game Overlay"]
     assert win.tabs.iconSize().width() == 18
     assert win.tabs.iconSize().height() == 18
     assert all(not win.tabs.tabIcon(i).isNull() for i in range(win.tabs.count()))
@@ -382,7 +383,7 @@ def test_window_tab_order_and_bins_visibility(main_window) -> None:
     assert win.table_panel.isHidden()
     win.tabs.setCurrentIndex(win.overlay_tab_index)
     assert win.table_panel.isHidden()
-    win.tabs.setCurrentIndex(win.steam_tab_index)
+    win.tabs.setCurrentIndex(win.game_library_tab_index)
     assert win.table_panel.isHidden()
 
 

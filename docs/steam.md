@@ -1,13 +1,18 @@
 # Steam Integration
 
-PenguinBurner's **Steam** tab turns undervolting into per-game automation:
+PenguinBurner's **Game Library** tab turns undervolting into per-game
+automation:
 discover your installed library, pick how the GPU should behave for each game,
 and let PenguinBurner apply it automatically when that game launches — no manual
 profile switching.
 
-![Steam tab](assets/steam-tab.png)
+![Steam games in the Game Library tab](assets/steam-tab.png)
 
 ## Why it matters
+
+The Game Library tab lists Steam and Lutris side by side, each game marked
+with its launcher's icon, sorted by name, by when it was last played, or by
+how long it has been played.
 
 The system-wide profile is one setting for everything. Steam integration lets a
 single library hold **different behavior per game**: a light indie title runs
@@ -18,15 +23,42 @@ the launch wrapper.
 
 ## Setup (one scan of your library)
 
-1. Open the **Steam** tab. If PenguinBurner has not seen your library yet, click
-   **Scan my Steam library**. This is safe and non-destructive: every game is
-   listed, all left **disabled**, and no launch options are changed.
+1. Open the **Game Library** tab. If PenguinBurner has not seen your library
+   yet, click **Scan my Steam library**. This is safe and non-destructive: every
+   game is listed, all left **disabled**, and no launch options are changed.
 2. Restart Steam once if prompted (this connects live apply).
 3. Select a game and toggle **Enable PenguinBurner per-game profiles**. Only then
    does PenguinBurner add its launch-options wrapper to that one game.
 
 Nothing is forced. Enablement is strictly per game and per Steam account, stored
 in `~/.config/PenguinBurner/steam-game-settings.json`.
+
+Opening the Game Library or pressing **Rescan** reads Steam's live game details
+together. An unavailable game's timeout does not add a separate wait for every
+other game, and successful reads are kept.
+On the first load, a centered spinner replaces both library panes if the scan
+takes longer than half a second. It lists the detected launchers with comma
+separators. Rescan keeps the existing games and settings visible, with a small
+activity indicator for a slower scan; automatic background refreshes stay quiet.
+
+## When Steam will take a change
+
+Steam holds each game's launch options in memory while the client runs, so a
+change written straight to disk behind its back would be overwritten on exit.
+PenguinBurner therefore says up front whether a change can land, rather than
+letting you type one and refusing it afterwards:
+
+- The status line at the bottom of the tab carries the signed-in account and one
+  of **live apply** (Steam is running and connected), **Steam stopped** (nothing
+  is holding the file, so PenguinBurner writes it directly), or **read-only until
+  initialized**.
+- In that last state the per-game editors are grayed out and a single button
+  appears beside **Rescan** with the one thing that fixes it — **Scan my Steam
+  library** the first time, or **Restart Steam to finish** when Steam has been
+  running since before the integration was set up.
+
+Lutris needs none of this: its settings are files PenguinBurner owns the writing
+of, so its games are always editable.
 
 ## Per-game options
 
@@ -43,7 +75,9 @@ The per-game editor exposes:
   have this selector disabled and visibly grayed out.
 - **Auto-UV mode** — one of:
   - **Adaptive** — starts from your newest profile and switches between saved
-    tiers using live present-frame pacing (see below).
+    tiers using live present-frame pacing (see below). Adaptive automatically
+    keeps latency markers active when the overlay is hidden, so frame generation
+    does not make it pace against generated presents.
   - **Efficiency / Balanced / Performance** — pin one saved tier for this game.
   - **Stock (factory GPU state)** — run this game at the factory curve while your
     system-wide profile stays tuned.
@@ -52,7 +86,11 @@ The per-game editor exposes:
   demote toward more efficiency. This is **per game**, so a 60 Hz story game and a
   144 Hz competitive shooter each get their own target.
 - **Enable In-Game overlay** — the live readout (latency, pre-frame-gen FPS,
-  clocks, power, tier) for this game.
+  clocks, power, tier) for this game. This controls only HUD visibility;
+  Adaptive's required marker capture remains automatic in the background.
+  For a running wrapped Steam game, visibility also updates live (the native
+  layer checks about once per second); changing an idle game's setting does not
+  affect another running game.
 
 The tuning and overlay controls stay grayed out until the game's PenguinBurner
 toggle is on. The compatibility selector is independent of that toggle; it is
@@ -74,14 +112,28 @@ Each action confirms first and shows the game count. Directions that would chang
 nothing (for example "enable all" when everything is already enabled) gray out, so
 the menu doubles as a state readout. Bulk enable also spells out its two side
 effects: the overlay stays off, and MangoHud is disabled inside wrapped games.
+Bulk writes run in the background: the list stays usable and subsequent
+individual toggle changes are queued until the bulk operation finishes.
+Background scans and settings writes run in sequence, so a scan cannot replace
+a newly saved setting with an older value. The window remains responsive while
+a change waits for a scan to finish.
 
 ## Play / Stop
 
 The per-game editor's button is a single Steam-style control that reflects the
 live session: green **Play** → **Starting…** → red **Stop** while running →
-**Stopping…** → back to Play. It can never be in a state that disagrees with the
-game — transitional states are unclickable, and a launch or stop that stalls
-always resolves back to a usable button.
+**Stopping…** → back to Play. Stop requests run in the background. Once the
+launcher answers, **Stopping…** can be pressed again if the game is still
+running; a failed request restores the button so it can be retried.
+
+Lutris command edits preserve quoted text and spacing. When wrapping a game
+that inherited its command prefix, disabling the wrapper resumes inheritance,
+including runner/global changes made in the meantime. Explicit per-game
+prefixes and externally edited commands are preserved.
+If a command cannot be saved, the editor keeps its text and the current game
+selected. Correct the command or resolve the reported problem, then retry. A
+command save during a background scan stays pending until you retry after the
+scan finishes.
 
 ## How it applies (no password prompts)
 
@@ -110,9 +162,11 @@ per-game runtime request is skipped and reported in the wrapper diagnostics.
   agnostic: native Linux, every Proton version, and DirectX 8–12 all work.
 - The **overlay and frame-pacing telemetry** are a Vulkan layer, so they cover
   anything presenting through Vulkan (DXVK for DX8–11, vkd3d-proton for DX12,
-  native Vulkan). Native OpenGL titles get the profile but no overlay, and
-  adaptive mode simply holds its initial tier when there is no present-pacing
-  signal to react to.
+  native Vulkan), for both 64-bit and 32-bit games — a 32-bit title renders
+  through wine's 32-bit Vulkan, so the layer ships a 32-bit build beside the
+  64-bit one and the loader picks the match. Native OpenGL titles get the
+  profile but no overlay, and adaptive mode simply holds its initial tier when
+  there is no present-pacing signal to react to.
 
 ## Manual launch options
 

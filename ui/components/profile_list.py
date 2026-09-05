@@ -162,7 +162,7 @@ class ProfileList:
             "Apply changes the current session; tick \"Apply on startup\" to "
             "also save the profile for boot. Restore defaults makes stock "
             "the current and boot state. Per-game adaptive profiles with a "
-            "target pre-frame-gen FPS are managed in the Steam tab."
+            "target pre-frame-gen FPS are managed in the Game Library tab."
         )
         adaptive_note.setObjectName("profilesAdaptiveNote")
         adaptive_note.setWordWrap(True)

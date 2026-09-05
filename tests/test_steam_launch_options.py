@@ -20,6 +20,20 @@ def test_inject_into_empty_string() -> None:
     )
 
 
+@pytest.mark.parametrize("literal", [
+    "sh -c 'echo PENGUIN_BURNER --pb-overlay=1 PB_INGAME_LATENCY=1'",
+    'env NOTE="literal  PENGUIN_BURNER --pb-overlay=1"  gamemoderun',
+])
+def test_strip_preserves_wrapper_looking_text_inside_arguments(literal) -> None:
+    assert strip_penguin_burner_tokens(literal) == literal
+    state = injection_state(literal)
+    assert not state.wrapped
+    assert not state.overlay
+    assert not state.ingame_latency
+    wrapped = f"PENGUIN_BURNER --pb-overlay=0 {literal} %command%"
+    assert strip_penguin_burner_tokens(wrapped) == f"{literal} %command%"
+
+
 def test_inject_preserves_env_prefix() -> None:
     assert (
         inject_launch_options("DXVK_ASYNC=1 %command%")
@@ -50,6 +64,19 @@ def test_inject_replaces_first_token_only() -> None:
         inject_launch_options('eval $(echo "%command%" | sed "s/a/b/")')
         == 'eval $(echo "PENGUIN_BURNER --pb-overlay=0 %command%" | sed "s/a/b/")'
     )
+
+
+def test_quoted_command_builder_can_toggle_without_duplicate_wrappers() -> None:
+    original = 'eval $(echo "%command%" | sed "s/a/b/")'
+    injected = inject_launch_options(original, overlay=True, ingame_latency=True)
+    assert injection_state(injected).wrapped
+    assert injection_state(injected).overlay
+    assert inject_launch_options(injected, overlay=True, ingame_latency=True) == injected
+    hidden = inject_launch_options(injected, ingame_latency=True)
+    assert hidden.count("PENGUIN_BURNER") == 1
+    assert injection_state(hidden).ingame_latency
+    assert not injection_state(hidden).overlay
+    assert strip_penguin_burner_tokens(hidden) == original
 
 
 def test_tokenless_string_is_treated_as_game_args() -> None:

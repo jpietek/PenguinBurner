@@ -281,9 +281,9 @@ DEMO_OVERLAY_STATE = {
 def _stub_external_state() -> None:
     """Keep MainWindow construction completely local and daemon-free."""
 
-    # SteamPanel normally starts a background, read-only library scan during
-    # construction. The demo injects its fixed snapshot later instead.
-    setattr(window_mod.SteamPanel, "rescan", lambda *_args, **_kwargs: None)
+    # The library tab normally starts a background, read-only scan the first
+    # time it is shown. The demo injects its fixed snapshot instead.
+    setattr(window_mod.GameLibraryPanel, "rescan", lambda *_args, **_kwargs: None)
     setattr(
         overlay_config_mod,
         "load_overlay_config",
@@ -307,6 +307,33 @@ def _stub_external_state() -> None:
     window_mod.penguin_burner_runtime_is_active = lambda: False
     window_mod.silent_fan_curve_from_runtime_config = lambda: False
     window_mod.silent_fan_curve_to_runtime_config = lambda value: value
+
+
+def _demo_steam_source():
+    """The real Steam adapter, fed the demo snapshot instead of a live client.
+
+    Going through the adapter rather than poking the panel keeps this render
+    honest: what the tour shows is what the launcher contract produces.
+    """
+    from integrations.steam.library_source import SteamLibrarySource
+
+    class _Manager:
+        def available_compat_tools(self, _app_id):
+            return (("proton_experimental", "Proton Experimental"),)
+
+        def __getattr__(self, _name):
+            return lambda *_args, **_kwargs: None
+
+    source = SteamLibrarySource(manager=_Manager())
+    source._rows = _demo_steam_rows()
+    source._playtime = {}
+    source._probe = {
+        "marker": True,
+        "running": True,
+        "cdp_ready": True,
+        "user": "connected",
+    }
+    return source
 
 
 def _demo_steam_rows() -> tuple[SteamGameRow, ...]:
@@ -506,8 +533,8 @@ def render(output_path: Path) -> None:
     QtWidgets.QDialog.exec = lambda self: 0
     window = MainWindow((QtCore, QtGui, QtWidgets, pg))
     window._status_timer.stop()
-    window.steam_panel._sync_timer.stop()
-    window.steam_panel._game_state_timer.stop()
+    window.game_library_panel._library_timer.stop()
+    window.game_library_panel._state_timer.stop()
     window.overlay_config.timer.stop()
     window.overlay_config.refresh_preview()
     window.window.setWindowTitle(
@@ -824,34 +851,26 @@ def render(output_path: Path) -> None:
 
             if elapsed_s >= STEAM_REVEAL_S and not steam_revealed:
                 steam_revealed = True
-                steam_panel = window.steam_panel
-                steam_panel._live_ready = True
-                steam_panel._compat_tool_live_ready = True
-                steam_panel._selected_app_id = "1771300"
-                steam_panel._populate(_demo_steam_rows())
-                steam_panel.user_label.setText("Steam user: connected")
-                steam_panel.setup_view.setVisible(False)
-                steam_panel.splitter.setVisible(True)
-                steam_panel.splitter.setSizes([480, 1040])
-                compat_index = steam_panel.proton_combo.currentIndex()
-                if compat_index >= 0:
-                    steam_panel.proton_combo.setItemText(
-                        compat_index,
-                        "Proton Experimental",
-                    )
-                current_game = steam_panel.game_list.currentItem()
+                panel = window.game_library_panel
+                panel._sources = (_demo_steam_source(),)
+                panel._by_launcher = {
+                    source.launcher_id: source for source in panel._sources
+                }
+                panel._scanned = True  # the snapshot stands in for the scan
+                panel._reload_games()
+                panel._select_key("steam:1771300")
+                panel.splitter.setSizes([480, 1040])
+                current_game = panel.game_list.currentItem()
                 if current_game is not None:
-                    steam_panel.game_list.scrollToItem(current_game)
-                steam_panel.status_label.setText(
-                    "Current Steam library · per-game tuning ready"
-                )
+                    panel.game_list.scrollToItem(current_game)
+                panel._sync_status("per-game tuning ready")
                 window.header.set_candidate(
                     "Per-game Adaptive target · overlay · one-click Play"
                 )
                 window.controls.set_status_text(
                     "Steam integration — real game list, simulated UI tour."
                 )
-                window.tabs.setCurrentIndex(window.steam_tab_index)
+                window.tabs.setCurrentIndex(window.game_library_tab_index)
 
             if elapsed_s >= OVERLAY_REVEAL_S and not overlay_revealed:
                 overlay_revealed = True

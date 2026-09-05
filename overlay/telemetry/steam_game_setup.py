@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from integrations.steam.vdf import quoted_tokens
+
 from .steam_launch_check import (
     PENGUIN_BURNER_WRAPPER,
-    _quoted_tokens,
 )
-
 
 EXCLUDED_INSTALLED_APP_NAME_PREFIXES = (
     "Proton ",
@@ -115,14 +115,14 @@ def _library_steamapps_dirs(path: Path) -> tuple[Path, ...]:
     return tuple(paths)
 
 
-def _manifest_fields(path: Path) -> "_ManifestFields":
+def _manifest_fields(path: Path) -> _ManifestFields:
     fields = _ManifestFields()
     try:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
         return fields
     for line in lines:
-        tokens = _quoted_tokens(line)
+        tokens = quoted_tokens(line)
         if len(tokens) >= 2:
             fields.add(tokens[0], tokens[1])
     return fields

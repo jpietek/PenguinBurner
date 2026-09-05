@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import sys
 
-from common.flatpak_wrappers import ensure_steam_integration
+from common.flatpak_wrappers import ensure_host_integration
 from .assets import application_icon
 from .constants import APP_DESKTOP_ID
 from .constants import APP_DISPLAY_NAME
@@ -83,15 +83,15 @@ def run(argv: list[str] | None = None) -> int:
     if hasattr(app, "setDesktopFileName"):
         app.setDesktopFileName(APP_DESKTOP_ID)
     try:
-        ensure_steam_integration()
+        ensure_host_integration()
     except Exception as exc:
-        # Steam integration repair failing must not keep the GPU tuning UI
+        # Launcher integration repair failing must not keep the GPU tuning UI
         # from starting, whatever the failure mode (a corrupt packaged
         # manifest raises ValueError/KeyError, not just OSError/RuntimeError);
-        # the Steam actions themselves re-check and refuse.
+        # the launcher write actions themselves re-check and refuse.
         print(
-            "warning: PenguinBurner could not repair its Steam integration; "
-            f"Steam launches will not work until this is fixed: {exc}",
+            "warning: PenguinBurner could not repair its launcher integration; "
+            f"wrapped game launches will not work until this is fixed: {exc}",
             file=sys.stderr,
         )
     icon = application_icon(QtGui)

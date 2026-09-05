@@ -96,21 +96,6 @@ def steam_running() -> bool:
     return _pgrep("-x", "steam")
 
 
-def steam_game_running(app_id: str) -> bool:
-    """A Steam game session for this app is alive right now.
-
-    Steam launches every game (native and Proton) under its reaper process,
-    whose command line carries ``SteamLaunch AppId=<id>`` for the whole
-    session lifetime — the one stable signal for "this game is running".
-    The ``[S]`` class keeps the regex from matching a command line that
-    carries the pattern itself (our own flatpak-spawn helper, a sibling
-    checker): the pattern text never matches the pattern.
-    """
-    if not str(app_id).isdigit():
-        return False
-    return _pgrep("-f", rf"[S]teamLaunch AppId={app_id}([^0-9]|$)")
-
-
 def running_steam_game_ids() -> frozenset[str] | None:
     """App ids of every Steam game session alive right now, in ONE subprocess.
 

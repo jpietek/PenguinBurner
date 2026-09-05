@@ -18,6 +18,8 @@ comparison.
 
 ## Secondary
 
+- **[Lutris](./lutris.md)** — per-game Auto-UV, target FPS, and overlay for
+  games launched from Lutris.
 - **[Profile Management](./profile-management.md)** — apply, verify, tier,
   export, and clean up saved curves.
 - **[Curve Editors](./curve-editor.md)** — manual V/F and fan curve editing.

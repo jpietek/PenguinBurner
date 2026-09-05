@@ -20,7 +20,7 @@ from ui.components.profile_list import ProfileList
 from ui.components.runs_table import RunsTable
 from ui.components.scan_controls import ScanControls
 from ui.components.status_header import StatusHeader
-from ui.components.steam_panel import SteamPanel
+from ui.components.game_library_panel import GameLibraryPanel
 from ui.features.profiles.profiles import adaptive_profile_tier_labels
 from ui.constants import APP_DISPLAY_NAME
 from .controllers.command import CommandController
@@ -48,7 +48,7 @@ from .models import top_status_text
 from ui.features.profiles.profiles import load_profile_summaries
 from profiles.uv.profile_store import STOCK_PROFILE_SELECTOR
 from ui.features.profiles.profiles import penguin_burner_runtime_is_active
-from ui.features.profiles.profiles import runner_status_text
+from ui.features.profiles.profiles import runner_status_parts
 from ui.features.profiles.profiles import running_auto_uv_profile_info
 from ui.features.profiles.profiles import systemd_autostart_profile_info
 from ui.features.tuning.verify import stop_request_path as verify_stop_request_path
@@ -153,7 +153,7 @@ class MainWindow(ProfileActionsMixin):
         auto_uv_view.addWidget(self.log_view.widget)
         auto_uv_view.setSizes([760, 440])
 
-        self.steam_panel = SteamPanel(
+        self.game_library_panel = GameLibraryPanel(
             QtCore=self.QtCore,
             QtGui=self.QtGui,
             QtWidgets=self.QtWidgets,
@@ -184,10 +184,10 @@ class MainWindow(ProfileActionsMixin):
             tab_icon("tab-profiles.png"),
             "Profiles",
         )
-        self.steam_tab_index = self.tabs.addTab(
-            self.steam_panel.widget,
-            tab_icon("tab-steam.png"),
-            "Steam",
+        self.game_library_tab_index = self.tabs.addTab(
+            self.game_library_panel.widget,
+            tab_icon("tab-game-library.png"),
+            "Game Library",
         )
         self.overlay_tab_index = self.tabs.addTab(
             self.overlay_config.widget,
@@ -365,6 +365,11 @@ class MainWindow(ProfileActionsMixin):
         self._load_profiles()
 
     def _sync_selected_tab_layout(self, index: int) -> None:
+        if index == self.game_library_tab_index:
+            # Scanned on first entry, not while the window is being built: a
+            # library read is filesystem work nobody has asked for until the
+            # tab is looked at. Idempotent, so switching back costs nothing.
+            self.game_library_panel.ensure_scanned()
         # The undervolting-runs table belongs to the Auto-UV workflow only.
         self.table_panel.setVisible(index == self.auto_uv_tab_index)
 
@@ -856,20 +861,20 @@ class MainWindow(ProfileActionsMixin):
             # A real profile is live -> the restore flag is stale; clear it. The
             # stock sentinel is NOT a real profile, so it keeps "Default".
             self._defaults_restored = False
-        self.controls.set_status_text(
-            runner_status_text(
-                self.profile_summaries,
-                running_selector=str(running_info["selector"]),
-                running_adaptive=bool(running_info["adaptive_auto_uv"]),
-                autostart_selector=str(autostart_info["selector"]),
-                running_silent_fan=bool(running_info["silent_fan_curve"]),
-                autostart_silent_fan=bool(autostart_info["silent_fan_curve"]),
-                defaults_restored=self._defaults_restored,
-                game_override=bool(running_info.get("game_override")),
-                standing_selector=str(running_info.get("standing_selector") or ""),
-                standing_adaptive=bool(running_info.get("standing_adaptive")),
-            )
+        head, detail = runner_status_parts(
+            self.profile_summaries,
+            running_selector=str(running_info["selector"]),
+            running_adaptive=bool(running_info["adaptive_auto_uv"]),
+            autostart_selector=str(autostart_info["selector"]),
+            running_silent_fan=bool(running_info["silent_fan_curve"]),
+            autostart_silent_fan=bool(autostart_info["silent_fan_curve"]),
+            defaults_restored=self._defaults_restored,
+            game_override=bool(running_info.get("game_override")),
+            standing_selector=str(running_info.get("standing_selector") or ""),
+            standing_adaptive=bool(running_info.get("standing_adaptive")),
         )
+        # Middle dots, not semicolons: these are separate facts, not clauses.
+        self.controls.set_status_text(" · ".join(head), " · ".join(detail))
 
     def _persist_silent_fan_preference(self, checked: bool) -> None:
         # Remember the silent-fan choice durably so the "latest profile setup"

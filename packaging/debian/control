@@ -30,6 +30,7 @@ Depends:
  python3-pyside6.qtgui (>= 6.7),
  python3-pyside6.qtwidgets (>= 6.7),
  python3-pyqtgraph (>= 0.13),
+ python3-yaml (>= 6.0),
 Description: NVIDIA GPU automatic undervolting and fine tuning tool
  PenguinBurner helps you visualize and manage your GPU fine tuning setup with
  single voltage/frequency bin precision to maximize FPS per Watt, potentially

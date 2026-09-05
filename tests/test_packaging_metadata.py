@@ -44,6 +44,21 @@ def test_native_packages_install_pyqtgraph_colorama_runtime_dependency() -> None
     assert "Requires:       python3-pyqtgraph >= 0.13" in rpm_spec
 
 
+def test_native_packages_install_pyyaml_runtime_dependency() -> None:
+    # PyYAML is imported during MainWindow construction (the Lutris library
+    # source), so a package missing it crashes the whole GUI at startup, not
+    # just one tab.
+    metadata = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    arch_pkgbuild = Path("packaging/arch/PKGBUILD").read_text(encoding="utf-8")
+    debian_control = Path("packaging/debian/control").read_text(encoding="utf-8")
+    rpm_spec = Path("packaging/rpm/penguin-burner.spec").read_text(encoding="utf-8")
+
+    assert "PyYAML>=6.0" in set(metadata["project"]["dependencies"])
+    assert "'python-yaml>=6.0'" in arch_pkgbuild
+    assert " python3-yaml (>= 6.0)," in debian_control
+    assert "Requires:       python3-pyyaml >= 6.0" in rpm_spec
+
+
 def test_native_packages_install_pyside6_runtime_dependency() -> None:
     arch_pkgbuild = Path("packaging/arch/PKGBUILD").read_text(encoding="utf-8")
     debian_control = Path("packaging/debian/control").read_text(encoding="utf-8")
@@ -318,10 +333,11 @@ def test_flatpak_startup_repairs_and_verifies_complete_steam_integration(
     monkeypatch.setenv("FLATPAK_ID", wrappers.APP_ID)
     monkeypatch.setenv("PENGUIN_BURNER_FLATPAK_WRAPPER_BIN_DIR", str(bin_dir))
     monkeypatch.setattr(wrappers, "_host_has_steam", lambda: True)
+    monkeypatch.setattr(wrappers, "_host_has_lutris", lambda: False)
     monkeypatch.setattr(wrappers, "install_vulkan_layer_manifest", lambda: manifest)
     monkeypatch.setattr(shim_deploy, "nvapi_shim_artifact", lambda: shim)
 
-    repaired = wrappers.ensure_steam_integration()
+    repaired = wrappers.ensure_host_integration()
 
     assert repaired == bin_dir / "PENGUIN_BURNER"
     assert repaired is not None
@@ -382,10 +398,11 @@ def test_flatpak_startup_rejects_missing_mandatory_payload(
         "PENGUIN_BURNER_FLATPAK_WRAPPER_BIN_DIR", str(tmp_path / "bin")
     )
     monkeypatch.setattr(wrappers, "_host_has_steam", lambda: True)
+    monkeypatch.setattr(wrappers, "_host_has_lutris", lambda: False)
     monkeypatch.setattr(wrappers, "install_vulkan_layer_manifest", lambda: None)
 
     with pytest.raises(RuntimeError, match="Vulkan latency layer is missing"):
-        wrappers.ensure_steam_integration()
+        wrappers.ensure_host_integration()
 
 
 def test_flatpak_startup_refuses_foreign_steam_wrapper(
@@ -401,12 +418,13 @@ def test_flatpak_startup_refuses_foreign_steam_wrapper(
     monkeypatch.setenv("FLATPAK_ID", wrappers.APP_ID)
     monkeypatch.setenv("PENGUIN_BURNER_FLATPAK_WRAPPER_BIN_DIR", str(bin_dir))
     monkeypatch.setattr(wrappers, "_host_has_steam", lambda: True)
+    monkeypatch.setattr(wrappers, "_host_has_lutris", lambda: False)
 
     with pytest.raises(RuntimeError, match="not owned by PenguinBurner"):
-        wrappers.ensure_steam_integration()
+        wrappers.ensure_host_integration()
 
 
-def test_flatpak_startup_skips_steam_integration_without_steam(
+def test_flatpak_startup_skips_host_integration_without_any_launcher(
     tmp_path, monkeypatch
 ) -> None:
     import common.flatpak_wrappers as wrappers
@@ -415,10 +433,53 @@ def test_flatpak_startup_skips_steam_integration_without_steam(
     monkeypatch.setenv("FLATPAK_ID", wrappers.APP_ID)
     monkeypatch.setenv("PENGUIN_BURNER_FLATPAK_WRAPPER_BIN_DIR", str(bin_dir))
     monkeypatch.setattr(wrappers, "_host_has_steam", lambda: False)
+    monkeypatch.setattr(wrappers, "_host_has_lutris", lambda: False)
 
-    assert wrappers.ensure_steam_integration() is None
-    # A Steam-less host must stay untouched: no wrappers, no manifest.
+    assert wrappers.ensure_host_integration() is None
+    # A host with no launcher must stay untouched: no wrappers, no manifest.
     assert not bin_dir.exists()
+
+
+def test_flatpak_startup_installs_integration_for_a_lutris_only_host(
+    tmp_path, monkeypatch
+) -> None:
+    """A Lutris prefix_command execs the same PENGUIN_BURNER host wrapper a
+    Steam launch line does, so a host with only Lutris needs it just as much --
+    skipping it left every wrapped Lutris game unable to start at all."""
+    import common.flatpak_wrappers as wrappers
+    from overlay import shim_deploy
+
+    bin_dir = tmp_path / "bin"
+    manifest = tmp_path / "VkLayer_PENGUINBURNER_latency.json"
+    shim = tmp_path / "nvapi64.dll"
+    manifest.write_text("{}\n", encoding="utf-8")
+    shim.write_bytes(b"MZ[pb-nvapi-shim]")
+    monkeypatch.setenv("FLATPAK_ID", wrappers.APP_ID)
+    monkeypatch.setenv("PENGUIN_BURNER_FLATPAK_WRAPPER_BIN_DIR", str(bin_dir))
+    monkeypatch.setattr(wrappers, "_host_has_steam", lambda: False)
+    monkeypatch.setattr(wrappers, "_host_has_lutris", lambda: True)
+    monkeypatch.setattr(wrappers, "install_vulkan_layer_manifest", lambda: manifest)
+    monkeypatch.setattr(shim_deploy, "nvapi_shim_artifact", lambda: shim)
+
+    repaired = wrappers.ensure_host_integration()
+
+    assert repaired == bin_dir / "PENGUIN_BURNER"
+    assert repaired is not None
+    assert repaired.is_file()
+
+
+def test_host_has_lutris_reads_the_real_library_database(
+    tmp_path, monkeypatch
+) -> None:
+    import common.flatpak_wrappers as wrappers
+
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    assert wrappers._host_has_lutris() is False
+    db = tmp_path / ".local" / "share" / "lutris" / "pga.db"
+    db.parent.mkdir(parents=True)
+    db.write_bytes(b"sqlite")
+    assert wrappers._host_has_lutris() is True
 
 
 def test_flatpak_startup_repairs_existing_managed_files_without_steam(
@@ -441,10 +502,11 @@ def test_flatpak_startup_repairs_existing_managed_files_without_steam(
     monkeypatch.setenv("FLATPAK_ID", wrappers.APP_ID)
     monkeypatch.setenv("PENGUIN_BURNER_FLATPAK_WRAPPER_BIN_DIR", str(bin_dir))
     monkeypatch.setattr(wrappers, "_host_has_steam", lambda: False)
+    monkeypatch.setattr(wrappers, "_host_has_lutris", lambda: False)
     monkeypatch.setattr(wrappers, "install_vulkan_layer_manifest", lambda: manifest)
     monkeypatch.setattr(shim_deploy, "nvapi_shim_artifact", lambda: shim)
 
-    repaired = wrappers.ensure_steam_integration()
+    repaired = wrappers.ensure_host_integration()
 
     assert repaired == bin_dir / "PENGUIN_BURNER"
     assert repaired is not None
@@ -1140,3 +1202,26 @@ def _png_paeth(left: int, up: int, upper_left: int) -> int:
     if up_distance <= upper_left_distance:
         return up
     return upper_left
+
+
+def test_every_importable_package_is_listed_for_install() -> None:
+    """A package the wheel never installs imports fine here and nowhere else.
+
+    The list is written by hand, so a new subpackage is only ever one forgotten
+    line away from a `ModuleNotFoundError` that the whole test suite -- running
+    from the checkout, where every directory is importable -- cannot see.
+    """
+    metadata = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    listed = set(metadata["tool"]["setuptools"]["packages"])
+    roots = {name.split(".", 1)[0] for name in listed}
+
+    missing = set()
+    for root in sorted(roots):
+        for init in Path(root).rglob("__init__.py"):
+            package = ".".join(init.parent.parts)
+            if "__pycache__" in package:
+                continue
+            if package not in listed:
+                missing.add(package)
+
+    assert not missing, f"not installed by the wheel: {sorted(missing)}"
