@@ -52,7 +52,7 @@ pub use runtime_spec::RuntimeSpec;
 
 /// One semantic stock reset for scan/verification clients.  The mutation and
 /// strict readback sequence stays shared with stock RuntimeSpec application.
-pub(crate) fn reset_gpu_to_stock(backend: &dyn GpuBackend) -> Result<(), String> {
+pub(crate) fn reset_gpu_to_stock(backend: &dyn GpuBackend) -> Result<Option<bool>, String> {
     let mut log = |message: &str| logging::info(message);
     apply::reset_gpu_to_stock(backend, &mut log)
 }

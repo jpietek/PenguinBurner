@@ -19,6 +19,8 @@ from stability.q2rtx.runtime import (
 from stability.q2rtx.telemetry import query_gpu_metrics
 
 from auto_uv.domain.console_log import log_phase
+from auto_uv.gpu.gpu_vf_curve_applier import verify_applied_power_limit_w
+from auto_uv.gpu.runtime_vf_offset_reset_check import assert_runtime_vf_offsets_match_plan
 from ..persistence.auto_uv_persisted_json_files import auto_uv_stop_requested
 from auto_uv.domain.types import AutoUvProbeSummary
 from auto_uv.domain.user_options import AUTO_UV_METRIC_TUNING, AUTO_UV_STALL_TUNING
@@ -75,6 +77,10 @@ def probe_voltage_candidate(
     expected_total_duration_s: int | None = None,
     event_callback: AutoUvEventCallback | None = None,
 ) -> tuple[AutoUvProbeSummary, Q2RTXStabilityResult]:
+    if power_limit_w is not None:
+        verify_applied_power_limit_w(
+            reader, requested_w=power_limit_w, reported_applied_w=power_limit_w
+        )
     if min_performance_core_clock_pct is None:
         min_performance_core_clock_pct = (
             AUTO_UV_METRIC_TUNING.min_performance_core_clock_pct
@@ -271,6 +277,7 @@ def probe_voltage_candidate(
             )
         apply_plan(reader, candidate_plan)
         reader.refresh_points()
+        assert_runtime_vf_offsets_match_plan(reader, candidate_plan)
         probe_config = replace(
             q2rtx_config,
             progress_callback=progress_callback,
@@ -296,6 +303,10 @@ def probe_voltage_candidate(
             raise
         if str(result.reason) == "user-stop-requested":
             raise KeyboardInterrupt()
+        if power_limit_w is not None:
+            verify_applied_power_limit_w(
+                reader, requested_w=power_limit_w, reported_applied_w=power_limit_w
+            )
         handle_probe_result_logging_and_blacklist(
             result,
             log=log,

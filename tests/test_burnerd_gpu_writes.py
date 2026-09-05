@@ -291,6 +291,14 @@ def test_apply_power_limit_routes_watts_through_daemon(make_daemon, rpc_spy):
     assert result["mock_ops"] == ["ApplyPowerLimit { power_limit_w: 300 }"]
 
 
+def test_stock_reset_does_not_report_success_when_curve_readback_is_stale(make_daemon):
+    make_daemon()
+    # The transport mock deliberately keeps its fixed +120 MHz V/F readback
+    # after writes. A successful power setter alone must not certify this reset.
+    with pytest.raises(RuntimeError, match=r"stock GPU reset incomplete: V/F point 12 read back \+120000 kHz"):
+        daemon_client.gpu_reset_defaults(0)
+
+
 def test_probe_power_limit_support_routes_through_rust_daemon(make_daemon, rpc_spy):
     make_daemon()
 

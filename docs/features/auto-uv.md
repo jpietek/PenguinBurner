@@ -53,6 +53,14 @@ clock regressions still fail. Efficiency and Balanced may then probe a bounded
 clock climb at the already-proven voltage, without raising the voltage or
 loosening the stability checks.
 
+Power-control support comes from the daemon's verified stock-reset setter result.
+Only an explicit driver rejection as unsupported permits platform-managed mobile
+power. A missing result stops the scan. Configured caps are read back before and
+after probes, including the final soak; a mismatch stops the scan instead of saving
+a profile under an unverified limit.
+
+Driver V/F offsets must read back as requested before a probe starts.
+
 `hw-power-brake` is the board's own power-delivery protection, not the power
 limit you configured. A probe that trips it still counts as power-limited
 rather than unstable, so it is not failed on clock alone — but the event is
