@@ -5,7 +5,7 @@ Algorithm:
 - build and probe one lower-voltage VF curve at a time
 - accept passing candidates and descend again
 - Efficiency may keep an older FPS/W-best candidate instead of the latest pass
-- low-clock-only failures either stop the first pass or are skipped by tail tune
+- low-clock-only failures stop the first pass or are skipped in deeper search
 - hard failures are marked unsafe and stop the sweep
 
 GPU side effects stay behind IO callbacks; this file shows scan order and
@@ -185,7 +185,7 @@ def run_base_uv_loop(
             continue
 
         # 4. Low-clock-only probes are stable but below the clock floor. The
-        #    base pass stops; Efficiency tail tune can keep descending.
+        #    base pass stops; Efficiency's deeper search can keep descending.
         if is_recoverable_low_clock(outcome.decision):
             step = handle_low_clock_probe(
                 base_curve,
@@ -308,7 +308,7 @@ def handle_low_clock_probe(
 ) -> LowClockStep:
     # The GPU stayed stable; only the core clock dipped below the floor.
     # This is not an unstable voltage, so it must NOT be cached unsafe: doing so
-    # would also block the Efficiency tail-tune pass from retrying it.
+    # would also block the Efficiency lower-voltage pass from retrying it.
     if settings.descend_through_low_clock:
         events.append(
             LowerVoltageSweepEvent(
@@ -329,7 +329,7 @@ def handle_low_clock_probe(
         )
 
     # First pass: the natural clock floor is reached. Stop here and let the
-    # Efficiency preset launch its raised-tail tail-tune pass if applicable.
+    # Efficiency preset continue its lower-voltage search if applicable.
     events.append(LowerVoltageSweepEvent("stop", outcome.decision.reason))
     return LowClockStep(state=state, should_continue=False)
 
@@ -392,30 +392,17 @@ def propagated_measured_target_mhz(
     candidate: VfCurveCandidate,
     outcome: VoltageProbeOutcome | None,
 ) -> int:
+    """Keep requested headroom when a passing probe holds a lower clock.
+
+    Replacing the request with each lower measured average compounds normal
+    request-to-measurement gaps across voltage steps. This happens even after
+    a power cap stops binding, and is especially visible with a flat tail.
+    Preserve upward measured gains from rising tails, but let failed probes
+    stop the descent instead of progressively lowering a passing target.
+    """
     if outcome is None or outcome.measured_core_clock_mhz is None:
         return int(candidate.target_mhz)
-    measured_mhz = int(outcome.measured_core_clock_mhz)
-    if (
-        measured_mhz < int(candidate.target_mhz)
-        and outcome_indicates_power_cap(outcome)
-    ):
-        return int(candidate.target_mhz)
-    return int(measured_mhz)
-
-
-def outcome_indicates_power_cap(outcome: VoltageProbeOutcome) -> bool:
-    reason = probe_perf_cap_reason(outcome.raw_probe)
-    if not reason:
-        return False
-    return any("power" in token for token in reason.replace(",", "+").split("+"))
-
-
-def probe_perf_cap_reason(raw_probe: object) -> str:
-    if raw_probe is None:
-        return ""
-    if isinstance(raw_probe, dict):
-        return str(raw_probe.get("perf_cap_reason") or "").strip().lower()
-    return str(getattr(raw_probe, "perf_cap_reason", "") or "").strip().lower()
+    return max(int(candidate.target_mhz), int(outcome.measured_core_clock_mhz))
 
 
 def decide_passed_probe(

@@ -53,6 +53,12 @@ clock regressions still fail. Efficiency and Balanced may then probe a bounded
 clock climb at the already-proven voltage, without raising the voltage or
 loosening the stability checks.
 
+During voltage descent, passing probes keep their requested clock target even
+when the measured clock is lower. A measured shortfall is not repeatedly
+subtracted from the next target after power limiting clears. Higher measured
+clocks can still raise the target, and failed clock or stability checks still
+reject a candidate.
+
 Power-control support comes from the daemon's verified stock-reset setter result.
 Only an explicit driver rejection as unsupported permits platform-managed mobile
 power. A missing result stops the scan. Configured caps are read back before and

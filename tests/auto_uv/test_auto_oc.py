@@ -169,6 +169,28 @@ def test_auto_oc_probe_key_uses_q2rtx_clock_before_fps() -> None:
     )
 
 
+def test_auto_oc_clock_climb_skips_cached_unsafe_points(monkeypatch) -> None:
+    monkeypatch.setattr(auto_oc_search, "load_unsafe_voltage_blacklist", lambda: [{
+        "candidate_voltage_mv": 900, "lock_clock_mhz": 2401, "reason": "benchmark-crash",
+    }])
+    curve = base_curve(850, 950, 5, 2000, 15)
+    start = VfCurveCandidate("start", 900, 2400, curve)
+
+    class RejectRunner:
+        def probe_candidate(self, *_args, **_kwargs):
+            raise AssertionError("known unsafe point reached the GPU")
+
+    result = run_auto_oc_candidate_search(
+        base_curve=curve, start_candidate=start, start_probe=_probe(900, 2400),
+        runner=RejectRunner(), gpu_name="NVIDIA GeForce RTX 5080", clock_ceiling=None,
+        probe_history=[], log=lambda _: None, target_voltage_mv=900,
+        target_clock_mhz=2800, target_profile_id="efficiency",
+    )
+    assert result.selected_candidate is start
+    assert result.attempts
+    assert all(a.outcome.decision.failure_kind is FailureKind.CACHED_UNSAFE for a in result.attempts)
+
+
 def test_auto_oc_search_climbs_voltage_and_clock_to_target() -> None:
     curve = base_curve(850, 950, 5, 2400, 15)
     start = VfCurveCandidate("undervolt-winner", 865, 2824, curve)

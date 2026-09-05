@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
+import pytest
+
 from auto_uv.domain.scan_settings import AutoUvScanSettings
 from auto_uv.domain.types import (
     FailureKind,
@@ -71,7 +75,8 @@ def test_base_uv_loop_accepts_next_lower_voltage_through_io() -> None:
     assert result.state.next_voltage_mv is None
 
 
-def test_efficiency_lower_voltage_sweep_targets_previous_measured_clock() -> None:
+@pytest.mark.parametrize("mode,tail", [("efficiency", 0), ("balanced", 4), ("performance", 4)])
+def test_descent_does_not_compound_lower_measured_clocks(mode, tail) -> None:
     curve = base_curve(900, 1025, 25, 2000, 40)
     probed: list[tuple[int, int, int]] = []
 
@@ -111,7 +116,8 @@ def test_efficiency_lower_voltage_sweep_targets_previous_measured_clock() -> Non
             min_search_voltage_mv=900,
             baseline_core_clock_mhz=2160.0,
             reference_actual_voltage_mv=1000.0,
-            tail_rise_bins=0,
+            auto_uv_mode=mode,
+            tail_rise_bins=tail,
         ),
         initial_stable_candidate=VfCurveCandidate(
             label="baseline",
@@ -133,12 +139,13 @@ def test_efficiency_lower_voltage_sweep_targets_previous_measured_clock() -> Non
         ),
     )
 
-    assert probed == [(925, 2115, 0), (900, 2035, 0)]
+    assert probed == [(925, 2160, tail), (900, 2160, tail)]
     assert result.stable_candidate.voltage_mv == 900
-    assert result.stable_candidate.target_mhz == 2035
+    assert result.stable_candidate.target_mhz == 2160
 
 
-def test_lower_voltage_sweep_does_not_anchor_to_power_limited_clock() -> None:
+@pytest.mark.parametrize("cap_clears", [False, True])
+def test_lower_voltage_sweep_keeps_target_when_power_limiting_clears(cap_clears) -> None:
     curve = base_curve(900, 1025, 25, 2000, 40)
     probed: list[tuple[int, int]] = []
 
@@ -149,7 +156,7 @@ def test_lower_voltage_sweep_does_not_anchor_to_power_limited_clock() -> None:
             clock_mhz=float(candidate.target_mhz - 80),
             power_w=float(candidate.voltage_mv),
         )
-        raw_probe["perf_cap_reason"] = "sw-power"
+        raw_probe["perf_cap_reason"] = "none" if cap_clears else "sw-power"
         return VoltageProbeOutcome(
             decision=StableRunDecision(
                 passed=True,
@@ -201,6 +208,30 @@ def test_lower_voltage_sweep_does_not_anchor_to_power_limited_clock() -> None:
     assert probed == [(925, 2160), (900, 2160)]
     assert result.stable_candidate.voltage_mv == 900
     assert result.stable_candidate.target_mhz == 2160
+
+
+def test_rising_tail_measured_gains_can_still_raise_the_next_target() -> None:
+    curve = base_curve(900, 1025, 25, 2000, 40)
+    targets = []
+
+    def probe(candidate):
+        targets.append(candidate.target_mhz)
+        return replace(_passed_outcome(candidate), measured_core_clock_mhz=candidate.target_mhz + 30)
+
+    run_base_uv_loop(
+        curve,
+        settings=AutoUvScanSettings(
+            start_voltage_mv=1000, min_search_voltage_mv=900,
+            baseline_core_clock_mhz=2160.0, auto_uv_mode="balanced", tail_rise_bins=4,
+        ),
+        initial_stable_candidate=VfCurveCandidate("baseline", 1000, 2160, curve),
+        io=BaseUvLoopIO(
+            probe_candidate=probe,
+            write_verified_candidate=lambda *_: None,
+            mark_unsafe_candidate=lambda *_: None,
+        ),
+    )
+    assert targets == [2160, 2190]
 
 
 def test_performance_mode_lower_sweep_uses_plain_lower_voltage_probe() -> None:

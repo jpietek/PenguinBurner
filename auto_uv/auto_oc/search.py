@@ -9,6 +9,8 @@ from auto_uv.domain.console_log import log_phase
 from auto_uv.domain.types import (
     AutoUvProbeSummary,
     FailureKind,
+    FailureSeverity,
+    StableRunDecision,
     VfCurveCandidate,
 )
 from auto_uv.curve.base_vf_curve_voltage_bins import editable_voltage_bins
@@ -17,6 +19,8 @@ from auto_uv.curve.flattened_voltage_probe_curve import build_flattened_voltage_
 from auto_uv.curve.rising_tail import tail_ceiling_clock_mhz
 from auto_uv.scan_mode.uv_limits import UvTierTarget, uv_limit_profile_target_for_gpu
 from auto_uv.run.voltage_sweep_state import VoltageProbeOutcome
+from auto_uv.persistence.unsafe_voltage_blacklist_file import load_unsafe_voltage_blacklist
+from auto_uv.persistence.unsafe_voltage_cache import unsafe_voltage_block_reason
 from .ladder import AutoOcStep, build_auto_oc_ladder
 from .scoring import auto_oc_probe_key, effective_q2rtx_clock_mhz
 from .settings import (
@@ -120,6 +124,7 @@ def run_auto_oc_candidate_search(
     failed_voltage_floor_mv: int | None = None
     consumed_voltage_floor_mv: int | None = None
     power_wall_reached = False
+    unsafe_entries = load_unsafe_voltage_blacklist()
 
     def probe_step(step: AutoOcStep, *, action: str) -> tuple[VfCurveCandidate, VoltageProbeOutcome]:
         candidate = auto_oc_candidate(
@@ -131,6 +136,18 @@ def run_auto_oc_candidate_search(
             endpoint_clock_mhz=int(endpoint.clock_mhz),
             measured_baseline_clock_mhz=measured_baseline_clock_mhz,
         )
+        blocked = unsafe_voltage_block_reason(
+            unsafe_entries,
+            candidate_voltage_mv=int(candidate.voltage_mv),
+            lock_clock_mhz=int(candidate.target_mhz),
+            profile_tier=target_profile_id,
+        )
+        if blocked:
+            outcome = VoltageProbeOutcome(decision=StableRunDecision(
+                False, FailureKind.CACHED_UNSAFE, FailureSeverity.UNSAFE, blocked
+            ))
+            attempts.append(AutoOcAttempt(step=step, candidate=candidate, outcome=outcome))
+            return candidate, outcome
         retarget_clock_ceiling(
             clock_ceiling,
             candidate=candidate,

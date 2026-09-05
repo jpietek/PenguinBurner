@@ -105,6 +105,7 @@ class FailureKind(str, Enum):
     METRICS_MISSING = "metrics-missing"
     METRICS_INVALID = "metrics-invalid"
     USER_STOP = "user-stop"
+    CACHED_UNSAFE = "cached-unsafe"
 
 
 class FailureSeverity(str, Enum):
