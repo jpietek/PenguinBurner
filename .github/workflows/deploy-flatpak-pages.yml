@@ -62,6 +62,11 @@ jobs:
           test -s "$source_page"
           install -Dm0644 "$source_page" "$target_page"
           cmp --silent "$source_page" "$target_page"
+          source_page="docs/pages/pr72-curve-comparison/index.html"
+          target_page="site/pr72-curve-comparison/index.html"
+          test -s "$source_page"
+          install -Dm0644 "$source_page" "$target_page"
+          cmp --silent "$source_page" "$target_page"
           python3 scripts/flatpak_pages_artifact.py validate site
 
       - name: Configure Pages
