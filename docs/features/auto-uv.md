@@ -47,6 +47,13 @@ The GUI offers that one-time setup automatically; from the CLI install it with
 When a tier includes a board-power limit, Auto-UV applies and reads back
 that exact limit before the tier's stock baseline, voltage sweep, and final
 verification. It stops instead of probing if the limit cannot be established.
+
+Full scans start directly with Efficiency's power limit and reuse that initial
+stock/flattened baseline for its search. Balanced and Performance share a second
+baseline when their power limit, memory offset, and tail settings match; each
+still enforces its own clock-loss allowance. For a 300 W / 360 W / 360 W scan,
+this means one baseline pair at 300 W and one shared pair at 360 W.
+
 On a genuinely power-limited card, the lower measured clock is treated as a
 governor operating point only while sustained cap evidence is present; ordinary
 clock regressions still fail. Efficiency and Balanced may then probe a bounded

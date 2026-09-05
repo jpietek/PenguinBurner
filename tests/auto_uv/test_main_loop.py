@@ -3689,8 +3689,8 @@ def test_full_scan_open_paths_fall_back_to_per_tier_options() -> None:
         auto_uv_memory_offset_mhz,
     )
 
-    # Scan open uses the HIGHEST per-tier power request when the scan-wide
-    # key is absent, so a raised cap holds during discovery and descents.
+    # Scan open uses Efficiency's budget; later tiers establish their own
+    # full-power baseline only when they start.
     assert (
         _auto_uv_power_limit_w(
             {
@@ -3699,9 +3699,27 @@ def test_full_scan_open_paths_fall_back_to_per_tier_options() -> None:
                 "auto_uv_performance_power_limit_w": 390,
             }
         )
-        == 390
+        == 250
     )
     assert _auto_uv_power_limit_w({"auto_uv_power_limit_w": 320}) == 320
+    assert (
+        _auto_uv_power_limit_w(
+            {
+                "auto_uv_power_limit_w": 320,
+                "auto_uv_efficiency_power_limit_w": 250,
+            }
+        )
+        == 250
+    )
+    assert (
+        _auto_uv_power_limit_w(
+            {
+                "auto_uv_power_limit_w": 220,
+                "auto_uv_efficiency_power_limit_w": 250,
+            }
+        )
+        == 220
+    )
     assert _auto_uv_power_limit_w({}) is None
 
     # Scan open applies the FIRST (efficiency) tier's memory offset when the
@@ -3721,6 +3739,197 @@ def test_full_scan_open_paths_fall_back_to_per_tier_options() -> None:
         ),
     )
     assert offset is None
+
+
+@pytest.mark.parametrize(
+    ("overrides", "performance_tail", "expected_policies"),
+    [
+        ({}, 4, [(300, 0, 2), (360, 0, 4)]),
+        ({"auto_uv_power_limit_w": 320}, 4, [(300, 0, 2), (320, 0, 4)]),
+        (
+            {"auto_uv_performance_power_limit_w": 340},
+            4,
+            [(300, 0, 2), (360, 0, 4), (340, 0, 4)],
+        ),
+        (
+            {"auto_uv_performance_memory_offset_mhz": 500},
+            4,
+            [(300, 0, 2), (360, 0, 4), (360, 500, 4)],
+        ),
+        ({}, 6, [(300, 0, 2), (360, 0, 4), (360, 0, 6)]),
+        (
+            {"auto_uv_efficiency_memory_offset_mhz": 500},
+            4,
+            [(300, 500, 2), (360, 0, 4)],
+        ),
+    ],
+)
+def test_full_scan_reuses_only_matching_measured_baselines(
+    monkeypatch, overrides, performance_tail, expected_policies
+) -> None:
+    from auto_uv.gpu.gpu_vf_curve_applier import LiveGpuVfCurveApplier
+    from auto_uv.probes.runner import AutoUvProbeRunner
+    from stability.q2rtx.models import Q2RTXStabilityConfig
+
+    main = undervolt_main_loop
+    curve = base_curve(850, 1100, 25, 2200, 40)
+    backend = SimpleNamespace(
+        apply_power_limit_w=lambda watts: watts,
+        get_memory_clock_offset_range_mhz=lambda: (0, 4000),
+        apply_clock_offsets=lambda **kwargs: {
+            "mem_clk_vf_offset_readback_mhz": kwargs["mem_clk_vf_offset_mhz"]
+        },
+    )
+    gpu = LiveGpuVfCurveApplier(
+        gpu_index=0,
+        gpu=backend,
+        runtime_default_plan=curve,
+        translated_gpu_policy={
+            "gpu_name": "NVIDIA GeForce RTX 5080",
+            "power_limit_w": 360,
+        },
+        baseline_power_limit_w=360,
+        min_power_limit_w=300,
+        max_power_limit_w=400,
+    )
+    stock_policies = []
+    flat_policies = []
+    runners = {}
+    finals = {}
+    events = []
+
+    def policy():
+        return (
+            gpu.power_limit_w,
+            gpu.translated_gpu_policy.get("mem_clk_vf_offset_mhz", 0),
+        )
+
+    def discovery(*_args, **_kwargs):
+        stock_policies.append(policy())
+        clock = 2400 if gpu.power_limit_w == 300 else 2600
+        return _summary(1000, clock), SimpleNamespace(success=True)
+
+    def build_baseline(_curve, *, discovery_summary, tail_rise_bins, **_kwargs):
+        clock = int(discovery_summary.avg_core_clock_mhz)
+        return (
+            VfCurveCandidate(
+                "baseline",
+                1000,
+                clock,
+                curve,
+                metadata={"tail_rise_bins": tail_rise_bins},
+            ),
+            SimpleNamespace(measured_clock_mhz=float(clock)),
+        )
+
+    def probe_baseline(runner, candidate):
+        assert runner.power_limit_w == gpu.power_limit_w
+        flat_policies.append((*policy(), candidate.metadata["tail_rise_bins"]))
+        probe = _summary(candidate.voltage_mv, candidate.target_mhz)
+        return VoltageProbeOutcome(
+            decision=StableRunDecision(
+                True, FailureKind.NONE, FailureSeverity.PASS, "stable run"
+            ),
+            measured_core_clock_mhz=probe.avg_core_clock_mhz,
+            measured_voltage_mv=probe.avg_voltage_mv,
+            raw_probe=probe,
+            raw_result=SimpleNamespace(success=True),
+        )
+
+    def descent(_curve, *, baseline_candidate, fallback_probe, tier_mode, **_kwargs):
+        return (
+            baseline_candidate,
+            main.adaptive_tier_descent_tail_rise_bins(tier_mode),
+            fallback_probe,
+            [fallback_probe],
+        )
+
+    def select(**kwargs):
+        runners[kwargs["auto_uv_mode_override"]] = kwargs["runner"]
+        return main.FinalScanCandidate(
+            plan=kwargs["stable_plan"],
+            voltage_mv=kwargs["stable_voltage_mv"],
+            lock_clock_mhz=kwargs["stable_lock_clock_mhz"],
+            probe=kwargs["stable_probe"],
+            verification_duration_s=60,
+            auto_oc_metadata={},
+            tail_rise_bins=kwargs["tail_rise_bins"],
+        )
+
+    def finish(**kwargs):
+        finals[kwargs["generated_profile_tier"]] = kwargs
+        return SimpleNamespace(
+            final_voltage_mv=kwargs["stable_voltage_mv"],
+            lock_clock_mhz=kwargs["stable_lock_clock_mhz"],
+        )
+
+    monkeypatch.setattr(main, "consume_crash_cache", lambda **_k: [])
+    monkeypatch.setattr(main, "cleanup_managed_q2rtx_processes", lambda *_a, **_k: None)
+    monkeypatch.setattr(main, "open_live_gpu_vf_curve_applier", lambda **_k: gpu)
+    monkeypatch.setattr(LiveGpuVfCurveApplier, "start_clock_ceiling", lambda *_a: None)
+    monkeypatch.setattr(main, "run_discovery_probe", discovery)
+    monkeypatch.setattr(main, "run_discovery_probe_with_runner", discovery)
+    monkeypatch.setattr(main, "build_loaded_baseline_candidate", build_baseline)
+    monkeypatch.setattr(AutoUvProbeRunner, "probe_baseline_candidate", probe_baseline)
+    monkeypatch.setattr(
+        main,
+        "adjust_baseline_to_measured_clock",
+        lambda *_a, candidate, **_k: candidate,
+    )
+    monkeypatch.setattr(main, "write_verified_candidate", lambda *_a, **_k: None)
+    monkeypatch.setattr(main, "run_adaptive_tier_descent", descent)
+    monkeypatch.setattr(main, "select_final_scan_candidate", select)
+    monkeypatch.setattr(main, "run_final_verification_and_save", finish)
+    monkeypatch.setattr(
+        main,
+        "adaptive_tier_descent_tail_rise_bins",
+        lambda tier: (
+            2
+            if tier == "efficiency"
+            else performance_tail
+            if tier == "performance"
+            else 4
+        ),
+    )
+
+    main.run_voltage_frequency_undervolt_main_loop(
+        gpu_index=0,
+        runtime_options={
+            "auto_uv_mode": "adaptive",
+            "auto_uv_efficiency_max_clock_drop_pct": 11.1,
+            "auto_uv_balanced_max_clock_drop_pct": 9.2,
+            "auto_uv_performance_max_clock_drop_pct": 6.3,
+            **overrides,
+        },
+        q2rtx_config=Q2RTXStabilityConfig(duration_s=10),
+        log=lambda _message: None,
+        event_callback=lambda event, payload: events.append((event, payload)),
+    )
+
+    # No full-power prelude or second Efficiency baseline. Performance only
+    # measures again when its actual policy differs from Balanced's.
+    assert stock_policies == [entry[:2] for entry in expected_policies]
+    assert flat_policies == expected_policies
+    for tier, floor_pct in [
+        ("efficiency", 88.9),
+        ("balanced", 90.8),
+        ("performance", 93.7),
+    ]:
+        assert runners[tier].min_performance_core_clock_pct == pytest.approx(floor_pct)
+        assert finals[tier]["min_performance_core_clock_pct"] == pytest.approx(
+            floor_pct
+        )
+        assert runners[tier].baseline_clock_mhz == finals[tier]["measured_clock_mhz"]
+    assert runners["efficiency"].baseline_clock_mhz == 2400
+    assert runners["balanced"].baseline_clock_mhz == 2600
+    reused = [
+        (payload["tier"], payload["source_tier"])
+        for event, payload in events
+        if event == "tier_baseline_reused"
+    ]
+    assert reused == [("efficiency", "efficiency")] + (
+        [("performance", "balanced")] if len(expected_policies) == 2 else []
+    )
 
 
 def test_apply_adaptive_tier_memory_offset_applies_per_tier_value() -> None:

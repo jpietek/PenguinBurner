@@ -333,6 +333,28 @@ def run_voltage_frequency_undervolt_main_loop(
                 log=log,
                 event_callback=event_callback,
             )
+        if settings.auto_uv_mode == AUTO_UV_MODE_ADAPTIVE:
+            # The initial measurements ARE Efficiency's baseline. Establish
+            # its full policy before discovery, including CLI table defaults.
+            tail_rise_bins = adaptive_tier_descent_tail_rise_bins(
+                AUTO_UV_MODE_EFFICIENCY
+            )
+            descent_tail_rise_bins = int(tail_rise_bins)
+            apply_adaptive_tier_memory_offset(
+                gpu,
+                tier_mode=AUTO_UV_MODE_EFFICIENCY,
+                runtime_options=runtime_options,
+                fallback_offset_mhz=scan_wide_memory_offset_mhz(runtime_options),
+                limit_mhz=driver_memory_offset_limit_mhz(gpu.policy_controller),
+                event_callback=event_callback,
+                log=log,
+            )
+            request_adaptive_tier_power_limit(
+                gpu, tier_mode=AUTO_UV_MODE_EFFICIENCY, runtime_options=runtime_options
+            )
+            apply_pending_power_limit(
+                gpu, log=log, purpose="adaptive efficiency baseline"
+            )
         discovery_summary, discovery_result = run_discovery_probe(
             base_curve,
             gpu=gpu,
@@ -633,6 +655,27 @@ def run_voltage_frequency_undervolt_main_loop(
                     # fourth, tier-less profile shadowing the confirmed ones,
                     # so the guard is armed before the first tier's descent.
                     adaptive_tier_phase = True
+                    baseline_cache = {
+                        (
+                            positive_int(gpu.power_limit_w),
+                            memory_offset_from_gpu_policy(gpu.translated_gpu_policy)
+                            or 0,
+                            int(tail_rise_bins),
+                        ): (
+                            AUTO_UV_MODE_EFFICIENCY,
+                            AdaptiveTierBaseline(
+                                runner=runner,
+                                candidate=baseline_candidate,
+                                target=baseline_target,
+                                outcome=initial_stable_outcome,
+                                stable_probe=stable_probe,
+                                discovery_summary=discovery_summary,
+                                min_search_voltage_mv=int(
+                                    effective_min_search_voltage_mv
+                                ),
+                            ),
+                        )
+                    }
 
                     def configure_tier_probe_runner(
                         min_core_clock_pct: float,
@@ -644,9 +687,7 @@ def run_voltage_frequency_undervolt_main_loop(
                         runner = replace(
                             runner,
                             power_limit_w=positive_int(gpu.power_limit_w),
-                            min_performance_core_clock_pct=float(
-                                min_core_clock_pct
-                            ),
+                            min_performance_core_clock_pct=float(min_core_clock_pct),
                         )
                         return runner
 
@@ -656,6 +697,47 @@ def run_voltage_frequency_undervolt_main_loop(
                         tier_runner: AutoUvProbeRunner,
                         tier_tail_rise_bins: int,
                     ) -> AdaptiveTierBaseline:
+                        policy_key = (
+                            positive_int(gpu.power_limit_w),
+                            memory_offset_from_gpu_policy(gpu.translated_gpu_policy)
+                            or 0,
+                            int(tier_tail_rise_bins),
+                        )
+                        cached = baseline_cache.get(policy_key)
+                        if cached is not None:
+                            source_tier, measured = cached
+                            # Baseline probes establish the reference and do
+                            # not enforce a tier's clock floor. Rebind the
+                            # runner so subsequent probes use this tier's own
+                            # allowance against the shared measured reference.
+                            prepared = replace(
+                                measured,
+                                runner=replace(
+                                    tier_runner,
+                                    start_voltage_mv=int(measured.candidate.voltage_mv),
+                                    baseline_clock_mhz=float(
+                                        measured.target.measured_clock_mhz
+                                    ),
+                                ),
+                            )
+                            retarget_clock_ceiling_for_candidate(
+                                gpu.clock_ceiling, prepared.candidate
+                            )
+                            log_phase(
+                                log,
+                                "auto-uv",
+                                f"adaptive {tier_mode} reusing {source_tier} stock "
+                                "and flattened baselines "
+                                f"power-limit={_format_power_limit_w(gpu.power_limit_w)}",
+                            )
+                            emit_auto_uv_event(
+                                event_callback,
+                                "tier_baseline_reused",
+                                tier=tier_mode,
+                                source_tier=source_tier,
+                                power_limit_w=positive_int(gpu.power_limit_w),
+                            )
+                            return prepared
                         # A stock baseline must not inherit the dynamic core
                         # ceiling from the previous flattened candidate.
                         if gpu.clock_ceiling is not None:
@@ -743,7 +825,7 @@ def run_voltage_frequency_undervolt_main_loop(
                             f"{int(tier_baseline_candidate.target_mhz)}MHz "
                             f"power-limit={_format_power_limit_w(gpu.power_limit_w)}",
                         )
-                        return AdaptiveTierBaseline(
+                        prepared = AdaptiveTierBaseline(
                             runner=tier_runner,
                             candidate=tier_baseline_candidate,
                             target=tier_baseline_target,
@@ -752,6 +834,8 @@ def run_voltage_frequency_undervolt_main_loop(
                             discovery_summary=tier_discovery_summary,
                             min_search_voltage_mv=int(tier_min_search_voltage_mv),
                         )
+                        baseline_cache[policy_key] = (tier_mode, prepared)
+                        return prepared
 
                     return run_adaptive_tier_scans(
                         base_curve=base_curve,
@@ -974,8 +1058,8 @@ def run_adaptive_tier_scans(
     rising tail compounds through the measured-clock ratchet, so each tier
     must descend with its OWN tail (efficiency +2 tail-tune to the floor,
     balanced +4 to the FPS/W wall, performance +4 then the Auto-OC climb).
-    Each tier first establishes its own stock and flattened baselines under
-    the exact power/memory policy that profile will save. Because Balanced
+    Stock and flattened baselines are shared when power, memory and tail
+    settings match; each tier keeps its own clock-loss allowance. Because Balanced
     and Performance descend with the same tail, Performance can reuse the
     Balanced descent only when those policy inputs also match (see
     performance_can_reuse_balanced_descent) and runs only its Auto-OC climb.
@@ -1013,27 +1097,12 @@ def run_adaptive_tier_scans(
             **event_details,
             reason=f"{stage}-failed",
         )
-    stock_power_limit_w = positive_int(
-        getattr(gpu, "baseline_power_limit_w", None)
-    ) or positive_int(gpu.power_limit_w)
-    # The original scan-wide power request (a manual slider, or None from a
-    # plain CLI run) — captured once so each tier scales from it, never from
-    # the previous tier's applied cap.
-    scan_power_limit_request_w = positive_int(
-        runtime_options.get("auto_uv_power_limit_w")
-    )
-    balanced_power_limit_pct = uv_limit_power_limit_pct_for_gpu(
-        gpu.translated_gpu_policy.get("gpu_name"),
-        AUTO_UV_MODE_BALANCED,
-    )
     gpu_name = gpu.translated_gpu_policy.get("gpu_name")
-    # The offset applied at scan open (scan-wide request or zero) is every
-    # tier's fallback: a tier without its own option must never inherit the
-    # PREVIOUS tier's offset. The driver limit is a per-GPU constant, fetched
+    # A tier without its own option restores the scan-wide request or zero,
+    # including when scan open already applied Efficiency's override.
+    # The driver limit is a per-GPU constant, fetched
     # once so mid-scan daemon hiccups can't clamp tiers inconsistently.
-    scan_open_memory_offset_mhz = int(
-        gpu.translated_gpu_policy.get("mem_clk_vf_offset_mhz") or 0
-    )
+    scan_open_memory_offset_mhz = scan_wide_memory_offset_mhz(runtime_options)
     memory_offset_limit_mhz = int(
         driver_memory_offset_limit_mhz(gpu.policy_controller)
     )
@@ -1079,19 +1148,10 @@ def run_adaptive_tier_scans(
         tier_tail_rise_bins = adaptive_tier_descent_tail_rise_bins(
             str(tier_mode)
         )
-        apply_adaptive_tier_power_limit(
+        request_adaptive_tier_power_limit(
             gpu,
             tier_mode=str(tier_mode),
-            stock_power_limit_w=stock_power_limit_w,
-            scan_request_w=scan_power_limit_request_w,
-            balanced_pct=balanced_power_limit_pct,
-            explicit_watts=positive_int(
-                adaptive_tier_option(
-                    runtime_options,
-                    tier_mode=str(tier_mode),
-                    option="power_limit_w",
-                )
-            ),
+            runtime_options=runtime_options,
         )
         apply_pending_power_limit(
             gpu,
@@ -1476,6 +1536,30 @@ def run_adaptive_tier_descent(
     return tier_candidate, tier_final_tail, tier_probe, tier_history
 
 
+def request_adaptive_tier_power_limit(
+    gpu,
+    *,
+    tier_mode: str,
+    runtime_options: dict,
+) -> None:
+    """Use the same tier budget at scan startup and during orchestration."""
+    apply_adaptive_tier_power_limit(
+        gpu,
+        tier_mode=tier_mode,
+        stock_power_limit_w=positive_int(getattr(gpu, "baseline_power_limit_w", None))
+        or positive_int(gpu.power_limit_w),
+        scan_request_w=positive_int(runtime_options.get("auto_uv_power_limit_w")),
+        balanced_pct=uv_limit_power_limit_pct_for_gpu(
+            gpu.translated_gpu_policy.get("gpu_name"), AUTO_UV_MODE_BALANCED
+        ),
+        explicit_watts=positive_int(
+            adaptive_tier_option(
+                runtime_options, tier_mode=tier_mode, option="power_limit_w"
+            )
+        ),
+    )
+
+
 def apply_adaptive_tier_power_limit(
     gpu,
     *,
@@ -1516,6 +1600,15 @@ def apply_adaptive_tier_power_limit(
     if scan_request_w is not None:
         tier_watts = min(int(tier_watts), int(scan_request_w))
     gpu.requested_power_limit_w = gpu.clamp_power_limit_w(int(tier_watts))
+
+
+def scan_wide_memory_offset_mhz(runtime_options: dict) -> int:
+    return int(
+        runtime_options.get(
+            "auto_uv_memory_offset_mhz", runtime_options.get("memory_offset_mhz")
+        )
+        or 0
+    )
 
 
 def apply_adaptive_tier_memory_offset(

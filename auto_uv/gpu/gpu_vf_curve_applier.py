@@ -318,21 +318,20 @@ def open_live_gpu_vf_curve_applier(
 
 def _auto_uv_power_limit_w(runtime_options: dict) -> int | None:
     value = runtime_options.get("auto_uv_power_limit_w")
-    if value in (None, ""):
-        # Full scans carry per-tier power limits instead of the scan-wide
-        # key. The highest tier request establishes the startup regime before
-        # adaptive orchestration begins. Each tier then applies and reads back
-        # its own exact cap before its stock baseline, flattened baseline,
-        # descent, selection, and final verification.
-        tier_values = [
-            runtime_options.get(adaptive_tier_option_key(tier, "power_limit_w"))
-            for tier in ADAPTIVE_TIER_MODES
-        ]
-        tier_values = [item for item in tier_values if item not in (None, "")]
-        if not tier_values:
-            return None
-        value = max(float(cast(Any, item)) for item in tier_values)
+    # Full scans start with Efficiency. A later tier's higher cap must not
+    # create an extra full-power discovery before Efficiency's own baseline.
+    first_tier_value = runtime_options.get(
+        adaptive_tier_option_key(ADAPTIVE_TIER_MODES[0], "power_limit_w")
+    )
     try:
+        if first_tier_value not in (None, ""):
+            value = (
+                min(float(value), float(first_tier_value))
+                if value not in (None, "")
+                else first_tier_value
+            )
+        if value in (None, ""):
+            return None
         power_limit_w = int(round(float(cast(Any, value))))
     except (TypeError, ValueError) as exc:
         raise AutoUvError(f"invalid Auto-UV power limit: {value!r}") from exc
