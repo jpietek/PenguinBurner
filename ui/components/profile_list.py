@@ -371,11 +371,9 @@ class ProfileList:
             for choice in choices
             if str(getattr(choice, "uuid", "") or "").strip()
         ]
-        # gpu_choices_with_fallback() may append a UUID-less placeholder for
-        # a configured index that is no longer present. It is useful to other
-        # index-based workflows, but must not turn this UUID-bound selector
-        # into a fake multi-GPU choice. Keep one placeholder only when GPU
-        # discovery produced no stable identity at all.
+        # Profile targeting needs stable identities. An incomplete identity
+        # must not turn this into a multi-GPU selector; keep at most one entry
+        # when discovery produced no stable identity at all.
         self._gpu_choices = (
             choices_with_stable_identity
             if choices_with_stable_identity

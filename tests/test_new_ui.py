@@ -6,7 +6,6 @@ from types import SimpleNamespace
 
 import ui.features.integrations.afterburner_import as afterburner_import
 import ui.features.curves.fan_profiles as fan_profiles
-import ui.features.profiles.profiles as profiles_module
 from ui.main import parse_gui_args
 from ui.main import parse_gui_launch_options
 from ui.features.curves.fan_profiles import fan_payload_has_silent_runtime_fields
@@ -26,11 +25,9 @@ from ui.models import candidate_id_from_payload
 from ui.models import event_points
 from ui.models import fan_points
 from ui.models import stage_title
-from ui.features.profiles.profiles import load_profile_summaries
 from ui.features.profiles.profiles import profile_can_apply
 from ui.features.profiles.profiles import profile_can_verify
 from ui.features.profiles.profiles import profile_for_selector
-from ui.features.profiles.profiles import profile_info_from_command_text
 from ui.features.profiles.profiles import profile_verify_selector
 from ui.features.profiles.profiles import runner_status_text
 from ui.features.tuning.verify import elapsed_from_line
@@ -107,15 +104,15 @@ def test_gpu_selection_builds_nvml_identity_choices() -> None:
     assert choices[1].label == "GPU 1 - NVIDIA GeForce RTX 5090 (03:00.0)"
 
 
-def test_gpu_selection_falls_back_to_configured_index() -> None:
+def test_gpu_selection_falls_back_to_the_detected_card() -> None:
     choices, selected = gpu_choices_with_fallback(
         selected_index=2,
         choices=[GpuChoice(index=0, name="NVIDIA GeForce RTX 4090")],
     )
 
-    assert selected == 2
-    assert [choice.index for choice in choices] == [0, 2]
-    assert choices[1].label == "GPU 2 - NVIDIA GPU"
+    assert selected == 0
+    assert [choice.index for choice in choices] == [0]
+    assert choices[0].label == "GPU 0 - NVIDIA GeForce RTX 4090"
 
 
 def test_gpu_selection_persists_runtime_index(tmp_path) -> None:

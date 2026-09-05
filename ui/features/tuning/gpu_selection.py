@@ -72,17 +72,17 @@ def gpu_choices_with_fallback(
     config_path: str | Path | None = None,
     choices: list[GpuChoice] | None = None,
 ) -> tuple[list[GpuChoice], int]:
+    """Resolve the saved selection against GPUs reported by the daemon."""
     selected = (
         runtime_gpu_index(config_path)
         if selected_index is None
         else max(0, int(selected_index))
     )
     detected = list(detected_gpu_choices() if choices is None else choices)
-    if not detected:
-        return [GpuChoice(index=selected, name="NVIDIA GPU")], selected
-    if selected not in {choice.index for choice in detected}:
-        detected.append(GpuChoice(index=selected, name="NVIDIA GPU"))
-        detected.sort(key=lambda choice: choice.index)
+    if detected and selected not in {choice.index for choice in detected}:
+        # A saved index is a preference, not evidence that the GPU exists.
+        # Keep this correction local; opening a selector must not rewrite it.
+        selected = detected[0].index
     return detected, selected
 
 

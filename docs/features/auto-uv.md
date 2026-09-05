@@ -115,6 +115,11 @@ PenguinBurner reads GPU identity, PCI bus id, driver version, and VRAM directly
 through NVML (`libnvidia-ml.so.1`). It does not shell out to `nvidia-smi` for the
 GPU picker or Q2RTX resolution choice.
 
+The picker lists only detected NVIDIA GPUs. If a saved GPU index is no longer
+present, it selects an available card for you to review before starting; opening
+the dialog does not rewrite the saved setting. With no detected GPU, the dialog
+explains the problem and disables Start Auto Undervolt.
+
 The selected `--gpu-index` is used consistently for NVML/NVAPI control,
 telemetry, Q2RTX, CUDA, profile verification, and runtime profile application.
 On multi-GPU systems, pick the card in the tuning dialog or pass `--gpu-index N`

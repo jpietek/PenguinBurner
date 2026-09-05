@@ -87,6 +87,7 @@ def select_scan_tuning(
     gpu_combo.setSizeAdjustPolicy(size_adjust_policy)
     for choice in gpu_choices:
         gpu_combo.addItem(choice.label, int(choice.index))
+    gpu_combo.setEnabled(len(gpu_choices) > 1)
     selected_combo_index = _gpu_combo_index(gpu_combo, selected_gpu_index)
     if selected_combo_index >= 0:
         gpu_combo.setCurrentIndex(selected_combo_index)
@@ -501,6 +502,12 @@ def select_scan_tuning(
         the user already edited (per-profile latches) keep their value; only
         their ranges are refreshed (Qt clamps out-of-range values).
         """
+        if not gpu_choices:
+            gpu_nvml_info.setText(
+                "No NVIDIA GPU detected. Close this dialog, check the GPU driver "
+                "and PenguinBurner hardware service, then open Setup Auto Undervolt again."
+            )
+            return
         selected = _selected_gpu_index(gpu_combo, selected_gpu_index)
         client = gpu_client_for(selected)
         info = read_auto_uv_nvml_info(selected, gpu_client=client)
@@ -704,6 +711,9 @@ def select_scan_tuning(
     buttons.accepted.connect(dialog.accept)
     buttons.rejected.connect(dialog.reject)
     start_button.setDefault(True)
+    start_button.setEnabled(bool(gpu_choices))
+    for group in (scope_group, preset_group, advanced_group):
+        group.setEnabled(bool(gpu_choices))
     commit_spinboxes = []
     for preset_id in _PRESET_ORDER:
         controls = tier_controls[preset_id]
@@ -729,7 +739,7 @@ def select_scan_tuning(
     layout.addWidget(buttons)
     dialog.setMinimumWidth(860)
     dialog.resize(860, dialog.sizeHint().height())
-    if dialog.exec() != QtWidgets.QDialog.Accepted:
+    if dialog.exec() != QtWidgets.QDialog.Accepted or not gpu_choices:
         return None
 
     preset = auto_uv_preset(scan_preset_id())

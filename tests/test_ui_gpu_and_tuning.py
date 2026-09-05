@@ -108,17 +108,64 @@ def test_detected_gpu_choices_reads_nvml_identities(monkeypatch) -> None:
     ]
 
 
-def test_gpu_choices_with_fallback_synthesizes_when_none_detected() -> None:
+def test_gpu_choices_with_fallback_does_not_invent_an_undetected_gpu() -> None:
     choices, selected = gpu_choices_with_fallback(selected_index=2, choices=[])
     assert selected == 2
-    assert choices == [GpuChoice(index=2, name="NVIDIA GPU")]
+    assert choices == []
 
 
-def test_gpu_choices_with_fallback_appends_missing_selected() -> None:
-    detected = [GpuChoice(0, "A"), GpuChoice(1, "B")]
+def test_gpu_choices_with_fallback_selects_a_real_gpu_when_saved_index_is_missing() -> None:
+    detected = [GpuChoice(2, "A"), GpuChoice(3, "B")]
     choices, selected = gpu_choices_with_fallback(selected_index=5, choices=detected)
-    assert selected == 5
-    assert [c.index for c in choices] == [0, 1, 5]
+    assert selected == 2
+    assert choices == detected
+
+
+def test_gpu_choices_preserve_a_detected_selection() -> None:
+    detected = [GpuChoice(0, "A"), GpuChoice(1, "B")]
+    choices, selected = gpu_choices_with_fallback(selected_index=1, choices=detected)
+    assert selected == 1
+    assert choices == detected
+
+
+def test_stale_saved_gpu_does_not_create_a_phantom_or_rewrite_config(tmp_path) -> None:
+    config = tmp_path / "config.toml"
+    original = '[gpu]\nindex = 1\n[ui]\npersist_on_startup = true\n'
+    config.write_text(original)
+    gpu = GpuChoice(0, "RTX 5080", uuid="GPU-real")
+
+    choices, selected = gpu_choices_with_fallback(config_path=config, choices=[gpu])
+
+    assert choices == [gpu]
+    assert selected == 0
+    assert config.read_text() == original
+
+
+def test_scan_dialog_cannot_start_without_a_detected_gpu(qapp, monkeypatch) -> None:
+    from PySide6 import QtCore, QtGui, QtWidgets
+    import ui.dialogs.scan_tuning as scan_tuning
+
+    monkeypatch.setattr(gpu_selection, "detected_gpu_choices", lambda: [])
+    monkeypatch.setattr(
+        scan_tuning, "DaemonGpuClient", lambda *_: pytest.fail("Undetected GPU queried")
+    )
+
+    def inspect_dialog(dialog):
+        combo = dialog.findChild(QtWidgets.QComboBox, "gpuSelector")
+        assert combo.count() == 0
+        assert not combo.isEnabled()
+        info = dialog.findChild(QtWidgets.QLabel, "gpuNvmlInfo")
+        assert "No NVIDIA GPU detected" in info.text()
+        buttons = dialog.findChild(QtWidgets.QDialogButtonBox)
+        start = next(button for button in buttons.buttons() if button.text().startswith("Start"))
+        assert not start.isEnabled()
+        # A programmatic acceptance must not produce an invalid scan either.
+        return QtWidgets.QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(QtWidgets.QDialog, "exec", inspect_dialog)
+    assert scan_tuning.select_scan_tuning(
+        QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets, parent=None, gpu_index=1
+    ) is None
 
 
 def test_runtime_gpu_index_reads_config_and_defaults(tmp_path, monkeypatch) -> None:
