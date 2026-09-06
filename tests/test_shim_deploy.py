@@ -820,7 +820,9 @@ def test_marker_output_is_declined_without_a_prefix_to_front(
     assert "PENGUIN_BURNER_SHIM_OUTPUT" not in env
 
 
-def test_marker_output_is_declined_without_a_built_shim(tmp_path: Path) -> None:
+def test_marker_output_is_declined_without_a_built_shim(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(shim_deploy, "_PACKAGED_SHIM_DLL", tmp_path / "absent-packaged.dll")
+    monkeypatch.setattr(shim_deploy, "_SOURCE_SHIM_DLL", tmp_path / "absent-source.dll")
     data_path = _make_prefix(tmp_path)
     env = {
         shim_deploy.NVAPI_SHIM_DIR_ENV: str(tmp_path / "absent-shim-dir"),
