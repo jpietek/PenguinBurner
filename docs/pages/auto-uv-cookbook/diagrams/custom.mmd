@@ -1,0 +1,24 @@
+flowchart TB
+  accTitle: Lower custom clocks continue after rejected intermediate steps
+  accDescr: At most ten planned steps lower the clock at the proven sweep voltage. Cached points are skipped, ordinary rejections continue downward, and only eligible passing curves can reach final verification.
+  INPUT([Custom target below<br/>the passing sweep clock]) --> PLAN["Plan ≤10 lower-clock steps<br/>Keep proven sweep voltage"]
+  PLAN --> STEP["Next planned lower clock"]
+  STEP --> CACHE{"Fresh blacklist<br/>allows this pair?"}
+  CACHE -->|Yes| PROBE["Apply and probe<br/>Full curve; own FPS reference"]
+  CACHE -->|No: skip pair| MORE
+  PROBE -->|Pass: retain exact curve| MORE{"More planned steps?"}
+  PROBE -->|Ordinary rejection / UNSAFE| MORE
+  MORE -->|Yes: continue downward| STEP
+  MORE -->|No| PICK["Filter passes by custom limits<br/>and the fresh blacklist<br/>E: FPS/W; others: eligible selection"]
+  PICK --> FOUND{"Eligible passing curve?"}
+  FOUND -->|Yes| DONE([Continue to final verification])
+  FOUND -->|No| ERROR([Tier target error<br/>Earlier checkpoints remain])
+  PROBE -->|Critical error / user stop| HALT([Stop probing<br/>Keep completed profiles])
+  classDef setup fill:#19334b,stroke:#84c7f5,color:#edf5fa,stroke-width:1.5px
+  classDef work fill:#18382f,stroke:#80d9ac,color:#edf5fa,stroke-width:1.5px
+  classDef gate fill:#302c20,stroke:#e9bd76,color:#fff0d8,stroke-width:1.5px
+  classDef stop fill:#40252a,stroke:#ef9595,color:#fff0f0,stroke-width:1.5px
+  class INPUT,PLAN setup
+  class STEP,PROBE,PICK,DONE work
+  class CACHE,MORE,FOUND,ERROR gate
+  class HALT stop

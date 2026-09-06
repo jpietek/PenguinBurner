@@ -1,0 +1,32 @@
+flowchart TB
+  accTitle: Automatic final retries, durable saves, partial success and hard exits
+  accDescr: A rejected final candidate is excluded by voltage-clock pair. The next eligible tested point is verified automatically. Ordinary exhaustion skips an adaptive tier; critical or backend errors stop probing and preserve completed tiers.
+  INPUT([Selected exact passing curve<br/>Initial choice / duration resolved]) --> CHECK{"Fresh blacklist allows<br/>this voltage / MHz pair?"}
+  CHECK -->|Yes| VERIFY["Check shape; snapshot; apply / read back<br/>Long Q2RTX + CUDA verification<br/>Custom clocks: own measured reference"]
+  CHECK -->|No| REJECT
+  VERIFY --> RESULT{"Final outcome"}
+  RESULT -->|Pass| SAVE["Save the final verified profile<br/>Exact curve + settings + measurements"]
+  SAVE --> DONE([Next requested tier, or finish])
+  RESULT -->|Unsafe / ordinary rejection| REJECT["Exclude this pair from retries<br/>Persist observed instability<br/>before post-probe readback"]
+  REJECT --> POOL["Filter the tested history again<br/>No failed pairs or blacklisted points<br/>Lower MHz or higher V; no MHz increase<br/>Respect custom target limits"]
+  POOL --> FOUND{"Eligible tested<br/>candidate remains?"}
+  FOUND -->|Yes| SELECT["Next best eligible point<br/>E: FPS/W; others: measured clock<br/>No retry dialog"]
+  SELECT -->|Verify this candidate| CHECK
+  FOUND -->|No| ORDINARY["Ordinary tier failure<br/>Adaptive: next tier<br/>Single tier: report failure"]
+  RESULT -->|Critical setup / measurement| HARD
+  VERIFY -->|Backend / power-policy failure| HARD
+  SAVE -->|Persistence failure| HARD
+  REJECT -->|Write fails: retain crash marker| HARD["Stop all further probes<br/>Critical / backend / persistence error"]
+  HARD --> PRIOR{"Any adaptive profile<br/>already completed?"}
+  PRIOR -->|Yes| PARTIAL([Return completed profiles<br/>Report why probing stopped])
+  PRIOR -->|No| ERROR([Report the error; no new verified profile])
+  VERIFY -.->|User stop| STOP([Exit; no automatic retry<br/>Keep saved profiles / checkpoints])
+  VERIFY -->|Other curve validation error| ORDINARY
+  classDef setup fill:#19334b,stroke:#84c7f5,color:#edf5fa,stroke-width:1.5px
+  classDef work fill:#18382f,stroke:#80d9ac,color:#edf5fa,stroke-width:1.5px
+  classDef gate fill:#302c20,stroke:#e9bd76,color:#fff0d8,stroke-width:1.5px
+  classDef stop fill:#40252a,stroke:#ef9595,color:#fff0f0,stroke-width:1.5px
+  class INPUT setup
+  class VERIFY,SAVE,DONE,POOL,SELECT,PARTIAL work
+  class CHECK,RESULT,REJECT,FOUND,ORDINARY,PRIOR gate
+  class HARD,ERROR,STOP stop

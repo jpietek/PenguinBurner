@@ -1,34 +1,30 @@
 flowchart TB
-  accTitle: Custom clock targets, automatic overclocking and bounded backoff
-  accDescr: Lower custom targets use no second voltage sweep. Upward searches use finite rungs and higher-voltage retries within the endpoint.
-  INPUT([Passing undervolt result]) --> CUSTOM{"Explicit custom target<br/>differs from Auto defaults?"}
-  CUSTOM -->|Lower MHz| DOWN["Test lower clocks at the proven voltage<br/>At most 10 steps; stop on ordinary failure or cache<br/>Do not repeat voltage descent"]
-  CUSTOM -->|Same MHz / voltage cap prevents a climb| ELIGIBLE
-  DOWN --> ELIGIBLE{"Any passing measured candidate<br/>inside the custom limits?"}
-  ELIGIBLE -->|Yes| CUSTOMDONE([Select a passing custom curve])
-  ELIGIBLE -->|No| ERROR["Report unmet custom target<br/>Earlier checkpoints remain available"]
-  CUSTOM -->|Higher MHz, voltage permits| LADDER
-  CUSTOM -->|Auto| POLICY["Performance: OC toward the endpoint<br/>Full-scan E/B: reclaim clock when power-bound<br/>No table endpoint: retain the passing undervolt"]
-  POLICY -->|Clock work needed| LADDER["Build at most 10 unique main rungs<br/>Use editable voltage bins and the MHz ceiling"]
-  POLICY -->|Not needed / no endpoint| AUTODONE([Keep the passing undervolt])
-  LADDER --> NEXT{"Legal rung remains<br/>outside failed / consumed bands?"}
-  NEXT -->|No| KEEP["Keep the passing selection<br/>Custom search: apply limits and tier scoring<br/>No eligible custom point → target error"]
-  NEXT -->|Yes| BLOCK{"Cached unsafe point?"}
-  BLOCK -->|Yes| BACKOFF["At most one bounded fallback attempt<br/>Selected passing MHz at highest legal ladder voltage<br/>Then end the climb"]
-  BACKOFF -->|Ordinary result| KEEP
-  BACKOFF -->|Critical| ABORT
-  BLOCK -->|No| PROBE["Probe the complete candidate"]
+  accTitle: Upward clock search and a single backoff after instability
+  accDescr: AutoOC uses finite rungs and higher-voltage retries. Any fresh or cached unsafe point allows at most one lower-clock ceiling backoff, then ends the climb.
+  INPUT([OC / clock reclaim<br/>or a higher custom target]) --> LADDER["Build ≤10 unique main rungs<br/>Editable V; fixed target ceilings"]
+  LADDER --> NEXT{"Another legal main rung?"}
+  NEXT -->|No| PICK
+  NEXT -->|Yes| CACHE{"Fresh blacklist<br/>blocks this pair?"}
+  CACHE -->|Yes| BACKOFF
+  CACHE -->|No| PROBE["Apply / read back<br/>Probe the complete curve"]
   PROBE --> OUTCOME{"Outcome"}
-  OUTCOME -->|Critical| ABORT([Abort the whole run])
-  OUTCOME -->|Pass| POWER{"Confirmed power wall?"}
-  POWER -->|Yes: retain earlier passing selection| KEEP
-  POWER -->|No: update best passing selection| NEXT
-  OUTCOME -->|Ordinary failure| RETRY["Retry the same MHz at higher editable voltages<br/>Never above the voltage ceiling<br/>Skip failed and consumed voltage bands"]
-  RETRY -->|Continue finite remaining rungs| NEXT
-  RETRY -->|Critical| ABORT
-  classDef work fill:#19334b,stroke:#84c7f5,color:#edf5fa,stroke-width:1.5px
+  OUTCOME -->|Pass| WALL{"Confirmed power wall?"}
+  WALL -->|No: keep passing evidence| NEXT
+  WALL -->|Yes: end climb| PICK
+  OUTCOME -->|Fresh UNSAFE| BACKOFF["At most one backoff candidate<br/>Earlier passing MHz<br/>Highest allowed ladder voltage<br/>Probe only an allowed pair"]
+  BACKOFF -->|Any ordinary outcome: end climb| PICK
+  OUTCOME -->|RECOVERABLE rejection| RETRY["Retry same MHz at next higher V<br/>Finite bins below the ceiling<br/>Recheck cache; apply and probe"]
+  RETRY -->|Probe result| OUTCOME
+  RETRY -->|Cached UNSAFE| BACKOFF
+  RETRY -->|None remain| NEXT
+  OUTCOME -->|Critical error / user stop| HALT([Stop probing<br/>Keep completed profiles])
+  BACKOFF -->|Critical error / user stop| HALT
+  PICK([End climb<br/>Select an eligible passing curve<br/>Continue to final selection])
+  classDef setup fill:#19334b,stroke:#84c7f5,color:#edf5fa,stroke-width:1.5px
+  classDef work fill:#18382f,stroke:#80d9ac,color:#edf5fa,stroke-width:1.5px
   classDef gate fill:#302c20,stroke:#e9bd76,color:#fff0d8,stroke-width:1.5px
   classDef stop fill:#40252a,stroke:#ef9595,color:#fff0f0,stroke-width:1.5px
-  class INPUT,DOWN,POLICY,LADDER,PROBE,KEEP,CUSTOMDONE,AUTODONE work
-  class CUSTOM,ELIGIBLE,NEXT,BLOCK,BACKOFF,OUTCOME,POWER,RETRY,ERROR gate
-  class ABORT stop
+  class INPUT,LADDER setup
+  class PROBE,PICK work
+  class NEXT,CACHE,OUTCOME,WALL,BACKOFF,RETRY gate
+  class HALT stop

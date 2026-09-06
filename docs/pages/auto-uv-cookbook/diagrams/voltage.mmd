@@ -1,23 +1,25 @@
 flowchart TB
-  accTitle: Finite voltage descent and its stop conditions
-  accDescr: Every accepted step lowers voltage. Floor, unsafe cache, ordinary failure and Balanced efficiency walls return a passing point; critical errors abort.
-  INPUT([Start with a passing baseline or tier reference]) --> FLOOR["Choose the floor<br/>Explicit floor → model-table floor → fallback<br/>Unknown model: 10% below starting voltage"]
-  FLOOR --> NEXT{"A lower editable bin remains<br/>at or above the effective floor?"}
-  NEXT -->|No| RETURN([Return the selected passing curve])
-  NEXT -->|Yes| BUILD["Build the complete next candidate<br/>Hold requested MHz; retain measured upward gains<br/>Use the same tail policy"]
-  BUILD --> CACHE{"Actual new voltage/clock<br/>blocked by unsafe cache?"}
+  accTitle: Finite voltage descent and its recovery boundary
+  accDescr: Every next probe lowers voltage. A floor, cached unsafe pair, failed candidate or Balanced efficiency wall ends only this sweep. Critical errors and user stops follow the run exit rules.
+  INPUT([Start with a passing baseline or tier reference]) --> FLOOR["Choose the effective floor<br/>Explicit setting → model table → fallback<br/>Unknown model: 10% below starting voltage"]
+  FLOOR --> NEXT{"A lower editable bin remains<br/>at or above the floor?"}
+  NEXT -->|No| RETURN([Return the passing selection<br/>Continue to clock selection / final verification])
+  NEXT -->|Yes| BUILD["Build the complete next curve<br/>Carry the requested MHz and measured upward gains<br/>Preserve the tier's tail policy"]
+  BUILD --> CACHE{"Actual new voltage / clock<br/>blocked by the unsafe cache?"}
   CACHE -->|Yes| RETURN
-  CACHE -->|No| PROBE["Apply through the daemon and probe<br/>Q2RTX + CUDA, telemetry and runtime guardrails"]
+  CACHE -->|No| PROBE["Reset → apply → verify readback → probe<br/>Q2RTX; CUDA when required by voltage band"]
   PROBE --> RESULT{"Probe outcome"}
-  RESULT -->|Critical| ABORT([Abort the whole run])
-  RESULT -->|Ordinary failure| RETURN
-  RESULT -->|Pass| ACCEPT["Record the passing evidence<br/>Update the latest safe point<br/>Persist accepted selections"]
-  ACCEPT --> WALL{"Balanced: confirmed FPS/W wall<br/>after the required voltage drop?"}
-  WALL -->|Yes: keep the better selected point| RETURN
-  WALL -->|No / other tier| NEXT
+  RESULT -->|Unsafe / ordinary rejection| RETURN
+  RESULT -->|Pass| ACCEPT["Record exact passing evidence<br/>Update the selected curve and checkpoint"]
+  ACCEPT --> WALL{"Balanced's confirmed FPS/W wall<br/>after the required voltage drop?"}
+  WALL -->|Yes: retain the better point| RETURN
+  WALL -->|No / other tier: descend again| NEXT
+  RESULT -->|Critical failure| HALT([Stop probing; preserve completed profiles<br/>Exit handling in block 05])
+  PROBE -.->|User stop| STOP([Stop request handling in block 05])
+  classDef setup fill:#19334b,stroke:#84c7f5,color:#edf5fa,stroke-width:1.5px
   classDef work fill:#18382f,stroke:#80d9ac,color:#edf5fa,stroke-width:1.5px
   classDef gate fill:#302c20,stroke:#e9bd76,color:#fff0d8,stroke-width:1.5px
   classDef stop fill:#40252a,stroke:#ef9595,color:#fff0f0,stroke-width:1.5px
   class INPUT,FLOOR,BUILD,PROBE,ACCEPT,RETURN work
   class NEXT,CACHE,RESULT,WALL gate
-  class ABORT stop
+  class HALT,STOP stop

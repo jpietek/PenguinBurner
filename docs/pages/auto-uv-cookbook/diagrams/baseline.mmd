@@ -1,0 +1,23 @@
+flowchart TB
+  accTitle: Flattened baseline recovery has a ten-probe bound
+  accDescr: A passed stock reference supplies a loaded flattened target. Failed flattened candidates retreat at the same voltage, preserving tail geometry and checking unsafe bands before every probe.
+  START([Stock reference passed under this tier's settings]) --> BUILD["Build the loaded flattened target<br/>Keep the stock measurement as reference"]
+  BUILD --> CACHE["Read the current blacklist<br/>Jump below any blocked clock band<br/>Keep the same voltage and tail policy"]
+  CACHE -->|No legal clock / voltage-wide block| FAIL["No passing flattened baseline<br/>First baseline: report failure<br/>Later adaptive tier: skip that tier"]
+  CACHE -->|Allowed positive clock| PROBE["Retarget ceiling; apply and read back<br/>Q2RTX-only baseline probe<br/>Count this attempt: at most 10"]
+  PROBE --> RESULT{"Result"}
+  RESULT -->|Pass| SAVE([Keep this exact plan and metrics<br/>Write the passing baseline checkpoint])
+  RESULT -->|Rejected candidate| BUDGET{"Fewer than 10 probes<br/>and another positive clock?"}
+  BUDGET -->|Yes| LOWER["Lower the requested clock by 15 MHz"]
+  LOWER --> CACHE
+  BUDGET -->|No| FAIL
+  RESULT -->|Critical measurement / setup failure| HALT([Stop further probing; preserve earlier results])
+  PROBE -.->|User stop / unusable backend| HALT
+  classDef setup fill:#19334b,stroke:#84c7f5,color:#edf5fa,stroke-width:1.5px
+  classDef work fill:#18382f,stroke:#80d9ac,color:#edf5fa,stroke-width:1.5px
+  classDef gate fill:#302c20,stroke:#e9bd76,color:#fff0d8,stroke-width:1.5px
+  classDef stop fill:#40252a,stroke:#ef9595,color:#fff0f0,stroke-width:1.5px
+  class START,BUILD,CACHE setup
+  class PROBE,SAVE,LOWER work
+  class RESULT,BUDGET,FAIL gate
+  class HALT stop
