@@ -83,28 +83,31 @@ def test_gpu_choices_from_nvml_identities_skips_bad_rows_and_dupes() -> None:
     assert choices[1].pci_bus_id == ""
 
 
-def test_detected_gpu_choices_empty_without_nvml_identities(monkeypatch) -> None:
+def test_detected_gpu_choices_empty_without_daemon_capabilities(monkeypatch) -> None:
     monkeypatch.setattr(
-        gpu_selection.DaemonGpuClient, "discover_identities", lambda: []
+        gpu_selection.DaemonGpuClient, "discover_capabilities", lambda: []
     )
     assert gpu_selection.detected_gpu_choices() == []
 
 
-def test_detected_gpu_choices_reads_nvml_identities(monkeypatch) -> None:
+def test_detected_gpu_choices_keeps_default_power_with_gpu_identity(monkeypatch) -> None:
     monkeypatch.setattr(
         gpu_selection.DaemonGpuClient,
-        "discover_identities",
+        "discover_capabilities",
         lambda: [
             SimpleNamespace(
-                index=2,
-                name="RTX 5090",
-                pci_bus_id="00000000:03:00.0",
-                uuid="GPU-test",
+                identity=SimpleNamespace(
+                    index=2,
+                    name="RTX 5090",
+                    pci_bus_id="00000000:03:00.0",
+                    uuid="GPU-test",
+                ),
+                power=SimpleNamespace(default_w=575.0, current_w=450.0),
             )
         ],
     )
     assert gpu_selection.detected_gpu_choices() == [
-        GpuChoice(2, "RTX 5090", "00000000:03:00.0", "GPU-test")
+        GpuChoice(2, "RTX 5090", "00000000:03:00.0", "GPU-test", power_limit_default_w=575.0)
     ]
 
 

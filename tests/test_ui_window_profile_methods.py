@@ -76,6 +76,49 @@ def win(qapp, monkeypatch):
 PROFILE = {"profile_id": "p1", "path": "/tmp/p1.json", "final_verified": True}
 
 
+def test_profile_power_reference_follows_gpu_identity_and_disappearance(win, monkeypatch) -> None:
+    window, _mp = win
+    choices = [
+        GpuChoice(0, "Card A", uuid="GPU-A", power_limit_default_w=360.0),
+        GpuChoice(1, "Card B", uuid="GPU-B", power_limit_default_w=450.0),
+    ]
+    monkeypatch.setattr(window_mod, "gpu_choices_with_fallback", lambda **_: (choices, 0))
+    monkeypatch.setattr(
+        window_mod, "load_profile_summaries",
+        lambda: [
+            {"profile_id": "a", "gpu_identity": {"uuid": "GPU-A"}, "avg_power_w": 270.0},
+            {"profile_id": "b", "gpu_identity": {"uuid": "GPU-B"}, "avg_power_w": 270.0},
+            {"profile_id": "legacy", "avg_power_w": 270.0},
+        ],
+    )
+
+    def power_cells():
+        table = window.profile_list.table
+        return {
+            table.item(row, 0).data(window.profile_list.PROFILE_ID_ROLE): table.item(
+                row, window.profile_list.POWER_COLUMN
+            )
+            for row in range(table.rowCount())
+        }
+
+    window._load_profiles()
+    assert {key: item.text() for key, item in power_cells().items()} == {
+        "a": "270.00 (-25.00%)", "b": "270.00 (-40.00%)", "legacy": "270.00",
+    }
+    window.profile_list.target_gpu_combo.setCurrentIndex(2)
+    assert power_cells()["a"].text() == "270.00 (-25.00%)"
+
+    choices[:] = [choices[1]]
+    window._load_profiles()
+    cells = power_cells()
+    assert cells["a"].text() == cells["legacy"].text() == "270.00"
+    assert cells["a"].foreground().style() == window.QtCore.Qt.BrushStyle.NoBrush
+    assert cells["b"].text() == "270.00 (-40.00%)"
+    choices.clear()
+    window._load_profiles()
+    assert all(item.text() == "270.00" for item in power_cells().values())
+
+
 def test_edit_fan_curve_no_curve_shows_info(win) -> None:
     window, monkeypatch = win
     monkeypatch.setattr(actions_mod, "profile_fan_curve_points", lambda profile: [])

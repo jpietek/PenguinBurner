@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from integrations.afterburner.import_fan_curve import write_config
@@ -16,6 +16,7 @@ class GpuChoice:
     pci_bus_id: str = ""
     uuid: str = ""
     pci_device_id: str = ""
+    power_limit_default_w: float | None = None
 
     @property
     def label(self) -> str:
@@ -28,10 +29,16 @@ class GpuChoice:
 
 def detected_gpu_choices() -> list[GpuChoice]:
     try:
-        identities = DaemonGpuClient.discover_identities()
+        capabilities = DaemonGpuClient.discover_capabilities()
     except Exception:
-        identities = []
-    return gpu_choices_from_nvml_identities(identities)
+        return []
+    defaults = {item.identity.index: item.power.default_w for item in capabilities}
+    return [
+        replace(choice, power_limit_default_w=defaults.get(choice.index))
+        for choice in gpu_choices_from_nvml_identities(
+            item.identity for item in capabilities
+        )
+    ]
 
 
 def gpu_choices_from_nvml_identities(identities) -> list[GpuChoice]:

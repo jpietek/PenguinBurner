@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from math import isfinite
 
 from profiles.uv.profile_store import profile_display_name
 from profiles.gpu_identity import (
@@ -32,7 +33,7 @@ class ProfileList:
         "Effective MHz",
         "FPS/W",
         "FPS",
-        "Power W",
+        "Power W (vs stock limit)",
         "Mem",
         "Tier",
         "Source",
@@ -176,6 +177,7 @@ class ProfileList:
         self,
         profiles: list[dict],
         *,
+        default_power_limits_w: dict[str, float | None] | None = None,
         preferred_candidate_id: str = "",
         preferred_profile_id: str = "",
         select_preferred: bool = False,
@@ -194,6 +196,17 @@ class ProfileList:
         table_signals_blocked = self.table.blockSignals(True)
         try:
             self.table.setRowCount(0)
+            stock_limits = {
+                uuid.strip().casefold(): watts
+                for uuid, watts in (default_power_limits_w or {}).items()
+                if uuid.strip()
+            }
+            metric_columns = {
+                self.VOLTAGE_COLUMN: "candidate_voltage_mv",
+                self.EFFECTIVE_MHZ_COLUMN: "avg_core_clock_mhz",
+                self.FPSW_COLUMN: "efficiency_fps_per_w",
+                self.FPS_COLUMN: "avg_fps",
+            }
             tier_winner_ids = _resolved_tier_winner_ids(
                 profiles,
                 include_legacy_profiles=self.single_physical_gpu(),
@@ -215,37 +228,24 @@ class ProfileList:
                     preferred_candidate_id=preferred_candidate_id,
                     preferred_profile_id=preferred_profile_id,
                 )
+                stock_limit_w = _to_float(
+                    stock_limits.get(profile_gpu_uuid(profile).casefold())
+                )
+                if stock_limit_w is not None and (
+                    stock_limit_w <= 0 or not isfinite(stock_limit_w)
+                ):
+                    stock_limit_w = None
                 values = [
                     _date_text(profile),
                     _profile_name(profile),
                     profile_gpu_label(profile),
-                    _format_profile_metric_with_delta(
-                        profile.get("candidate_voltage_mv"),
-                        _profile_base_metric(profile, "candidate_voltage_mv"),
-                        precision=0,
-                        lower_is_better=True,
-                    ),
+                    _format_number(profile.get("candidate_voltage_mv"), precision=0),
                     _format_number(profile.get("lock_clock_mhz"), precision=0),
+                    _format_number(profile.get("avg_core_clock_mhz"), precision=2),
+                    _format_number(profile.get("efficiency_fps_per_w"), precision=4),
+                    _format_number(profile.get("avg_fps"), precision=2),
                     _format_profile_metric_with_delta(
-                        profile.get("avg_core_clock_mhz"),
-                        _profile_base_metric(profile, "avg_core_clock_mhz"),
-                        precision=2,
-                    ),
-                    _format_profile_metric_with_delta(
-                        profile.get("efficiency_fps_per_w"),
-                        _profile_base_metric(profile, "efficiency_fps_per_w"),
-                        precision=2,
-                    ),
-                    _format_profile_metric_with_delta(
-                        profile.get("avg_fps"),
-                        _profile_base_metric(profile, "avg_fps"),
-                        precision=2,
-                    ),
-                    _format_profile_metric_with_delta(
-                        profile.get("avg_power_w"),
-                        _profile_base_metric(profile, "avg_power_w"),
-                        precision=2,
-                        lower_is_better=True,
+                        profile.get("avg_power_w"), stock_limit_w, precision=2
                     ),
                     _format_signed_memory_clock(
                         profile.get("memory_offset_mhz"),
@@ -278,48 +278,31 @@ class ProfileList:
                         item.setTextAlignment(
                             self.QtCore.Qt.AlignRight | self.QtCore.Qt.AlignVCenter
                         )
-                    if column == self.VOLTAGE_COLUMN:
-                        _paint_profile_delta_item(
-                            item,
-                            self.QtGui,
-                            profile.get("candidate_voltage_mv"),
-                            _profile_base_metric(profile, "candidate_voltage_mv"),
-                            label="mV",
-                            lower_is_better=True,
-                        )
-                    if column == self.EFFECTIVE_MHZ_COLUMN:
-                        _paint_profile_delta_item(
-                            item,
-                            self.QtGui,
-                            profile.get("avg_core_clock_mhz"),
-                            _profile_base_metric(profile, "avg_core_clock_mhz"),
-                            label="Effective MHz",
-                        )
-                    if column == self.FPSW_COLUMN:
-                        _paint_profile_delta_item(
-                            item,
-                            self.QtGui,
-                            profile.get("efficiency_fps_per_w"),
-                            _profile_base_metric(profile, "efficiency_fps_per_w"),
-                            label="FPS/W",
-                        )
-                    if column == self.FPS_COLUMN:
-                        _paint_profile_delta_item(
-                            item,
-                            self.QtGui,
-                            profile.get("avg_fps"),
-                            _profile_base_metric(profile, "avg_fps"),
-                            label="FPS",
+                    metric = metric_columns.get(column)
+                    if metric is not None:
+                        item.setToolTip(
+                            _profile_metric_tooltip(
+                                profile.get(metric),
+                                _profile_base_metric(profile, metric),
+                                label=self.COLUMNS[column],
+                                precision=4 if column == self.FPSW_COLUMN else 2,
+                            )
                         )
                     if column == self.POWER_COLUMN:
-                        _paint_profile_delta_item(
-                            item,
-                            self.QtGui,
-                            profile.get("avg_power_w"),
-                            _profile_base_metric(profile, "avg_power_w"),
-                            label="Power W",
-                            lower_is_better=True,
-                        )
+                        delta = _metric_delta_percent(profile.get("avg_power_w"), stock_limit_w)
+                        if delta is not None and stock_limit_w is not None:
+                            item.setToolTip(
+                                f"{delta:+.2f}% relative to this GPU's factory/default "
+                                f"power limit ({stock_limit_w:.2f} W).\n"
+                                "This compares measured power to a power cap, "
+                                "not measured stock power savings."
+                            )
+                            if delta < 0:
+                                item.setForeground(self.QtGui.QColor(theme.GOOD))
+                        elif stock_limit_w is None:
+                            item.setToolTip(
+                                "Factory/default power limit unavailable for this profile's GPU."
+                            )
                     if is_preferred:
                         item.setBackground(self.QtGui.QColor(theme.PROFILE_SELECTED_BG))
                     self.table.setItem(row, column, item)
@@ -906,6 +889,28 @@ def _metric_delta_percent(
     return (
         (current_number - float(baseline_number)) / float(baseline_number)
     ) * 100.0
+
+
+def _profile_metric_tooltip(
+    current,
+    baseline,
+    *,
+    label: str,
+    precision: int = 2,
+) -> str:
+    delta = _metric_delta_percent(
+        current,
+        baseline,
+    )
+    if delta is None:
+        return ""
+    value_text = _format_number(current, precision=precision)
+    base_text = _format_number(baseline, precision=precision)
+    return (
+        f"{label}: {value_text}\n"
+        f"{delta:+.2f}% vs this scan's baseline: {base_text}.\n"
+        "Baselines differ between scans; these percentages do not compare profiles."
+    )
 
 
 def _format_profile_metric_with_delta(

@@ -734,6 +734,9 @@ class MainWindow(ProfileActionsMixin):
 
     def _load_profiles(self) -> None:
         self.profile_summaries = load_profile_summaries()
+        gpu_choices, _selected_gpu_index = gpu_choices_with_fallback(
+            selected_index=self.gpu_index
+        )
         autostart_info = systemd_autostart_profile_info()
         running_info = (
             running_auto_uv_profile_info()
@@ -742,6 +745,10 @@ class MainWindow(ProfileActionsMixin):
         )
         self.profile_list.set_profiles(
             self.profile_summaries,
+            default_power_limits_w={
+                choice.uuid: choice.power_limit_default_w for choice in gpu_choices
+                if choice.uuid
+            },
             preferred_candidate_id=self.last_auto_uv_candidate_id,
             select_preferred=bool(self.last_auto_uv_candidate_id),
             # The silent-fan tick is sticky: the user's persisted choice is
@@ -754,9 +761,6 @@ class MainWindow(ProfileActionsMixin):
                 or bool(running_info["silent_fan_curve"])
                 or bool(autostart_info["silent_fan_curve"])
             ),
-        )
-        gpu_choices, _selected_gpu_index = gpu_choices_with_fallback(
-            selected_index=self.gpu_index
         )
         self.profile_list.configure_gpu_targets(
             self.profile_summaries,

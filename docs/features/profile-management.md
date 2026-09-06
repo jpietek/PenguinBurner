@@ -14,6 +14,13 @@ FPS, Power W, and Memory offset. Sort by any column to compare runs. Verified
 profiles retain the GPU name, UUID, and PCI identity from verification, so a
 saved curve cannot silently move to another card if driver indices change.
 
+Power shows measured watts and the percentage difference from that GPU's
+factory/default power limit, with lower values in green. This is a comparison
+with the power cap, not measured stock power savings. If the matching GPU or its
+default limit is unavailable, only watts are shown. Other metrics show absolute
+values; their tooltips retain each scan's baseline comparison. Those baselines
+can differ with power and memory settings and do not compare profiles or tiers.
+
 ## Actions
 
 Top bar:
