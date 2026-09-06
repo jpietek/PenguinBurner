@@ -19,6 +19,8 @@ from auto_uv.scan_mode.auto_uv_mode import (
     AUTO_UV_MODE_PERFORMANCE,
 )
 from auto_uv.scan_mode.uv_limits import uv_limit_profile_target_for_gpu
+from auto_uv.persistence.unsafe_voltage_blacklist_file import load_unsafe_voltage_blacklist
+from auto_uv.persistence.unsafe_voltage_cache import unsafe_voltage_block_reason
 from auto_uv.scan_mode.efficiency_fps_per_w_policy import (
     best_efficiency_candidate_index,
 )
@@ -70,6 +72,7 @@ def select_performance_auto_oc_candidate(
         target_voltage_mv=target_voltage_mv,
         target_clock_mhz=target_clock_mhz,
         measured_baseline_clock_mhz=measured_baseline_clock_mhz,
+        probe_stable_history=stable_history,
     )
     if stable_history is not None:
         for attempt in getattr(result, "attempts", ()) or ():
@@ -168,11 +171,18 @@ def select_power_bound_clock_reclaim_candidate(
     if mode == AUTO_UV_MODE_EFFICIENCY:
         # Keep the highest measured FPS/W, including
         # the point from which the ladder started.
-        selected, selected_probe = start_candidate, stable_probe
-        candidates = [(start_candidate, stable_probe)] + [
+        candidates = [(selected, selected_probe), (start_candidate, stable_probe)] + [
             (attempt.candidate, attempt.outcome.raw_probe)
             for attempt in result.attempts
             if attempt.outcome.decision.passed
+        ]
+        unsafe = load_unsafe_voltage_blacklist()
+        candidates = [
+            (candidate, probe) for candidate, probe in candidates
+            if not unsafe_voltage_block_reason(
+                unsafe, candidate_voltage_mv=candidate.voltage_mv,
+                lock_clock_mhz=candidate.target_mhz, profile_tier=mode,
+            )
         ]
         selected_index = best_efficiency_candidate_index([probe for _, probe in candidates])
         if selected_index is not None:
@@ -183,7 +193,6 @@ def select_power_bound_clock_reclaim_candidate(
             f"Efficiency selected {selected.voltage_mv}mV@{selected.target_mhz}MHz "
             "by highest measured FPS/W",
         )
-    selected_changed = int(selected.target_mhz) != int(stable_lock_clock_mhz)
     metadata = {
         "clock_reclaim": True,
         "clock_reclaim_start_mhz": int(stable_lock_clock_mhz),
@@ -195,7 +204,7 @@ def select_power_bound_clock_reclaim_candidate(
         selected.flattened_plan,
         int(selected.voltage_mv),
         int(selected.target_mhz),
-        selected_probe if selected_changed else stable_probe,
+        selected_probe,
         metadata,
     )
 

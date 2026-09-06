@@ -145,9 +145,16 @@ It blocks the failed voltage and lower voltages at the recorded clock band and
 above, including a small clock guard band. If a climb reaches a cached unsafe
 point, Auto-UV backs off to a passing clock and can test that clock at the
 highest editable voltage bin within the configured target. It never exceeds that
-voltage target to force a higher clock. A new critical GPU or workload error aborts the scan instead of
-triggering retries or starting another tier. Earlier verified checkpoints remain
-available. Explicit lower-clock targets also retain
+voltage target to force a higher clock. Workload crashes, device loss, Xids and
+CUDA computation failures reject the candidate and trigger fallback to a passed
+point outside the updated blacklist. Final verification automatically tries the
+next safer tested curve, including lower clocks at the same voltage, without
+another choice dialog. Each failed voltage/clock pair is tried at most once.
+A failed flattened baseline can retreat by clock, with at most ten probes.
+Setup failures, missing measurements or an unavailable daemon stop further
+probing; already completed tier profiles remain saved and are returned as a
+partial success. A failed Performance tier therefore keeps successful Efficiency
+and Balanced profiles. User stop still stops the scan. Explicit lower-clock targets retain
 their crash markers across abrupt exits. Every tier's candidate phase uses the
 same marker path, including the first shallow voltage step. Recovery requires
 an in-progress candidate marker with a valid positive voltage and clock; voltage

@@ -16,7 +16,7 @@ class AutoUvError(RuntimeError):
 
 
 class AutoUvCriticalProbeError(AutoUvError):
-    """A probe failed critically; no later tier or retry may touch the GPU."""
+    """Setup or observation failed; stop probing and retain completed profiles."""
 
 
 class AutoUvPowerLimitApplyError(AutoUvError):

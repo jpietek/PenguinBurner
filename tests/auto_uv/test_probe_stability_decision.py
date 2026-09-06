@@ -144,19 +144,22 @@ def test_stability_fails_when_required_cuda_result_is_missing() -> None:
     assert decision.severity is FailureSeverity.CRITICAL
 
 
-def test_stability_treats_nvidia_xid_as_critical() -> None:
+def test_stability_treats_nvidia_xid_as_unsafe_even_without_metrics() -> None:
+    # Real failed Q2RTX probes can have both fatal output and an Xid, with no
+    # completed benchmark or useful telemetry after the device was lost.
     decision = evaluate_stable_run(
-        stable_probe_result(),
+        {"success": False, "reason": "fatal-q2rtx-output"},
         baseline_fps=100.0,
         baseline_power_w=180.0,
         power_limit_w=220,
         cuda_required=False,
+        fatal_output_found=True,
         xid_found=True,
     )
 
     assert not decision.passed
     assert decision.failure_kind is FailureKind.NVIDIA_XID
-    assert decision.severity is FailureSeverity.CRITICAL
+    assert decision.severity is FailureSeverity.UNSAFE
 
 
 # --- coverage: short-circuit guards in evaluate_stable_run ---
@@ -170,6 +173,8 @@ def test_stability_user_stop_is_recoverable() -> None:
         power_limit_w=220,
         cuda_required=False,
         stop_requested=True,
+        xid_found=True,
+        fatal_output_found=True,
     )
 
     assert not decision.passed
@@ -217,12 +222,12 @@ def test_stability_failed_q2rtx_result_is_classified() -> None:
 # --- coverage: classify_failed_result branches ---
 
 
-def test_classify_xid_prefix_is_critical_nvidia_xid() -> None:
+def test_classify_xid_prefix_is_unsafe_nvidia_xid() -> None:
     decision = classify_failed_result("nvidia-xid-detected", log_path=None)
 
     assert not decision.passed
     assert decision.failure_kind is FailureKind.NVIDIA_XID
-    assert decision.severity is FailureSeverity.CRITICAL
+    assert decision.severity is FailureSeverity.UNSAFE
 
 
 def test_classify_fatal_prefix_is_critical_q2rtx() -> None:
@@ -233,13 +238,70 @@ def test_classify_fatal_prefix_is_critical_q2rtx() -> None:
     assert decision.severity is FailureSeverity.CRITICAL
 
 
-def test_classify_cuda_prefix_is_critical_cuda_failed() -> None:
+def test_classify_cuda_kernel_failure_is_unsafe() -> None:
     decision = classify_failed_result("cuda kernel launch failed", log_path=None)
 
     assert not decision.passed
     assert decision.failure_kind is FailureKind.CUDA_FAILED
-    assert decision.severity is FailureSeverity.CRITICAL
+    assert decision.severity is FailureSeverity.UNSAFE
     assert decision.reason == "cuda kernel launch failed"
+
+
+@pytest.mark.parametrize(
+    "reason,fatal_matches,output",
+    [
+        ("fatal-q2rtx-output", ["device lost"], ["Vulkan device lost"]),
+        ("benchmark-fatal-event", ["VK_ERROR_DEVICE_LOST"], []),
+        ("benchmark-crashed-signal:11", [], []),
+        ("benchmark-nonzero-exit:139", ["Segmentation fault"], ["core dumped"]),
+        ("gpu-hang-watchdog", [], []),
+        ("cuda-bruteforce-failed exit=1", [], ["verify verification mismatch idx=123"]),
+        ("cuda-bruteforce-failed exit=1", [], ["cuCtxSynchronize failed: an illegal memory access was encountered"]),
+        ("cuda-bruteforce-failed exit=-11", [], []),
+        ("cuda-bruteforce-failed exit=-6", [], []),
+    ],
+)
+def test_workload_instability_is_unsafe_and_keeps_failure_log(reason, fatal_matches, output):
+    decision = evaluate_stable_run(
+        {
+            "success": False,
+            "reason": reason,
+            "fatal_output_matches": fatal_matches,
+            "output_tail": output,
+            "log_path": "/tmp/failed-probe.log",
+        },
+        baseline_fps=100.0,
+        baseline_power_w=180.0,
+        power_limit_w=220,
+        cuda_required=False,
+        fatal_output_found=bool(fatal_matches),
+    )
+
+    assert not decision.passed
+    assert decision.severity is FailureSeverity.UNSAFE
+    assert decision.log_path == Path("/tmp/failed-probe.log")
+
+
+@pytest.mark.parametrize(
+    "reason,output",
+    [
+        ("fatal-q2rtx-output", ["No game data files detected", "Aborted"]),
+        ("fatal-q2rtx-output", ["Error during initialization", "device lost"]),
+        ("fatal-q2rtx-output", ["assertion failed", "SIGABRT"]),
+        ("q2rtx-launcher-error", ["error while loading shared libraries"]),
+        ("benchmark-event-protocol-error", []),
+        ("benchmark-summary-missing", []),
+        ("cuda-bruteforce-failed exit=1", ["cuInit failed rc=100: no CUDA-capable device is detected"]),
+        ("cuda-bruteforce-failed exit=1", ["cuMemAlloc_v2(stress_x) failed: CUDA_ERROR_OUT_OF_MEMORY"]),
+        ("cuda-bruteforce-failed exit=1", []),
+        ("cuda-bruteforce-failed exit=-15", []),
+    ],
+)
+def test_setup_or_unexplained_workload_failure_stays_critical(reason, output):
+    decision = classify_failed_result(reason, log_path=None, output=output)
+
+    assert not decision.passed
+    assert decision.severity is FailureSeverity.CRITICAL
 
 
 def test_classify_unknown_reason_is_recoverable_q2rtx() -> None:
@@ -331,6 +393,21 @@ def test_cuda_companion_unsuccessful_uses_its_reason() -> None:
     assert decision.failure_kind is FailureKind.CUDA_FAILED
     assert decision.severity is FailureSeverity.CRITICAL
     assert decision.reason == "cuda OOM"
+
+
+def test_cuda_companion_verification_mismatch_is_unsafe() -> None:
+    decision = evaluate_cuda_companion(
+        {
+            "success": False,
+            "reason": "cuda-bruteforce-failed exit=1",
+            "output_tail": ["verify verification mismatch idx=123 expected=1 got=2"],
+        },
+        log_path=None,
+    )
+
+    assert not decision.passed
+    assert decision.failure_kind is FailureKind.CUDA_FAILED
+    assert decision.severity is FailureSeverity.UNSAFE
 
 
 # --- coverage: sample_is_busy power-floor path ---

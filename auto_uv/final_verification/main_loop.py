@@ -13,6 +13,7 @@ from auto_uv.domain.types import (
     AutoUvCriticalProbeError,
     AutoUvError,
     AutoUvProbeSummary,
+    FailureKind,
     FailureSeverity,
     StableRunDecision,
     VfCurveCandidate,
@@ -221,6 +222,8 @@ def run_final_verification_and_save(
         raw_reason = str(getattr(raw_result, "reason", "") or "")
         reason = str(decision.reason or raw_reason or "unknown")
         log_phase(log, "final-verify", f"rejected {reason}")
+        if decision.failure_kind is FailureKind.USER_STOP:
+            raise KeyboardInterrupt
         if decision.severity is FailureSeverity.CRITICAL:
             raise AutoUvCriticalProbeError(
                 f"Final verification stopped after critical probe failure: {reason}"

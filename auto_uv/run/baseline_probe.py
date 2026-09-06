@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, Callable, cast
 
 from stability.q2rtx.models import Q2RTXStabilityConfig
@@ -9,6 +10,7 @@ from auto_uv.domain.types import (
     AutoUvError,
     AutoUvProbeSummary,
     BaseLoadTarget,
+    FailureKind,
     FailureSeverity,
     VfCurveCandidate,
 )
@@ -28,6 +30,12 @@ from auto_uv.curve.vf_curve_flattening import (
     build_flattened_plan,
 )
 from auto_uv.persistence.verified_candidate_result_file import write_latest_verified_candidate
+from auto_uv.persistence.unsafe_voltage_blacklist_file import load_unsafe_voltage_blacklist
+from auto_uv.persistence.unsafe_voltage_cache import (
+    unsafe_entry_blocks_voltage_candidate,
+    unsafe_entry_clock_floor_mhz,
+)
+from auto_uv.shared.positive_int import positive_int
 from auto_uv.probes.config import reference_discovery_q2rtx_duration_s
 from auto_uv.probes.runner import AutoUvProbeRunner
 from auto_uv.probes.stability_decision import classify_failed_result
@@ -216,6 +224,65 @@ def build_loaded_baseline_candidate(
         ),
         target,
     )
+
+
+def probe_loaded_baseline_with_backoff(
+    base_curve: list[dict],
+    *,
+    candidate: VfCurveCandidate,
+    runner: AutoUvProbeRunner,
+    clock_ceiling,
+    tail_rise_bins: int,
+    probe_history: list[AutoUvProbeSummary],
+    log: Callable[[str], None],
+    profile_tier: str | None = None,
+) -> tuple[VfCurveCandidate, VoltageProbeOutcome]:
+    """Find a passing flattened baseline with at most ten lower-clock probes."""
+    clock_mhz = int(candidate.target_mhz)
+    last_reason = "no positive lower clock remains"
+    for _attempt in range(10):
+        for entry in load_unsafe_voltage_blacklist():
+            if not unsafe_entry_blocks_voltage_candidate(
+                entry, candidate_voltage_mv=candidate.voltage_mv,
+                lock_clock_mhz=clock_mhz, profile_tier=profile_tier,
+            ):
+                continue
+            unsafe_clock = positive_int(entry.get("lock_clock_mhz"))
+            if unsafe_clock is None:
+                raise AutoUvError("baseline flattened curve blocked by cached unsafe voltage")
+            floor = unsafe_entry_clock_floor_mhz(
+                entry, fallback_lock_clock_mhz=unsafe_clock
+            )
+            clock_mhz = min(clock_mhz, ((floor - 1) // 15) * 15)
+            last_reason = "cached unsafe clock band"
+        if clock_mhz <= 0:
+            break
+        if clock_mhz != candidate.target_mhz:
+            log_phase(
+                log, "baseline",
+                f"retreat {candidate.target_mhz}MHz -> {clock_mhz}MHz at "
+                f"{candidate.voltage_mv}mV after {last_reason}",
+            )
+            candidate = replace(
+                candidate,
+                target_mhz=clock_mhz,
+                flattened_plan=build_flattened_plan(
+                    base_curve, lock_clock_mhz=clock_mhz,
+                    candidate_voltage_mv=candidate.voltage_mv,
+                    tail_rise_bins=tail_rise_bins,
+                ),
+            )
+        retarget_clock_ceiling_for_candidate(clock_ceiling, candidate)
+        outcome = runner.probe_baseline_candidate(candidate)
+        if outcome.raw_probe is not None:
+            probe_history.append(outcome.raw_probe)
+        if outcome.decision.failure_kind is FailureKind.USER_STOP:
+            raise KeyboardInterrupt
+        if outcome.decision.passed:
+            return candidate, outcome
+        last_reason = outcome.decision.reason
+        clock_mhz -= 15
+    raise AutoUvError(f"baseline flattened curve failed after clock backoff: {last_reason}")
 
 
 def write_verified_candidate(

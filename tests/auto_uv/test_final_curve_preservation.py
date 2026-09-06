@@ -276,7 +276,7 @@ def test_final_soak_preserves_selected_curve_and_power_limit(
             final_loop,
             "final_probe_stability_decision",
             lambda *args, **kwargs: StableRunDecision(
-                False, FailureKind.NVIDIA_XID, FailureSeverity.CRITICAL, "GPU Xid"
+                False, FailureKind.METRICS_MISSING, FailureSeverity.CRITICAL, "missing benchmark metrics"
             ),
         )
     if status == "blocked":
@@ -337,7 +337,7 @@ def test_final_soak_preserves_selected_curve_and_power_limit(
         assert stages == ["final-verify"]
         assert not saved
         assert not final_verification_failure_can_offer_retry(
-            failure.value, runtime_options={"auto_uv_require_final_choice": True}
+            failure.value
         )
         return
     assert stages == ["final-verify"]

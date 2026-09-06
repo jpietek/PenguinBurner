@@ -534,10 +534,8 @@ def test_auto_oc_search_skips_more_mhz_until_failed_clock_is_stable(monkeypatch)
     "kind",
     [
         FailureKind.USER_STOP,
-        FailureKind.NVIDIA_XID,
-        FailureKind.GPU_HANG,
-        FailureKind.FATAL_OUTPUT,
-        FailureKind.CUDA_FAILED,
+        FailureKind.METRICS_MISSING,
+        FailureKind.METRICS_INVALID,
     ],
 )
 def test_auto_oc_search_aborts_without_retry_after_stop_or_critical_failure(
@@ -798,3 +796,93 @@ def test_restart_skips_crashed_endpoint_before_hardware_and_verifies_lower_clock
         result.selected_candidate.target_mhz,
     ) == (925, 3015)
     assert result.attempts[0].outcome.decision.failure_kind is FailureKind.CACHED_UNSAFE
+
+
+@pytest.mark.parametrize("tier", ["efficiency", "balanced", "performance"])
+def test_xid_at_voltage_cap_retreats_below_new_crash_band(monkeypatch, tier):
+    from auto_uv.probes.stability_decision import evaluate_stable_run
+
+    curve = base_curve(850, 955, 5, 2400, 15)
+    start = VfCurveCandidate("start", 850, 2730, curve)
+    unsafe, tried = [], []
+    monkeypatch.setattr(auto_oc_search, "load_unsafe_voltage_blacklist", lambda: unsafe)
+
+    class Runner:
+        def probe_candidate(self, candidate, **_kwargs):
+            tried.append((candidate.voltage_mv, candidate.target_mhz))
+            summary = _probe(candidate.voltage_mv, candidate.target_mhz)
+            summary.tested_plan = candidate.flattened_plan
+            if candidate.target_mhz == 2800:
+                unsafe.append({
+                    "candidate_voltage_mv": 850, "lock_clock_mhz": 2800,
+                    "blocked_lock_clock_mhz": [2800, 2790, 2767], "reason": "nvidia-xid",
+                })
+                return VoltageProbeOutcome(decision=evaluate_stable_run(
+                    {}, baseline_fps=None, baseline_power_w=None, power_limit_w=None,
+                    cuda_required=True, xid_found=True,
+                ), raw_probe=summary)
+            return _passed_outcome(summary)
+
+    result = run_auto_oc_candidate_search(
+        base_curve=curve, start_candidate=start, start_probe=_probe(850, 2730),
+        runner=Runner(), gpu_name="NVIDIA GeForce RTX 5080", clock_ceiling=None,
+        probe_history=[], log=lambda _: None, tail_rise_bins=2,
+        target_voltage_mv=850, target_clock_mhz=2800, target_profile_id=tier,
+    )
+    assert tried == [(850, clock) for clock in (2745, 2760, 2775, 2790, 2800)]
+    assert result.selected_candidate.target_mhz == 2760
+    assert result.selected_candidate.flattened_plan == result.selected_probe.tested_plan
+
+
+def test_new_crash_retries_only_a_lower_passed_clock_with_voltage_headroom(monkeypatch):
+    curve = base_curve(875, 955, 5, 2400, 15)
+    tried = []
+    start = VfCurveCandidate("start", 925, 2670, curve)
+    monkeypatch.setattr(auto_oc_search, "load_unsafe_voltage_blacklist", lambda: [])
+
+    class Runner:
+        def probe_candidate(self, candidate, **_kwargs):
+            tried.append((candidate.voltage_mv, candidate.target_mhz))
+            summary = _probe(candidate.voltage_mv, candidate.target_mhz)
+            if len(tried) == 1:
+                return VoltageProbeOutcome(decision=StableRunDecision(
+                    False, FailureKind.NVIDIA_XID, FailureSeverity.UNSAFE, "Xid 109",
+                ), raw_probe=summary)
+            return _passed_outcome(summary)
+
+    result = run_auto_oc_candidate_search(
+        base_curve=curve, start_candidate=start, start_probe=_probe(925, 2670),
+        runner=Runner(), gpu_name="NVIDIA GeForce RTX 5080", clock_ceiling=None,
+        probe_history=[], log=lambda _: None, max_interpolation_steps=2,
+        target_voltage_mv=950, target_clock_mhz=2745,
+    )
+    assert tried == [(935, 2715), (950, 2670)]
+    assert (result.selected_candidate.voltage_mv, result.selected_candidate.target_mhz) == (950, 2670)
+
+
+def test_crash_during_voltage_retry_stops_instead_of_retrying_failed_clock_again(monkeypatch):
+    curve = base_curve(875, 955, 5, 2400, 15)
+    tried = []
+    start = VfCurveCandidate("start", 925, 2670, curve)
+    monkeypatch.setattr(auto_oc_search, "load_unsafe_voltage_blacklist", lambda: [])
+
+    class Runner:
+        def probe_candidate(self, candidate, **_kwargs):
+            tried.append((candidate.voltage_mv, candidate.target_mhz))
+            summary = _probe(candidate.voltage_mv, candidate.target_mhz)
+            if len(tried) == 1:
+                return _failed_outcome(summary)
+            if len(tried) == 2:
+                return VoltageProbeOutcome(decision=StableRunDecision(
+                    False, FailureKind.NVIDIA_XID, FailureSeverity.UNSAFE, "Xid 109",
+                ), raw_probe=summary)
+            return _passed_outcome(summary)
+
+    result = run_auto_oc_candidate_search(
+        base_curve=curve, start_candidate=start, start_probe=_probe(925, 2670),
+        runner=Runner(), gpu_name="NVIDIA GeForce RTX 5080", clock_ceiling=None,
+        probe_history=[], log=lambda _: None, max_interpolation_steps=2,
+        target_voltage_mv=950, target_clock_mhz=2745,
+    )
+    assert tried == [(935, 2715), (940, 2715), (950, 2670)]
+    assert result.selected_candidate.target_mhz == 2670

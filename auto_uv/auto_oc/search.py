@@ -10,6 +10,7 @@ from auto_uv.shared.positive_int import positive_int
 from auto_uv.domain.console_log import log_phase
 from auto_uv.domain.types import (
     AutoUvCriticalProbeError,
+    AutoUvError,
     AutoUvProbeSummary,
     FailureKind,
     FailureSeverity,
@@ -131,6 +132,7 @@ def run_auto_oc_candidate_search(
         step_index=0,
     )
     attempts: list[AutoOcAttempt] = []
+    passed_candidates = [(start_candidate, start_probe)]
     failed_voltage_floor_mv: int | None = None
     consumed_voltage_floor_mv: int | None = None
     power_wall_reached = False
@@ -230,6 +232,7 @@ def run_auto_oc_candidate_search(
                 voltage_mv=int(candidate.voltage_mv),
                 step_index=int(step.index),
             )
+            passed_candidates.append((candidate, outcome.raw_probe))
             if candidate_key > selected_key:
                 selected_candidate = candidate
                 selected_probe = outcome.raw_probe
@@ -243,6 +246,27 @@ def run_auto_oc_candidate_search(
             return True
         log_phase(log, "auto-oc", f"rejected {outcome.decision.reason}")
         return False
+
+    def backoff_after_unsafe(step: AutoOcStep, outcome: VoltageProbeOutcome) -> None:
+        nonlocal selected_candidate, selected_probe
+        log_phase(
+            log,
+            "auto-oc",
+            f"skip {outcome.decision.reason}; back off to passed {selected_candidate.target_mhz}MHz",
+        )
+        if selected_candidate.voltage_mv < ladder[-1].voltage_mv:
+            fallback = AutoOcStep(
+                index=step.index,
+                voltage_mv=ladder[-1].voltage_mv,
+                target_mhz=selected_candidate.target_mhz,
+                ratio=step.ratio,
+            )
+            candidate, outcome = probe_step(fallback, action="backoff-voltage")
+            if (
+                record_outcome(candidate, fallback, outcome)
+                and not power_wall_reached
+            ):
+                selected_candidate, selected_probe = candidate, outcome.raw_probe
 
     stop_requested = False
     for step in ladder:
@@ -273,25 +297,8 @@ def run_auto_oc_candidate_search(
         candidate, outcome = probe_step(step, action="try")
         if outcome.decision.failure_kind is FailureKind.USER_STOP:
             break
-        if outcome.decision.failure_kind is FailureKind.CACHED_UNSAFE:
-            log_phase(
-                log,
-                "auto-oc",
-                f"skip {outcome.decision.reason}; back off to passed {selected_candidate.target_mhz}MHz",
-            )
-            if selected_candidate.voltage_mv < ladder[-1].voltage_mv:
-                fallback = AutoOcStep(
-                    index=step.index,
-                    voltage_mv=ladder[-1].voltage_mv,
-                    target_mhz=selected_candidate.target_mhz,
-                    ratio=step.ratio,
-                )
-                candidate, outcome = probe_step(fallback, action="backoff-voltage")
-                if (
-                    record_outcome(candidate, fallback, outcome)
-                    and not power_wall_reached
-                ):
-                    selected_candidate, selected_probe = candidate, outcome.raw_probe
+        if outcome.decision.severity is FailureSeverity.UNSAFE:
+            backoff_after_unsafe(step, outcome)
             break
         passed = record_outcome(candidate, step, outcome)
         if not passed:
@@ -332,6 +339,10 @@ def run_auto_oc_candidate_search(
             if retry_outcome.decision.failure_kind is FailureKind.USER_STOP:
                 stop_requested = True
                 break
+            if retry_outcome.decision.severity is FailureSeverity.UNSAFE:
+                backoff_after_unsafe(retry_step, retry_outcome)
+                stop_requested = True
+                break
             retry_passed = record_outcome(retry_candidate, retry_step, retry_outcome)
             if retry_passed:
                 consumed_voltage_floor_mv = max(
@@ -345,6 +356,50 @@ def run_auto_oc_candidate_search(
             )
         if stop_requested:
             break
+
+    # A later crash can blacklist neighbouring clocks that passed earlier.
+    # Carry an allowed, actually tested curve into final verification.
+    unsafe = load_unsafe_voltage_blacklist()
+    if unsafe_voltage_block_reason(
+        unsafe,
+        candidate_voltage_mv=selected_candidate.voltage_mv,
+        lock_clock_mhz=selected_candidate.target_mhz,
+        profile_tier=target_profile_id,
+    ):
+        passed_candidates.extend(
+            (
+                VfCurveCandidate(
+                    "passed-descent-fallback", probe.candidate_voltage_mv,
+                    probe.lock_clock_mhz, probe.tested_plan,
+                ), probe,
+            )
+            for probe in probe_stable_history or []
+            if probe.tested_plan is not None
+            and probe.lock_clock_mhz <= start_candidate.target_mhz
+        )
+        eligible = [
+            (candidate, probe)
+            for candidate, probe in passed_candidates
+            if not unsafe_voltage_block_reason(
+                unsafe,
+                candidate_voltage_mv=candidate.voltage_mv,
+                lock_clock_mhz=candidate.target_mhz,
+                profile_tier=target_profile_id,
+            )
+        ]
+        if not eligible:
+            raise AutoUvError("No passed Auto-OC candidate remains outside the unsafe band")
+        selected_candidate, selected_probe = max(
+            eligible,
+            key=lambda item: auto_oc_probe_key(
+                item[1], voltage_mv=item[0].voltage_mv, step_index=0
+            ),
+        )
+        log_phase(
+            log, "auto-oc",
+            f"back off to passed {selected_candidate.voltage_mv}mV@"
+            f"{selected_candidate.target_mhz}MHz outside the unsafe band",
+        )
 
     if selected_candidate is start_candidate:
         log_phase(log, "auto-oc", "no measured-clock improvement; keeping UV candidate")

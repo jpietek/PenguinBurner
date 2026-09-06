@@ -170,7 +170,7 @@ def test_custom_target_search_stops_immediately_on_user_stop(monkeypatch):
     assert len(tried) == 2
 
 
-def test_lower_target_aborts_on_critical_gpu_failure(monkeypatch):
+def test_lower_target_aborts_when_measurements_are_unavailable(monkeypatch):
     kwargs, tried = harness(monkeypatch)
     probe = kwargs["runner"].probe_candidate
 
@@ -178,13 +178,13 @@ def test_lower_target_aborts_on_critical_gpu_failure(monkeypatch):
         outcome = probe(candidate, **options)
         return VoltageProbeOutcome(
             decision=StableRunDecision(
-                False, FailureKind.NVIDIA_XID, FailureSeverity.CRITICAL, "GPU Xid"
+                False, FailureKind.METRICS_MISSING, FailureSeverity.CRITICAL, "metrics missing"
             ),
             raw_probe=outcome.raw_probe,
         )
 
     kwargs["runner"].probe_candidate = fail
-    with pytest.raises(AutoUvError, match="critical probe failure: GPU Xid"):
+    with pytest.raises(AutoUvError, match="critical probe failure: metrics missing"):
         target_search.run_custom_tier_target_search(**kwargs)
     assert len(tried) == 1
     assert kwargs["stable_history"] == [kwargs["start_probe"]]
@@ -315,12 +315,6 @@ def test_final_recovery_stays_within_custom_voltage_and_clock_limits(monkeypatch
     safe = replace(kwargs["start_probe"], candidate_voltage_mv=925, lock_clock_mhz=2985)
     too_high_voltage = replace(safe, candidate_voltage_mv=950)
     too_high_clock = replace(safe, lock_clock_mhz=3105)
-    offered = []
-    monkeypatch.setattr(
-        main,
-        "choose_next_final_verification_candidate_after_failure",
-        lambda **options: offered.append(options) or None,
-    )
     failed = main.FinalScanCandidate(
         plan=candidate.flattened_plan,
         voltage_mv=900,
@@ -334,31 +328,40 @@ def test_final_recovery_stays_within_custom_voltage_and_clock_limits(monkeypatch
             "custom_selection_voltage_limit_mv": 925,
         },
     )
-    assert (
-        main.choose_next_candidate_after_final_failure(
-            base_curve=kwargs["base_curve"],
-            settings=SimpleNamespace(
-                auto_uv_mode="performance",
-            ),
-            stable_plan=failed.plan,
-            stable_voltage_mv=failed.voltage_mv,
-            stable_lock_clock_mhz=failed.lock_clock_mhz,
-            stable_history=[safe, too_high_voltage, too_high_clock],
-            discovery_summary=kwargs["start_probe"],
-            baseline_candidate=candidate,
-            final_verification_duration_s=60,
-            short_probe_base_duration_s=10,
-            failed_error=AutoUvError("final long verification failed: low FPS"),
-            failed_selection=failed,
-            run_profile_tier="performance",
-            log=lambda _: None,
-            event_callback=None,
-            tail_rise_bins=2,
-        )
-        is None
+    selected = main.choose_next_candidate_after_final_failure(
+        failed_selection=failed,
+        stable_history=[safe, too_high_voltage, too_high_clock],
+        failed_candidates={(900, 2985)},
+        auto_uv_mode="performance", log=lambda _: None,
     )
-    assert offered[0]["stable_history"] == [safe]
-    assert [
-        (r["candidate_voltage_mv"], r["lock_clock_mhz"])
-        for r in offered[0]["candidate_records"]
-    ] == [(925, 2985)]
+    assert selected is not None
+    assert (selected.voltage_mv, selected.lock_clock_mhz) == (925, 2985)
+    assert selected.plan == safe.tested_plan
+
+
+def test_custom_clock_descent_continues_below_a_failed_intermediate_clock(monkeypatch):
+    kwargs, tried = harness(monkeypatch, fail_clock=2715)
+    result = target_search.run_custom_tier_target_search(**kwargs)
+    clocks = [candidate.target_mhz for candidate in tried]
+    assert 2715 in clocks
+    assert min(clocks) < 2715
+    assert result.selected_candidate.target_mhz == kwargs["overrides"].clock_mhz
+
+
+def test_custom_search_keeps_auto_oc_fallback_from_earlier_descent(monkeypatch):
+    kwargs, _ = harness(monkeypatch, start_clock=2730)
+    start = replace(kwargs["start_candidate"], voltage_mv=850)
+    fallback = replace(start, voltage_mv=875)
+    fallback_probe = summary(fallback)
+    kwargs.update(start_candidate=start, start_probe=summary(start), overrides=TierTargetOverrides(900, 2800))
+    kwargs["stable_history"] = [fallback_probe, kwargs["start_probe"]]
+    monkeypatch.setattr(target_search, "run_auto_oc_candidate_search", lambda **_: search.AutoOcSearchResult(
+        selected_candidate=fallback, selected_probe=fallback_probe,
+    ))
+    monkeypatch.setattr(target_search, "load_unsafe_voltage_blacklist", lambda: [{
+        "candidate_voltage_mv": 850, "lock_clock_mhz": 2745,
+        "blocked_lock_clock_mhz": [2730], "reason": "nvidia-xid",
+    }])
+    result = target_search.run_custom_tier_target_search(**kwargs)
+    assert result.selected_candidate is fallback
+    assert result.selected_probe is fallback_probe

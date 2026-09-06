@@ -12,6 +12,7 @@ from auto_uv.persistence.interrupted_probe_crash_cache import (
 )
 from auto_uv.persistence.unsafe_voltage_blacklist_file import load_unsafe_voltage_blacklist
 from auto_uv.persistence.unsafe_voltage_cache import unsafe_voltage_block_reason
+from auto_uv.domain.types import AutoUvCriticalProbeError, AutoUvPowerLimitApplyError
 from auto_uv.probes import voltage_probe
 from auto_uv.probes.voltage_probe import (
     probe_crash_marker_details,
@@ -150,3 +151,63 @@ def test_probe_wrapper_persists_only_supported_candidate_failures(
             recovered, candidate_voltage_mv=voltage, lock_clock_mhz=clock,
             profile_tier="efficiency",
         )
+
+
+@pytest.mark.parametrize("write_fails", [False, True])
+def test_probe_keeps_crash_evidence_if_readback_or_blacklist_write_fails(monkeypatch, write_fails):
+    power_reads = 0
+
+    def capabilities(*, refresh):
+        nonlocal power_reads
+        power_reads += 1
+        if power_reads == 2:
+            raise RuntimeError("GPU unavailable after device loss")
+        return SimpleNamespace(power=SimpleNamespace(current_w=300, enforced_w=300))
+
+    result = SimpleNamespace(
+        success=False, reason="nvidia-xid-detected", telemetry_samples=[],
+        workload_kind="q2rtx", workload_name="Q2RTX", shutdown_mode="fatal-q2rtx-output",
+        process_exit_code=1, log_path=None,
+    )
+    monkeypatch.setattr(voltage_probe, "run_q2rtx_stability_test", lambda _config: result)
+    monkeypatch.setattr(voltage_probe, "log_probe_start", lambda *_a, **_k: None)
+    monkeypatch.setattr(voltage_probe, "apply_plan", lambda *_a: None)
+    monkeypatch.setattr(voltage_probe, "print_q2rtx_stability_result", lambda *_a: None)
+    if write_fails:
+        def fail_write(**_kwargs):
+            raise OSError("test disk full")
+        monkeypatch.setattr(voltage_probe, "record_unsafe_voltage", fail_write)
+    reader = SimpleNamespace(
+        capabilities=capabilities, refresh_points=lambda: None,
+        editable_core_points=lambda: [{"index": 0, "current_offset_khz": 0}],
+    )
+    plan = [{"index": 0, "voltage_mv": 850, "base_mhz": 2800,
+             "target_mhz": 2800, "new_offset_mhz": 0}]
+
+    with pytest.raises(
+        AutoUvCriticalProbeError if write_fails else AutoUvPowerLimitApplyError,
+        match="crash marker retained" if write_fails else "GPU unavailable",
+    ):
+        voltage_probe.probe_voltage_candidate(
+            reader=reader, candidate_plan=plan, candidate_voltage_mv=850,
+            lock_clock_mhz=2800, q2rtx_config=Q2RTXStabilityConfig(),
+            stable_history=[], initial_probe_clock_mhz=2730,
+            initial_target_voltage_mv=985, power_limit_w=300,
+            nvml_session=SimpleNamespace(read_live_voltage_mv=lambda: 850),
+            phase_label="balanced-candidate", log=lambda _: None,
+        )
+
+    assert power_reads == (1 if write_fails else 2)
+    assert probe_in_progress_path().exists() is write_fails
+    entries = load_unsafe_voltage_blacklist()
+    if write_fails:
+        assert entries == []
+        # A later run can consume the real retained marker once persistence works.
+        assert consume_interrupted_probe_crash_marker() is not None
+        assert not probe_in_progress_path().exists()
+        entries = load_unsafe_voltage_blacklist()
+        assert entries[0]["reason"] == "previous-run-abruptly-ended"
+    else:
+        assert entries[0]["details"]["result_reason"] == "nvidia-xid-detected"
+    assert len(entries) == 1
+    assert unsafe_voltage_block_reason(entries, candidate_voltage_mv=850, lock_clock_mhz=2800)

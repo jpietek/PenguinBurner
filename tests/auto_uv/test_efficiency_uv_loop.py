@@ -95,20 +95,21 @@ def _fps_regression_outcome() -> VoltageProbeOutcome:
     )
 
 
-@pytest.mark.parametrize("critical", [False, True], ids=["fps-regression", "nvidia-xid"])
-def test_first_failure_stops_efficiency_without_repeating_the_probe(critical: bool) -> None:
+@pytest.mark.parametrize("kind", [FailureKind.FPS_REGRESSION, FailureKind.NVIDIA_XID, FailureKind.METRICS_MISSING])
+def test_first_failure_stops_efficiency_without_repeating_the_probe(kind) -> None:
     curve = base_curve()
     initial = _initial_candidate(curve, voltage_mv=1000, lock_mhz=2240)
     probed: list[VfCurveCandidate] = []
     written: list[VfCurveCandidate] = []
     unsafe: list[VfCurveCandidate] = []
     outcome = _fps_regression_outcome()
-    if critical:
+    critical = kind is FailureKind.METRICS_MISSING
+    if kind is not FailureKind.FPS_REGRESSION:
         outcome = replace(outcome, decision=StableRunDecision(
             passed=False,
-            failure_kind=FailureKind.NVIDIA_XID,
-            severity=FailureSeverity.CRITICAL,
-            reason="NVIDIA Xid 109",
+            failure_kind=kind,
+            severity=FailureSeverity.CRITICAL if critical else FailureSeverity.UNSAFE,
+            reason=kind.value,
         ))
 
     def probe(candidate: VfCurveCandidate) -> VoltageProbeOutcome:
@@ -116,7 +117,7 @@ def test_first_failure_stops_efficiency_without_repeating_the_probe(critical: bo
         return outcome
 
     result = None
-    with pytest.raises(AutoUvCriticalProbeError, match="Xid 109") if critical else nullcontext():
+    with pytest.raises(AutoUvCriticalProbeError, match="metrics-missing") if critical else nullcontext():
         result = run_preset_uv_loop(
             curve,
             settings=_settings(min_search_voltage_mv=825),

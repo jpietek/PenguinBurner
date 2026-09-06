@@ -492,6 +492,7 @@ def test_each_probe_stops_on_a_wrong_or_lost_power_cap(monkeypatch, drift_during
         return SimpleNamespace(reason="ok")
 
     monkeypatch.setattr(voltage_probe, "run_probe_with_hang_confirmation", run)
+    monkeypatch.setattr(voltage_probe, "handle_probe_result_logging_and_blacklist", lambda *_a, **_k: None)
     monkeypatch.setattr(voltage_probe, "log_probe_start", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(voltage_probe, "apply_plan", lambda *_: None)
     with pytest.raises(AutoUvPowerLimitApplyError, match="read-back mismatch"):

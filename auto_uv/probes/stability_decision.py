@@ -39,7 +39,75 @@ FATAL_REASON_PREFIXES = (
     "gpu-hang-watchdog",
     "nvidia-xid-detected",
     "q2rtx-selected-nvidia-gpu-idle",
+    "q2rtx-launcher-error",
 )
+
+# A failed workload can identify an unsafe setting without making the backend
+# unusable. The next candidate still has to pass the normal reset/readback path.
+SETUP_FAILURE_PATTERNS = (
+    "error during initialization",
+    "failed to create vulkan",
+    "failed to create swapchain",
+    "no game data files",
+    "couldn't read demo",
+    "couldn't load maps/",
+    "couldn't load pics/",
+    "couldn't open demos/",
+    "couldn't open pics/",
+    "out of memory",
+    "out_of_memory",
+    " oom",
+    "malloc() failed",
+    "couldn't allocate",
+    "cuinit failed",
+    "cumemalloc",
+    "assertion",
+    "error while loading shared libraries",
+)
+INSTABILITY_OUTPUT_PATTERNS = (
+    "device lost",
+    "vk_error_device_lost",
+    "segmentation fault",
+    "core dumped",
+    "aborted",
+    "bus error",
+    "illegal instruction",
+    "floating point exception",
+    "trace/breakpoint trap",
+    "sigsegv",
+    "sigabrt",
+    "sigbus",
+    "sigill",
+    "sigfpe",
+    "sigtrap",
+    "sigkill",
+    "illegal memory access",
+    "unspecified launch failure",
+    "launch timeout",
+    "kernel launch failed",
+    "culaunchkernel failed",
+    "verification mismatch",
+)
+
+
+def _failed_workload_severity(reason: str, output: Iterable[str] = ()) -> FailureSeverity:
+    if str(reason).startswith(("nvidia-xid", "gpu-hang")):
+        return FailureSeverity.UNSAFE
+    text = "\n".join([str(reason), *map(str, output)]).lower()
+    if any(pattern in text for pattern in SETUP_FAILURE_PATTERNS):
+        return FailureSeverity.CRITICAL
+    # CUDA reports subprocess return codes rather than Q2RTX's signal names.
+    # SIGTERM (-15), used for controlled cleanup, is deliberately excluded.
+    if reason.startswith("cuda-bruteforce-failed exit=") and reason.rpartition("=")[2] in {
+        "-4", "-5", "-6", "-7", "-8", "-9", "-11",
+    }:
+        return FailureSeverity.UNSAFE
+    if str(reason).startswith("benchmark-crashed-signal") or any(
+        pattern in text for pattern in INSTABILITY_OUTPUT_PATTERNS
+    ):
+        return FailureSeverity.UNSAFE
+    return FailureSeverity.CRITICAL
+
 
 def evaluate_stable_run(
     result: Any,
@@ -65,22 +133,26 @@ def evaluate_stable_run(
     if xid_found:
         return _fail(
             FailureKind.NVIDIA_XID,
-            FailureSeverity.CRITICAL,
+            FailureSeverity.UNSAFE,
             "NVIDIA Xid detected after probe launch",
         )
+    reason = str(read_field(result, "reason") or "")
+    log_path = _path_or_none(read_field(result, "log_path"))
+    output = [
+        *(read_field(result, "fatal_output_matches") or []),
+        *(read_field(result, "output_tail") or []),
+    ]
     if fatal_output_found:
         return _fail(
             FailureKind.FATAL_OUTPUT,
-            FailureSeverity.CRITICAL,
+            _failed_workload_severity(reason, output),
             "fatal output pattern detected",
+            log_path=log_path,
         )
-
-    reason = str(read_field(result, "reason") or "")
-    log_path = _path_or_none(read_field(result, "log_path"))
 
     # Q2RTX success alone is not enough, but Q2RTX failure always invalidates the probe.
     if not bool(read_field(result, "success")):
-        return classify_failed_result(reason, log_path=log_path)
+        return classify_failed_result(reason, log_path=log_path, output=output)
 
     benchmark_summary = read_field(result, "benchmark_summary")
     if benchmark_summary is not None:
@@ -145,6 +217,7 @@ def classify_failed_result(
     reason: str,
     *,
     log_path: Path | None,
+    output: Iterable[str] = (),
 ) -> StableRunDecision:
     text = str(reason or "")
     if text.startswith(FATAL_REASON_PREFIXES):
@@ -156,14 +229,14 @@ def classify_failed_result(
             kind = FailureKind.Q2RTX_FAILED
         return _fail(
             kind,
-            FailureSeverity.CRITICAL,
+            _failed_workload_severity(text, output),
             text or "critical Q2RTX failure",
             log_path=log_path,
         )
     if text.startswith("cuda"):
         return _fail(
             FailureKind.CUDA_FAILED,
-            FailureSeverity.CRITICAL,
+            _failed_workload_severity(text, output),
             text,
             log_path=log_path,
         )
@@ -318,10 +391,11 @@ def evaluate_cuda_companion(
             log_path=log_path,
         )
     if not bool(read_field(companion_result, "success")):
+        reason = str(read_field(companion_result, "reason") or "CUDA companion failed")
         return _fail(
             FailureKind.CUDA_FAILED,
-            FailureSeverity.CRITICAL,
-            str(read_field(companion_result, "reason") or "CUDA companion failed"),
+            _failed_workload_severity(reason, read_field(companion_result, "output_tail") or []),
+            reason,
             log_path=log_path,
         )
     return _pass("CUDA companion stable", log_path=log_path)

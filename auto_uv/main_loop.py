@@ -32,6 +32,7 @@ from auto_uv.run.baseline_probe import (
     build_loaded_baseline_candidate,
     baseline_load_reference_power_limit_w,
     require_probe_summary,
+    probe_loaded_baseline_with_backoff,
     retarget_clock_ceiling_for_candidate,
     run_discovery_probe,
     run_discovery_probe_with_runner,
@@ -55,7 +56,6 @@ from auto_uv.run.crash_recovery import (
 )
 from auto_uv.curve.base_vf_curve_validation import validate_base_vf_curve
 from ui.features.auto_uv.candidate_choice import (
-    candidate_records_from_history,
     choose_next_final_verification_candidate_after_failure,
     choose_final_verification_candidate,
     choose_recovery_final_verification_candidate,
@@ -119,6 +119,9 @@ from auto_uv.scan_mode.target_overrides import (
     tier_target_overrides,
 )
 from auto_uv.auto_oc.target_search import run_custom_tier_target_search
+from auto_uv.auto_oc.scoring import auto_oc_probe_key
+from auto_uv.persistence.unsafe_voltage_blacklist_file import load_unsafe_voltage_blacklist
+from auto_uv.persistence.unsafe_voltage_cache import unsafe_voltage_block_reason
 
 
 ADAPTIVE_BASELINE_REUSE_CLOCK_TOLERANCE_MHZ = 15
@@ -406,14 +409,11 @@ def run_voltage_frequency_undervolt_main_loop(
         )
         probe_history: list[AutoUvProbeSummary] = [discovery_summary]
         stable_history: list[AutoUvProbeSummary] = []
-        baseline_outcome = runner.probe_baseline_candidate(baseline_candidate)
-        if baseline_outcome.raw_probe is not None:
-            probe_history.append(baseline_outcome.raw_probe)
-        if not baseline_outcome.decision.passed:
-            raise AutoUvError(
-                "baseline flattened curve failed the Q2RTX probe: "
-                f"{baseline_outcome.decision.reason}"
-            )
+        baseline_candidate, baseline_outcome = probe_loaded_baseline_with_backoff(
+            base_curve, candidate=baseline_candidate, runner=runner,
+            clock_ceiling=gpu.clock_ceiling, tail_rise_bins=int(tail_rise_bins),
+            probe_history=probe_history, log=log, profile_tier=run_profile_tier,
+        )
         stable_probe = require_probe_summary(baseline_outcome)
         stable_history.append(stable_probe)
         write_verified_candidate(
@@ -554,21 +554,15 @@ def run_voltage_frequency_undervolt_main_loop(
                 if final_measured_baseline_clock_mhz is not None
                 else float(baseline_target.measured_clock_mhz)
             )
-            return run_final_verification_and_save(
+            return run_final_verification_with_fallbacks(
+                selection=selection,
                 probe_voltage_candidate=probe_voltage_candidate,
                 build_voltage_scan_result=build_voltage_scan_result,
                 log=log,
                 reader=gpu.reader,
-                stable_plan=selection.plan,
-                stable_voltage_mv=int(selection.voltage_mv),
-                stable_lock_clock_mhz=int(selection.lock_clock_mhz),
-                stable_probe=selection.probe,
                 stable_history=selected_stable_history,
                 probe_history=probe_history,
                 q2rtx_config=q2rtx_config,
-                final_verification_duration_s=int(
-                    selection.verification_duration_s
-                ),
                 start_voltage_mv=int(selected_baseline_candidate.voltage_mv),
                 measured_clock_mhz=float(selected_measured_baseline_clock_mhz),
                 nvml_session=gpu.live_voltage_reader,
@@ -577,14 +571,12 @@ def run_voltage_frequency_undervolt_main_loop(
                 translated_gpu_policy=gpu.translated_gpu_policy,
                 gpu_identity=getattr(gpu, "gpu_identity", {}),
                 runtime_default_plan=gpu.runtime_default_plan,
-                tail_rise_bins=int(selection.tail_rise_bins),
                 auto_uv_mode=str(final_auto_uv_mode or settings.auto_uv_mode),
                 generated_profile_tier=(
                     final_profile_tier
                     if final_profile_tier is not None
                     else run_profile_tier
                 ),
-                auto_oc_metadata=dict(selection.auto_oc_metadata or {}),
                 event_callback=event_callback,
             )
 
@@ -735,17 +727,11 @@ def run_voltage_frequency_undervolt_main_loop(
                             tier_baseline_target.measured_clock_mhz
                         ),
                     )
-                    tier_baseline_outcome = tier_runner.probe_baseline_candidate(
-                        tier_baseline_candidate
+                    tier_baseline_candidate, tier_baseline_outcome = probe_loaded_baseline_with_backoff(
+                        base_curve, candidate=tier_baseline_candidate, runner=tier_runner,
+                        clock_ceiling=gpu.clock_ceiling, tail_rise_bins=int(tier_tail_rise_bins),
+                        probe_history=probe_history, log=log, profile_tier=tier_mode,
                     )
-                    if tier_baseline_outcome.raw_probe is not None:
-                        probe_history.append(tier_baseline_outcome.raw_probe)
-                    if not tier_baseline_outcome.decision.passed:
-                        raise AutoUvError(
-                            f"adaptive {str(tier_mode)} flattened baseline "
-                            "failed the Q2RTX probe: "
-                            f"{tier_baseline_outcome.decision.reason}"
-                        )
                     tier_stable_probe = require_probe_summary(
                         tier_baseline_outcome
                     )
@@ -874,52 +860,13 @@ def run_voltage_frequency_undervolt_main_loop(
             ),
         )
 
-        final_tail_rise_bins = int(final_selection.tail_rise_bins)
-        failed_final_voltages: set[int] = set()
-        while True:
-            try:
-                return finish_with_final_verification(
-                    selection=final_selection,
-                )
-            except AutoUvError as exc:
-                if not final_verification_failure_can_offer_retry(
-                    exc,
-                    runtime_options=runtime_options,
-                ):
-                    raise
-                failed_voltage_mv = int(final_selection.voltage_mv)
-                if failed_voltage_mv in failed_final_voltages:
-                    raise
-                failed_final_voltages.add(failed_voltage_mv)
-                retry_selection = choose_next_candidate_after_final_failure(
-                    base_curve=base_curve,
-                    settings=settings,
-                    stable_plan=final_selection.plan,
-                    stable_voltage_mv=int(final_selection.voltage_mv),
-                    stable_lock_clock_mhz=int(final_selection.lock_clock_mhz),
-                    stable_history=stable_history,
-                    discovery_summary=discovery_summary,
-                    baseline_candidate=baseline_candidate,
-                    final_verification_duration_s=int(
-                        final_selection.verification_duration_s
-                    ),
-                    short_probe_base_duration_s=int(
-                        settings.short_probe_base_duration_s
-                    ),
-                    failed_error=exc,
-                    failed_selection=final_selection,
-                    run_profile_tier=run_profile_tier,
-                    log=log,
-                    event_callback=event_callback,
-                    tail_rise_bins=int(final_tail_rise_bins),
-                )
-                if retry_selection is None:
-                    raise
-                final_selection = retry_selection
-                final_tail_rise_bins = int(final_selection.tail_rise_bins)
+        return finish_with_final_verification(selection=final_selection)
     finally:
         cleanup_managed_q2rtx_processes(q2rtx_config, log=log)
-        gpu.close()
+        try:
+            gpu.close()
+        except (RuntimeError, OSError) as exc:
+            log_phase(log, "cleanup", f"could not release clock ceiling: {exc}; saved profiles retained")
 
 
 def run_preset_uv_loop(
@@ -994,7 +941,7 @@ def run_adaptive_tier_scans(
     overridden for all tiers. Raises on producing no profile at all.
     """
     primary_scan_result: AutoUvVoltageScanResult | None = None
-    last_tier_error: AutoUvError | None = None
+    last_tier_error: RuntimeError | OSError | None = None
     any_tier_discarded = False
     balanced_donation: BalancedDescentDonation | None = None
     accumulated_unsafe: list[dict] = list(unsafe_entries or [])
@@ -1002,28 +949,30 @@ def run_adaptive_tier_scans(
     def record_tier_failure(
         *,
         tier_mode: str,
-        tier_error: AutoUvError,
+        tier_error: RuntimeError | OSError,
         stage: str,
         event_details: dict,
-    ) -> None:
+    ) -> bool:
         nonlocal last_tier_error, balanced_donation
-        if isinstance(tier_error, AutoUvCriticalProbeError):
+        cannot_continue = not isinstance(tier_error, AutoUvError) or isinstance(
+            tier_error, (AutoUvCriticalProbeError, AutoUvPowerLimitApplyError)
+        )
+        if cannot_continue and primary_scan_result is None:
             raise tier_error
         last_tier_error = tier_error
         if tier_mode == AUTO_UV_MODE_BALANCED:
             balanced_donation = None
-        log_phase(
-            log,
-            "auto-uv",
-            f"adaptive {tier_mode} {stage} failed: {tier_error}; "
-            "continuing with the remaining tiers",
+        action = (
+            "returning completed profiles; further probes unavailable"
+            if cannot_continue else "continuing with the remaining tiers"
         )
+        log_phase(log, "auto-uv", f"adaptive {tier_mode} {stage} failed: {tier_error}; {action}")
         emit_auto_uv_event(
-            event_callback,
-            "tier_skipped",
-            **event_details,
-            reason=f"{stage}-failed",
+            event_callback, "tier_skipped",
+            **{**event_details, **({"next_tier": ""} if cannot_continue else {})},
+            reason=f"{stage}-failed", error=str(tier_error),
         )
+        return not cannot_continue
     # A tier without its own option restores the scan-wide request or zero,
     # including when scan open already applied Efficiency's override.
     # The driver limit is a per-GPU constant, fetched
@@ -1045,32 +994,40 @@ def run_adaptive_tier_scans(
             "next_tier": next_tier,
         }
         emit_auto_uv_event(event_callback, "tier_started", **tier_event_details)
-        apply_adaptive_tier_memory_offset(
-            gpu,
-            tier_mode=str(tier_mode),
-            runtime_options=runtime_options,
-            fallback_offset_mhz=scan_open_memory_offset_mhz,
-            limit_mhz=memory_offset_limit_mhz,
-            event_callback=event_callback,
-            log=log,
-        )
-        tier_memory_offset_mhz = (
-            memory_offset_from_gpu_policy(gpu.translated_gpu_policy) or 0
-        )
-        tier_tail_rise_bins = adaptive_tier_descent_tail_rise_bins(
-            str(tier_mode)
-        )
-        request_adaptive_tier_power_limit(
-            gpu,
-            tier_mode=str(tier_mode),
-            runtime_options=runtime_options,
-        )
-        apply_pending_power_limit(
-            gpu,
-            log=log,
-            purpose=f"adaptive {str(tier_mode)} scan",
-        )
-        tier_runner = configure_tier_probe_runner()
+        try:
+            apply_adaptive_tier_memory_offset(
+                gpu,
+                tier_mode=str(tier_mode),
+                runtime_options=runtime_options,
+                fallback_offset_mhz=scan_open_memory_offset_mhz,
+                limit_mhz=memory_offset_limit_mhz,
+                event_callback=event_callback,
+                log=log,
+            )
+            tier_memory_offset_mhz = (
+                memory_offset_from_gpu_policy(gpu.translated_gpu_policy) or 0
+            )
+            tier_tail_rise_bins = adaptive_tier_descent_tail_rise_bins(
+                str(tier_mode)
+            )
+            request_adaptive_tier_power_limit(
+                gpu,
+                tier_mode=str(tier_mode),
+                runtime_options=runtime_options,
+            )
+            apply_pending_power_limit(
+                gpu,
+                log=log,
+                purpose=f"adaptive {str(tier_mode)} scan",
+            )
+            tier_runner = configure_tier_probe_runner()
+        except (RuntimeError, OSError) as tier_error:
+            if not record_tier_failure(
+                tier_mode=str(tier_mode), tier_error=tier_error,
+                stage="setup", event_details=tier_event_details,
+            ):
+                break
+            continue
         tier_baseline_candidate = baseline_candidate
         tier_initial_stable_outcome = initial_stable_outcome
         tier_stable_probe = stable_probe
@@ -1084,15 +1041,14 @@ def run_adaptive_tier_scans(
                     tier_runner=tier_runner,
                     tier_tail_rise_bins=int(tier_tail_rise_bins),
                 )
-            except AutoUvPowerLimitApplyError:
-                raise
-            except AutoUvError as tier_error:
-                record_tier_failure(
+            except (RuntimeError, OSError) as tier_error:
+                if not record_tier_failure(
                     tier_mode=str(tier_mode),
                     tier_error=tier_error,
                     stage="baseline",
                     event_details=tier_event_details,
-                )
+                ):
+                    break
                 continue
             tier_runner = prepared.runner
             tier_baseline_candidate = prepared.candidate
@@ -1185,15 +1141,14 @@ def run_adaptive_tier_scans(
                             tier_baseline_candidate.target_mhz
                         ),
                     )
-        except AutoUvPowerLimitApplyError:
-            raise
-        except AutoUvError as tier_error:
-            record_tier_failure(
+        except (RuntimeError, OSError) as tier_error:
+            if not record_tier_failure(
                 tier_mode=str(tier_mode),
                 tier_error=tier_error,
                 stage="descent",
                 event_details=tier_event_details,
-            )
+            ):
+                break
             continue
         runs_auto_oc = tier_mode == AUTO_UV_MODE_PERFORMANCE
         # Per-tier final-verification soak: efficiency 1 min, balanced 3 min,
@@ -1277,15 +1232,14 @@ def run_adaptive_tier_scans(
                 reason="discarded",
             )
             continue
-        except AutoUvPowerLimitApplyError:
-            raise
-        except AutoUvError as tier_error:
-            record_tier_failure(
+        except (RuntimeError, OSError) as tier_error:
+            if not record_tier_failure(
                 tier_mode=str(tier_mode),
                 tier_error=tier_error,
                 stage="verification",
                 event_details=tier_event_details,
-            )
+            ):
+                break
             continue
         emit_auto_uv_event(
             event_callback,
@@ -1888,12 +1842,20 @@ def select_final_scan_candidate(
             measured_baseline_clock_mhz=float(measured_baseline_clock_mhz),
         )
 
+    unsafe = load_unsafe_voltage_blacklist()
+    choice_history = [
+        probe for probe in stable_history
+        if not unsafe_voltage_block_reason(
+            unsafe, candidate_voltage_mv=probe.candidate_voltage_mv,
+            lock_clock_mhz=probe.lock_clock_mhz, profile_tier=selection_mode,
+        )
+    ]
     if custom_target is None and selection_mode == AUTO_UV_MODE_EFFICIENCY:
         # Select across the passed descent and climb, carrying the measured
         # candidate's actual plan rather than rebuilding it from its label.
         measured_candidates = [
             probe
-            for probe in stable_history
+            for probe in choice_history
             if getattr(probe, "tested_plan", None) is not None
         ]
         selected_index = best_efficiency_candidate_index(measured_candidates)
@@ -1912,17 +1874,19 @@ def select_final_scan_candidate(
     if final_probe is not None and final_probe.tested_plan is not None:
         final_plan = [dict(point) for point in final_probe.tested_plan]
 
-    choice_history = stable_history
     if custom_target is not None:
         choice_history = [
             probe
-            for probe in stable_history
+            for probe in choice_history
             if probe.candidate_voltage_mv
             <= int(final_auto_oc_metadata["custom_selection_voltage_limit_mv"])
             and probe.lock_clock_mhz
             <= int(final_auto_oc_metadata["custom_target_clock_mhz"])
         ]
-    if bool(runtime_options.get("auto_uv_require_final_choice")):
+    if bool(runtime_options.get("auto_uv_require_final_choice")) and not unsafe_voltage_block_reason(
+        unsafe, candidate_voltage_mv=final_voltage_mv,
+        lock_clock_mhz=final_lock_clock_mhz, profile_tier=selection_mode,
+    ):
         (
             final_plan,
             final_voltage_mv,
@@ -1961,14 +1925,55 @@ def select_final_scan_candidate(
     )
 
 
-def final_verification_failure_can_offer_retry(
-    exc: AutoUvError,
+def run_final_verification_with_fallbacks(
     *,
-    runtime_options: dict,
-) -> bool:
-    if not bool(runtime_options.get("auto_uv_require_final_choice")):
-        return False
-    return str(exc).startswith("final long verification failed:")
+    selection: FinalScanCandidate,
+    stable_history: list[AutoUvProbeSummary],
+    auto_uv_mode: str,
+    log: Callable[[str], None],
+    event_callback: AutoUvEventCallback | None = None,
+    generated_profile_tier: str = "",
+    **verification,
+):
+    """Verify the next safer measured curve until one passes or choices run out."""
+    failed_candidates: set[tuple[int, int]] = set()
+    while True:
+        try:
+            return run_final_verification_and_save(
+                stable_plan=selection.plan,
+                stable_voltage_mv=selection.voltage_mv,
+                stable_lock_clock_mhz=selection.lock_clock_mhz,
+                stable_probe=selection.probe,
+                final_verification_duration_s=selection.verification_duration_s,
+                tail_rise_bins=selection.tail_rise_bins,
+                auto_oc_metadata=selection.auto_oc_metadata,
+                stable_history=stable_history, auto_uv_mode=auto_uv_mode,
+                log=log, event_callback=event_callback,
+                generated_profile_tier=generated_profile_tier, **verification,
+            )
+        except AutoUvError as exc:
+            if not final_verification_failure_can_offer_retry(exc):
+                raise
+            failed_candidates.add((selection.voltage_mv, selection.lock_clock_mhz))
+            retry = choose_next_candidate_after_final_failure(
+                failed_selection=selection, stable_history=stable_history,
+                failed_candidates=failed_candidates, auto_uv_mode=auto_uv_mode, log=log,
+            )
+            if retry is None:
+                raise
+            selection = retry
+            if generated_profile_tier:
+                emit_auto_uv_event(
+                    event_callback, "tier_confirmed", tier=generated_profile_tier,
+                    voltage_mv=selection.voltage_mv, target_mhz=selection.lock_clock_mhz,
+                    points=vf_curve_event_points(selection.plan),
+                )
+
+
+def final_verification_failure_can_offer_retry(exc: AutoUvError) -> bool:
+    return not isinstance(exc, AutoUvCriticalProbeError) and str(exc).startswith(
+        ("final long verification failed:", "Final verification blocked:")
+    )
 
 
 def apply_pending_power_limit(
@@ -1991,130 +1996,65 @@ def apply_pending_power_limit(
 
 def choose_next_candidate_after_final_failure(
     *,
-    base_curve: list[dict],
-    settings,
-    stable_plan: list[dict],
-    stable_voltage_mv: int,
-    stable_lock_clock_mhz: int,
+    failed_selection: FinalScanCandidate,
     stable_history: list[AutoUvProbeSummary],
-    discovery_summary: AutoUvProbeSummary,
-    baseline_candidate: VfCurveCandidate,
-    final_verification_duration_s: int,
-    short_probe_base_duration_s: int,
-    failed_error: AutoUvError,
-    failed_selection: FinalScanCandidate,
-    run_profile_tier: str,
+    failed_candidates: set[tuple[int, int]],
+    auto_uv_mode: str,
     log: Callable[[str], None],
-    event_callback: AutoUvEventCallback | None,
-    tail_rise_bins: int,
 ) -> FinalScanCandidate | None:
-    failed_voltage_mv = int(failed_selection.voltage_mv)
+    """Retreat through measured plans; never repeat a failed V/F point."""
+    unsafe = load_unsafe_voltage_blacklist()
     metadata = dict(failed_selection.auto_oc_metadata or {})
-    if metadata.get("custom_target"):
-        stable_history = [
-            probe
-            for probe in stable_history
-            if probe.lock_clock_mhz <= int(metadata["custom_target_clock_mhz"])
-            and probe.candidate_voltage_mv
-            <= int(metadata["custom_selection_voltage_limit_mv"])
-        ]
-    recovery_decision = final_verification_failure_recovery_decision(
-        failed_error,
-        failed_selection=failed_selection,
-        run_profile_tier=run_profile_tier,
-        tail_rise_bins=int(tail_rise_bins),
-    )
-    candidate_records = list(
-        candidate_records_from_history(
-            stable_history,
-            base_curve=base_curve,
-            stable_plan=stable_plan,
-            stable_voltage_mv=int(stable_voltage_mv),
-            stable_lock_clock_mhz=int(stable_lock_clock_mhz),
-            tail_rise_bins=int(tail_rise_bins),
-        ).values()
-    )
-    log_phase(
-        log,
-        "final-verify",
-        "failed; offering saved candidates above "
-        f"{failed_voltage_mv}mV without restarting scan",
-    )
-    selection = choose_next_final_verification_candidate_after_failure(
-        log=log,
-        event_callback=event_callback,
-        auto_uv_mode=settings.auto_uv_mode,
-        base_probe=discovery_summary,
-        candidate_records=candidate_records,
-        stable_history=stable_history,
-        failed_voltage_mv=int(failed_voltage_mv),
-        final_verification_duration_s=int(final_verification_duration_s),
-        initial_target_voltage_mv=int(baseline_candidate.voltage_mv),
-        short_probe_base_duration_s=int(short_probe_base_duration_s),
-        recovery_decision=recovery_decision,
-    )
-    if selection is None:
-        log_phase(
-            log,
-            "final-verify",
-            "no safer saved candidate remained after final verification failure",
+    candidates = [
+        probe for probe in stable_history
+        if probe.tested_plan is not None
+        and (probe.candidate_voltage_mv, probe.lock_clock_mhz) not in failed_candidates
+        and (
+            probe.candidate_voltage_mv > failed_selection.voltage_mv
+            or probe.lock_clock_mhz < failed_selection.lock_clock_mhz
         )
+        and probe.lock_clock_mhz <= failed_selection.lock_clock_mhz
+        and not unsafe_voltage_block_reason(
+            unsafe,
+            candidate_voltage_mv=probe.candidate_voltage_mv,
+            lock_clock_mhz=probe.lock_clock_mhz,
+            profile_tier=auto_uv_mode,
+        )
+        and (
+            not metadata.get("custom_target")
+            or (
+                probe.candidate_voltage_mv <= int(metadata["custom_selection_voltage_limit_mv"])
+                and probe.lock_clock_mhz <= int(metadata["custom_target_clock_mhz"])
+            )
+        )
+    ]
+    if not candidates:
+        log_phase(log, "final-verify", "no safer passed candidate remains")
         return None
-
-    (
-        selected_plan,
-        selected_voltage_mv,
-        selected_lock_clock_mhz,
-        selected_probe,
-        selected_final_duration_s,
-        selected_tail_rise_bins,
-        selected_record,
-    ) = selection
+    index = (
+        best_efficiency_candidate_index(candidates)
+        if auto_uv_mode == AUTO_UV_MODE_EFFICIENCY else None
+    )
+    probe = candidates[index] if index is not None else max(
+        candidates,
+        key=lambda item: auto_oc_probe_key(item, voltage_mv=item.candidate_voltage_mv, step_index=0),
+    )
+    if "auto_oc_baseline_clock_mhz" in metadata:
+        metadata["auto_oc_applied_mhz"] = round(probe.lock_clock_mhz - metadata["auto_oc_baseline_clock_mhz"])
+    if "clock_reclaim_selected_mhz" in metadata:
+        metadata["clock_reclaim_selected_mhz"] = probe.lock_clock_mhz
     log_phase(
-        log,
-        "final-verify",
-        "retrying saved candidate "
-        f"{int(selected_voltage_mv)}mV@{int(selected_lock_clock_mhz)}MHz",
+        log, "final-verify",
+        f"retrying passed {probe.candidate_voltage_mv}mV@{probe.lock_clock_mhz}MHz after rejection",
     )
-    return FinalScanCandidate(
-        plan=selected_plan,
-        voltage_mv=int(selected_voltage_mv),
-        lock_clock_mhz=int(selected_lock_clock_mhz),
-        probe=selected_probe,
-        verification_duration_s=int(selected_final_duration_s),
-        auto_oc_metadata={
-            **metadata,
-            **{
-                key: value
-                for key, value in dict(selected_record).items()
-                if str(key).startswith("auto_oc")
-            },
-        },
-        tail_rise_bins=int(selected_tail_rise_bins or tail_rise_bins),
+    return replace(
+        failed_selection,
+        plan=[dict(point) for point in probe.tested_plan or []],
+        voltage_mv=probe.candidate_voltage_mv,
+        lock_clock_mhz=probe.lock_clock_mhz,
+        probe=probe,
+        auto_oc_metadata=metadata,
     )
-
-
-def final_verification_failure_recovery_decision(
-    exc: AutoUvError,
-    *,
-    failed_selection: FinalScanCandidate,
-    run_profile_tier: str,
-    tail_rise_bins: int,
-) -> dict:
-    decision = str(exc)
-    prefix = "final long verification failed:"
-    if decision.startswith(prefix):
-        decision = decision[len(prefix) :].strip()
-    return {
-        "candidate_voltage_mv": int(failed_selection.voltage_mv),
-        "lock_clock_mhz": int(failed_selection.lock_clock_mhz),
-        "reason": "final-verification-failed",
-        "phase": "final-verify",
-        "decision": decision or str(exc),
-        "result_reason": decision or str(exc),
-        "generated_profile_tier": str(run_profile_tier or ""),
-        "tail_rise_bins": int(tail_rise_bins),
-    }
 
 
 def run_recovered_previous_crash_selection(
@@ -2269,19 +2209,15 @@ def run_recovered_previous_crash_selection(
     )
 
     apply_pending_power_limit(gpu, log=log)
-    return run_final_verification_and_save(
+    return run_final_verification_with_fallbacks(
+        selection=final_selection,
         probe_voltage_candidate=probe_voltage_candidate,
         build_voltage_scan_result=build_voltage_scan_result,
         log=log,
         reader=gpu.reader,
-        stable_plan=final_selection.plan,
-        stable_voltage_mv=int(final_selection.voltage_mv),
-        stable_lock_clock_mhz=int(final_selection.lock_clock_mhz),
-        stable_probe=final_selection.probe,
         stable_history=stable_history,
         probe_history=probe_history,
         q2rtx_config=q2rtx_config,
-        final_verification_duration_s=int(final_selection.verification_duration_s),
         start_voltage_mv=int(baseline_candidate.voltage_mv),
         measured_clock_mhz=float(baseline_target.measured_clock_mhz),
         nvml_session=gpu.live_voltage_reader,
@@ -2290,14 +2226,12 @@ def run_recovered_previous_crash_selection(
         translated_gpu_policy=gpu.translated_gpu_policy,
         gpu_identity=getattr(gpu, "gpu_identity", {}),
         runtime_default_plan=gpu.runtime_default_plan,
-        tail_rise_bins=int(final_tail_rise_bins),
         auto_uv_mode=str(settings.auto_uv_mode),
         generated_profile_tier=auto_uv_run_profile_tier(
             runtime_options,
             settings,
             tail_rise_bins=int(final_tail_rise_bins),
         ),
-        auto_oc_metadata=dict(final_selection.auto_oc_metadata or {}),
         event_callback=event_callback,
     )
 

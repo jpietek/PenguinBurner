@@ -31,7 +31,6 @@ from auto_uv.run.voltage_sweep_state import (
     VoltageProbeOutcome,
     VoltageSweepState,
 )
-from ui.features.auto_uv import candidate_choice as candidate_choice_module
 from auto_uv_test_data import base_curve
 from auto_uv.curve.vf_curve_flattening import build_flattened_plan
 
@@ -190,7 +189,8 @@ def test_discovery_probe_logs_selected_gpu_light_load_diagnostic(monkeypatch) ->
 
 
 @pytest.mark.parametrize("reason,critical", [
-    ("nvidia-xid-detected: 109", True),
+    ("nvidia-xid-detected: 109", False),
+    ("benchmark-summary-missing", True),
     ("workload-setup-failed", False),
 ])
 def test_discovery_wrapper_aborts_critical_failure_but_returns_recoverable_failure(
@@ -414,14 +414,12 @@ def test_auto_uv_final_choice_runs_before_final_verification(monkeypatch) -> Non
     assert captured["final_tail_rise_bins"] == 0
 
 
-def test_final_verification_failure_offers_safer_sorted_candidates(
-    monkeypatch,
-    tmp_path,
+@pytest.mark.parametrize("require_choice", [False, True])
+def test_final_verification_automatically_retries_safer_tested_curve(
+    monkeypatch, require_choice,
 ) -> None:
     curve = base_curve(875, 1025, 5, 2600, 10)
     captured: dict[str, object] = {"final_calls": []}
-    request_path = tmp_path / "final-choice-request.json"
-    response_path = tmp_path / "final-choice-response.json"
 
     class FakeGpu:
         reader = object()
@@ -435,7 +433,7 @@ def test_final_verification_failure_offers_safer_sorted_candidates(
             return None
 
         def close(self) -> None:
-            return None
+            raise RuntimeError("daemon unavailable during cleanup")
 
     class FakeRunner:
         def __init__(self, **_kwargs):
@@ -443,6 +441,7 @@ def test_final_verification_failure_offers_safer_sorted_candidates(
 
         def probe_baseline_candidate(self, candidate):
             summary = _summary(candidate.voltage_mv, candidate.target_mhz)
+            summary.tested_plan = candidate.flattened_plan
             summary.avg_fps = 65.0
             summary.efficiency_fps_per_w = 65.0 / 300.0
             return VoltageProbeOutcome(
@@ -459,6 +458,7 @@ def test_final_verification_failure_offers_safer_sorted_candidates(
 
     def probe(voltage_mv: int, clock_mhz: int, fps: float):
         summary = _summary(voltage_mv, clock_mhz)
+        summary.tested_plan = build_flattened_plan(curve, candidate_voltage_mv=voltage_mv, lock_clock_mhz=clock_mhz)
         summary.avg_fps = float(fps)
         summary.efficiency_fps_per_w = float(fps) / 300.0
         return summary
@@ -532,32 +532,6 @@ def test_final_verification_failure_offers_safer_sorted_candidates(
             raise AutoUvError("final long verification failed: fatal-q2rtx-output")
         return "final-result"
 
-    def handle_event(event: str, payload: dict) -> None:
-        if event != "final_choice_request":
-            return
-        captured["retry_request"] = dict(payload)
-        response_path.write_text(
-            json.dumps(
-                {
-                    "candidate_id": payload["default_candidate_id"],
-                    "final_verification_duration_s": payload[
-                        "final_verification_duration_s"
-                    ],
-                }
-            ),
-            encoding="utf-8",
-        )
-
-    monkeypatch.setattr(
-        candidate_choice_module,
-        "final_choice_request_path",
-        lambda: request_path,
-    )
-    monkeypatch.setattr(
-        candidate_choice_module,
-        "final_choice_response_path",
-        lambda: response_path,
-    )
     monkeypatch.setattr(
         undervolt_main_loop,
         "read_scan_runtime_settings",
@@ -618,31 +592,17 @@ def test_final_verification_failure_offers_safer_sorted_candidates(
 
     result = undervolt_main_loop.run_voltage_frequency_undervolt_main_loop(
         gpu_index=0,
-        runtime_options={"auto_uv_require_final_choice": True},
+        runtime_options={"auto_uv_require_final_choice": require_choice},
         q2rtx_config=object(),
-        log=lambda _message: None,
-        event_callback=handle_event,
+        log=lambda message: captured.setdefault("logs", []).append(message),
+        event_callback=lambda event, payload: captured.setdefault("events", []).append(event),
     )
 
     assert result == "final-result"
-    assert captured["final_calls"] == [(875, 2895), (895, 2925)]
-    retry_request = captured["retry_request"]
-    assert retry_request["request_reason"] == "final-verification-failed"
-    assert retry_request["default_sort_metric"] == "fps"
-    assert retry_request["default_candidate_id"] == "895mv-2925mhz"
-    assert [
-        candidate["candidate_id"] for candidate in retry_request["candidates"]
-    ] == [
-        "895mv-2925mhz",
-        "890mv-2910mhz",
-        "900mv-2940mhz",
-        "885mv-2895mhz",
-        "1000mv-2753mhz",
-    ]
-    assert all(
-        int(candidate["candidate_voltage_mv"]) > 875
-        for candidate in retry_request["candidates"]
-    )
+    assert captured["final_calls"] == [(875, 2895), (885, 2895)]
+    assert "final_choice_request" not in captured.get("events", [])
+
+    assert any("could not release clock ceiling" in line for line in captured["logs"])
 
 
 def test_performance_auto_oc_runs_before_final_choice(monkeypatch) -> None:
@@ -2981,7 +2941,7 @@ def test_adaptive_critical_failure_aborts_before_starting_another_tier(monkeypat
     main_loop, fake_descent, kwargs = _adaptive_scan_kwargs(
         events=events, descent_calls=descent_calls
     )
-    failure = AutoUvCriticalProbeError("NVIDIA Xid 109")
+    failure = AutoUvCriticalProbeError("benchmark metrics unavailable")
 
     def fail(*_args, **_kwargs):
         raise failure
@@ -3007,7 +2967,7 @@ def test_adaptive_critical_failure_aborts_before_starting_another_tier(monkeypat
     elif stage == "final":
         kwargs["finish_with_final_verification"] = fail
 
-    with pytest.raises(AutoUvCriticalProbeError, match="Xid 109") as raised:
+    with pytest.raises(AutoUvCriticalProbeError, match="metrics unavailable") as raised:
         main_loop.run_adaptive_tier_scans(**kwargs)
 
     assert raised.value is failure
@@ -3358,7 +3318,7 @@ def test_adaptive_baseline_failure_skips_only_that_tier(monkeypatch) -> None:
     ]
 
 
-def test_adaptive_power_limit_failure_aborts_before_tier_baseline(monkeypatch) -> None:
+def test_adaptive_power_limit_failure_returns_completed_tier_before_next_baseline(monkeypatch) -> None:
     events: list = []
     descent_calls: list[str] = []
     main_loop, fake_descent, kwargs = _adaptive_scan_kwargs(
@@ -3445,10 +3405,12 @@ def test_adaptive_power_limit_failure_aborts_before_tier_baseline(monkeypatch) -
         ),
     )
 
-    with pytest.raises(AutoUvPowerLimitApplyError, match="tier cap write failed"):
-        main_loop.run_adaptive_tier_scans(**kwargs)
+    result = main_loop.run_adaptive_tier_scans(**kwargs)
 
+    assert result.final_voltage_mv == 900
     assert baselines == ["efficiency"]
+    assert [p["tier"] for e, p in events if e == "tier_completed"] == ["efficiency"]
+    assert [p["tier"] for e, p in events if e == "tier_skipped"] == ["balanced"]
 
 
 def test_clamp_power_limit_keeps_request_inside_card_range() -> None:
@@ -3964,49 +3926,109 @@ def test_adaptive_tiers_keep_power_requests(
     assert tier_power_requests == [250, 300, 360]
 
 
-def test_power_capped_fps_failure_keeps_saved_candidate_ladder(monkeypatch) -> None:
-    messages: list[str] = []
-    chooser_calls: list[dict] = []
-    monkeypatch.setattr(
-        undervolt_main_loop,
-        "choose_next_final_verification_candidate_after_failure",
-        lambda **kwargs: chooser_calls.append(kwargs) or None,
+@pytest.mark.parametrize("mode", ["efficiency", "balanced", "performance"])
+def test_final_retry_uses_allowed_passed_curves_and_exhausts_once(monkeypatch, mode):
+    curve = base_curve(850, 930, 5, 2500, 15)
+    history = []
+    for clock in (2730, 2745, 2760, 2775, 2790, 2800):
+        probe = _summary(850, clock)
+        probe.tested_plan = build_flattened_plan(curve, candidate_voltage_mv=850, lock_clock_mhz=clock)
+        history.append(probe)
+    monkeypatch.setattr(undervolt_main_loop, "load_unsafe_voltage_blacklist", lambda: [{
+        "candidate_voltage_mv": 850, "lock_clock_mhz": 2800,
+        "blocked_lock_clock_mhz": [2800, 2790, 2767], "reason": "nvidia-xid",
+    }])
+    selection = undervolt_main_loop.FinalScanCandidate(
+        plan=history[-1].tested_plan, voltage_mv=850, lock_clock_mhz=2800,
+        probe=history[-1], verification_duration_s=60, auto_oc_metadata={}, tail_rise_bins=2,
     )
-    failed_selection = undervolt_main_loop.FinalScanCandidate(
-        plan=[],
-        voltage_mv=1000,
-        lock_clock_mhz=2595,
-        probe=None,
-        verification_duration_s=60,
-        auto_oc_metadata={},
-        tail_rise_bins=2,
+    failed = {(850, 2800)}
+    retried = []
+    while True:
+        selection = undervolt_main_loop.choose_next_candidate_after_final_failure(
+            failed_selection=selection, stable_history=history, failed_candidates=failed,
+            auto_uv_mode=mode, log=lambda _: None,
+        )
+        if selection is None:
+            break
+        identity = (selection.voltage_mv, selection.lock_clock_mhz)
+        assert identity not in failed
+        assert selection.plan == selection.probe.tested_plan
+        retried.append(identity)
+        failed.add(identity)
+    assert retried
+    assert all(clock < 2767 for _, clock in retried)
+    assert len(retried) <= 3
+    if mode != "efficiency":
+        assert retried == [(850, 2760), (850, 2745), (850, 2730)]
+
+
+@pytest.mark.parametrize("error_type", [AutoUvError, AutoUvCriticalProbeError, AutoUvPowerLimitApplyError, RuntimeError, OSError])
+def test_performance_failure_returns_and_keeps_both_completed_profiles(monkeypatch, tmp_path, error_type):
+    from auto_uv.final_verification import result_files
+
+    events, descents, saved = [], [], []
+    main, descent, kwargs = _adaptive_scan_kwargs(events=events, descent_calls=descents)
+    monkeypatch.setattr(main, "run_adaptive_tier_descent", descent)
+    kwargs["gpu"].clamp_power_limit_w = int
+    monkeypatch.setattr(result_files, "auto_uv_user_config_dir", lambda: tmp_path)
+    monkeypatch.setattr(main, "select_final_scan_candidate", lambda **options: SimpleNamespace(
+        plan=options["stable_plan"], voltage_mv=options["stable_voltage_mv"],
+        lock_clock_mhz=options["stable_lock_clock_mhz"],
+    ))
+
+    def finish(**options):
+        tier = options["final_profile_tier"]
+        if tier == "performance":
+            raise error_type("performance verification unavailable")
+        selection = options["selection"]
+        saved.append(result_files.archive_final_verified_profile({
+            "candidate_voltage_mv": selection.voltage_mv,
+            "lock_clock_mhz": selection.lock_clock_mhz,
+            "generated_profile_tier": tier, "final_verified": True,
+        }))
+        return SimpleNamespace(final_voltage_mv=selection.voltage_mv, lock_clock_mhz=selection.lock_clock_mhz)
+
+    kwargs["finish_with_final_verification"] = finish
+    result = main.run_adaptive_tier_scans(**kwargs)
+    assert result.final_voltage_mv == 900
+    assert [p["tier"] for e, p in events if e == "tier_completed"] == ["efficiency", "balanced"]
+    assert [p["tier"] for e, p in events if e == "tier_skipped"] == ["performance"]
+    assert [json.loads(path.read_text())["generated_profile_tier"] for path in saved] == ["efficiency", "balanced"]
+    assert len(list((tmp_path / "auto-uv-profiles").glob("*.json"))) == 2
+
+
+@pytest.mark.parametrize("exhaust", [False, True])
+def test_final_verification_retries_multiple_clocks_at_one_voltage_without_a_dialog(monkeypatch, exhaust):
+    from dataclasses import replace
+
+    calls, events = [], []
+    history = []
+    curve = base_curve(850, 930, 5, 2500, 15)
+    for clock in (2760, 2775, 2790):
+        history.append(replace(_summary(850, clock), tested_plan=build_flattened_plan(
+            curve, candidate_voltage_mv=850, lock_clock_mhz=clock,
+        )))
+    selection = undervolt_main_loop.FinalScanCandidate(
+        plan=history[-1].tested_plan, voltage_mv=850, lock_clock_mhz=2790,
+        probe=history[-1], verification_duration_s=60, auto_oc_metadata={}, tail_rise_bins=2,
     )
 
-    failed_error = AutoUvError(
-        "final long verification failed: benchmark average FPS below floor"
-    )
-    failed_error.power_capped = True
-    selection = undervolt_main_loop.choose_next_candidate_after_final_failure(
-        base_curve=[],
-        settings=SimpleNamespace(
-            auto_uv_mode="balanced",
-        ),
-        stable_plan=[],
-        stable_voltage_mv=1000,
-        stable_lock_clock_mhz=2595,
-        stable_history=[],
-        discovery_summary=None,
-        baseline_candidate=VfCurveCandidate("baseline", 1000, 2595, []),
-        final_verification_duration_s=60,
-        short_probe_base_duration_s=10,
-        failed_error=failed_error,
-        failed_selection=failed_selection,
-        run_profile_tier="balanced",
-        log=messages.append,
-        event_callback=None,
-        tail_rise_bins=2,
-    )
+    def verify(**options):
+        calls.append((options["stable_voltage_mv"], options["stable_lock_clock_mhz"]))
+        assert options["stable_plan"] == options["stable_probe"].tested_plan
+        if exhaust or options["stable_lock_clock_mhz"] > 2760:
+            raise AutoUvError("final long verification failed: benchmark FPS below floor")
+        return "verified"
 
-    assert selection is None
-    assert len(chooser_calls) == 1
-    assert any("offering saved candidates" in message for message in messages)
+    monkeypatch.setattr(undervolt_main_loop, "run_final_verification_and_save", verify)
+    monkeypatch.setattr(undervolt_main_loop, "load_unsafe_voltage_blacklist", lambda: [])
+    with pytest.raises(AutoUvError, match="final long verification failed") if exhaust else nullcontext():
+        assert undervolt_main_loop.run_final_verification_with_fallbacks(
+            selection=selection, stable_history=history, auto_uv_mode="balanced",
+            generated_profile_tier="balanced", log=lambda _: None,
+            event_callback=lambda event, payload: events.append((event, payload)),
+        ) == "verified"
+    assert calls == [(850, 2790), (850, 2775), (850, 2760)]
+    assert [event for event, _ in events] == ["tier_confirmed", "tier_confirmed"]
+    assert events[-1][1]["target_mhz"] == 2760

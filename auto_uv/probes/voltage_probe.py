@@ -23,7 +23,7 @@ from auto_uv.gpu.gpu_vf_curve_applier import verify_applied_power_limit_w
 from auto_uv.gpu.runtime_vf_offset_reset_check import assert_runtime_vf_offsets_match_plan
 from ..persistence.auto_uv_persisted_json_files import auto_uv_stop_requested
 from ..persistence.interrupted_probe_crash_cache import CRASH_CACHE_CANDIDATE_PHASES
-from auto_uv.domain.types import AutoUvProbeSummary
+from auto_uv.domain.types import AutoUvCriticalProbeError, AutoUvProbeSummary
 from auto_uv.domain.user_options import AUTO_UV_METRIC_TUNING, AUTO_UV_STALL_TUNING
 from ..persistence.probe_in_progress_marker_file import (
     clear_probe_in_progress_marker,
@@ -191,7 +191,10 @@ def probe_voltage_candidate(
         marker_details=marker_details,
     )
 
+    unsafe_record_failed = False
+
     def record_probe_unsafe(reason: str, details: dict | None = None) -> None:
+        nonlocal unsafe_record_failed
         if not mark_in_progress:
             return
         unsafe_details = probe_unsafe_details(crash_marker_details, details)
@@ -205,13 +208,16 @@ def probe_voltage_candidate(
                 blocked_lock_clock_mhz=unsafe_clock_bindings,
             )
         except Exception as exc:
+            unsafe_record_failed = True
             log_phase(
                 log,
                 "blacklist",
                 f"failed-to-record-unsafe-voltage voltage={int(candidate_voltage_mv)}mV "
                 f"target={int(lock_clock_mhz)}MHz reason={reason} error={exc}",
             )
-            return
+            raise AutoUvCriticalProbeError(
+                "Cannot persist unsafe Auto-UV point; crash marker retained and probing stopped"
+            ) from exc
         detail_text = unsafe_detail_text(unsafe_details)
         log_phase(
             log,
@@ -278,10 +284,7 @@ def probe_voltage_candidate(
             raise
         if str(result.reason) == "user-stop-requested":
             raise KeyboardInterrupt()
-        if power_limit_w is not None:
-            verify_applied_power_limit_w(
-                reader, requested_w=power_limit_w, reported_applied_w=power_limit_w
-            )
+        # Persist an observed crash before a lost device can fail a subsequent readback.
         handle_probe_result_logging_and_blacklist(
             result,
             log=log,
@@ -291,6 +294,10 @@ def probe_voltage_candidate(
             suppress_unsafe_recording=bool(suppress_unsafe_recording),
             used_companion_load=bool(q2rtx_config.companion_command),
         )
+        if power_limit_w is not None:
+            verify_applied_power_limit_w(
+                reader, requested_w=power_limit_w, reported_applied_w=power_limit_w
+            )
         live_voltage_after_mv = nvml_session.read_live_voltage_mv()
         measurement_samples = (
             list(result.measurement_telemetry_samples())
@@ -323,7 +330,7 @@ def probe_voltage_candidate(
         summary.tested_plan = [dict(point) for point in candidate_plan]
         return summary, result
     finally:
-        if mark_in_progress:
+        if mark_in_progress and not unsafe_record_failed:
             clear_probe_in_progress_marker()
 
 

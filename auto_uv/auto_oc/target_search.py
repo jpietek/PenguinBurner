@@ -71,12 +71,11 @@ def run_custom_tier_target_search(
     clock_limit = int(endpoint.clock_mhz)
     selected, selected_probe = start_candidate, start_probe
     passed = [(selected, selected_probe)]
-    unsafe = load_unsafe_voltage_blacklist()
 
     def probe(voltage: int, clock: int) -> bool:
         nonlocal selected, selected_probe
         blocked = unsafe_voltage_block_reason(
-            unsafe,
+            load_unsafe_voltage_blacklist(),
             candidate_voltage_mv=voltage,
             lock_clock_mhz=clock,
             profile_tier=tier,
@@ -141,8 +140,9 @@ def run_custom_tier_target_search(
             )
             if index == steps:
                 clock = clock_limit
-            if not probe(selected.voltage_mv, clock):
-                break
+            # An intermediate failure still leaves lower requested clocks to
+            # test. The fresh blacklist above skips the newly unsafe band.
+            probe(selected.voltage_mv, clock)
 
     # Keep the voltage proved by the initial descent. A custom lower MHz
     # target never starts another voltage-down sweep.
@@ -170,7 +170,7 @@ def run_custom_tier_target_search(
             target_clock_mhz=clock_limit,
             measured_baseline_clock_mhz=measured_baseline_clock_mhz,
             target_profile_id=tier,
-            probe_stable_history=[start_probe] if start_probe else [],
+            probe_stable_history=stable_history,
         )
         for attempt in climbed.attempts:
             summary = attempt.outcome.raw_probe
@@ -178,7 +178,9 @@ def run_custom_tier_target_search(
                 stable_history.append(summary)
                 passed.append((attempt.candidate, summary))
         selected, selected_probe = climbed.selected_candidate, climbed.selected_probe
+        passed.append((selected, selected_probe))
 
+    unsafe = load_unsafe_voltage_blacklist()
     eligible = [
         (candidate, summary)
         for candidate, summary in passed
@@ -186,6 +188,10 @@ def run_custom_tier_target_search(
         and candidate.voltage_mv <= voltage_selection_limit
         and summary is not None
         and summary.avg_core_clock_mhz is not None
+        and not unsafe_voltage_block_reason(
+            unsafe, candidate_voltage_mv=candidate.voltage_mv,
+            lock_clock_mhz=candidate.target_mhz, profile_tier=tier,
+        )
     ]
     if not eligible:
         raise AutoUvError(

@@ -208,7 +208,8 @@ def test_probe_runner_baseline_skips_cuda_companion(monkeypatch) -> None:
 
 
 @pytest.mark.parametrize("reason,critical", [
-    ("nvidia-xid-detected: 109", True),
+    ("nvidia-xid-detected: 109", False),
+    ("benchmark-summary-missing", True),
     ("workload-setup-failed", False),
 ])
 def test_baseline_wrapper_aborts_critical_failure_but_returns_recoverable_failure(
@@ -238,7 +239,9 @@ def test_baseline_wrapper_aborts_critical_failure_but_returns_recoverable_failur
     if not critical:
         assert outcome is not None
         assert not outcome.decision.passed
-        assert outcome.decision.severity is FailureSeverity.RECOVERABLE
+        assert outcome.decision.severity is (
+            FailureSeverity.UNSAFE if reason.startswith("nvidia-xid") else FailureSeverity.RECOVERABLE
+        )
         assert outcome.decision.reason == reason
         assert outcome.raw_probe is summary
         assert outcome.raw_result is raw_result

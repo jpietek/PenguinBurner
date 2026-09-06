@@ -321,7 +321,7 @@ def test_critical_failure_marks_unsafe_and_aborts() -> None:
             passed=False,
             failure_kind=FailureKind.Q2RTX_FAILED,
             severity=FailureSeverity.CRITICAL,
-            reason="benchmark-crashed-signal",
+            reason="benchmark-summary-missing",
         ))
 
     io = BaseUvLoopIO(
@@ -333,7 +333,7 @@ def test_critical_failure_marks_unsafe_and_aborts() -> None:
             int(candidate.voltage_mv)
         ),
     )
-    with pytest.raises(AutoUvCriticalProbeError, match="benchmark-crashed-signal"):
+    with pytest.raises(AutoUvCriticalProbeError, match="benchmark-summary-missing"):
         run_base_uv_loop(
             curve,
             settings=AutoUvScanSettings(
