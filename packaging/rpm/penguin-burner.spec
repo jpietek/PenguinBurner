@@ -1,5 +1,5 @@
 Name:           penguin-burner
-Version:        0.7.9
+Version:        0.8.0
 Release:        1%{?dist}
 Summary:        NVIDIA GPU automatic undervolting and fine tuning tool
 
@@ -108,6 +108,10 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/io.github.jpietek.Pen
 %{_datadir}/penguin-burner/penguin_burner.sh
 
 %changelog
+* Sun Sep 06 2026 PenguinBurner contributors <noreply@github.com> - 0.8.0-1
+- Add Auto-UV recovery, smooth curves, per-tier targets and clearer profile metrics.
+- Unify the Game Library and improve adaptive switching under frame-rate caps.
+
 * Mon Aug 17 2026 PenguinBurner contributors <noreply@github.com> - 0.7.9-1
 - Add RTD3 sleep handling, resume recovery, telemetry fallback, and partial
   multi-GPU profile support.
