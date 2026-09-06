@@ -1,38 +1,30 @@
 flowchart TB
-  accTitle: Auto-UV from user request to saved profiles
-  accDescr: Top-to-bottom scan lifecycle, tier reuse, bounded search, verification and all exit destinations.
-  START([User starts one tier or all three]) --> SETUP["01 · Prepare the GPU<br/>Validate workloads and editable V/F points<br/>Cache interrupted probes; reset stock offsets"]
-  SETUP --> RECOVER{"Resume selected<br/>crash checkpoint?"}
-  RECOVER -->|No| BASE["02 · Establish the first baseline<br/>Apply power, memory and tail policy<br/>Measure stock; test the loaded flattened curve"]
-  RECOVER -->|Yes| RESUME["Restore checkpoint + power policy<br/>Continue at clock selection, step 05"]
-  BASE -->|Passing baseline| CHECKPOINT["Save the exact baseline checkpoint"]
-  BASE -->|No passing baseline| ABORT([Abort this run])
-  CHECKPOINT --> TIER["03 · Prepare the current tier<br/>Efficiency → Balanced → Performance<br/>Reuse baseline only when applied policies match"]
-  TIER --> REUSE{"Performance with matching<br/>Balanced descent evidence?"}
-  REUSE -->|Yes| CLOCK
-  REUSE -->|No| UV["04 · Descend through lower voltage bins<br/>Finite sweep; keep a passing selection<br/>See the voltage-loop detail below"]
-  UV --> CLOCK["05 · Apply the tier or custom clock policy<br/>Bounded reclaim, OC or lower-clock steps<br/>No second Efficiency voltage sweep"]
-  CLOCK --> SELECT["06 · Select a passing complete curve<br/>Efficiency: highest measured FPS/W<br/>Optional candidate and duration choice"]
-  SELECT --> VERIFY["07 · Verify the selected curve intact<br/>Recheck blacklist and monotonic shape<br/>Write a snapshot; run Q2RTX + CUDA"]
-  VERIFY -->|Pass| SAVE["08 · Archive the verified profile<br/>Tested points + tier + power + memory + metrics"]
-  SAVE --> MORE{"More requested tiers?"}
-  MORE -->|Yes| NEXTTIER["Next tier → step 03"]
-  MORE -->|No| SAVED{"At least one<br/>profile completed?"}
-  SAVED -->|Yes| DONE([Finish with saved profiles and skipped-tier status])
-  SAVED -->|No| EMPTY([No new profile<br/>Report last error or all tiers discarded])
-  VERIFY -->|Critical failure| ABORT
-  VERIFY -->|Ordinary final failure| MODE{"Which run path?"}
-  MODE -->|Adaptive tier| SKIP["Skip this tier<br/>Keep earlier completed profiles"]
+  accTitle: Auto-UV lifecycle and the next-tier loop
+  accDescr: Setup and first baseline lead to finite tier searches and automatic final verification. Ordinary tier errors continue; hard exits retain already completed profiles.
+  START([User starts one tier or all three]) --> SETUP["Prepare through the daemon<br/>Validate workloads + editable V/F<br/>Consume markers; reset stock offsets"]
+  SETUP --> RESUME{"Saved checkpoint<br/>selected for recovery?"}
+  RESUME -->|Yes| RESTORE["Restore checkpoint + power policy<br/>Skip fresh baseline / descent"]
+  RESUME -->|No| FIRST["02 · First passing baseline<br/>Stock + bounded clock retreat"]
+  FIRST -->|Pass| TIER["Prepare the current tier<br/>Efficiency → Balanced → Performance<br/>Apply policy; reuse / measure baseline"]
+  FIRST -->|No passing baseline| ERROR([No new result; report the error])
+  TIER --> UV["03 · Finite voltage descent<br/>Performance may reuse<br/>matching Balanced descent"]
+  UV --> CLOCK["04 · Tier / custom clock search<br/>Exact plans; fresh blacklist"]
+  RESTORE --> CLOCK
+  CLOCK --> FINAL["05 · Select → verify → save<br/>Retry safer tested points<br/>Pass or exhaust the finite pool"]
+  FINAL -->|Profile saved| MORE{"More requested tiers?"}
+  TIER -->|Ordinary baseline error| SKIP["Skip tier; keep completed profiles"]
+  CLOCK -->|No eligible target candidate| SKIP
+  FINAL -->|Retries exhausted| SKIP
   SKIP --> MORE
-  MODE -->|Normal single tier + final choice| RETRY{"Higher-voltage saved<br/>candidate available and chosen?"}
-  MODE -->|Noninteractive / recovery| ABORT
-  RETRY -->|Yes| RETRYFINAL["Verify the higher saved voltage → step 07"]
-  RETRY -->|No| ABORT
+  MORE -->|Yes: next tier| TIER
+  MORE -->|No| ANY{"Any profile<br/>completed?"}
+  ANY -->|Yes| DONE([Finish with completed profiles])
+  ANY -->|No| ERROR
   classDef setup fill:#19334b,stroke:#84c7f5,color:#edf5fa,stroke-width:1.5px
   classDef work fill:#18382f,stroke:#80d9ac,color:#edf5fa,stroke-width:1.5px
   classDef gate fill:#302c20,stroke:#e9bd76,color:#fff0d8,stroke-width:1.5px
   classDef stop fill:#40252a,stroke:#ef9595,color:#fff0f0,stroke-width:1.5px
-  class SETUP,BASE,TIER setup
-  class START,CHECKPOINT,UV,CLOCK,SELECT,VERIFY,SAVE,DONE,RESUME,NEXTTIER,RETRYFINAL work
-  class RECOVER,REUSE,MORE,SAVED,MODE,RETRY,SKIP gate
-  class ABORT,EMPTY stop
+  class START,RESTORE,UV,CLOCK,FINAL,DONE work
+  class SETUP,FIRST,TIER setup
+  class RESUME,SKIP,MORE,ANY gate
+  class ERROR stop

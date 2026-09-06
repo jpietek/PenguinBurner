@@ -1,0 +1,33 @@
+---
+config:
+  flowchart:
+    rankSpacing: 25
+    padding: 12
+---
+flowchart TB
+  accTitle: Error recovery only: retry a safer candidate or keep completed work
+  accDescr: Ordinary candidate failures can use bounded search retreat or a safer tested final curve. Failed retries return to classification. Exhausted tiers are skipped; critical errors stop probing, while cancellation retains saved files without promising success.
+  FAIL([Candidate failed]) --> KIND{"Failure class?"}
+  KIND -->|Ordinary / UNSAFE| RECORD["Record any instability<br/>Exclude failed final pair"]
+  RECORD --> POOL{"Safer candidate?"}
+  POOL ==>|Yes| CANDIDATE["Bounded search retreat<br/>or exact tested final curve"]
+  CANDIDATE --> RETRY["Reset · apply · read back<br/>Probe / final verify"]
+  RETRY --> RESULT{"Passed?"}
+  RESULT ==>|No: retry loop| FAIL
+  RESULT -->|Yes| CONTINUE([Continue the tier<br/>Save after final pass])
+  POOL -->|No| SKIP["Skip this adaptive tier<br/>Try remaining tiers"]
+  KIND -->|Critical error| STOP["Stop further probing"]
+  KIND -->|User cancel| USER([Stop; keep saved files<br/>No automatic retry])
+  RECORD -->|Cannot persist| STOP
+  RETRY -->|Backend / policy failure| STOP
+  SKIP --> DONE([Return completed profiles<br/>or report no result])
+  STOP --> DONE
+  classDef setup fill:#19334b,stroke:#84c7f5,color:#edf5fa,stroke-width:1.5px
+  classDef work fill:#18382f,stroke:#80d9ac,color:#edf5fa,stroke-width:1.5px
+  classDef gate fill:#302c20,stroke:#e9bd76,color:#fff0d8,stroke-width:1.5px
+  classDef stop fill:#40252a,stroke:#ef9595,color:#fff0f0,stroke-width:1.5px
+  class FAIL setup
+  class RECORD,CANDIDATE,RETRY,CONTINUE,DONE work
+  class KIND,POOL,RESULT,SKIP gate
+  class STOP,USER stop
+  linkStyle 3,6 stroke:#80d9ac,stroke-width:4px

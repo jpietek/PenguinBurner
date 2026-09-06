@@ -23,7 +23,9 @@ SVG outputs together. The page embeds the SVGs and needs no Mermaid runtime.
 pre-smoothing final-probe curves: requested points, final statistics, checks and
 provenance. The geometry comparison is separate from current loaded measurements.
 Private host paths, GPU UUIDs and runtime configuration are excluded.
-The generator rejects incomplete or unsuccessful three-tier verification.
+The historical smoothing comparison requires completed three-tier verification.
+The separate recovery receipt can record a partial success, showing exactly which
+tiers produced verified profiles. It never presents an unverified tier as passed.
 The self-contained page makes no third-party network requests.
 
 To refresh the public data from local completed scan directories:
@@ -34,6 +36,18 @@ python docs/pages/auto-uv-cookbook/collect_measurements.py AFTER CHECKS_JSON
 
 The completed scan directory must contain its `scan.log`, `results-report.json`,
 and saved profiles. The checks receipt must identify the tested commit and passing checks.
+
+To append a current recovery run while retaining the historical smoothing data:
+
+```sh
+python docs/pages/auto-uv-cookbook/collect_recovery.py COMPLETED_SCAN CHECKS_JSON
+python docs/pages/auto-uv-cookbook/build_report.py
+```
+
+Before export, verify the receipt commit contains the exact source files used by
+the installed scan. The exporter requires a successful or partial return,
+restored runtime and boot state, and exact agreement between each saved curve
+and its passing final probe. Review the public subset for private host data.
 
 Historical curves are exported from the pinned scan log and matching checkpoints:
 
