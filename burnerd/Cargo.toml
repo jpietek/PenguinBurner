@@ -1,6 +1,6 @@
 [package]
 name = "penguin-burnerd"
-version = "0.7.9"
+version = "0.8.0"
 edition = "2021"
 rust-version = "1.82"
 license = "GPL-3.0-only"

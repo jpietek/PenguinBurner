@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "penguin-burner"
-version = "0.7.9"
+version = "0.8.0"
 description = "NVIDIA GPU tuning tool for Linux: automatic and adaptive undervolting, an in-game monitoring overlay with PC latency and pre-frame-generation FPS, plus MSI Afterburner imports and LACT exports"
 requires-python = ">=3.11"
 dynamic = ["readme"]
