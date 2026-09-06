@@ -4,20 +4,19 @@
 
 ### The scan stops early
 
-Open the latest log in the PenguinBurner config directory's `debug-logs/`.
-Common causes: an unsafe-voltage history entry, a clock guardrail, a Q2RTX or
-CUDA failure, or interrupted final verification. To wipe history and rerun clean:
+Read the latest scan log in `~/.config/PenguinBurner/debug-logs/`.
+Candidate failures normally retry safer settings. A scan can end when no usable
+candidate remains, required measurements are missing, the daemon is unavailable,
+or its power limit cannot be verified. Completed tiers remain saved.
 
-```bash
-./penguin_burner.sh --fresh-auto-uv-scan
-```
+Retry with crash history intact. See [Auto-UV recovery](auto-uv-recovery.md)
+for fallback behavior and deliberate history resets.
 
 ### I stopped Auto-UV before it finished
 
-If at least one stable checkpoint exists, a controlled stop opens the final
-choice dialog. Pick one of the previously stable voltage/clock candidates to run
-final verification, or discard it and start over. A controlled stop is not added
-to the unsafe-voltage cache.
+An interactive single-tier voltage sweep can offer passing checkpoints for
+final verification. Stopping All tiers, a clock search, or final verification
+ends that operation. Clean stops do not blacklist the current point.
 
 ### A Q2RTX window appears
 
@@ -55,14 +54,10 @@ does not need Steam, a desktop display server, or a compositor wrapper.
 
 ### I have more than one GPU
 
-Select the card with `--gpu-index N`, or pick it in the Auto-UV tuning dialog.
-The Profiles tab's Target GPU selector filters saved profiles and controls
-which card Apply, Restore defaults, and Apply on startup affect. Only the
-currently active card has live monitoring, drift recovery, fan control, and
-adaptive switching; other applied cards retain static curve, memory, and power
-settings. When at least two NVIDIA GPUs are detected, **Main GPU** chooses the
-saved startup card that owns monitoring after boot. Intel and AMD PRIME
-adapters are not included in this NVIDIA/NVML selector.
+Select the card in the Auto-UV dialog or with `--gpu-index N`. In Profiles,
+**Target GPU** selects the card for profile actions; **Main GPU** selects the
+startup card that owns monitoring. See [multi-GPU profiles](profile-multi-gpu.md)
+for the full behavior.
 
 For a boot-recovery issue, collect the daemon journal and its saved/replay
 summary before changing the configuration:
@@ -75,9 +70,7 @@ python3 -m runtime.daemon_client status
 
 The boot summary lists every saved GPU UUID and a replay outcome such as
 `applied`, `active`, `stock-skipped`, `gpu-not-detected`, or `stock-fallback`.
-This lets issue
-reporters identify index changes, missing cards, and per-card recovery without
-requiring a developer to reproduce the same hardware layout.
+Include this output when reporting missing cards or boot recovery problems.
 
 ### Adaptive switching isn't doing anything
 
@@ -97,9 +90,18 @@ its other safety checks. Use a recent driver and a supported card (RTX 30 / 40 /
 
 ### Why does it need root?
 
-Applying a curve changes real hardware (power limits, V/F offsets, fan control),
-which requires root. That privileged work is done by a small root systemd
-service, `penguin-burnerd` (a compiled Rust daemon), installed once with a
-single admin prompt. The GUI, CLI, and Auto-UV scans themselves run as your
-regular user and send requests to the service over a local socket — normal use
-never asks for your password again.
+The root service `penguin-burnerd` handles GPU writes. Installing it needs one
+admin prompt; the GUI, CLI, and scans then use its socket as your regular user.
+
+### Resetting user data
+
+For Auto-UV recovery, prefer a [scan reset](auto-uv-recovery.md#clearing-scan-history).
+A full reset deletes **all profiles, settings, logs, and cached downloads**.
+Close PenguinBurner and back up anything you need before running:
+
+```bash
+rm -rf ~/.config/PenguinBurner ~/.local/share/PenguinBurner ~/.cache/PenguinBurner
+```
+
+This does not uninstall the daemon or restore GPU state. Use **Restore defaults**
+first if you also want stock settings.

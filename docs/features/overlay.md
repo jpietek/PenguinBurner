@@ -2,19 +2,16 @@
 
 > Feature guide — see the [README](../../README.md) for the project overview.
 
-The overlay draws a compact, lightweight, live performance readout on top of
-your game, similar to a RivaTuner/MSI Afterburner on-screen display. Any tuning change you
-make is reflected live in the overlay while you play, so you can see the effect
-of an undervolt, clock, or fan change in real time without leaving the game.
+The overlay shows live FPS, latency, GPU telemetry, and the active profile
+while you play.
 
 ![Overlay configuration tab](../assets/overlay.png)
 
 ## Enabling the overlay
 
-The overlay launches with the game through a command wrapper. Copy the launch
-string from the Overlay tab and paste it into Steam's launch options
-(`PENGUIN_BURNER %command%`), or use the **Copy**
-button next to the field.
+In [Game Library](game-library.md), enable **Wrap this game** and **Overlay**.
+Use the Overlay tab to choose fields and appearance. For manual launch options,
+see [Steam](../steam.md#manual-launch-options) or [Lutris](lutris.md).
 
 Top-level controls:
 
@@ -71,7 +68,5 @@ otherwise.
 - Set `PB_INGAME_LATENCY=0` to turn the latency field off while keeping the
   overlay.
 
-Some games do not expose usable latency markers. In those games PenguinBurner
-keeps showing FPS and GPU telemetry, but omits `LAT` instead of inventing a
-fake PC-latency value. The detailed source and fallback model is documented in
-[Latency and frame-generation FPS](./latency-fg.md).
+Without usable latency markers, the overlay omits `LAT` and keeps showing FPS
+and GPU telemetry. See [latency and FPS details](latency-fg.md).
