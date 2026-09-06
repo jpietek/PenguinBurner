@@ -66,15 +66,14 @@ be installed and running (see one-time setup above). Start a scan with:
 
 The CLI scan options mirror the GUI Auto-UV tuning dialog. Start with
 `--auto-uv-voltage-scan`, then choose the same preset family shown in the GUI
-with `--auto-uv-mode efficiency|balanced|performance`.
+with `--auto-uv-mode efficiency|balanced|performance|adaptive` (`adaptive` runs all tiers).
 
 Clock-loss percentage cutoffs have been removed. The scan still measures loaded
 clocks and rejects workload failures, lost load, and FPS regressions. Confirmed
 power limits can stop an ineffective clock climb.
 
-Auto-OC target defaults are optimized for most GPUs. Change voltage or clock
-targets only if you understand GPU voltage/frequency tuning and the risks of
-instability or crashes.
+Default targets suit most GPUs. Change them only if you understand GPU tuning
+and the risk of instability.
 
 Common scan controls, shown for every GUI preset:
 
@@ -86,7 +85,7 @@ Full-scan (`--auto-uv-mode adaptive`) per-tier overrides — each tier of the
 combined run can carry its own limits, mirroring the GUI's per-profile
 Advanced pages (`<tier>` is `efficiency`, `balanced`, or `performance`):
 
-- `--auto-uv-<tier>-power-limit-w N`: that tier's power limit, applied at its final verification and saved with its profile.
+- `--auto-uv-<tier>-power-limit-w N`: that tier's power limit, applied before its baseline and kept through search, verification, and saving.
 - `--auto-uv-<tier>-memory-offset-mhz N`: that tier's memory V/F offset, applied for its descent and saved with its profile.
 
 Custom targets work in both single-tier and full scans:
@@ -97,8 +96,7 @@ Custom targets work in both single-tier and full scans:
 Clock ranges use GPU table defaults: Efficiency −15% through Balanced;
 Balanced from Efficiency through Performance; Performance from Balanced
 through Performance +5% (rounded to the nearest MHz). Unknown GPUs keep Auto
-unless a hardware range is available. Defaults are optimized for most GPUs;
-edit only if you understand voltage/frequency tuning and instability risks.
+unless a hardware range is available. See [custom targets](docs/features/auto-uv.md#custom-tier-targets) for details.
 
 A lower custom clock is tested after the normal voltage sweep, at the sweep's
 stable voltage, with no second voltage-down pass. The voltage anchor may

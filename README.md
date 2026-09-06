@@ -20,7 +20,8 @@
 ![PenguinBurner Auto-UV finding Efficiency, Balanced, and Performance curves in one scan](docs/assets/auto-uv-full-scan-demo.gif)
 
 PenguinBurner is an open-source NVIDIA GPU tuning app for Linux with
-automatic undervolting & overclocking with adaptive per-game tuning targets.
+automatic undervolting, overclocking and adaptive per-game profiles for
+**Steam and Lutris** in one [Game Library](#game-library).
 
 **One scan. Three verified GPU profiles.**
 
@@ -34,8 +35,8 @@ automatic undervolting & overclocking with adaptive per-game tuning targets.
 For scale: the same RTX 5080 at stock uses about **341 W** under the same load.
 Balanced held roughly the same loaded clock at 272 W — about 69 W less.
 
-Verified RTX 5080 examples; every GPU differs. A requested target can exceed
-the loaded clock when voltage droop or the power governor intervenes.
+Verified RTX 5080 examples; every GPU differs. Loaded clocks can fall below
+the requested target under power or thermal limits.
 Pre-optimized targets are included for RTX 30, 40, and 50 series cards.
 
 ## Install
@@ -44,34 +45,20 @@ Pre-optimized targets are included for RTX 30, 40, and 50 series cards.
 python -m pip install --user --upgrade penguin-burner
 ```
 
-On distros whose system Python is externally managed (Fedora 38+,
-Ubuntu 23.04+, Debian 12+), pip refuses with `externally-managed-environment`;
-use `pipx install penguin-burner` there — or a native package below.
-
-Also packaged for [Fedora (COPR)](https://copr.fedorainfracloud.org/coprs/jpietek/penguin-burner/),
+If pip reports `externally-managed-environment`, use `pipx install penguin-burner`.
+Native packages are also available for [Fedora (COPR)](https://copr.fedorainfracloud.org/coprs/jpietek/penguin-burner/),
 [Arch / CachyOS (AUR)](https://aur.archlinux.org/packages/penguin-burner), and
-[Ubuntu (PPA)](https://launchpad.net/~jpietek/+archive/ubuntu/penguin-burner) —
-commands in the [Install guide](docs/install.md).
+[Ubuntu (PPA)](https://launchpad.net/~jpietek/+archive/ubuntu/penguin-burner).
+See the [Install guide](docs/install.md) for prerequisites and commands.
 
-A [Flatpak](https://github.com/jpietek/PenguinBurner/releases/latest) is
-available from the
-[PenguinBurner Flatpak repository](https://jpietek.github.io/PenguinBurner/penguin-burner.flatpakrepo),
-but a native install (pip / COPR / AUR / PPA) is strongly recommended over it:
-Steam launches, the in-game overlay's Vulkan layer, and the root daemon all
-live on the host, so the Flatpak must write and repair host-side files from
-inside its sandbox — more moving parts and more that can break. Use the
-Flatpak only when nothing else is practical (e.g. immutable distros), with the
-[Flatpak install and update guide](docs/flatpak.md).
+[Flatpak](docs/flatpak.md) is available too. Native packages are recommended
+because the GPU daemon, game wrappers, and Vulkan overlay run on the host.
 
-PyPI, Flatpak with wrappers, COPR, AUR, and PPA installs run the GUI with
-`penguin-burner` (or `pburn`). Install the NVIDIA driver and CUDA first.
+PyPI, Flatpak with wrappers, COPR, AUR, and PPA installs run the GUI
+as `penguin-burner` or `pburn`.
 
-All privileged GPU work is done by a small root systemd service,
-`penguin-burnerd` — a compiled Rust daemon that PenguinBurner installs once
-(one admin prompt) the first time you set up hardware control. After that
-one-time setup the GUI, CLI, and Auto-UV scans all run as your regular user
-and talk to the service over a local socket, with no further password
-prompts.
+PenguinBurner installs its root hardware service once, with an admin prompt.
+The GUI, CLI, and scans then use that service without further password prompts.
 
 ## Quick start
 
@@ -81,91 +68,69 @@ prompts.
 3. Click **Setup Auto Undervolt**, choose a performance bias, and let the scan
    find and verify a stable curve. When it finishes, the verified profile is
    applied automatically.
-4. On the **Profiles** tab you can select any saved profile and click **Apply**
-   to switch to it. Tick **Apply on startup** to also make the applied profile
-   your boot profile — off by default, so a tuned curve is never re-applied at
-   boot unless you opted in. Toggle **Silent fan curve** for the quiet fan
-   profile, or **Restore defaults** to return the GPU to stock. Multi-GPU
-   systems filter the table with the **Target GPU** selector. On a one-GPU
-   system the same selector shows the detected card but is disabled. With two
-   or more NVIDIA GPUs, **Main GPU** selects which saved startup card owns
-   daemon monitoring after boot; Intel and AMD PRIME adapters do not count.
+4. In **Profiles**, select a profile and click **Apply**. Enable **Apply on
+   startup** to use it at boot, or **Silent fan curve** for quieter cooling.
+   **Restore defaults** returns the GPU to stock. See [profile management](docs/features/profile-management.md)
+   for multi-GPU settings and other actions.
 5. For per-game tuning — including **Adaptive**, which switches tiers as your
-   frame rate changes — use the **Steam** tab to pick a mode per game.
+   frame rate changes — use **Game Library** to configure Steam and Lutris games.
 
 ## Automatic Undervolting & Overclocking
 
-Tests your card under real load and finds the most efficient stable undervolt
-curve for you. The sweep runs PenguinBurner's managed
-[headless Q2RTX benchmark](https://github.com/jpietek/Q2RTX-headless)
-plus a **CUDA** compute test, with stability and performance checks built in.
-If a scan crashes mid-probe, the next run records that voltage/clock band as
-unsafe and can resume from saved candidates for the same tier.
+Auto-UV tests your GPU with a managed headless **Q2RTX** benchmark and **CUDA**
+load. It finds stable settings, builds smooth V/F curves, and preserves the
+exact tested curves through final verification and saving. Failed probes retry
+safer settings; completed tiers remain available if a later tier fails.
 
-During Auto-UV, leave the GPU otherwise idle. Do not run games, renders,
-machine-learning jobs, video encoders, miners, or other GPU/VF/VRAM-heavy work
-while the scan is progressing. Auto-UV needs the whole card to itself so its
-FPS-per-watt and stability measurements reflect the candidate curve, not a
-second workload competing for power, clocks, memory bandwidth, or VRAM.
+Leave the GPU free of other demanding work during a scan so its stability and
+FPS-per-watt measurements remain meaningful.
 
 ![Auto-UV all-tiers sweep: green Efficiency, blue Balanced, red Performance](docs/assets/auto-uv-scan.png)
 
-Pick a single bias (Efficiency, Balanced, or Performance), or run **All tiers**
-— one pass that discovers and verifies **all three profiles in a single scan**,
-sharing the sweep so you get a complete Efficiency/Balanced/Performance set (the
-green/blue/red curves above) ready for adaptive switching without three separate
-runs.
+Choose **Efficiency**, **Balanced**, **Performance**, or **All tiers**.
+All tiers produces a set for adaptive switching and reuses compatible scan work.
 
-You can also set a GPU board power limit for the scan; PenguinBurner reads the
-selected card's NVML power-limit range, applies the cap during Auto-UV, and
-saves it with the final profile so runtime/profile application restores it.
-On laptop GPUs with a fixed board power limit the control is grayed out and
-scans run at the stock limit automatically.
+Every tier exposes voltage, clock, memory offset, and power limit in the same
+order. **The defaults suit most GPUs; change them only if you understand GPU
+tuning.** Fixed-power laptop GPUs use their stock limit automatically.
 
 ![Auto-UV setup: GPU, preset, and Auto-OC targets](docs/assets/auto-uv-setup.png)
 
 [Read the guide](docs/features/auto-uv.md)
 
+[Algorithm and RTX 5080 verification](https://jpietek.github.io/PenguinBurner/auto-uv-cookbook/)
+· [RTX 5070 Ti curve comparisons](https://jpietek.github.io/PenguinBurner/pr72-curve-comparison/)
+
 ## Adaptive Undervolting
 
-Tag your saved profiles as **Efficiency**, **Balanced**, or **Performance**, and
-PenguinBurner switches between them while you play: efficient and silent when you
-have headroom, more clock when frames start to drop. It also recognises when the
-frame rate is held by something clocks can't move — a 60 FPS menu, vsync, an
-in-game limiter — and eases the tier down instead of burning power against the
-cap, and does the same when the desktop sits idle after a game.
+PenguinBurner switches between saved tiers to meet your game's FPS target:
+lower power when there is headroom, more performance when needed. It also
+recognizes frame caps and idle periods so it can reduce power use.
 
-![Stored undervolt profiles: one per tier with effective clocks, FPS/W, and power vs stock](docs/assets/profiles-management.png)
+![Stored undervolt profiles: one per tier with effective clocks, FPS/W, and measured power](docs/assets/profiles-management.png)
 
 [Read the guide](docs/features/adaptive-uv.md) — including
-[every tuning knob and environment variable](docs/features/adaptive-uv.md#one-word-tuning-responsiveness).
+[advanced tuning](docs/features/adaptive-tuning.md).
 
-## Steam Integration
+## Game Library
 
-PenguinBurner discovers your installed Steam library and makes undervolting
-**per-game**. Pick a mode for each game — Adaptive, a fixed tier, or Stock — and
-PenguinBurner applies it automatically when the game launches and restores your
-standing profile when it exits, with no password prompt.
+Bring your **Steam and Lutris games together in one library**, with background
+discovery, launcher badges, and sorting by launcher, name, recently played or
+most played. Pick **Adaptive**, a fixed tier or **Stock** for each game;
+PenguinBurner applies it at launch and restores your standing profile on exit.
 
-![Game Library: per-game mode, adaptive target FPS, and Play/Stop](docs/assets/steam-tab.png)
+![Game Library showing Steam and Lutris games, with a Lutris game's Adaptive settings and overlay controls](docs/assets/game-library.png)
 
-Steam integration is what unlocks the fully customizable, **per-game** setup:
+Enable **Wrap this game**, then choose its GPU profile, Adaptive FPS target,
+and overlay settings. Existing launch options and Lutris command prefixes are
+preserved. Use **Play / Stop** to control a game or **All games** for bulk edits.
 
-- **Per-game profiles** — a different GPU behavior saved for each game.
-- **Per-game GPU target** — on multi-GPU systems, choose the physical card by
-  stable UUID; single-GPU systems keep the selector hidden.
-- **Per-game adaptive pre-frame-generation FPS target** — the adaptive engine's
-  promote/demote target, set individually per game (a 60 Hz story game and a
-  144 Hz shooter each get their own).
-- **In-game overlay** and **live launch/stop** from the tab.
+[Game Library guide](docs/features/game-library.md) · [Steam setup](docs/steam.md)
+· [Lutris setup](docs/features/lutris.md)
 
-These per-game features **require the Steam integration** — they are delivered
-through the launch wrapper, so a game must be enabled in the Game Library tab
-to get an
-adaptive per-game FPS target or the overlay. A one-click **All games** menu can
-enable or disable the wrapper across your whole library at once.
-
-[Read the Steam guide](docs/steam.md)
+Thanks to [@Ernold11](https://github.com/Ernold11) for the shared Game Library and
+adaptive tuning improvements. **Which launcher should come next — Heroic?**
+[Tell us in Discussions](https://github.com/jpietek/PenguinBurner/discussions).
 
 ## PenguinBurner vs LACT (NVIDIA)
 
@@ -186,7 +151,7 @@ and adaptive switching. NVIDIA-only comparison, to the best of our knowledge:
 | Manual V/F curve editor | ✅ | ✅ |
 | Fan curve control | ✅ auto silent curve + editor | ✅ custom curves |
 | Power limit | ✅ Auto-UV + saved profiles | ✅ |
-| Steam library import | ✅ auto-discovered library | ❌ |
+| Steam & Lutris game libraries | ✅ shared library with background discovery | ❌ |
 | Per-game tuning profiles | ✅ per-game mode, adaptive FPS target, live launch | ❌ |
 | Runtime profile switching | ✅ by present-frame FPS pacing | ✅ by running process / gamemode |
 | MSI Afterburner import | ✅ | ❌ |
@@ -210,42 +175,14 @@ the resulting curve under LACT if you prefer.
 
 ## Performance Overlay
 
-A lightweight live on-screen readout over your game. It can visualize **PC
-latency** and **pre-frame-generation FPS** — things most Linux overlays can't —
-alongside frame-gen FPS, clocks, voltage, power, temperatures, and the active
-tier.
+Show **base FPS**, **frame-generation FPS**, **PC latency**, GPU clocks,
+power, temperatures, and the active tier while playing. Enable **Overlay** for
+a game in Game Library and select fields in the Overlay tab. Latency requires
+usable timing markers from the game.
 
 ![Performance overlay](docs/assets/overlay.png)
 
-Launch the game through the wrapper, then toggle the fields you want:
-
-```text
-PENGUIN_BURNER %command%
-```
-
-Add the overlay flag when you want the readout visible immediately:
-
-```text
-PB_OVERLAY=1 PENGUIN_BURNER %command%
-```
-
-In-game latency turns on with the overlay — no extra flag. The NVAPI shim is
-deployed into the Proton prefix automatically and streams Reflex markers (it
-works under frame generation); native and prefix-less games fall back to the
-Vulkan layer's marker tap. Opt out with `PB_INGAME_LATENCY=0`.
-
-Some games do not expose usable latency markers at all. PenguinBurner can load
-the telemetry layer and parse marker streams when they exist, but it cannot
-force a game engine to emit real input/simulation/present markers. See
-[Latency and frame-generation FPS](docs/features/latency-fg.md) for the full
-source and fallback model.
-
-Any tuning change you make is reflected live in the overlay while you play, so
-you see the effect of an undervolt, clock, or fan change in real time without
-leaving the game.
-
-[Read the guide](docs/features/overlay.md) or the
-[latency/FG details](docs/features/latency-fg.md).
+[Overlay guide](docs/features/overlay.md) · [Latency and FPS details](docs/features/latency-fg.md)
 
 ## More features
 
@@ -274,31 +211,16 @@ C:\Program Files (x86)\MSI Afterburner
 
 Export any saved V/F (and optionally fan) curve as a complete Nvidia LACT config
 from the Profiles view. See
-[the Auto-UV guide](docs/features/auto-uv.md#after-the-scan) for the workflow.
+[profile management](docs/features/profile-management.md#lact-export) for the workflow.
 
 ## Run At Your Own Risk
 
-Auto-UV makes real hardware changes — enabling persistence mode, setting board
-power limits, writing core/memory V/F offsets, and taking over fan control.
+GPU tuning can crash the driver or freeze the system, even during verification.
+Auto-UV records interrupted probes so later scans avoid the same unsafe region.
+Performance adds overclocking and is optional.
 
-The **Balanced** and **Efficiency** Auto-UV profiles use conservative voltage
-floors; Efficiency also caps board power by default and chooses the best measured
-FPS/W. It may reclaim stable clock without raising its proven voltage.
-Balanced favors measured performance with a higher voltage and
-the stock power budget (cap it per scan in the dialog if you want a watts
-ceiling too).
-
-**Performance** is the profile that pushes past stock: it undervolts and then
-overclocks. On my RTX 5080, during the OC phase I sometimes get a "Vulkan device
-lost", which PenguinBurner catches and then reverts the problematic
-voltage/frequency point. Worst case is a hard system freeze and reboot — after
-which the blacklisted V/F point is persisted to the UV history file in your home
-directory, so it is not retried.
-
-You can also define, in the Performance setup dialog, exactly which
-voltage/frequency point the card is pushed to over stock limits. The default is
-the suggested point for 30/40/50-tier GPUs, based on experiments with this and
-similar tools on Windows. Performance is optional anyway — OC is not mandatory.
+Read about [recovery and crash history](docs/features/auto-uv-recovery.md)
+before changing targets or clearing scan state.
 
 ## Acknowledgements
 
@@ -323,14 +245,12 @@ merged April 18, 2026.
 
 ## CLI Documentation
 
-The CLI-focused README is archived in [readme-cli.md](readme-cli.md).
+See the command reference in [readme-cli.md](readme-cli.md).
 
 ## Start clean
 
-Reset PenguinBurner user state for a fresh run:
-
-```bash
-rm -rf ~/.config/PenguinBurner ~/.local/share/PenguinBurner ~/.cache/PenguinBurner
-```
+See [resetting user data](docs/features/troubleshooting.md#resetting-user-data)
+for a complete reset, or [scan recovery](docs/features/auto-uv-recovery.md) to
+retry Auto-UV while preserving profiles and crash history.
 
 Installing from a local checkout? See the [Install guide](docs/install.md#local-wheel-from-a-checkout).

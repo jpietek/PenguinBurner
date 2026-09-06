@@ -21,8 +21,8 @@ quiet fan curve practical. PenguinBurner can generate one for you.
 
 ## Safety guard
 
-Fan-curve generation is **blocked if the final load temperature is already too
-hot** for a quiet curve. The safety target is `75°C` by default.
+Generation is blocked when load-temperature data is missing or the measured
+load temperature exceeds **80°C**.
 
 ## Customizing
 
