@@ -340,7 +340,9 @@ def select_scan_tuning(
         )
         target_caution.setObjectName("autoUvTargetCaution")
         target_caution.setWordWrap(True)
-        target_caution.setMaximumWidth(680)
+        target_caution.setAlignment(
+            qt_flags(QtCore.Qt, "AlignmentFlag", "AlignCenter")
+        )
         form.addRow(target_caution)
 
         memory_spin = QtWidgets.QSpinBox()
