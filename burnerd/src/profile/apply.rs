@@ -87,8 +87,9 @@ pub(super) fn apply_gpu_base_policy(
 pub(super) fn reset_gpu_to_stock(
     backend: &dyn GpuBackend,
     log: &mut dyn FnMut(&str),
-) -> Result<(), String> {
+) -> Result<Option<bool>, String> {
     let mut failures = Vec::new();
+    let mut power_limit_set_supported = None;
     if let Err(exc) = backend.reset_locked_core_clocks() {
         failures.push(format!("locked core clocks: {exc}"));
     }
@@ -117,15 +118,16 @@ pub(super) fn reset_gpu_to_stock(
         if default_w != 0 {
             match backend.apply_power_limit_w(default_w) {
                 Err(exc) if exc.rc() == NVML_ERROR_NOT_SUPPORTED => {
+                    power_limit_set_supported = Some(false);
                     log(&format!(
                         "keep-stock: default power limit restore skipped: {exc}"
                     ));
                 }
                 Err(exc) => failures.push(format!("power limit restore: {exc}")),
                 Ok(_) => {
+                    power_limit_set_supported = Some(true);
                     let readback = backend.query_power_limits();
-                    if readback.power_limit_w != Some(default_w)
-                        && readback.enforced_power_limit_w != Some(default_w)
+                    if readback.power_limit_w.or(readback.enforced_power_limit_w) != Some(default_w)
                     {
                         failures.push(format!(
                             "power limit readback: current={:?} enforced={:?} expected={default_w}",
@@ -168,7 +170,7 @@ pub(super) fn reset_gpu_to_stock(
         ));
     }
     log("keep-stock: GPU reset to factory V/F; no undervolt applied");
-    Ok(())
+    Ok(power_limit_set_supported)
 }
 
 pub(super) fn apply_power_limit(

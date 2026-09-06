@@ -1,32 +1,12 @@
 """Runtime guardrails for an Auto-UV candidate probe.
 
-These checks stop probes early on hard evidence: lost load, idle selected GPU,
-or clocks below floor.
+Classify busy telemetry and failures that should be cached as unsafe.
 """
 
 from __future__ import annotations
 
-from auto_uv.domain.user_options import AUTO_UV_CURVE_TUNING, AUTO_UV_STALL_TUNING
+from auto_uv.domain.user_options import AUTO_UV_STALL_TUNING
 from ..persistence.unsafe_voltage_cache import controlled_failure_reason
-from ..shared.probe_data_fields import percent
-
-
-def target_core_clock_floor(
-    *,
-    lock_clock_mhz: int,
-    initial_probe_clock_mhz: float | None,
-    min_performance_core_clock_pct: float,
-    enforce_target_core_clock_floor: bool,
-) -> tuple[float | None, float | None]:
-    if not enforce_target_core_clock_floor:
-        return None, None
-    floor_base_clock_mhz = float(lock_clock_mhz)
-    if initial_probe_clock_mhz is not None:
-        floor_base_clock_mhz = max(floor_base_clock_mhz, float(initial_probe_clock_mhz))
-    return (
-        floor_base_clock_mhz * percent(float(min_performance_core_clock_pct)),
-        floor_base_clock_mhz,
-    )
 
 
 def telemetry_sample_is_busy(sample, busy_power_floor_w: float | None) -> bool:
@@ -46,12 +26,6 @@ def telemetry_sample_is_busy(sample, busy_power_floor_w: float | None) -> bool:
     )
 
 
-def core_clock_below_floor(core_clock_mhz: float, floor_mhz: float) -> bool:
-    return float(core_clock_mhz) < (
-        float(floor_mhz) - float(AUTO_UV_CURVE_TUNING.clock_select_tolerance_mhz)
-    )
-
-
 def probe_failure_should_mark_voltage_unsafe(reason: str) -> bool:
     if controlled_failure_reason(reason):
         return False
@@ -59,6 +33,7 @@ def probe_failure_should_mark_voltage_unsafe(reason: str) -> bool:
         (
             "q2rtx-selected-nvidia-gpu-idle",
             "user-stop-requested",
+            "busy core-clock telemetry missing",
         )
     ):
         return False

@@ -1,15 +1,15 @@
 from __future__ import annotations
 
+import pytest
+
 from auto_uv.domain.types import TelemetrySample
 from auto_uv.domain.user_options import (
-    AUTO_UV_METRIC_TUNING,
     AUTO_UV_STALL_TUNING,
 )
 from auto_uv.probes.runtime_guardrails import (
     probe_failure_should_mark_voltage_unsafe,
 )
 from auto_uv.probes.live_abort import (
-    low_live_clock_abort_reason,
     selected_nvidia_gpu_idle_abort_reason,
     telemetry_live_abort_reason,
 )
@@ -44,7 +44,6 @@ def test_telemetry_abort_detects_q2rtx_not_loading_selected_nvidia_gpu() -> None
         },
         busy_power_floor_w=None,
         proper_run_power_floor_w=None,
-        target_core_clock_floor_mhz=None,
         progress_state={},
     )
 
@@ -72,7 +71,6 @@ def test_telemetry_idle_abort_allows_actual_selected_gpu_load() -> None:
             },
             busy_power_floor_w=None,
             proper_run_power_floor_w=None,
-            target_core_clock_floor_mhz=None,
             progress_state={},
         )
         is None
@@ -152,8 +150,8 @@ def test_selected_gpu_idle_reports_with_missing_power_values() -> None:
 def test_telemetry_abort_reports_load_lost_after_streak() -> None:
     # Idle-but-not-busy samples below the proper-run power floor for the
     # required streak length trigger a load-lost abort.
-    streak = AUTO_UV_METRIC_TUNING.target_core_clock_low_streak_samples
-    min_samples = AUTO_UV_STALL_TUNING.live_core_clock_abort_min_samples
+    streak = AUTO_UV_STALL_TUNING.load_lost_streak_samples
+    min_samples = AUTO_UV_STALL_TUNING.load_lost_min_samples
     samples = [
         _sample(float(i), gpu_util_pct=10.0, power_w=20.0)
         for i in range(6, 6 + max(min_samples, 4))
@@ -169,7 +167,6 @@ def test_telemetry_abort_reports_load_lost_after_streak() -> None:
             },
             busy_power_floor_w=60.0,
             proper_run_power_floor_w=40.0,
-            target_core_clock_floor_mhz=None,
             progress_state=progress_state,
         )
 
@@ -182,7 +179,7 @@ def test_telemetry_abort_reports_load_lost_after_streak() -> None:
 
 
 def test_load_lost_streak_resets_when_sample_busy() -> None:
-    min_samples = AUTO_UV_STALL_TUNING.live_core_clock_abort_min_samples
+    min_samples = AUTO_UV_STALL_TUNING.load_lost_min_samples
     busy = [
         _sample(float(i), gpu_util_pct=95.0, power_w=20.0)
         for i in range(6, 6 + max(min_samples, 4))
@@ -197,7 +194,6 @@ def test_load_lost_streak_resets_when_sample_busy() -> None:
         },
         busy_power_floor_w=60.0,
         proper_run_power_floor_w=40.0,
-        target_core_clock_floor_mhz=None,
         progress_state=progress_state,
     )
 
@@ -218,7 +214,6 @@ def test_load_lost_skips_when_below_min_samples() -> None:
         },
         busy_power_floor_w=60.0,
         proper_run_power_floor_w=40.0,
-        target_core_clock_floor_mhz=None,
         progress_state=progress_state,
     )
 
@@ -226,223 +221,18 @@ def test_load_lost_skips_when_below_min_samples() -> None:
     assert progress_state == {}
 
 
-def test_telemetry_abort_reports_low_live_core_clock_after_streak() -> None:
-    streak = AUTO_UV_METRIC_TUNING.target_core_clock_low_streak_samples
-    min_samples = AUTO_UV_STALL_TUNING.live_core_clock_abort_min_samples
-    # Busy samples (so load-lost stays inert) but with collapsed core clock.
+@pytest.mark.parametrize("clock", [210.0, 2111.0, 2603.0])
+@pytest.mark.parametrize("cap_reason", [None, "sw-power", "hw-power-brake"])
+def test_busy_clock_shortfall_does_not_abort(clock, cap_reason) -> None:
     samples = [
-        _sample(float(i), gpu_util_pct=95.0, power_w=120.0, core_clock_mhz=210.0)
-        for i in range(6, 6 + max(min_samples, 4))
+        TelemetrySample(elapsed_s=float(i), gpu_util_pct=95.0, power_w=120.0,
+                        core_clock_mhz=clock, perf_cap_reason=cap_reason)
+        for i in range(6, 30)
     ]
-    progress_state: dict = {}
-    reason = None
-    for _ in range(streak):
-        reason = telemetry_live_abort_reason(
-            {
-                "elapsed_s": 30.0,
-                "latest_sample": samples[-1],
-                "telemetry_samples": samples,
-            },
-            busy_power_floor_w=60.0,
-            proper_run_power_floor_w=None,
-            target_core_clock_floor_mhz=2000.0,
-            progress_state=progress_state,
-        )
-
-    assert reason is not None
-    assert reason.startswith("telemetry-live-core_clock ")
-    assert "current=210.0MHz" in reason
-    assert "floor=2000.0MHz" in reason
-    assert progress_state["low_core_clock_streak"] == streak
-
-
-def test_low_live_clock_skips_below_min_samples() -> None:
-    progress_state: dict = {}
-    reason = low_live_clock_abort_reason(
-        live_core_clock_mhz=200.0,
-        live_sample_is_busy=True,
-        core_clock_samples=[200.0, 200.0],
-        target_core_clock_floor_mhz=2000.0,
-        progress_state=progress_state,
-    )
-
-    assert reason is None
-    assert progress_state == {}
-
-
-def test_low_live_clock_resets_streak_when_clock_healthy() -> None:
-    min_samples = AUTO_UV_STALL_TUNING.live_core_clock_abort_min_samples
-    progress_state = {"low_core_clock_streak": 2}
-
-    reason = low_live_clock_abort_reason(
-        live_core_clock_mhz=2400.0,
-        live_sample_is_busy=True,
-        core_clock_samples=[2400.0] * (min_samples + 1),
-        target_core_clock_floor_mhz=2000.0,
-        progress_state=progress_state,
-    )
-
-    assert reason is None
-    assert progress_state["low_core_clock_streak"] == 0
-
-
-def test_telemetry_abort_reports_avg_core_clock_below_floor() -> None:
-    # Enough busy samples with a low average core clock, but the live streak
-    # never accrues (avg path), so the average-clock rule fires.
-    n = AUTO_UV_STALL_TUNING.avg_core_clock_abort_min_samples + 1
-    samples = [
-        _sample(float(i), gpu_util_pct=95.0, power_w=120.0, core_clock_mhz=210.0)
-        for i in range(6, 6 + n)
-    ]
-    progress_state: dict = {}
-
-    reason = telemetry_live_abort_reason(
-        {
-            "elapsed_s": 30.0,
-            "latest_sample": samples[-1],
-            "telemetry_samples": samples,
-        },
-        busy_power_floor_w=60.0,
-        proper_run_power_floor_w=None,
-        target_core_clock_floor_mhz=2000.0,
-        progress_state=progress_state,
-    )
-
-    assert reason is not None
-    assert reason.startswith("telemetry-live-core_clock-avg")
-    assert "current=210.0MHz" in reason
-    assert "floor=2000.0MHz" in reason
-
-
-def test_live_low_clock_aborts_suppressed_under_power_cap() -> None:
-    # Both the live-streak rule and the average rule stay quiet while the
-    # driver names sw-power on the busy window: a power-governed clock below
-    # the floor is the cap working, not instability.
-    streak = AUTO_UV_METRIC_TUNING.target_core_clock_low_streak_samples
-    min_samples = max(
-        AUTO_UV_STALL_TUNING.live_core_clock_abort_min_samples,
-        AUTO_UV_STALL_TUNING.avg_core_clock_abort_min_samples,
-    )
-    samples = [
-        TelemetrySample(
-            elapsed_s=float(i),
-            gpu_util_pct=95.0,
-            power_w=450.0,
-            core_clock_mhz=2111.0,
-            perf_cap_reason="sw-power",
-        )
-        for i in range(6, 6 + min_samples + 1)
-    ]
-    progress_state: dict = {}
-
-    reason = None
-    for _ in range(streak + 1):
-        reason = telemetry_live_abort_reason(
-            {
-                "elapsed_s": 30.0,
-                "latest_sample": samples[-1],
-                "telemetry_samples": samples,
-            },
-            busy_power_floor_w=60.0,
-            proper_run_power_floor_w=None,
-            target_core_clock_floor_mhz=2439.0,
-            progress_state=progress_state,
-        )
-
-    assert reason is None
-    assert progress_state["low_core_clock_streak"] == 0
-
-
-def test_live_low_clock_aborts_suppressed_by_near_limit_power() -> None:
-    # Some drivers omit throttle-reason telemetry. Average busy power within
-    # the same 2% saturation window used by the post-probe decision must still
-    # let that decision run instead of aborting the workload early.
-    streak = AUTO_UV_METRIC_TUNING.target_core_clock_low_streak_samples
-    min_samples = max(
-        AUTO_UV_STALL_TUNING.live_core_clock_abort_min_samples,
-        AUTO_UV_STALL_TUNING.avg_core_clock_abort_min_samples,
-    )
-    samples = [
-        _sample(
-            float(i),
-            gpu_util_pct=95.0,
-            power_w=510.0,
-            core_clock_mhz=2111.0,
-        )
-        for i in range(6, 6 + min_samples + 1)
-    ]
-    progress_state: dict = {}
-
-    reason = None
-    for _ in range(streak + 1):
-        reason = telemetry_live_abort_reason(
-            {
-                "elapsed_s": 30.0,
-                "latest_sample": samples[-1],
-                "telemetry_samples": samples,
-            },
-            busy_power_floor_w=60.0,
-            proper_run_power_floor_w=None,
-            target_core_clock_floor_mhz=2439.0,
-            progress_state=progress_state,
-            power_limit_w=517,
-        )
-
-    assert reason is None
-    assert progress_state["low_core_clock_streak"] == 0
-
-
-def test_telemetry_abort_passes_when_everything_healthy() -> None:
-    n = AUTO_UV_STALL_TUNING.avg_core_clock_abort_min_samples + 1
-    samples = [
-        _sample(float(i), gpu_util_pct=95.0, power_w=120.0, core_clock_mhz=2400.0)
-        for i in range(6, 6 + n)
-    ]
-
-    assert (
-        telemetry_live_abort_reason(
-            {
-                "elapsed_s": 30.0,
-                "latest_sample": samples[-1],
-                "telemetry_samples": samples,
-            },
-            busy_power_floor_w=60.0,
-            proper_run_power_floor_w=40.0,
-            target_core_clock_floor_mhz=2000.0,
-            progress_state={},
-        )
-        is None
-    )
-
-
-def test_sparse_power_cap_reasons_do_not_suppress_live_low_clock_abort() -> None:
-    # Only one busy sample carries a sw-power reason among many reason-less
-    # ones: the suppression must abstain (minimum-evidence guard) and the
-    # average-clock abort still fires on the collapsed clock.
-    n = AUTO_UV_STALL_TUNING.avg_core_clock_abort_min_samples + 3
-    samples = [
-        TelemetrySample(
-            elapsed_s=float(i),
-            gpu_util_pct=95.0,
-            power_w=120.0,
-            core_clock_mhz=210.0,
-            perf_cap_reason="sw-power" if i == 6 else None,
-        )
-        for i in range(6, 6 + n)
-    ]
-    progress_state: dict = {}
-
-    reason = telemetry_live_abort_reason(
-        {
-            "elapsed_s": 30.0,
-            "latest_sample": samples[-1],
-            "telemetry_samples": samples,
-        },
-        busy_power_floor_w=60.0,
-        proper_run_power_floor_w=None,
-        target_core_clock_floor_mhz=2000.0,
-        progress_state=progress_state,
-    )
-
-    assert reason is not None
-    assert reason.startswith("telemetry-live-core_clock-avg")
+    state = {"elapsed_s": 30.0, "latest_sample": samples[-1], "telemetry_samples": samples}
+    progress = {}
+    for _ in range(4):
+        assert telemetry_live_abort_reason(
+            state, busy_power_floor_w=60.0, proper_run_power_floor_w=40.0,
+            progress_state=progress,
+        ) is None

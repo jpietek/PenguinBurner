@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from stability.q2rtx.models import Q2RTXStabilityConfig
 
-from auto_uv.domain.types import AutoUvProbeSummary, FailureKind, VfCurveCandidate
+from auto_uv.domain.types import (
+    AutoUvCriticalProbeError,
+    AutoUvProbeSummary,
+    FailureSeverity,
+    VfCurveCandidate,
+)
 from auto_uv.curve.vf_curve_flattening import build_flattened_plan
 from auto_uv.probes.runner import (
     AutoUvProbeRunner,
@@ -73,12 +81,11 @@ def test_probe_runner_emits_candidate_table_start_and_result(monkeypatch) -> Non
     runner = AutoUvProbeRunner(
         reader=object(),
         live_voltage_reader=object(),
-        q2rtx_config=object(),
+        q2rtx_config=Q2RTXStabilityConfig(),
         runtime_default_plan=[],
         power_limit_w=220,
         start_voltage_mv=1000,
         baseline_clock_mhz=None,
-        min_performance_core_clock_pct=90.0,
         short_probe_base_duration_s=10,
         log=lambda _message: None,
         event_callback=lambda name, payload: events.append((name, payload)),
@@ -121,7 +128,12 @@ def test_probe_runner_marker_details_add_candidate_tier_metadata() -> None:
         voltage_mv=885,
         target_mhz=2880,
         flattened_plan=[],
-        metadata={"tail_rise_bins": 6, "generated_profile_tier": "performance"},
+        metadata={
+            "tail_rise_bins": 6,
+            "generated_profile_tier": "performance",
+            "custom_target": True,
+            "auto_oc": True,
+        },
     )
 
     details = probe_runner_marker_details({"auto_uv_mode": "performance"}, candidate)
@@ -129,6 +141,8 @@ def test_probe_runner_marker_details_add_candidate_tier_metadata() -> None:
     assert details["auto_uv_mode"] == "performance"
     assert details["generated_profile_tier"] == "performance"
     assert details["tail_rise_bins"] == 6
+    assert details["custom_target"] is True
+    assert details["auto_oc"] is True
 
 
 def test_probe_runner_discovery_doubles_q2rtx_and_skips_cuda(monkeypatch) -> None:
@@ -155,6 +169,7 @@ def test_probe_runner_discovery_doubles_q2rtx_and_skips_cuda(monkeypatch) -> Non
     )
 
     config = captured["q2rtx_config"]
+    assert isinstance(config, Q2RTXStabilityConfig)
     assert config.duration_s == 20
     assert config.companion_command is None
 
@@ -187,8 +202,49 @@ def test_probe_runner_baseline_skips_cuda_companion(monkeypatch) -> None:
     )
 
     config = captured["q2rtx_config"]
+    assert isinstance(config, Q2RTXStabilityConfig)
     assert config.duration_s == 10
     assert config.companion_command is None
+
+
+@pytest.mark.parametrize("reason,critical", [
+    ("nvidia-xid-detected: 109", False),
+    ("benchmark-summary-missing", True),
+    ("workload-setup-failed", False),
+])
+def test_baseline_wrapper_aborts_critical_failure_but_returns_recoverable_failure(
+    monkeypatch, reason: str, critical: bool,
+) -> None:
+    from auto_uv.probes import runner as module
+
+    calls: list[dict] = []
+    summary = _summary(1000, 2500, used_companion_load=False)
+    raw_result = {"success": False, "reason": reason}
+
+    def fake_probe_voltage_candidate(**kwargs):
+        calls.append(kwargs)
+        return summary, raw_result
+
+    monkeypatch.setattr(module, "probe_voltage_candidate", fake_probe_voltage_candidate)
+    runner = _runner(q2rtx_config=Q2RTXStabilityConfig(), short_probe_base_duration_s=10)
+    candidate = VfCurveCandidate("baseline", 1000, 2500, base_curve())
+    outcome = None
+
+    with pytest.raises(AutoUvCriticalProbeError, match=reason) if critical else nullcontext():
+        outcome = runner.probe_baseline_candidate(candidate)
+
+    assert len(calls) == 1
+    assert calls[0]["phase_label"] == "baseline"
+    assert calls[0]["candidate_plan"] is candidate.flattened_plan
+    if not critical:
+        assert outcome is not None
+        assert not outcome.decision.passed
+        assert outcome.decision.severity is (
+            FailureSeverity.UNSAFE if reason.startswith("nvidia-xid") else FailureSeverity.RECOVERABLE
+        )
+        assert outcome.decision.reason == reason
+        assert outcome.raw_probe is summary
+        assert outcome.raw_result is raw_result
 
 
 def test_probe_runner_evaluates_cuda_from_per_voltage_config() -> None:
@@ -230,12 +286,11 @@ def test_probe_runner_evaluates_cuda_from_per_voltage_config() -> None:
     runner = AutoUvProbeRunner(
         reader=object(),
         live_voltage_reader=object(),
-        q2rtx_config=SimpleNamespace(companion_command=None),
+        q2rtx_config=Q2RTXStabilityConfig(companion_command=None),
         runtime_default_plan=[],
         power_limit_w=220,
         start_voltage_mv=1000,
         baseline_clock_mhz=None,
-        min_performance_core_clock_pct=90.0,
         short_probe_base_duration_s=10,
         log=lambda _message: None,
     )
@@ -244,135 +299,93 @@ def test_probe_runner_evaluates_cuda_from_per_voltage_config() -> None:
         summary,
         result,
         stable_history=[summary],
-        q2rtx_config=SimpleNamespace(companion_command=("cuda",)),
+        q2rtx_config=Q2RTXStabilityConfig(companion_command=("cuda",)),
     )
 
     assert outcome.decision.passed is True
     assert outcome.decision.evidence["cuda_required"] is True
 
 
-def test_probe_runner_uses_original_baseline_clock_for_final_clock_floor() -> None:
-    stable_baseline = _summary(1020, 2625, used_companion_load=False)
-    current_summary = _summary(1020, 2425, used_companion_load=False)
-    result = {
-        "success": True,
-        "benchmark_summary": _benchmark_summary(1000, 10.0, 100.0),
-        "telemetry_samples": [
-            {"power_w": 180.0, "core_clock_mhz": 2425.0, "gpu_util_pct": 99.0}
-        ],
-        "benchmark_telemetry_samples": [
-            {"power_w": 180.0, "core_clock_mhz": 2425.0, "gpu_util_pct": 99.0}
-        ],
-    }
-    runner = AutoUvProbeRunner(
-        reader=object(),
-        live_voltage_reader=object(),
-        q2rtx_config=SimpleNamespace(companion_command=None),
-        runtime_default_plan=[],
-        power_limit_w=360,
-        start_voltage_mv=1020,
-        baseline_clock_mhz=2745.0,
-        min_performance_core_clock_pct=90.0,
-        short_probe_base_duration_s=10,
-        log=lambda _message: None,
-    )
+@pytest.mark.parametrize("tail_bins", [0, 2])
+@pytest.mark.parametrize("tier", ["efficiency", "balanced", "performance"])
+def test_5070_ti_sweep_reaches_auto_oc_after_initial_clock_shortfall(
+    monkeypatch, tail_bins, tier,
+) -> None:
+    from auto_uv.auto_oc.search import run_auto_oc_candidate_search
+    from auto_uv.domain.scan_settings import AutoUvScanSettings
+    from auto_uv.main_loop import run_adaptive_tier_descent
 
-    outcome = runner.outcome_from_probe_result(
-        current_summary,
-        result,
-        stable_history=[stable_baseline],
-    )
+    curve = base_curve(850, 1051, 5, 2300, 15)
+    baseline = _summary(1025, 2737, used_companion_load=True)
+    probed = []
 
-    assert outcome.decision.passed is False
-    assert outcome.decision.failure_kind == FailureKind.LOW_CLOCK
-    assert outcome.decision.evidence["floor_mhz"] == 2470.5
-
-
-def test_probe_runner_can_disable_clock_floor_for_voltage_descent() -> None:
-    stable_baseline = _summary(1020, 2625, used_companion_load=False)
-    current_summary = _summary(950, 2325, used_companion_load=False)
-    result = {
-        "success": True,
-        "benchmark_summary": _benchmark_summary(1000, 10.0, 100.0),
-        "telemetry_samples": [
-            {"power_w": 180.0, "core_clock_mhz": 2325.0, "gpu_util_pct": 99.0}
-        ],
-        "benchmark_telemetry_samples": [
-            {"power_w": 180.0, "core_clock_mhz": 2325.0, "gpu_util_pct": 99.0}
-        ],
-    }
-    runner = AutoUvProbeRunner(
-        reader=object(),
-        live_voltage_reader=object(),
-        q2rtx_config=SimpleNamespace(companion_command=None),
-        runtime_default_plan=[],
-        power_limit_w=360,
-        start_voltage_mv=1020,
-        baseline_clock_mhz=2745.0,
-        min_performance_core_clock_pct=90.0,
-        short_probe_base_duration_s=10,
-        log=lambda _message: None,
-    )
-
-    outcome = runner.outcome_from_probe_result(
-        current_summary,
-        result,
-        stable_history=[stable_baseline],
-        enforce_core_clock_floor=False,
-    )
-
-    assert outcome.decision.passed is True
-
-
-def test_probe_sweep_candidate_can_run_without_live_clock_floor(monkeypatch) -> None:
-    captured: dict[str, object] = {}
-    candidate = VfCurveCandidate("candidate", 965, 2404, [])
-    summary = _summary(965, 2325, used_companion_load=True)
-    result = {
-        "success": True,
-        "benchmark_summary": _benchmark_summary(1000, 10.0, 100.0),
-        "telemetry_samples": [
-            {"power_w": 180.0, "core_clock_mhz": 2325.0, "gpu_util_pct": 99.0}
-        ],
-        "benchmark_telemetry_samples": [
-            {"power_w": 180.0, "core_clock_mhz": 2325.0, "gpu_util_pct": 99.0}
-        ],
-    }
-
-    def fake_probe_voltage_candidate(**kwargs):
-        captured["enforce_target_core_clock_floor"] = kwargs[
-            "enforce_target_core_clock_floor"
-        ]
+    def workload(**kwargs):
+        voltage = kwargs["candidate_voltage_mv"]
+        target = kwargs["lock_clock_mhz"]
+        measured = 2603 if voltage > 925 else target
+        probed.append((voltage, target))
+        summary = _summary(voltage, measured, used_companion_load=True)
+        summary.lock_clock_mhz = target
+        summary.avg_power_w = float(voltage - 800)
+        summary.efficiency_fps_per_w = 100.0 / summary.avg_power_w
+        result = _stable_result()
+        for sample in result["telemetry_samples"]:
+            sample["core_clock_mhz"] = float(measured)
         return summary, result
 
-    monkeypatch.setattr(
-        "auto_uv.probes.runner.probe_voltage_candidate",
-        fake_probe_voltage_candidate,
-    )
+    monkeypatch.setattr("auto_uv.probes.runner.probe_voltage_candidate", workload)
+    monkeypatch.setattr("auto_uv.auto_oc.search.load_unsafe_voltage_blacklist", list)
     runner = AutoUvProbeRunner(
-        reader=object(),
-        live_voltage_reader=object(),
-        q2rtx_config=Q2RTXStabilityConfig(
-            companion_command=("cuda",),
-            duration_s=10,
+        reader=object(), live_voltage_reader=object(),
+        q2rtx_config=Q2RTXStabilityConfig(companion_command=("cuda",), duration_s=10),
+        runtime_default_plan=curve, power_limit_w=300, start_voltage_mv=1025,
+        baseline_clock_mhz=2737.0,
+        short_probe_base_duration_s=10, log=lambda _: None,
+    )
+
+    monkeypatch.setattr("auto_uv.main_loop.write_verified_candidate", lambda *_a, **_k: None)
+    monkeypatch.setattr("auto_uv.main_loop.adaptive_tier_descent_tail_rise_bins", lambda _: tail_bins)
+    accumulated_unsafe = []
+    candidate, _, sweep_probe, _ = run_adaptive_tier_descent(
+        curve, tier_mode=tier,
+        base_loop_settings=AutoUvScanSettings(
+            start_voltage_mv=1025, min_search_voltage_mv=925,
+            auto_uv_mode=tier,
+            tail_rise_bins=tail_bins,
         ),
-        runtime_default_plan=[],
-        power_limit_w=360,
-        start_voltage_mv=1020,
-        baseline_clock_mhz=2745.0,
-        min_performance_core_clock_pct=90.0,
-        short_probe_base_duration_s=10,
-        log=lambda _message: None,
+        baseline_candidate=VfCurveCandidate("baseline", 1025, 2730, curve),
+        initial_stable_outcome=None, fallback_probe=baseline,
+        discovery_summary=baseline, accumulated_unsafe=accumulated_unsafe,
+        runner=runner, probe_history=[],
+        gpu=SimpleNamespace(clock_ceiling=None, power_limit_w=300), log=lambda _: None,
     )
 
-    outcome = runner.probe_sweep_candidate(
-        candidate,
-        stable_history=[_summary(1020, 2625, used_companion_load=True)],
-        enforce_target_core_clock_floor=False,
+    assert candidate.voltage_mv == 925
+    assert len(probed) > 4
+    assert all(target == 2730 for _, target in probed)
+    assert not accumulated_unsafe
+    assert sweep_probe is not None
+    climbed = run_auto_oc_candidate_search(
+        base_curve=curve, start_candidate=candidate,
+        start_probe=sweep_probe, runner=runner,
+        gpu_name="RTX 5070 Ti", clock_ceiling=None, probe_history=[],
+        log=lambda _: None, tail_rise_bins=tail_bins,
     )
+    assert climbed.attempts
+    assert climbed.selected_candidate.target_mhz == 2920
 
-    assert captured["enforce_target_core_clock_floor"] is False
-    assert outcome.decision.passed is True
+    # Verify the final wrapper accepts the clock shortfall but still guards FPS/CUDA.
+    from auto_uv.final_verification.main_loop import final_probe_stability_decision
+
+    for fps, reason, expected in [(100, "", True), (89, "", False), (100, "fatal-cuda-output", False)]:
+        _, result = workload(candidate_voltage_mv=975, lock_clock_mhz=2730)
+        result["benchmark_summary"] = _benchmark_summary(1000, 10.0, fps)
+        result.update(success=not reason, reason=reason)
+        final = final_probe_stability_decision(
+            result, stable_history=[baseline], power_limit_w=300,
+            q2rtx_config=runner.q2rtx_config,
+        )
+        assert final.passed is expected
 
 
 def _summary(
@@ -434,7 +447,6 @@ def _runner(
         power_limit_w=220,
         start_voltage_mv=int(start_voltage_mv),
         baseline_clock_mhz=None,
-        min_performance_core_clock_pct=90.0,
         short_probe_base_duration_s=int(short_probe_base_duration_s),
         log=lambda _message: None,
     )

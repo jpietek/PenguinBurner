@@ -1080,6 +1080,13 @@ def _run_benchmark_process(
     elif companion_exit_code not in (None, 0) and exit_reason == "completed":
         exit_reason = f"cuda-bruteforce-failed exit={int(companion_exit_code)}"
 
+    if exit_reason.startswith(("cuda", "fatal-cuda")):
+        # Keep the failure evidence available to Auto-UV's classifier. The
+        # concurrent companion writes separately; serial CUDA uses the main log.
+        output_tail.extend(_read_recent_output(
+            companion_log_path if concurrent_companion is not None else log_path
+        ))
+
     return _Q2RTXProcessRun(
         process_exit_code=process_exit_code,
         observed_duration_s=float(observed_duration_s),

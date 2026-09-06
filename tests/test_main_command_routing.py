@@ -397,8 +397,6 @@ def test_main_command_routing_accepts_parsed_auto_uv_scan_args_without_legacy_fl
             "--auto-uv-require-final-choice",
             "--auto-uv-mode",
             "efficiency",
-            "--auto-uv-max-clock-drop-pct",
-            "10",
             "--auto-uv-memory-offset-mhz",
             "0",
             "--auto-uv-tail-rise-bins",

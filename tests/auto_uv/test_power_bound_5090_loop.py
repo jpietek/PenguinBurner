@@ -16,13 +16,14 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any, cast
 
+import pytest
+
 from auto_uv.auto_oc.search import AUTO_OC_WALL_SHORTFALL_TOLERANCE_MHZ
-from auto_uv.balanced_uv_loop import run_balanced_uv_loop
-from auto_uv.base_uv_loop import BaseUvLoopIO
+from auto_uv.base_uv_loop import BaseUvLoopIO, run_base_uv_loop
 from auto_uv.curve.measured_probe_lock_clock import probe_indicates_power_saturation
 from auto_uv.curve.vf_curve_flattening import build_flattened_plan
 from auto_uv.domain.scan_settings import AutoUvScanSettings
-from auto_uv.domain.types import FailureKind, VfCurveCandidate
+from auto_uv.domain.types import AutoUvCriticalProbeError, VfCurveCandidate
 from auto_uv.performance_uv_loop import select_power_bound_clock_reclaim_candidate
 from auto_uv.probes.stability_decision import (
     StabilityThresholds,
@@ -48,7 +49,6 @@ def _harness(
     *,
     power_limit_w: int,
     curve: list[dict] | None = None,
-    min_core_clock_pct: float = 94.0,
 ) -> GovernorProbeHarness:
     base_curve = curve if curve is not None else rtx_5090_steep_synthetic_curve()
     stock = settle_operating_point(
@@ -63,7 +63,6 @@ def _harness(
         baseline_core_clock_mhz=float(stock["clock_mhz"]),
         baseline_power_w=float(stock["power_w"]),
         baseline_fps=100.0,
-        min_core_clock_pct=float(min_core_clock_pct),
     )
 
 
@@ -307,34 +306,37 @@ def test_descent_walks_down_instead_of_stopping_at_the_capped_clock() -> None:
     )
     unsafe: list[dict] = []
 
-    result = run_balanced_uv_loop(
-        curve,
-        settings=AutoUvScanSettings(
-            start_voltage_mv=start_voltage_mv,
-            min_search_voltage_mv=850,
-            baseline_core_clock_mhz=float(start_clock_mhz),
-            auto_uv_mode="balanced",
-            min_core_clock_pct=94.0,
-            tail_rise_bins=4,
-        ),
-        initial_stable_candidate=start,
-        io=BaseUvLoopIO(
-            probe_candidate=harness.probe,
-            write_verified_candidate=lambda _candidate, _outcome: None,
-            mark_unsafe_candidate=lambda candidate, _outcome: unsafe.append(
-                {"voltage_mv": int(candidate.voltage_mv)}
+    checkpoints: list[int] = []
+    with pytest.raises(AutoUvCriticalProbeError, match="q2rtx crashed"):
+        run_base_uv_loop(
+            curve,
+            settings=AutoUvScanSettings(
+                start_voltage_mv=start_voltage_mv,
+                min_search_voltage_mv=850,
+                auto_uv_mode="balanced",
+                tail_rise_bins=4,
             ),
-        ),
-        unsafe_entries=None,
-        initial_stable_outcome=harness.probe(start),
-    )
+            initial_stable_candidate=start,
+            io=BaseUvLoopIO(
+                probe_candidate=harness.probe,
+                write_verified_candidate=lambda candidate, _outcome: checkpoints.append(
+                    int(candidate.voltage_mv)
+                ),
+                mark_unsafe_candidate=lambda candidate, _outcome: unsafe.append(
+                    {"voltage_mv": int(candidate.voltage_mv)}
+                ),
+            ),
+            unsafe_entries=None,
+            initial_stable_outcome=harness.probe(start),
+        )
 
     probed_voltages = sorted({probe["voltage_mv"] for probe in harness.probes})
     assert len(probed_voltages) >= 4, (
         f"descent stopped after {probed_voltages}: a power-bound sweep must "
         "keep walking the voltage down"
     )
-    assert int(result.stable_candidate.voltage_mv) < start_voltage_mv
+    assert checkpoints and checkpoints[-1] < start_voltage_mv
+    assert checkpoints[-1] >= unstable_floor_mv
     # It stopped for a real reason, not for a governed clock: the sweep
     # reached the injected V/F floor and nothing else failed on the way.
     assert min(probed_voltages) <= unstable_floor_mv
@@ -345,72 +347,6 @@ def test_descent_walks_down_instead_of_stopping_at_the_capped_clock() -> None:
         "a power-governed clock was misread as instability: "
         f"{[probe for probe in harness.probes if not probe['passed']]}"
     )
-
-
-def test_low_clock_still_fails_when_the_cap_is_only_named_by_a_few_samples() -> None:
-    """A sparse sw-power minority must not buy a power-walled pass.
-
-    The summarizer's coverage gate is the only thing standing between an
-    occasional cap blip and an exemption that would hide real V/F demotion.
-    """
-    model = scenario_5090_blackwell_models()[1]
-    curve = rtx_5090_steep_synthetic_curve()
-    capped = settle_operating_point(
-        curve, model=model, power_limit_w=float(EFFICIENCY_CAP_W)
-    )
-    samples = synthesize_busy_samples(capped, count=12, model=model)
-    sparse = [
-        {
-            **sample,
-            # Far off the cap, so only the reason vote could grant a pass.
-            "power_w": 300.0,
-            "core_clock_mhz": 1900.0,
-            "perf_cap_reason": "sw-power" if index == 0 else None,
-        }
-        for index, sample in enumerate(samples)
-    ]
-
-    decision = evaluate_loaded_telemetry(
-        sparse,
-        baseline_power_w=float(capped["power_w"]),
-        baseline_core_clock_mhz=2595.0,
-        power_limit_w=EFFICIENCY_CAP_W,
-        thresholds=StabilityThresholds(min_core_clock_pct=94.0),
-        log_path=None,
-    )
-
-    assert not decision.passed
-    assert decision.failure_kind is FailureKind.LOW_CLOCK
-
-
-def test_thermal_cap_does_not_buy_a_power_walled_pass() -> None:
-    """Only a power cap explains a clock shortfall as the cap working."""
-    model = scenario_5090_blackwell_models()[1]
-    curve = rtx_5090_steep_synthetic_curve()
-    capped = settle_operating_point(
-        curve, model=model, power_limit_w=float(EFFICIENCY_CAP_W)
-    )
-    thermal = [
-        {
-            **sample,
-            "power_w": 300.0,
-            "core_clock_mhz": 1900.0,
-            "perf_cap_reason": "hw-thermal",
-        }
-        for sample in synthesize_busy_samples(capped, count=12, model=model)
-    ]
-
-    decision = evaluate_loaded_telemetry(
-        thermal,
-        baseline_power_w=float(capped["power_w"]),
-        baseline_core_clock_mhz=2595.0,
-        power_limit_w=EFFICIENCY_CAP_W,
-        thresholds=StabilityThresholds(min_core_clock_pct=94.0),
-        log_path=None,
-    )
-
-    assert not decision.passed
-    assert decision.failure_kind is FailureKind.LOW_CLOCK
 
 
 def test_ramp_samples_do_not_change_the_power_walled_verdict() -> None:
@@ -428,9 +364,8 @@ def test_ramp_samples_do_not_change_the_power_walled_verdict() -> None:
             model=model,
         ),
         baseline_power_w=float(harness.baseline_power_w),
-        baseline_core_clock_mhz=float(harness.baseline_core_clock_mhz),
         power_limit_w=EFFICIENCY_CAP_W,
-        thresholds=StabilityThresholds(min_core_clock_pct=94.0),
+        thresholds=StabilityThresholds(),
         log_path=None,
     )
 

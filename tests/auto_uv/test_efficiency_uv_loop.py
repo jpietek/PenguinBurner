@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
+from dataclasses import replace
+
+import pytest
+
 from auto_uv.base_uv_loop import BaseUvLoopIO
 from auto_uv.curve.vf_curve_flattening import build_flattened_plan
 from auto_uv.domain.scan_settings import AutoUvScanSettings
 from auto_uv.domain.types import (
+    AutoUvCriticalProbeError,
     FailureKind,
     FailureSeverity,
     StableRunDecision,
     VfCurveCandidate,
 )
-from auto_uv.efficiency_uv_loop import run_efficiency_uv_loop
+from auto_uv.main_loop import run_preset_uv_loop
 from auto_uv.run.voltage_sweep_state import VoltageProbeOutcome
 
 from auto_uv_test_data import base_curve
@@ -57,9 +63,7 @@ def _settings(*, auto_uv_mode: str = "efficiency", min_search_voltage_mv: int) -
     return AutoUvScanSettings(
         start_voltage_mv=1000,
         min_search_voltage_mv=min_search_voltage_mv,
-        baseline_core_clock_mhz=None,
         auto_uv_mode=auto_uv_mode,
-        min_core_clock_pct=85.0,
         reference_actual_voltage_mv=None,
         efficiency_stop_streak=0,
         min_efficiency_stop_voltage_drop_pct=100.0,
@@ -76,13 +80,13 @@ def _tail_targets_above_lock(candidate: VfCurveCandidate) -> list[int]:
     ]
 
 
-def _recoverable_low_clock_outcome() -> VoltageProbeOutcome:
+def _fps_regression_outcome() -> VoltageProbeOutcome:
     return VoltageProbeOutcome(
         decision=StableRunDecision(
             passed=False,
-            failure_kind=FailureKind.LOW_CLOCK,
+            failure_kind=FailureKind.FPS_REGRESSION,
             severity=FailureSeverity.RECOVERABLE,
-            reason="average busy core clock below floor",
+            reason="benchmark average FPS below floor",
         ),
         measured_core_clock_mhz=None,
         measured_voltage_mv=None,
@@ -91,141 +95,129 @@ def _recoverable_low_clock_outcome() -> VoltageProbeOutcome:
     )
 
 
-def test_first_pass_stops_at_clock_floor_and_tail_tune_descends_through() -> None:
-    # The confirmed two-pass design: pass 1 (flat tail) stops at the first
-    # recoverable low-clock probe instead of sweeping on with a sagging clock;
-    # the tail-tune pass then owns the deep voltage region, where the raised
-    # tail must hold the clock and low-clock bins are skipped, not fatal.
+@pytest.mark.parametrize("kind", [FailureKind.FPS_REGRESSION, FailureKind.NVIDIA_XID, FailureKind.METRICS_MISSING])
+def test_first_failure_stops_efficiency_without_repeating_the_probe(kind) -> None:
     curve = base_curve()
-    probed: list[tuple[int, int]] = []
+    initial = _initial_candidate(curve, voltage_mv=1000, lock_mhz=2240)
+    probed: list[VfCurveCandidate] = []
+    written: list[VfCurveCandidate] = []
+    unsafe: list[VfCurveCandidate] = []
+    outcome = _fps_regression_outcome()
+    critical = kind is FailureKind.METRICS_MISSING
+    if kind is not FailureKind.FPS_REGRESSION:
+        outcome = replace(outcome, decision=StableRunDecision(
+            passed=False,
+            failure_kind=kind,
+            severity=FailureSeverity.CRITICAL if critical else FailureSeverity.UNSAFE,
+            reason=kind.value,
+        ))
 
     def probe(candidate: VfCurveCandidate) -> VoltageProbeOutcome:
-        voltage_mv = int(candidate.voltage_mv)
-        tail_bins = int(dict(candidate.metadata or {}).get("tail_rise_bins") or 0)
-        probed.append((voltage_mv, tail_bins))
-        if tail_bins == 0:
-            floor_mv = 950  # flat curve sags below the clock floor under 950mV
-        else:
-            floor_mv = 850  # the raised tail holds the clock down to 850mV
-        if voltage_mv >= floor_mv:
-            return _passing_outcome()
-        return _recoverable_low_clock_outcome()
+        probed.append(candidate)
+        return outcome
 
-    result = run_efficiency_uv_loop(
-        curve,
-        settings=_settings(min_search_voltage_mv=825),
+    result = None
+    with pytest.raises(AutoUvCriticalProbeError, match="metrics-missing") if critical else nullcontext():
+        result = run_preset_uv_loop(
+            curve,
+            settings=_settings(min_search_voltage_mv=825),
+            initial_stable_candidate=initial,
+            io=BaseUvLoopIO(
+                probe_candidate=probe,
+                write_verified_candidate=lambda candidate, _: written.append(candidate),
+                mark_unsafe_candidate=lambda candidate, _: unsafe.append(candidate),
+            ),
+            unsafe_entries=None,
+            initial_stable_outcome=None,
+            log=lambda _: None,
+        )
+
+    assert len(probed) == 1
+    assert unsafe == probed
+    assert written == []
+    if not critical:
+        assert result is not None
+        assert result.stable_candidate is initial
+        assert result.probe_history == [outcome]
+
+
+def test_efficiency_stops_on_fps_regression_without_accepting_it() -> None:
+    curve = base_curve()
+    probed: list[VfCurveCandidate] = []
+    written: list[VfCurveCandidate] = []
+
+    def probe(candidate: VfCurveCandidate) -> VoltageProbeOutcome:
+        probed.append(candidate)
+        if candidate.voltage_mv >= 925:
+            return _passing_outcome()
+        return _fps_regression_outcome()
+
+    result = run_preset_uv_loop(
+        curve, settings=_settings(min_search_voltage_mv=825),
         initial_stable_candidate=_initial_candidate(curve, voltage_mv=1000, lock_mhz=2240),
         io=BaseUvLoopIO(
             probe_candidate=probe,
-            write_verified_candidate=lambda _candidate, _outcome: None,
+            write_verified_candidate=lambda candidate, _outcome: written.append(candidate),
             mark_unsafe_candidate=lambda _candidate, _outcome: None,
         ),
-        min_search_voltage_mv=825,
-        initial_tail_rise_bins=0,
-        log=lambda _message: None,
+        unsafe_entries=None, initial_stable_outcome=None, log=lambda _: None,
     )
-
-    flat_probes = [(v, bins) for v, bins in probed if bins == 0]
-    tail_probes = [(v, bins) for v, bins in probed if bins == 2]
-
-    # Pass 1 stopped at its first low-clock probe: exactly one flat probe below
-    # the flat floor, and no flat probes after the tail-tune pass began.
-    flat_low_clock = [v for v, _bins in flat_probes if v < 950]
-    assert len(flat_low_clock) == 1
-    assert probed.index((flat_low_clock[0], 0)) == len(flat_probes) - 1
-
-    # The deep region was probed only with the raised tail, past where the
-    # flat pass stopped, and the low-clock bins below 850 were skipped without
-    # ending the sweep.
-    assert tail_probes
-    assert min(v for v, _bins in tail_probes) < min(v for v, _bins in flat_probes)
-    assert any(v < 850 for v, _bins in tail_probes)
-
-    candidate = result.stable_candidate
-    assert candidate.voltage_mv == 850
-    assert int(candidate.metadata["tail_rise_bins"]) == 2
+    assert len(probed) == 2
+    assert probed[-1].voltage_mv < 925
+    assert result.stable_candidate.voltage_mv == 925
+    assert all(c.voltage_mv >= 925 for c in written)
+    assert all(c.metadata["tail_rise_bins"] == 0 for c in probed)
+    assert all(all(t == c.target_mhz for t in _tail_targets_above_lock(c)) for c in probed)
 
 
-def test_floor_reached_first_pass_still_ships_raised_tail() -> None:
+@pytest.mark.parametrize("tail_bins", [0, 2])
+@pytest.mark.parametrize("final_floor", [900, 825])
+def test_efficiency_descends_once_to_floor_preserving_tested_tail_and_history(
+    tail_bins: int, final_floor: int
+) -> None:
     curve = base_curve()
-    result = run_efficiency_uv_loop(
+    probed: list[VfCurveCandidate] = []
+    written: list[tuple[VfCurveCandidate, VoltageProbeOutcome]] = []
+    outcome = _passing_outcome(raw_probe=object())
+
+    def probe(candidate: VfCurveCandidate) -> VoltageProbeOutcome:
+        probed.append(candidate)
+        return outcome
+
+    result = run_preset_uv_loop(
         curve,
-        settings=_settings(min_search_voltage_mv=900),
+        settings=replace(_settings(min_search_voltage_mv=final_floor), tail_rise_bins=tail_bins),
         initial_stable_candidate=_initial_candidate(curve, voltage_mv=1000, lock_mhz=2240),
-        io=_all_pass_io(),
-        min_search_voltage_mv=900,
-        initial_tail_rise_bins=0,
-        log=lambda _message: None,
+        io=BaseUvLoopIO(
+            probe_candidate=probe,
+            write_verified_candidate=lambda candidate, measured: written.append((candidate, measured)),
+            mark_unsafe_candidate=lambda *_: None,
+        ),
+        unsafe_entries=None, initial_stable_outcome=None,
+        log=lambda _: None,
     )
 
-    candidate = result.stable_candidate
-    # The sweep descended to the floor voltage in pass 1, so tail tune never
-    # ran; the final candidate must still carry the efficiency +2 rising tail.
-    assert candidate.voltage_mv == 900
-    assert int(candidate.metadata["tail_rise_bins"]) == 2
-    lock_clock = int(candidate.target_mhz)
-    tail = _tail_targets_above_lock(candidate)
-    assert max(tail) == lock_clock + 30
-    assert any(target > lock_clock for target in tail)
+    assert result.stable_candidate.voltage_mv == final_floor
+    voltages = [candidate.voltage_mv for candidate in probed]
+    assert voltages == sorted(set(voltages), reverse=True)
+    assert len(result.probe_history) == len(probed)
+    assert written[-1][0] is result.stable_candidate
+    assert all(measured is outcome for _, measured in written)
+    assert all(candidate.metadata["tail_rise_bins"] == tail_bins for candidate in probed)
+    for candidate in probed:
+        tail = _tail_targets_above_lock(candidate)
+        assert max(tail) == candidate.target_mhz + 15 * tail_bins
 
 
-def test_tail_tune_pass_result_keeps_raised_tail_metadata() -> None:
+def test_non_efficiency_mode_returns_base_sweep_unchanged() -> None:
     curve = base_curve()
-    result = run_efficiency_uv_loop(
-        curve,
-        settings=_settings(min_search_voltage_mv=950),
-        initial_stable_candidate=_initial_candidate(curve, voltage_mv=1000, lock_mhz=2240),
-        io=_all_pass_io(),
-        min_search_voltage_mv=825,
-        initial_tail_rise_bins=0,
-        log=lambda _message: None,
-    )
-
-    candidate = result.stable_candidate
-    # Pass 1 stopped at 950 (its own floor); the tail-tune pass continued to
-    # the efficiency floor with the raised tail built into every candidate.
-    assert candidate.voltage_mv == 825
-    assert int(candidate.metadata["tail_rise_bins"]) == 2
-    tail = _tail_targets_above_lock(candidate)
-    assert max(tail) == int(candidate.target_mhz) + 30
-
-
-def test_raised_tail_rebuild_is_persisted_through_sweep_io() -> None:
-    curve = base_curve()
-    written: list[VfCurveCandidate] = []
-    probe_marker = object()
-    io = BaseUvLoopIO(
-        probe_candidate=lambda _candidate: _passing_outcome(raw_probe=probe_marker),
-        write_verified_candidate=lambda candidate, _outcome: written.append(candidate),
-        mark_unsafe_candidate=lambda _candidate, _outcome: None,
-    )
-    result = run_efficiency_uv_loop(
-        curve,
-        settings=_settings(min_search_voltage_mv=900),
-        initial_stable_candidate=_initial_candidate(curve, voltage_mv=1000, lock_mhz=2240),
-        io=io,
-        min_search_voltage_mv=900,
-        initial_tail_rise_bins=0,
-        log=lambda _message: None,
-    )
-
-    # Crash recovery and the final-choice UI restore from the persisted
-    # verified-candidate records, so the raised-tail rebuild must be written
-    # back through the sweep IO, not only returned in memory.
-    assert written
-    assert written[-1] is result.stable_candidate
-    assert int(written[-1].metadata["tail_rise_bins"]) == 2
-
-
-def test_non_efficiency_mode_returns_first_pass_unchanged() -> None:
-    curve = base_curve()
-    result = run_efficiency_uv_loop(
+    result = run_preset_uv_loop(
         curve,
         settings=_settings(auto_uv_mode="balanced", min_search_voltage_mv=900),
         initial_stable_candidate=_initial_candidate(curve, voltage_mv=1000, lock_mhz=2240),
         io=_all_pass_io(),
-        min_search_voltage_mv=900,
-        initial_tail_rise_bins=0,
+        unsafe_entries=None,
+        initial_stable_outcome=None,
         log=lambda _message: None,
     )
 

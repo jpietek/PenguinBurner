@@ -42,7 +42,7 @@ QLabel#aboutSavings {{
     font-weight: 700;
     line-height: 1.4;
 }}
-QLabel#gpuNvmlInfo {{
+QLabel#gpuNvmlInfo, QLabel#autoUvTargetCaution {{
     background: {theme.SURFACE_BG};
     border: 1px solid {theme.BORDER};
     border-radius: 5px;

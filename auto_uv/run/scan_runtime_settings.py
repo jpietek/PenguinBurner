@@ -19,15 +19,13 @@ from auto_uv.domain.user_options import (
     AUTO_UV_DEFAULTS,
     AUTO_UV_METRIC_TUNING,
 )
-from auto_uv.scan_mode.uv_limits import uv_limit_clock_drop_pct_for_gpu
+from auto_uv.scan_mode.target_overrides import validate_tier_target_overrides
 
 
 @dataclass(frozen=True, slots=True)
 class ScanRuntimeSettings:
     q2rtx_config: Q2RTXStabilityConfig
     auto_uv_mode: str
-    final_clock_drop_margin_pct: float
-    min_performance_core_clock_pct: float
     configured_min_voltage_mv: int | None
     configured_max_drop_pct: float
     final_verification_duration_s: int
@@ -46,18 +44,11 @@ def read_scan_runtime_settings(
     if int(q2rtx_config.duration_s) <= 0:
         raise AutoUvError("auto-UV voltage scan needs positive benchmark duration")
 
+    validate_tier_target_overrides(runtime_options, gpu_name=gpu_name)
     auto_uv_mode = normalize_auto_uv_mode(runtime_options.get("auto_uv_mode"))
-    final_clock_drop_margin_pct = clock_drop_margin_pct(
-        runtime_options,
-        auto_uv_mode=auto_uv_mode,
-        gpu_name=gpu_name,
-    )
-    min_performance_core_clock_pct = max(0.0, 100.0 - final_clock_drop_margin_pct)
     return ScanRuntimeSettings(
         q2rtx_config=q2rtx_config,
         auto_uv_mode=auto_uv_mode,
-        final_clock_drop_margin_pct=float(final_clock_drop_margin_pct),
-        min_performance_core_clock_pct=float(min_performance_core_clock_pct),
         configured_min_voltage_mv=optional_int(
             runtime_options.get("auto_uv_min_voltage_mv")
         ),
@@ -71,27 +62,6 @@ def read_scan_runtime_settings(
         min_efficiency_stop_voltage_drop_pct=min_efficiency_stop_voltage_drop_pct(),
         tail_rise_bins=tail_rise_bins(runtime_options, auto_uv_mode=auto_uv_mode),
     )
-
-
-def clock_drop_margin_pct(
-    runtime_options: dict,
-    *,
-    auto_uv_mode: str | None = None,
-    gpu_name: object | None = None,
-    profile_id: str | None = None,
-) -> float:
-    value = runtime_options.get("auto_uv_max_clock_drop_pct")
-    if value is None:
-        value = uv_limit_clock_drop_pct_for_gpu(
-            gpu_name,
-            profile_id=(
-                profile_id
-                or clock_drop_profile_id(runtime_options, auto_uv_mode=auto_uv_mode)
-            ),
-        )
-    if value is None:
-        value = AUTO_UV_DEFAULTS.max_core_clock_drop_pct
-    return max(0.0, min(100.0, float(value)))
 
 
 def adaptive_tier_option(
@@ -111,61 +81,6 @@ def adaptive_tier_option(
         return None
     value = runtime_options.get(adaptive_tier_option_key(tier, option))
     return None if value in (None, "") else value
-
-
-def adaptive_tier_clock_drop_margin_pct(
-    runtime_options: dict,
-    *,
-    tier_mode: str,
-    gpu_name: object | None = None,
-) -> float:
-    """One adaptive tier's loaded clock-drop allowance in percent.
-
-    The tier's own option wins; otherwise the scan-wide chain resolves with
-    the tier's GPU-table row. Each tier descends with ITS margin — sharing
-    one scan-wide margin let the balanced tier descend with the efficiency
-    (loosest) allowance.
-    """
-    value = adaptive_tier_option(
-        runtime_options,
-        tier_mode=tier_mode,
-        option="max_clock_drop_pct",
-    )
-    if value is not None:
-        return max(0.0, min(100.0, float(cast(Any, value))))
-    return clock_drop_margin_pct(
-        runtime_options,
-        gpu_name=gpu_name,
-        profile_id=str(tier_mode).strip().lower(),
-    )
-
-
-def clock_drop_profile_id(
-    runtime_options: dict,
-    *,
-    auto_uv_mode: str | None = None,
-) -> str:
-    requested = str(runtime_options.get("auto_uv_requested_mode") or "").strip().lower()
-    if requested in {"efficiency", "balanced", "performance"}:
-        return requested
-
-    raw_mode = str(runtime_options.get("auto_uv_mode") or "").strip().lower()
-    if raw_mode == "balanced":
-        return "balanced"
-    if raw_mode == "performance" or auto_uv_mode == AUTO_UV_MODE_PERFORMANCE:
-        return "performance"
-
-    value = runtime_options.get("auto_uv_tail_rise_bins")
-    if value is not None:
-        tail_bins = int(value)
-        # Performance and balanced share the same default tail; only a tail
-        # explicitly above the balanced default signals a performance scan,
-        # so a shared value falls to the stricter balanced clock-drop limits.
-        if tail_bins > int(AUTO_UV_DEFAULTS.balanced_tail_rise_bins):
-            return "performance"
-        if tail_bins >= int(AUTO_UV_DEFAULTS.balanced_tail_rise_bins):
-            return "balanced"
-    return "efficiency"
 
 
 def max_drop_pct() -> float:

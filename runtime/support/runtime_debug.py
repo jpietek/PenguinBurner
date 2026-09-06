@@ -284,7 +284,6 @@ def debug_effective_runtime_options(*, config_path, gpu_index, auto_uv_runtime_o
         f"config-path={Path(config_path).expanduser().resolve()} "
         f"gpu-index={gpu_index} "
         f"auto-uv-mode={auto_uv_runtime_options.get('auto_uv_mode') or '(default)'} "
-        f"auto-uv-min-voltage-mv={auto_uv_runtime_options.get('auto_uv_min_voltage_mv') or '(default)'} "
-        f"auto-uv-max-clock-drop-pct={auto_uv_runtime_options.get('auto_uv_max_clock_drop_pct') or '(default)'}"
+        f"auto-uv-min-voltage-mv={auto_uv_runtime_options.get('auto_uv_min_voltage_mv') or '(default)'}"
         + (f" {per_tier_options}" if per_tier_options else "")
     )

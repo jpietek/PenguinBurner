@@ -1,7 +1,4 @@
-"""Run the final long verification loop for the selected Auto-UV curve.
-
-The loop either proves the selected curve or raises voltage to the next stable bin.
-"""
+"""Verify and save the selected Auto-UV curve, preserving its tested shape."""
 
 from __future__ import annotations
 
@@ -13,15 +10,17 @@ from stability.q2rtx.long_stability_config import (
 
 from auto_uv.domain.console_log import log_benchmark, log_phase, log_user_stage
 from auto_uv.domain.types import (
+    AutoUvCriticalProbeError,
     AutoUvError,
     AutoUvProbeSummary,
+    FailureKind,
+    FailureSeverity,
     StableRunDecision,
     VfCurveCandidate,
 )
 from ..curve.rising_tail import tail_ceiling_clock_mhz
 from ..shared.positive_int import positive_int
 from auto_uv.probes.stability_decision import (
-    StabilityThresholds,
     evaluate_stable_run,
 )
 from auto_uv.domain.events import (
@@ -38,6 +37,7 @@ from .crash_marker import (
     final_probe_crash_marker_details,
     memory_offset_from_gpu_policy,
 )
+from auto_uv.curve.shipped_plan import assert_monotonic_editable_targets
 from .fan_curve import (
     FinalVerificationFanCurveResult,
     write_final_verification_fan_curve_payload,
@@ -48,6 +48,8 @@ from .result_files import (
     write_last_stable_result_snapshot,
 )
 from ..persistence.verified_candidate_result_file import write_latest_verified_candidate
+from ..persistence.unsafe_voltage_blacklist_file import load_unsafe_voltage_blacklist
+from ..persistence.unsafe_voltage_cache import unsafe_voltage_block_reason
 
 
 def run_final_verification_and_save(
@@ -71,9 +73,7 @@ def run_final_verification_and_save(
     discovery_summary,
     translated_gpu_policy,
     gpu_identity,
-    min_performance_core_clock_pct,
     runtime_default_plan,
-    final_clock_drop_margin_pct,
     tail_rise_bins: int = 0,
     auto_uv_mode: str = "",
     generated_profile_tier: str = "",
@@ -85,6 +85,18 @@ def run_final_verification_and_save(
     final_lock_clock_mhz = int(stable_lock_clock_mhz)
     final_plan = stable_plan
     final_status = "not-run"
+    blocked = unsafe_voltage_block_reason(
+        load_unsafe_voltage_blacklist(),
+        candidate_voltage_mv=final_voltage_mv,
+        lock_clock_mhz=final_lock_clock_mhz,
+        profile_tier=generated_profile_tier,
+    )
+    if blocked:
+        raise AutoUvError(f"Final verification blocked: {blocked}")
+
+    # Verify the selected smooth curve intact. A separate sweep of flattened
+    # lower points would replace its operating point and plot during the soak.
+    assert_monotonic_editable_targets(final_plan)
 
     log_phase(
         log,
@@ -118,7 +130,6 @@ def run_final_verification_and_save(
         event_callback,
         candidate,
         stage="final-verify",
-        max_clock_drop_pct=float(final_clock_drop_margin_pct),
         target_duration_s=int(final_verification_duration_s),
     )
     log_final_probe_start(
@@ -150,6 +161,8 @@ def run_final_verification_and_save(
             "auto_uv_mode": str(auto_uv_mode or ""),
             "generated_profile_tier": str(generated_profile_tier or ""),
             "tail_rise_bins": int(tail_rise_bins),
+            "custom_target": bool((auto_oc_metadata or {}).get("custom_target")),
+            "auto_oc": bool((auto_oc_metadata or {}).get("auto_oc")),
         }
     )
     final_probe, raw_result = probe_voltage_candidate(
@@ -158,15 +171,18 @@ def run_final_verification_and_save(
         candidate_voltage_mv=int(final_voltage_mv),
         lock_clock_mhz=int(final_lock_clock_mhz),
         q2rtx_config=final_config,
-        stable_history=stable_history,
+        stable_history=(
+            [stable_probe]
+            if stable_probe is not None
+            and (auto_oc_metadata or {}).get("custom_target")
+            else stable_history
+        ),
         initial_probe_clock_mhz=measured_clock_mhz,
         nvml_session=nvml_session,
         log=log,
         phase_label="final-verify",
         log_context="",
         power_limit_w=gpu_policy.get("power_limit_w"),
-        min_performance_core_clock_pct=float(min_performance_core_clock_pct),
-        enforce_target_core_clock_floor=False,
         reset_plan=runtime_default_plan,
         marker_details=marker_details,
         expected_total_duration_s=int(final_verification_duration_s),
@@ -178,7 +194,9 @@ def run_final_verification_and_save(
         stable_history=stable_history,
         power_limit_w=gpu_policy.get("power_limit_w"),
         q2rtx_config=final_config,
-        min_performance_core_clock_pct=float(min_performance_core_clock_pct),
+        performance_reference=(
+            stable_probe if (auto_oc_metadata or {}).get("custom_target") else None
+        ),
     )
     outcome = VoltageProbeOutcome(
         decision=decision,
@@ -192,7 +210,6 @@ def run_final_verification_and_save(
         candidate,
         outcome,
         stage="final-verify",
-        max_clock_drop_pct=float(final_clock_drop_margin_pct),
     )
     log_benchmark(
         log,
@@ -205,6 +222,12 @@ def run_final_verification_and_save(
         raw_reason = str(getattr(raw_result, "reason", "") or "")
         reason = str(decision.reason or raw_reason or "unknown")
         log_phase(log, "final-verify", f"rejected {reason}")
+        if decision.failure_kind is FailureKind.USER_STOP:
+            raise KeyboardInterrupt
+        if decision.severity is FailureSeverity.CRITICAL:
+            raise AutoUvCriticalProbeError(
+                f"Final verification stopped after critical probe failure: {reason}"
+            )
         raise AutoUvError(f"final long verification failed: {reason}")
 
     write_latest_verified_candidate(
@@ -290,16 +313,14 @@ def final_probe_stability_decision(
     stable_history: list[AutoUvProbeSummary],
     power_limit_w: int | None,
     q2rtx_config,
-    min_performance_core_clock_pct: float,
+    performance_reference: AutoUvProbeSummary | None = None,
 ) -> StableRunDecision:
     baseline = stable_history[0] if stable_history else None
+    reference = performance_reference or baseline
     return evaluate_stable_run(
         result,
-        baseline_fps=baseline.avg_fps if baseline is not None else None,
-        baseline_power_w=baseline.avg_power_w if baseline is not None else None,
-        baseline_core_clock_mhz=(
-            baseline.avg_core_clock_mhz if baseline is not None else None
-        ),
+        baseline_fps=(reference.avg_fps if reference is not None else None),
+        baseline_power_w=reference.avg_power_w if reference is not None else None,
         power_limit_w=power_limit_w,
         cuda_required=bool(getattr(q2rtx_config, "companion_command", None)),
         companion_result=(
@@ -309,9 +330,6 @@ def final_probe_stability_decision(
         ),
         fatal_output_found=bool(getattr(result, "fatal_output_matches", [])),
         xid_found=bool(getattr(result, "xid_messages", [])),
-        thresholds=StabilityThresholds(
-            min_core_clock_pct=float(min_performance_core_clock_pct)
-        ),
     )
 
 

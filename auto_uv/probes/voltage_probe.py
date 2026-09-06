@@ -19,17 +19,19 @@ from stability.q2rtx.runtime import (
 from stability.q2rtx.telemetry import query_gpu_metrics
 
 from auto_uv.domain.console_log import log_phase
+from auto_uv.gpu.gpu_vf_curve_applier import verify_applied_power_limit_w
+from auto_uv.gpu.runtime_vf_offset_reset_check import assert_runtime_vf_offsets_match_plan
 from ..persistence.auto_uv_persisted_json_files import auto_uv_stop_requested
-from auto_uv.domain.types import AutoUvProbeSummary
+from ..persistence.interrupted_probe_crash_cache import CRASH_CACHE_CANDIDATE_PHASES
+from auto_uv.domain.types import AutoUvCriticalProbeError, AutoUvProbeSummary
 from auto_uv.domain.user_options import AUTO_UV_METRIC_TUNING, AUTO_UV_STALL_TUNING
 from ..persistence.probe_in_progress_marker_file import (
     clear_probe_in_progress_marker,
     write_probe_in_progress_marker,
 )
+from auto_uv.shared.probe_data_fields import percent
 from .runtime_guardrails import (
-    percent,
     probe_failure_should_mark_voltage_unsafe,
-    target_core_clock_floor,
     telemetry_sample_is_busy,
 )
 from .live_abort import (
@@ -64,31 +66,21 @@ def probe_voltage_candidate(
     initial_target_voltage_mv: int | None = None,
     log_context: str | None = None,
     power_limit_w: int | None = None,
-    enforce_target_core_clock_floor: bool = True,
     show_candidate_target: bool = True,
     summarize_saturated_tail: bool = False,
     use_power_limit_floor: bool = False,
-    min_performance_core_clock_pct: float | None = None,
     reset_plan: list[dict] | None = None,
     marker_details: dict | None = None,
     suppress_unsafe_recording: bool = False,
     expected_total_duration_s: int | None = None,
     event_callback: AutoUvEventCallback | None = None,
 ) -> tuple[AutoUvProbeSummary, Q2RTXStabilityResult]:
-    if min_performance_core_clock_pct is None:
-        min_performance_core_clock_pct = (
-            AUTO_UV_METRIC_TUNING.min_performance_core_clock_pct
+    if power_limit_w is not None:
+        verify_applied_power_limit_w(
+            reader, requested_w=power_limit_w, reported_applied_w=power_limit_w
         )
-    target_floor_mhz, floor_base_mhz = target_core_clock_floor(
-        lock_clock_mhz=int(lock_clock_mhz),
-        initial_probe_clock_mhz=initial_probe_clock_mhz,
-        min_performance_core_clock_pct=float(min_performance_core_clock_pct),
-        enforce_target_core_clock_floor=bool(enforce_target_core_clock_floor),
-    )
-
     latest_stable_probe = stable_history[-1] if stable_history else None
     progress_state = {
-        "low_core_clock_streak": 0,
         "low_power_streak": 0,
     }
 
@@ -97,7 +89,6 @@ def probe_voltage_candidate(
         # hang-confirmation re-probe shares this dict with the hung first run;
         # without a reset it starts with the first run's accumulated streaks
         # and can abort before its own samples justify it.
-        progress_state["low_core_clock_streak"] = 0
         progress_state["low_power_streak"] = 0
 
     busy_power_floor_w, proper_run_power_floor_w = (
@@ -149,13 +140,6 @@ def probe_voltage_candidate(
             parts.append(f"fan={float(latest_sample.fan_speed_pct):.0f}%")
         else:
             parts.append("fan=n/a")
-        if target_floor_mhz is not None:
-            assert floor_base_mhz is not None
-            parts.append(
-                f"target-floor={target_floor_mhz:.1f}MHz"
-                f"({float(min_performance_core_clock_pct):.1f}%"
-                f" of {floor_base_mhz:.1f}MHz baseline)"
-            )
         return " ".join(parts)
 
     def progress_callback(state: dict) -> None:
@@ -184,9 +168,7 @@ def probe_voltage_candidate(
             state,
             busy_power_floor_w=busy_power_floor_w,
             proper_run_power_floor_w=proper_run_power_floor_w,
-            target_core_clock_floor_mhz=target_floor_mhz,
             progress_state=progress_state,
-            power_limit_w=power_limit_w,
         )
         if telemetry_abort is not None:
             return telemetry_abort
@@ -204,13 +186,15 @@ def probe_voltage_candidate(
         stable_history=stable_history,
         initial_target_voltage_mv=initial_target_voltage_mv,
         initial_probe_clock_mhz=initial_probe_clock_mhz,
-        min_performance_core_clock_pct=min_performance_core_clock_pct,
         used_companion_load=bool(q2rtx_config.companion_command),
         expected_total_duration_s=expected_total_duration_s,
         marker_details=marker_details,
     )
 
+    unsafe_record_failed = False
+
     def record_probe_unsafe(reason: str, details: dict | None = None) -> None:
+        nonlocal unsafe_record_failed
         if not mark_in_progress:
             return
         unsafe_details = probe_unsafe_details(crash_marker_details, details)
@@ -224,13 +208,16 @@ def probe_voltage_candidate(
                 blocked_lock_clock_mhz=unsafe_clock_bindings,
             )
         except Exception as exc:
+            unsafe_record_failed = True
             log_phase(
                 log,
                 "blacklist",
                 f"failed-to-record-unsafe-voltage voltage={int(candidate_voltage_mv)}mV "
                 f"target={int(lock_clock_mhz)}MHz reason={reason} error={exc}",
             )
-            return
+            raise AutoUvCriticalProbeError(
+                "Cannot persist unsafe Auto-UV point; crash marker retained and probing stopped"
+            ) from exc
         detail_text = unsafe_detail_text(unsafe_details)
         log_phase(
             log,
@@ -271,6 +258,7 @@ def probe_voltage_candidate(
             )
         apply_plan(reader, candidate_plan)
         reader.refresh_points()
+        assert_runtime_vf_offsets_match_plan(reader, candidate_plan)
         probe_config = replace(
             q2rtx_config,
             progress_callback=progress_callback,
@@ -296,6 +284,7 @@ def probe_voltage_candidate(
             raise
         if str(result.reason) == "user-stop-requested":
             raise KeyboardInterrupt()
+        # Persist an observed crash before a lost device can fail a subsequent readback.
         handle_probe_result_logging_and_blacklist(
             result,
             log=log,
@@ -305,6 +294,10 @@ def probe_voltage_candidate(
             suppress_unsafe_recording=bool(suppress_unsafe_recording),
             used_companion_load=bool(q2rtx_config.companion_command),
         )
+        if power_limit_w is not None:
+            verify_applied_power_limit_w(
+                reader, requested_w=power_limit_w, reported_applied_w=power_limit_w
+            )
         live_voltage_after_mv = nvml_session.read_live_voltage_mv()
         measurement_samples = (
             list(result.measurement_telemetry_samples())
@@ -323,22 +316,21 @@ def probe_voltage_candidate(
                 f"using saturated telemetry tail samples={len(summary_samples)}/"
                 f"{len(measurement_samples)} for base-load measurement",
             )
-        return (
-            summarize_q2rtx_cuda_probe(
-                candidate_voltage_mv=candidate_voltage_mv,
-                lock_clock_mhz=lock_clock_mhz,
-                live_voltage_before_mv=live_voltage_before_mv,
-                live_voltage_after_mv=live_voltage_after_mv,
-                used_companion_load=bool(q2rtx_config.companion_command),
-                power_limit_w=power_limit_w,
-                result=result,
-                telemetry_samples=summary_samples,
-                use_power_limit_floor=use_power_limit_floor,
-            ),
-            result,
+        summary = summarize_q2rtx_cuda_probe(
+            candidate_voltage_mv=candidate_voltage_mv,
+            lock_clock_mhz=lock_clock_mhz,
+            live_voltage_before_mv=live_voltage_before_mv,
+            live_voltage_after_mv=live_voltage_after_mv,
+            used_companion_load=bool(q2rtx_config.companion_command),
+            power_limit_w=power_limit_w,
+            result=result,
+            telemetry_samples=summary_samples,
+            use_power_limit_floor=use_power_limit_floor,
         )
+        summary.tested_plan = [dict(point) for point in candidate_plan]
+        return summary, result
     finally:
-        if mark_in_progress:
+        if mark_in_progress and not unsafe_record_failed:
             clear_probe_in_progress_marker()
 
 
@@ -358,7 +350,7 @@ def run_probe_with_hang_confirmation(
 
     ``reset_live_abort_state`` clears live-abort state shared between the two
     runs through probe_config's abort callback; a hung first run leaves partial
-    low-power/low-clock streaks behind, and inheriting them would let the
+    low-power streaks behind, and inheriting them would let the
     confirmation run abort early with a blacklisting reason.
     """
     result = run_q2rtx_stability_test(probe_config)
@@ -581,10 +573,7 @@ def companion_duration_s_from_command(command: tuple[str, ...] | None) -> float:
 
 
 def probe_phase_writes_crash_marker(phase_label: str) -> bool:
-    return str(phase_label) in {
-        "candidate",
-        "final-verify",
-    }
+    return str(phase_label) in CRASH_CACHE_CANDIDATE_PHASES
 
 
 def unsafe_clock_bindings_from_plan(
@@ -621,7 +610,6 @@ def probe_crash_marker_details(
     stable_history: list[AutoUvProbeSummary],
     initial_target_voltage_mv: int | None,
     initial_probe_clock_mhz: float | None,
-    min_performance_core_clock_pct: float | None,
     used_companion_load: bool,
     expected_total_duration_s: int | None,
     marker_details: dict | None,
@@ -656,10 +644,6 @@ def probe_crash_marker_details(
         details["target_clock_pct_of_baseline"] = round(
             float(lock_clock_mhz) / baseline_clock_mhz * 100.0,
             4,
-        )
-    if min_performance_core_clock_pct is not None:
-        details["min_performance_core_clock_pct"] = float(
-            min_performance_core_clock_pct
         )
     if expected_total_duration_s is not None:
         details["expected_total_duration_s"] = int(expected_total_duration_s)

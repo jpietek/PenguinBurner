@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from drivers.nvidia import daemon_gpu
 from drivers.nvidia.daemon_gpu import DaemonGpuClient
 from stability.q2rtx.telemetry import query_gpu_metrics
@@ -186,6 +188,14 @@ def test_power_limit_support_uses_driver_setter_probe(monkeypatch) -> None:
 
     assert DaemonGpuClient(2).power_limit_set_supported() is False
     assert calls == [2]
+
+
+def test_deferred_power_support_is_not_reported_as_unsupported(monkeypatch) -> None:
+    monkeypatch.setattr(daemon_gpu, "probe_power_limit_support", lambda _: {
+        "supported": False, "reason": "auto-uv-scan-running",
+    })
+    with pytest.raises(RuntimeError, match="deferred"):
+        DaemonGpuClient(2).power_limit_set_supported()
 
 
 def test_voltage_preserves_implausible_raw_sample(monkeypatch) -> None:

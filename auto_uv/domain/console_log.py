@@ -50,10 +50,8 @@ def log_benchmark(
 def hw_power_brake_note(probe: AutoUvProbeSummary) -> str | None:
     """Report power-delivery brake events, which a capped run alone hides.
 
-    The clock-floor exemption treats any power-named cap as the cap working,
-    so a candidate that trips the board's protection brake can still pass. It
-    must not do so silently: this line makes the event legible next to the
-    probe it belongs to.
+    A stable candidate can still trip the board's protection brake. Report
+    that event next to the probe even when other power-cap reasons occur.
     """
     brake_samples = int(getattr(probe, "hw_power_brake_samples", 0) or 0)
     if brake_samples <= 0:

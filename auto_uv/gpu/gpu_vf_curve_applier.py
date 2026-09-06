@@ -5,6 +5,7 @@ This is the only Auto-UV module that creates NVAPI/NVML helpers and applies curv
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Callable, cast
 
@@ -88,6 +89,12 @@ class LiveGpuVfCurveApplier:
     ) -> int | None:
         requested_w = _positive_power_limit_w(self.requested_power_limit_w)
         if requested_w is None:
+            if self.power_limit_w is not None:
+                verify_applied_power_limit_w(
+                    self.policy_controller,
+                    requested_w=self.power_limit_w,
+                    reported_applied_w=self.power_limit_w,
+                )
             return self.power_limit_w
         if not self.power_limit_set_supported:
             self.requested_power_limit_w = None
@@ -100,6 +107,11 @@ class LiveGpuVfCurveApplier:
             return None
         requested_w = self.clamp_power_limit_w(int(requested_w))
         if self.power_limit_w == requested_w:
+            verify_applied_power_limit_w(
+                self.policy_controller,
+                requested_w=requested_w,
+                reported_applied_w=requested_w,
+            )
             self.requested_power_limit_w = None
             return self.power_limit_w
         try:
@@ -179,20 +191,21 @@ def open_live_gpu_vf_curve_applier(
 
     gpu_name = runtime_reset.get("gpu_name")
     pci_device_id = runtime_reset.get("pci_device_id")
-    try:
-        power_limit_set_supported = gpu.power_limit_set_supported()
-    except Exception as exc:
-        power_limit_set_supported = False
-        log(
-            "Auto-UV power limit: could not verify fixed power-limit write support "
-            f"({exc}); continuing without saved power limit"
+    # The reset already exercised the setter and checked its readback. A
+    # separate capability probe is deferred by the daemon while a scan runs;
+    # that response says nothing about hardware support.
+    power_limit_set_supported = runtime_reset.get("power_limit_set_supported")
+    if not isinstance(power_limit_set_supported, bool):
+        raise AutoUvPowerLimitApplyError(
+            "Auto-UV power limit: stock reset did not establish power-limit "
+            "write support; scan stopped before probing. Ensure the running "
+            "penguin-burnerd daemon matches the installed application."
         )
-    else:
-        if not power_limit_set_supported:
-            log(
-                "Auto-UV power limit: driver reports fixed power-limit writes are "
-                "unsupported; continuing without saved power limit"
-            )
+    if not power_limit_set_supported:
+        log(
+            "Auto-UV power limit: driver reports fixed power-limit writes are "
+            "unsupported; continuing without saved power limit"
+        )
     baseline_power_limit_w = (
         _positive_power_limit_w(runtime_reset.get("power_limit_w"))
         if power_limit_set_supported
@@ -305,21 +318,20 @@ def open_live_gpu_vf_curve_applier(
 
 def _auto_uv_power_limit_w(runtime_options: dict) -> int | None:
     value = runtime_options.get("auto_uv_power_limit_w")
-    if value in (None, ""):
-        # Full scans carry per-tier power limits instead of the scan-wide
-        # key. The highest tier request establishes the startup regime before
-        # adaptive orchestration begins. Each tier then applies and reads back
-        # its own exact cap before its stock baseline, flattened baseline,
-        # descent, selection, and final verification.
-        tier_values = [
-            runtime_options.get(adaptive_tier_option_key(tier, "power_limit_w"))
-            for tier in ADAPTIVE_TIER_MODES
-        ]
-        tier_values = [item for item in tier_values if item not in (None, "")]
-        if not tier_values:
-            return None
-        value = max(float(cast(Any, item)) for item in tier_values)
+    # Full scans start with Efficiency. A later tier's higher cap must not
+    # create an extra full-power discovery before Efficiency's own baseline.
+    first_tier_value = runtime_options.get(
+        adaptive_tier_option_key(ADAPTIVE_TIER_MODES[0], "power_limit_w")
+    )
     try:
+        if first_tier_value not in (None, ""):
+            value = (
+                min(float(value), float(first_tier_value))
+                if value not in (None, "")
+                else first_tier_value
+            )
+        if value in (None, ""):
+            return None
         power_limit_w = int(round(float(cast(Any, value))))
     except (TypeError, ValueError) as exc:
         raise AutoUvError(f"invalid Auto-UV power limit: {value!r}") from exc
@@ -352,19 +364,26 @@ def verify_applied_power_limit_w(
                 f"daemon reported {reported}W after requesting {requested}W"
             )
         return reported
-    live = capabilities(refresh=True)
+    try:
+        live = capabilities(refresh=True)
+    except Exception as exc:
+        raise AutoUvPowerLimitApplyError(
+            f"unable to read back {requested}W power limit: {exc}"
+        ) from exc
     power = getattr(live, "power", None)
     readbacks = (
         getattr(power, "current_w", None),
         getattr(power, "enforced_w", None),
     )
-    confirmed = [
-        int(round(float(value)))
-        for value in readbacks
-        if value is not None
-        and abs(float(value) - float(requested)) <= 1.0
-    ]
-    if not confirmed:
+    # An independently enforced limit can be lower than the configured limit.
+    # It cannot confirm that a requested setter change actually happened.
+    configured = readbacks[0] if readbacks[0] is not None else readbacks[1]
+    if (
+        reported != requested
+        or configured is None
+        or not math.isfinite(float(configured))
+        or abs(float(configured) - requested) > 1.0
+    ):
         current_w, enforced_w = readbacks
         raise AutoUvPowerLimitApplyError(
             "power-limit read-back mismatch after requesting "

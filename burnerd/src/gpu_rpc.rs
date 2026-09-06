@@ -644,12 +644,13 @@ fn execute(backend: &dyn GpuBackend, write: GpuWrite) -> Result<Value, String> {
             Ok(json!({ "reset": true }))
         }
         GpuWrite::ResetDefaults => {
-            crate::profile::reset_gpu_to_stock(backend)?;
+            let power_limit_set_supported = crate::profile::reset_gpu_to_stock(backend)?;
             let identity = backend.identity();
             let power_limits = backend.query_power_limits();
             let clock_offsets = backend.clock_offsets();
             Ok(json!({
                 "reset": true,
+                "power_limit_set_supported": power_limit_set_supported,
                 "gpu_name": identity.name,
                 "pci_device_id": identity.pci_device_id,
                 "power_limits": power_limits_json(power_limits),
@@ -1057,6 +1058,7 @@ mod tests {
         let result = dispatch(&mock, "gpu_reset_defaults", &request(r#"{"gpu_index":1}"#)).unwrap();
 
         assert_eq!(result["reset"], true);
+        assert_eq!(result["power_limit_set_supported"], true);
         assert_eq!(result["gpu_name"], "Mock RTX");
         assert_eq!(result["pci_device_id"], "0x123410DE");
         assert_eq!(result["power_limits"]["power_limit_default_w"], 360);
@@ -1076,6 +1078,30 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn semantic_reset_distinguishes_fixed_mobile_power_from_unknown_support() {
+        let mut mock = readable_mock();
+        mock.clock_offsets = crate::gpu::ClockOffsets {
+            gpc_clk_vf_offset_mhz: Some(0),
+            mem_clk_vf_offset_mhz: Some(0),
+        };
+        mock.vf_points[0].current_offset_khz = 0;
+        mock.inject_failure(
+            "apply_power_limit_w",
+            crate::gpu::GpuError::nvml_with_text(
+                "nvmlDeviceSetPowerManagementLimit",
+                3,
+                "Not Supported",
+            ),
+        );
+        let result = dispatch(&mock, "gpu_reset_defaults", &request(r#"{"gpu_index":1}"#)).unwrap();
+        assert_eq!(result["power_limit_set_supported"], false);
+
+        mock.power_limits.power_limit_default_w = None;
+        let result = dispatch(&mock, "gpu_reset_defaults", &request(r#"{"gpu_index":1}"#)).unwrap();
+        assert!(result["power_limit_set_supported"].is_null());
     }
 
     #[test]

@@ -3,7 +3,9 @@ from __future__ import annotations
 import math
 
 from auto_uv.scan_mode.auto_uv_mode import AUTO_UV_MODE_PERFORMANCE
+from auto_uv.scan_mode.auto_uv_mode import AUTO_UV_MODE_EFFICIENCY
 from auto_uv.scan_mode.auto_uv_mode import normalize_auto_uv_mode
+from auto_uv.scan_mode.efficiency_fps_per_w_policy import best_efficiency_candidate_index
 
 
 FINAL_CHOICE_FPSW_SORT_COLUMN = 4
@@ -70,6 +72,10 @@ def sort_candidates_for_final_choice(
 
 
 def best_final_choice_candidate_id(candidates: list[dict], auto_uv_mode: object) -> str:
+    if normalize_auto_uv_mode(auto_uv_mode) == AUTO_UV_MODE_EFFICIENCY:
+        index = best_efficiency_candidate_index(candidates)
+        if index is not None:
+            return str(candidates[index].get("candidate_id", ""))
     if normalize_auto_uv_mode(auto_uv_mode) == AUTO_UV_MODE_PERFORMANCE:
         for candidate in candidates:
             if candidate_fps(candidate) is not None:

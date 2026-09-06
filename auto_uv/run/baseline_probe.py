@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, Callable, cast
 
 from stability.q2rtx.models import Q2RTXStabilityConfig
 
 from auto_uv.domain.types import (
+    AutoUvCriticalProbeError,
     AutoUvError,
     AutoUvProbeSummary,
     BaseLoadTarget,
+    FailureKind,
+    FailureSeverity,
     VfCurveCandidate,
 )
 from auto_uv.domain.console_log import log_benchmark, log_phase
@@ -21,14 +25,20 @@ from auto_uv.curve.base_vf_curve_voltage_bins import (
     lock_voltage_for_target_clock,
     nearest_editable_voltage_bin,
 )
-from auto_uv.curve.measured_probe_lock_clock import lock_clock_from_probe_loaded_clock
 from auto_uv.curve.vf_curve_flattening import (
     build_flatten_target_for_plan,
     build_flattened_plan,
 )
 from auto_uv.persistence.verified_candidate_result_file import write_latest_verified_candidate
+from auto_uv.persistence.unsafe_voltage_blacklist_file import load_unsafe_voltage_blacklist
+from auto_uv.persistence.unsafe_voltage_cache import (
+    unsafe_entry_blocks_voltage_candidate,
+    unsafe_entry_clock_floor_mhz,
+)
+from auto_uv.shared.positive_int import positive_int
 from auto_uv.probes.config import reference_discovery_q2rtx_duration_s
 from auto_uv.probes.runner import AutoUvProbeRunner
+from auto_uv.probes.stability_decision import classify_failed_result
 from auto_uv.probes.event_payload import probe_summary_event_payload
 from auto_uv.domain.events import AutoUvEventCallback, emit_auto_uv_event
 from auto_uv.run.voltage_sweep_state import VoltageProbeOutcome
@@ -83,7 +93,6 @@ def run_discovery_probe(
         power_limit_w=reference_power_limit_w,
         start_voltage_mv=int(point.voltage_mv),
         baseline_clock_mhz=None,
-        min_performance_core_clock_pct=90.0,
         short_probe_base_duration_s=int(short_probe_base_duration_s),
         log=log,
         marker_details=marker_details,
@@ -140,6 +149,14 @@ def run_discovery_probe_with_runner(
         ),
     )
     log_benchmark(log, phase="discover", probe=summary)
+    if not getattr(result, "success", False):
+        decision = classify_failed_result(
+            str(getattr(result, "reason", "")), log_path=getattr(result, "log_path", None)
+        )
+        if decision.severity is FailureSeverity.CRITICAL:
+            raise AutoUvCriticalProbeError(
+                f"Stock baseline stopped after critical probe failure: {decision.reason}"
+            )
     light_load_diagnostic = selected_nvidia_light_load_diagnostic(
         list(getattr(result, "telemetry_samples", []) or []),
         power_limit_w=runner.power_limit_w,
@@ -209,44 +226,63 @@ def build_loaded_baseline_candidate(
     )
 
 
-def adjust_baseline_to_measured_clock(
+def probe_loaded_baseline_with_backoff(
     base_curve: list[dict],
     *,
     candidate: VfCurveCandidate,
-    stable_probe: AutoUvProbeSummary,
-    gpu,
-    tail_rise_bins: int = 0,
-) -> VfCurveCandidate:
-    measured_target_mhz = lock_clock_from_probe_loaded_clock(
-        base_curve,
-        probe=stable_probe,
-        previous_lock_clock_mhz=int(candidate.target_mhz),
-        power_limit_w=getattr(gpu, "power_limit_w", None),
-    )
-    if int(measured_target_mhz) == int(candidate.target_mhz):
-        return candidate
-    plan = build_flattened_plan(
-        base_curve,
-        lock_clock_mhz=int(measured_target_mhz),
-        candidate_voltage_mv=int(candidate.voltage_mv),
-        tail_rise_bins=int(tail_rise_bins),
-    )
-    if gpu.clock_ceiling is not None:
-        gpu.clock_ceiling.retarget(
-            lock_clock_mhz=int(measured_target_mhz),
-            lock_voltage_mv=int(candidate.voltage_mv),
-            ceiling_clock_mhz=tail_ceiling_for_plan(
-                plan,
-                lock_clock_mhz=int(measured_target_mhz),
-                lock_voltage_mv=int(candidate.voltage_mv),
-            ),
-        )
-    return VfCurveCandidate(
-        label="baseline-measured-clock-adjusted",
-        voltage_mv=int(candidate.voltage_mv),
-        target_mhz=int(measured_target_mhz),
-        flattened_plan=plan,
-    )
+    runner: AutoUvProbeRunner,
+    clock_ceiling,
+    tail_rise_bins: int,
+    probe_history: list[AutoUvProbeSummary],
+    log: Callable[[str], None],
+    profile_tier: str | None = None,
+) -> tuple[VfCurveCandidate, VoltageProbeOutcome]:
+    """Find a passing flattened baseline with at most ten lower-clock probes."""
+    clock_mhz = int(candidate.target_mhz)
+    last_reason = "no positive lower clock remains"
+    for _attempt in range(10):
+        for entry in load_unsafe_voltage_blacklist():
+            if not unsafe_entry_blocks_voltage_candidate(
+                entry, candidate_voltage_mv=candidate.voltage_mv,
+                lock_clock_mhz=clock_mhz, profile_tier=profile_tier,
+            ):
+                continue
+            unsafe_clock = positive_int(entry.get("lock_clock_mhz"))
+            if unsafe_clock is None:
+                raise AutoUvError("baseline flattened curve blocked by cached unsafe voltage")
+            floor = unsafe_entry_clock_floor_mhz(
+                entry, fallback_lock_clock_mhz=unsafe_clock
+            )
+            clock_mhz = min(clock_mhz, ((floor - 1) // 15) * 15)
+            last_reason = "cached unsafe clock band"
+        if clock_mhz <= 0:
+            break
+        if clock_mhz != candidate.target_mhz:
+            log_phase(
+                log, "baseline",
+                f"retreat {candidate.target_mhz}MHz -> {clock_mhz}MHz at "
+                f"{candidate.voltage_mv}mV after {last_reason}",
+            )
+            candidate = replace(
+                candidate,
+                target_mhz=clock_mhz,
+                flattened_plan=build_flattened_plan(
+                    base_curve, lock_clock_mhz=clock_mhz,
+                    candidate_voltage_mv=candidate.voltage_mv,
+                    tail_rise_bins=tail_rise_bins,
+                ),
+            )
+        retarget_clock_ceiling_for_candidate(clock_ceiling, candidate)
+        outcome = runner.probe_baseline_candidate(candidate)
+        if outcome.raw_probe is not None:
+            probe_history.append(outcome.raw_probe)
+        if outcome.decision.failure_kind is FailureKind.USER_STOP:
+            raise KeyboardInterrupt
+        if outcome.decision.passed:
+            return candidate, outcome
+        last_reason = outcome.decision.reason
+        clock_mhz -= 15
+    raise AutoUvError(f"baseline flattened curve failed after clock backoff: {last_reason}")
 
 
 def write_verified_candidate(

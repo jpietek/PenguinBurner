@@ -4,6 +4,7 @@ import pytest
 
 from auto_uv.scan_mode.efficiency_fps_per_w_policy import (
     EfficiencyPolicyRules,
+    best_efficiency_candidate_index,
     compare_temperature_normalized_fps_per_w,
     decide_efficiency_stop,
     derive_efficiency_stop_streak_from_fps_variance,
@@ -18,6 +19,41 @@ from auto_uv.scan_mode.efficiency_fps_per_w_policy import (
     temperature_normalized_power_w,
 )
 from auto_uv_test_data import probe_summary
+
+
+def test_efficiency_selects_highest_fps_per_w_from_recorded_5080_tradeoffs() -> None:
+    # Unrounded short-probe results from the 2026-09-05 scan (runs 21/23/30/31).
+    probes = [
+        {"avg_core_clock_mhz": clock, "avg_fps": fps, "avg_power_w": watts}
+        for clock, fps, watts in (
+            (2450.3846, 55.944, 231.40276923076922),
+            (2518.6923, 56.826, 236.03084615384614),
+            (2733.6154, 60.197, 254.84053846153847),
+            (2758.0, 59.856, 255.89746153846153),
+        )
+    ]
+    assert best_efficiency_candidate_index(probes) == 0
+
+
+def test_efficiency_does_not_trade_fps_per_w_for_more_clock() -> None:
+    probes = [
+        {"efficiency_fps_per_w": 1.0, "avg_core_clock_mhz": 2500, "lock_clock_mhz": 2600},
+        {"efficiency_fps_per_w": 0.98, "avg_core_clock_mhz": 2600, "lock_clock_mhz": 2700},
+        {"efficiency_fps_per_w": 0.96, "avg_core_clock_mhz": 2700, "lock_clock_mhz": 2800},
+        {"efficiency_fps_per_w": 0.99, "avg_core_clock_mhz": 2400, "lock_clock_mhz": 3000},
+    ]
+    assert best_efficiency_candidate_index(probes) == 0
+    assert best_efficiency_candidate_index([None, {"efficiency_fps_per_w": float("nan")}]) is None
+
+
+def test_absolute_power_breaks_ties_without_rewarding_a_lower_clock() -> None:
+    probes = [
+        {"efficiency_fps_per_w": 0.24, "avg_core_clock_mhz": 2700, "avg_power_w": 250},
+        {"efficiency_fps_per_w": 0.24, "avg_core_clock_mhz": 2700, "avg_power_w": 240},
+    ]
+    assert best_efficiency_candidate_index(probes) == 1
+    probes[1]["avg_core_clock_mhz"] = 2600
+    assert best_efficiency_candidate_index(probes) == 0
 
 
 def test_efficiency_policy_temperature_normalizes_fps_per_w() -> None:

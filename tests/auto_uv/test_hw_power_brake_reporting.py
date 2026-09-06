@@ -1,9 +1,8 @@
 """A power-delivery brake must never pass as an ordinary capped run.
 
 ``hw-power-brake`` is the board's protection circuit (EDPp/OCP), not the
-configured power limit. It still earns the power-walled clock exemption —
-the clock loss really is caused by power rather than V/F instability — but
-the scan reports it on every surface so a brake-heavy run is legible in the
+configured power limit. The scan reports it on every surface so a brake-heavy
+run is legible in the
 log, the event stream, the saved result, and the decision text itself.
 """
 
@@ -56,9 +55,8 @@ def _decision(reason: str):
     return evaluate_loaded_telemetry(
         _samples(reason),
         baseline_power_w=300.0,
-        baseline_core_clock_mhz=2595.0,
         power_limit_w=430,
-        thresholds=StabilityThresholds(min_core_clock_pct=94.0),
+        thresholds=StabilityThresholds(),
         log_path=None,
     )
 
@@ -126,10 +124,9 @@ def test_stable_run_preserves_the_brake_reason() -> None:
         result,
         baseline_fps=100.0,
         baseline_power_w=300.0,
-        baseline_core_clock_mhz=2595.0,
         power_limit_w=430,
         cuda_required=False,
-        thresholds=StabilityThresholds(min_core_clock_pct=94.0),
+        thresholds=StabilityThresholds(),
     )
 
     assert decision.passed
@@ -140,9 +137,8 @@ def test_brake_reason_is_visible_without_a_clock_shortfall() -> None:
     decision = evaluate_loaded_telemetry(
         _samples("hw-power-brake", clock_mhz=2500.0),
         baseline_power_w=300.0,
-        baseline_core_clock_mhz=2595.0,
         power_limit_w=430,
-        thresholds=StabilityThresholds(min_core_clock_pct=94.0),
+        thresholds=StabilityThresholds(),
         log_path=None,
     )
 

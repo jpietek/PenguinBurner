@@ -68,10 +68,17 @@ The CLI scan options mirror the GUI Auto-UV tuning dialog. Start with
 `--auto-uv-voltage-scan`, then choose the same preset family shown in the GUI
 with `--auto-uv-mode efficiency|balanced|performance`.
 
+Clock-loss percentage cutoffs have been removed. The scan still measures loaded
+clocks and rejects workload failures, lost load, and FPS regressions. Confirmed
+power limits can stop an ineffective clock climb.
+
+Auto-OC target defaults are optimized for most GPUs. Change voltage or clock
+targets only if you understand GPU voltage/frequency tuning and the risks of
+instability or crashes.
+
 Common scan controls, shown for every GUI preset:
 
 - `--gpu-index N`: select the NVIDIA GPU used for scan, verification, and runtime.
-- `--auto-uv-max-clock-drop-pct N`: maximum loaded core-clock drop allowed. For known GPUs the default follows the selected preset; unknown GPUs use `12.5`. On RTX 5080 the defaults are about `11.1` for Efficiency, `9.2` for Balanced, and `6.3` for Performance.
 - `--auto-uv-memory-offset-mhz N`: memory clock V/F offset applied during the scan and saved with the final profile.
 - `--auto-uv-power-limit-w N`: power limit applied during the scan and saved with the final profile.
 
@@ -79,9 +86,24 @@ Full-scan (`--auto-uv-mode adaptive`) per-tier overrides — each tier of the
 combined run can carry its own limits, mirroring the GUI's per-profile
 Advanced pages (`<tier>` is `efficiency`, `balanced`, or `performance`):
 
-- `--auto-uv-<tier>-max-clock-drop-pct N`: that tier's maximum loaded clock drop. Absent tiers fall back to `--auto-uv-max-clock-drop-pct`, then the GPU table.
 - `--auto-uv-<tier>-power-limit-w N`: that tier's power limit, applied at its final verification and saved with its profile.
 - `--auto-uv-<tier>-memory-offset-mhz N`: that tier's memory V/F offset, applied for its descent and saved with its profile.
+
+Custom targets work in both single-tier and full scans:
+
+- `--auto-uv-<tier>-target-voltage-mv N`: voltage target for that tier.
+- `--auto-uv-<tier>-target-clock-mhz N`: clock target for that tier.
+
+Clock ranges use GPU table defaults: Efficiency −15% through Balanced;
+Balanced from Efficiency through Performance; Performance from Balanced
+through Performance +5% (rounded to the nearest MHz). Unknown GPUs keep Auto
+unless a hardware range is available. Defaults are optimized for most GPUs;
+edit only if you understand voltage/frequency tuning and instability risks.
+
+A lower custom clock is tested after the normal voltage sweep, at the sweep's
+stable voltage, with no second voltage-down pass. The voltage anchor may
+remain above the requested voltage target if the initial sweep stops earlier.
+See [custom tier targets](docs/features/auto-uv.md#custom-tier-targets).
 
 Efficiency preset controls:
 
@@ -91,14 +113,14 @@ Efficiency preset controls:
 Balanced preset controls:
 
 - `--auto-uv-mode balanced`: use the GUI Balanced preset path.
-- `--auto-uv-tail-rise-bins 4`: the GUI Balanced preset shape. The CLI fills this in automatically when omitted.
+- `--auto-uv-tail-rise-bins 2`: the GUI Balanced preset shape. The CLI fills this in automatically when omitted.
 
 Performance preset controls:
 
 - `--auto-uv-mode performance`: use the GUI Performance preset path.
 - `--auto-oc-target-voltage-mv N`: Performance Auto-OC voltage target.
 - `--auto-oc-target-clock-mhz N`: Performance Auto-OC clock target.
-- `--auto-uv-tail-rise-bins 4`: the GUI Performance preset shape. The runtime fills this in automatically when omitted.
+- `--auto-uv-tail-rise-bins 2`: the GUI Performance preset shape. The runtime fills this in automatically when omitted.
 
 Examples:
 
@@ -113,7 +135,6 @@ Balanced with all common GUI knobs made explicit:
 ```bash
 ./penguin_burner.sh --auto-uv-voltage-scan \
   --auto-uv-mode balanced \
-  --auto-uv-max-clock-drop-pct 9.2 \
   --auto-uv-memory-offset-mhz 500 \
   --auto-uv-power-limit-w 390
 ```
@@ -123,7 +144,7 @@ Balanced with the preset shape made explicit:
 ```bash
 ./penguin_burner.sh --auto-uv-voltage-scan \
   --auto-uv-mode balanced \
-  --auto-uv-tail-rise-bins 4
+  --auto-uv-tail-rise-bins 2
 ```
 
 Efficiency with explicit GUI knobs:
@@ -132,7 +153,6 @@ Efficiency with explicit GUI knobs:
 ./penguin_burner.sh --auto-uv-voltage-scan \
   --auto-uv-mode efficiency \
   --auto-uv-min-voltage-mv 850 \
-  --auto-uv-max-clock-drop-pct 10 \
   --auto-uv-memory-offset-mhz 500 \
   --auto-uv-power-limit-w 390
 ```
@@ -151,7 +171,7 @@ Performance with a custom Auto-OC target:
   --auto-uv-mode performance \
   --auto-oc-target-voltage-mv 910 \
   --auto-oc-target-clock-mhz 2950 \
-  --auto-uv-tail-rise-bins 4
+  --auto-uv-tail-rise-bins 2
 ```
 
 Performance with common scan limits too:
@@ -161,7 +181,6 @@ Performance with common scan limits too:
   --auto-uv-mode performance \
   --auto-oc-target-voltage-mv 910 \
   --auto-oc-target-clock-mhz 2950 \
-  --auto-uv-max-clock-drop-pct 6.3 \
   --auto-uv-memory-offset-mhz 500 \
   --auto-uv-power-limit-w 390
 ```

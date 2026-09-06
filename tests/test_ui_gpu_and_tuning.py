@@ -24,7 +24,7 @@ from ui.features.tuning.tuning import (
     auto_uv_nvml_info_text,
     auto_uv_performance_preset_label,
     auto_uv_performance_preset_tooltip,
-    auto_uv_performance_target_default,
+    auto_uv_target_default,
     auto_uv_power_limit_default,
     auto_uv_scan_estimate_minutes,
     auto_uv_scan_estimate_text,
@@ -222,7 +222,7 @@ def test_persist_runtime_gpu_index_never_rewrites_an_unreadable_config(
 
 def test_performance_preset_label_and_tooltip() -> None:
     assert auto_uv_performance_preset_label() == "Performance"
-    assert "4-bin tail curve" in auto_uv_performance_preset_tooltip()
+    assert "2-bin tail curve" in auto_uv_performance_preset_tooltip()
     assert "Performance Auto-OC ladder" in auto_uv_performance_preset_tooltip()
 
 
@@ -316,7 +316,7 @@ def test_power_limit_default_unlisted_gpu_defaults_stock_power() -> None:
 
 
 def test_performance_target_default_for_unknown_gpu() -> None:
-    target = auto_uv_performance_target_default(gpu_name="totally-unknown-gpu-9999")
+    target = auto_uv_target_default(gpu_name="totally-unknown-gpu-9999")
     assert target.preset_matched is False
     assert target.voltage_mv is None
     assert target.gpu_name == "totally-unknown-gpu-9999"
@@ -477,12 +477,12 @@ def test_voltage_floor_range_knee_from_curve(monkeypatch) -> None:
     assert auto_uv_voltage_floor_range_mv(gpu_index=0) == (800, 1200)
 
 
-def test_voltage_floor_range_falls_back_without_curve(monkeypatch) -> None:
+def test_voltage_floor_range_stays_automatic_without_curve(monkeypatch) -> None:
     def fail_client(*, gpu_index):
         raise RuntimeError(f"GPU {gpu_index} unavailable")
 
     monkeypatch.setattr(tuning, "DaemonGpuClient", fail_client)
-    assert auto_uv_voltage_floor_range_mv(gpu_index=0) == (800, 1250)
+    assert auto_uv_voltage_floor_range_mv(gpu_index=0) is None
 
 
 def test_tuning_uses_shared_runtime_gpu_index() -> None:

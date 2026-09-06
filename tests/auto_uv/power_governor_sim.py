@@ -368,7 +368,6 @@ class GovernorProbeHarness:
     baseline_core_clock_mhz: float
     baseline_power_w: float
     baseline_fps: float
-    min_core_clock_pct: float = 94.0
     probes: list[dict] = field(default_factory=list)
 
     def operating_point(self, plan: list[dict]) -> dict:
@@ -433,10 +432,8 @@ class GovernorProbeHarness:
         decision = evaluate_loaded_telemetry(
             samples,
             baseline_power_w=float(self.baseline_power_w),
-            baseline_core_clock_mhz=float(self.baseline_core_clock_mhz),
             power_limit_w=int(self.power_limit_w),
             thresholds=StabilityThresholds(
-                min_core_clock_pct=float(self.min_core_clock_pct)
             ),
             log_path=None,
         )

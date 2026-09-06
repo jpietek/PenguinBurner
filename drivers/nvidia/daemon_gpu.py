@@ -266,6 +266,8 @@ class DaemonGpuClient:
 
     def power_limit_set_supported(self) -> bool:
         result = probe_power_limit_support(self.gpu_index)
+        if result.get("reason") == "auto-uv-scan-running":
+            raise RuntimeError("power-limit support probe deferred while Auto-UV runs")
         return bool(result.get("supported"))
 
     def enable_persistence_mode(self) -> bool:

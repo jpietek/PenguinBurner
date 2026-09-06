@@ -77,7 +77,7 @@ def candidate_number(value, *, precision: int) -> str:
         number = float(value)
     except (TypeError, ValueError):
         return ""
-    precision = max(0, min(int(precision), 2))
+    precision = max(0, min(int(precision), 4))
     return str(int(round(number))) if precision <= 0 else f"{number:.{precision}f}"
 
 
@@ -320,7 +320,7 @@ def create_final_choice_table(
             1: 108,
             2: 88,
             3: 128,
-            4: 134,
+            4: 154,
             5: 134,
             6: 92,
             7: 104,
@@ -343,7 +343,7 @@ def create_final_choice_table(
             _candidate_metric_text(
                 candidate,
                 "efficiency_fps_per_w",
-                precision=2,
+                precision=4,
             ),
             _candidate_metric_text(candidate, "avg_fps", precision=2),
             _candidate_metric_text(

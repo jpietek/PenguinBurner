@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -11,6 +12,35 @@ class EfficiencyPolicyRules:
     min_fps_per_w_gain_pct: float = 1.0
     max_temperature_delta_c: float = 10.0
     power_pct_per_c: float = 0.5
+
+
+def best_efficiency_candidate_index(probes: list[Any]) -> int | None:
+    """Highest measured FPS/W; measured clock breaks equal-efficiency ties.
+
+    Compare unrounded measurements against a single best score, not successive
+    candidates: otherwise many individually small losses can compound. Clock
+    targets never substitute for a measured clock. Temperature-normalized
+    comparisons remain diagnostic and continue to guide descent stopping.
+    """
+    scored = []
+    for index, probe in enumerate(probes):
+        score = read_field(probe, "efficiency_fps_per_w")
+        fps, power = read_field(probe, "avg_fps"), read_field(probe, "avg_power_w")
+        if fps is not None and power is not None and float(power) > 0:
+            score = float(fps) / float(power)
+        if score is None or not math.isfinite(float(score)) or float(score) <= 0:
+            continue
+        clock = read_field(probe, "q2rtx_avg_core_clock_mhz")
+        if clock is None:
+            clock = read_field(probe, "avg_core_clock_mhz")
+        measured_clock = (
+            float(clock) if clock is not None and math.isfinite(float(clock)) else -1.0
+        )
+        watts = float(power) if power is not None and math.isfinite(float(power)) and float(power) > 0 else math.inf
+        scored.append((index, float(score), measured_clock, watts))
+    if not scored:
+        return None
+    return max(scored, key=lambda item: (item[1], item[2], -item[3], -item[0]))[0]
 
 
 @dataclass(frozen=True, slots=True)

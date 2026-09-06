@@ -983,7 +983,7 @@ def test_frame_watchdog_threshold_zero_disables() -> None:
     assert watchdog.tripped(1_000.0) is False
 
 
-def test_hang_watchdog_reason_classifies_as_critical_gpu_hang() -> None:
+def test_hang_watchdog_reason_classifies_as_unsafe_gpu_hang() -> None:
     from auto_uv.probes.stability_decision import classify_failed_result
     from auto_uv.domain.types import FailureKind, FailureSeverity
 
@@ -993,4 +993,51 @@ def test_hang_watchdog_reason_classifies_as_critical_gpu_hang() -> None:
     )
     assert decision.passed is False
     assert decision.failure_kind == FailureKind.GPU_HANG
-    assert decision.severity == FailureSeverity.CRITICAL
+    assert decision.severity == FailureSeverity.UNSAFE
+
+
+@pytest.mark.parametrize("concurrent", [False, True])
+@pytest.mark.parametrize(
+    "failure_line,expected_severity",
+    [
+        ("verify verification mismatch idx=123 expected=1 got=2", "unsafe"),
+        ("cuInit failed rc=100: no CUDA-capable device is detected", "critical"),
+    ],
+)
+def test_combined_cuda_failure_keeps_evidence_for_auto_uv_classification(
+    tmp_path, monkeypatch, concurrent, failure_line, expected_severity,
+):
+    from auto_uv.probes.stability_decision import classify_failed_result
+
+    monkeypatch.setattr(q2rtx_runtime, "DaemonGpuClient", lambda _index: None)
+    monkeypatch.setattr(q2rtx_runtime, "_query_selected_nvidia_gpu", lambda _index: None)
+    monkeypatch.setattr(q2rtx_runtime, "query_gpu_metrics", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        q2rtx_runtime, "_prepare_q2rtx_subprocess_env", lambda env: (env, None, None)
+    )
+    # Exercise the actual combined-process wrapper with harmless Python children.
+    # No benchmark binary, CUDA, GPU reads, or daemon calls are involved.
+    result = q2rtx_runtime._run_benchmark_process(
+        config=Q2RTXStabilityConfig(
+            duration_s=1,
+            log_dir=tmp_path,
+            companion_concurrent=concurrent,
+            companion_command=(
+                sys.executable, "-c", f"print({failure_line!r}); raise SystemExit(1)",
+            ),
+        ),
+        command=[sys.executable, "-c", "import time; time.sleep(5)" if concurrent else "pass"],
+        workdir=tmp_path,
+        log_path=tmp_path / "combined.log",
+        section_name="test",
+        workload_name="test",
+        runtime_env={},
+    )
+
+    assert result.exit_reason == "cuda-bruteforce-failed exit=1"
+    assert failure_line in result.output_tail
+    decision = classify_failed_result(
+        result.exit_reason, log_path=tmp_path / "combined.log", output=result.output_tail
+    )
+    assert not decision.passed
+    assert decision.severity.value == expected_severity

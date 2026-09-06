@@ -291,6 +291,14 @@ def test_apply_power_limit_routes_watts_through_daemon(make_daemon, rpc_spy):
     assert result["mock_ops"] == ["ApplyPowerLimit { power_limit_w: 300 }"]
 
 
+def test_stock_reset_does_not_report_success_when_curve_readback_is_stale(make_daemon):
+    make_daemon()
+    # The transport mock deliberately keeps its fixed +120 MHz V/F readback
+    # after writes. A successful power setter alone must not certify this reset.
+    with pytest.raises(RuntimeError, match=r"stock GPU reset incomplete: V/F point 12 read back \+120000 kHz"):
+        daemon_client.gpu_reset_defaults(0)
+
+
 def test_probe_power_limit_support_routes_through_rust_daemon(make_daemon, rpc_spy):
     make_daemon()
 
@@ -553,7 +561,7 @@ def test_apply_plan_produces_byte_identical_offsets(make_daemon, rpc_spy):
 # --- rising-tail region: byte-identical plan through the transport -------------
 #
 # RULE ZERO watch: the sweep raises a small number of high-voltage "tail" bins
-# for each preset (efficiency tail-tune = 2, balanced = 4, performance = 6).
+# for each preset (two bins by default), with larger custom tails supported.
 # The transport swap must ship EXACTLY the offsets the old direct-ctypes SET
 # applied for that raised-tail curve -- same tail indices, same offset_khz,
 # same clamping. We drive the REAL sweep flattening code (imported read-only;
@@ -590,7 +598,7 @@ def _expected_ship_from_plan(plan, base_curve):
 
 @pytest.mark.parametrize(
     ("tail_rise_bins", "preset"),
-    [(2, "efficiency-tail-tune"), (4, "balanced"), (6, "performance")],
+    [(2, "efficiency"), (2, "balanced"), (2, "performance"), (4, "custom"), (6, "custom")],
 )
 def test_rising_tail_plan_ships_byte_identical(
     make_daemon, rpc_spy, tail_rise_bins, preset
@@ -642,7 +650,7 @@ def test_rising_tail_plan_ships_byte_identical(
 
 
 def test_rising_tail_bin_count_changes_the_shipped_tail(make_daemon, rpc_spy):
-    """A larger tail-rise (performance 6 vs efficiency 2) ships a DIFFERENT,
+    """A larger custom tail-rise (4 vs the default 2) ships a DIFFERENT,
     higher tail -- proving the raised bins flow through the transport unaltered
     rather than being flattened by the client."""
     from auto_uv.curve.vf_curve_flattening import build_flattened_plan
@@ -664,10 +672,10 @@ def test_rising_tail_bin_count_changes_the_shipped_tail(make_daemon, rpc_spy):
         return dict(rpc_spy[-1][0]["offsets"])
 
     efficiency = ship(2)
-    performance = ship(6)
+    performance = ship(4)
 
-    # The top tail index carries a strictly higher offset under the 6-bin
-    # performance tail than the 2-bin efficiency tail-tune.
+    # The top tail index carries a strictly higher offset under the 4-bin
+    # performance tail than the 2-bin efficiency tail.
     top_index = max(point["index"] for point in _TAIL_BASE_CURVE)
     assert performance[top_index] > efficiency[top_index]
 

@@ -11,16 +11,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
-from auto_uv.curve.base_load_flatten_target import choose_base_load_flatten_target
-from auto_uv.curve.measured_probe_lock_clock import lock_clock_from_probe_loaded_clock
-from auto_uv.curve.shipped_plan import restore_stock_below_validated_floor
-from auto_uv.curve.vf_curve_flattening import build_flattened_plan
-from auto_uv.domain.types import AutoUvProbeSummary, FailureKind
-from auto_uv.probes.stability_decision import (
-    StabilityThresholds,
-    evaluate_loaded_telemetry,
-)
 from auto_uv_test_data import (
     rtx_5080_20260524_high_oc_base_curve,
     rtx_5090_steep_synthetic_curve,
@@ -33,8 +23,18 @@ from power_governor_sim import (
     synthesize_busy_samples,
 )
 
+from auto_uv.curve.base_load_flatten_target import choose_base_load_flatten_target
+from auto_uv.curve.measured_probe_lock_clock import probe_indicates_power_saturation
+from auto_uv.curve.shipped_plan import assert_monotonic_editable_targets
+from auto_uv.curve.vf_curve_flattening import build_flattened_plan
+from auto_uv.domain.types import AutoUvProbeSummary
+from auto_uv.probes.stability_decision import (
+    StabilityThresholds,
+    evaluate_loaded_telemetry,
+)
+
 EFFICIENCY_CAP_W = 430
-BALANCED_CAP_W = 503
+BALANCED_CAP_W = 575
 PERFORMANCE_CAP_W = 575
 
 
@@ -123,9 +123,8 @@ def test_s2_honest_target_flat_holds_its_clock_under_the_cap(
     decision = evaluate_loaded_telemetry(
         synthesize_busy_samples(settle),
         baseline_power_w=float(baseline["power_w"]),
-        baseline_core_clock_mhz=float(lock_clock_mhz),
         power_limit_w=BALANCED_CAP_W,
-        thresholds=StabilityThresholds(min_core_clock_pct=94.0),
+        thresholds=StabilityThresholds(),
         log_path=None,
     )
 
@@ -154,23 +153,18 @@ def test_product_tier_caps_order_synthetic_operating_points(
     )
 
 
-def test_s3_ratchet_keeps_target_when_probe_was_power_capped() -> None:
-    curve = rtx_5090_steep_synthetic_curve()
+def test_s3_capped_probe_can_trigger_reclaim_without_ending_the_climb() -> None:
     probe = _probe(
         avg_core_clock_mhz=2418.5,
         avg_power_w=553.0,
         perf_cap_reason="sw-power",
     )
 
-    # The field scan turned this exact probe into a 2595 -> 2418 ratchet.
-    assert (
-        lock_clock_from_probe_loaded_clock(
-            curve,
-            probe=probe,
-            previous_lock_clock_mhz=2595,
-            power_limit_w=575,
-        )
-        == 2595
+    # The reported cap can motivate reclaim, but 553W of 575W does not prove
+    # that a higher requested clock cannot be delivered.
+    assert probe_indicates_power_saturation(probe, power_limit_w=575)
+    assert not probe_indicates_power_saturation(
+        probe, power_limit_w=575, require_power_evidence=True
     )
 
 
@@ -181,14 +175,10 @@ def test_s4_changed_cap_moves_operation_below_lock_without_predicting_hardware()
     # its configured final power limit is unknown.
     curve = rtx_5090_steep_synthetic_curve()
     model = scenario_5090_power_models()[1]
-    shipped = restore_stock_below_validated_floor(
-        build_flattened_plan(
-            curve,
-            lock_clock_mhz=2595,
-            candidate_voltage_mv=1000,
-        ),
-        floor_voltage_mv=1000,
+    shipped = build_flattened_plan(
+        curve,
         lock_clock_mhz=2595,
+        candidate_voltage_mv=1000,
     )
 
     settle = settle_operating_point(
@@ -202,81 +192,53 @@ def test_s4_changed_cap_moves_operation_below_lock_without_predicting_hardware()
     decision = evaluate_loaded_telemetry(
         synthesize_busy_samples(settle),
         baseline_power_w=500.0,
-        baseline_core_clock_mhz=2595.0,
         power_limit_w=EFFICIENCY_CAP_W,
-        thresholds=StabilityThresholds(min_core_clock_pct=94.0),
+        thresholds=StabilityThresholds(),
         log_path=None,
     )
 
     # The saturation-aware floor recognizes governor descent. The full probe
     # path still enforces same-cap FPS and crash/companion-load decisions.
     assert decision.passed
-    assert "power-walled but stable" in decision.reason
 
 
-def test_s5_shipped_plan_shape_is_monotonic_and_clamped() -> None:
-    curve = rtx_5090_steep_synthetic_curve()
-    shipped = restore_stock_below_validated_floor(
-        build_flattened_plan(
-            curve,
-            lock_clock_mhz=2595,
-            candidate_voltage_mv=1000,
-        ),
-        floor_voltage_mv=1000,
-        lock_clock_mhz=2595,
-    )
-    stock_by_voltage = {
-        int(point["voltage_mv"]): int(point["base_mhz"]) for point in curve
-    }
-
-    targets = _editable_targets(shipped)
-    assert all(
-        earlier[1] <= later[1] for earlier, later in zip(targets, targets[1:])
-    ), "shipped 5090 plan must be monotonic"
-
-    below_floor = [(v, t) for v, t in targets if v < 1000]
-    assert below_floor
-    assert all(t <= stock_by_voltage[v] for v, t in below_floor)
-    assert all(t <= 2595 - 15 for t in (pair[1] for pair in below_floor))
-    # The clamp must actually bite: the weak curve's stock exceeds the
-    # below-lock ceiling in the band just under the floor (the old raw-stock
-    # graft drew the non-monotonic bump exactly there).
-    assert any(
-        stock_by_voltage[v] > 2595 - 15 and t == 2595 - 15 for v, t in below_floor
-    )
-
-
-def test_s6_5080_control_clamp_is_a_no_op() -> None:
-    curve = rtx_5080_20260524_high_oc_base_curve()
+def test_s5_selected_5090_ramp_stays_below_lock_without_downward_edge() -> None:
     plan = build_flattened_plan(
-        curve,
+        rtx_5090_steep_synthetic_curve(),
+        lock_clock_mhz=2595,
+        candidate_voltage_mv=1000,
+    )
+    assert_monotonic_editable_targets(plan)
+    targets = _editable_targets(plan)
+    below_lock = [(v, t) for v, t in targets if v < 1000]
+    assert below_lock
+    assert all(t <= 2595 - 15 for _, t in below_lock)
+    assert dict(targets)[1000] == 2595
+
+
+def test_s6_5080_selected_ramp_is_preserved_above_stock() -> None:
+    plan = build_flattened_plan(
+        rtx_5080_20260524_high_oc_base_curve(),
         lock_clock_mhz=2730,
         candidate_voltage_mv=1000,
     )
-    stock_by_voltage = {
-        int(point["voltage_mv"]): int(point["base_mhz"]) for point in curve
-    }
+    tested = [dict(point) for point in plan]
 
-    shipped = restore_stock_below_validated_floor(
-        plan,
-        floor_voltage_mv=1000,
-        lock_clock_mhz=2730,
+    assert_monotonic_editable_targets(plan)
+
+    assert plan == tested
+    # The tested approach contains raised points; restoring stock here would
+    # discard that ramp and no longer verify the selected curve.
+    assert any(
+        int(point["target_mhz"]) > int(point["base_mhz"])
+        for point in plan
+        if not point.get("preserve_base") and int(point["voltage_mv"]) < 1000
     )
 
-    # On the gentle 5080 curve stock never crosses the below-lock ceiling,
-    # so the power-bound clamp ships byte-identical raw stock below floor.
-    below_floor = [
-        (int(p["voltage_mv"]), int(p["target_mhz"]))
-        for p in shipped
-        if not p.get("preserve_base") and int(p["voltage_mv"]) < 1000
-    ]
-    assert below_floor
-    assert all(t == stock_by_voltage[v] for v, t in below_floor)
 
-
-def test_s7_negative_control_demotion_still_fails() -> None:
+def test_s7_clock_demotion_alone_does_not_fail_loaded_telemetry() -> None:
     # Same low clock as S4, but power is far off the cap and the driver
-    # reports no power cap: silent reliability demotion must keep failing.
+    # reports no power cap: clock telemetry alone does not prove instability.
     curve = rtx_5090_steep_synthetic_curve()
     model = scenario_5090_power_models()[1]
     baseline = settle_operating_point(curve, model=model, power_limit_w=BALANCED_CAP_W)
@@ -290,14 +252,12 @@ def test_s7_negative_control_demotion_still_fails() -> None:
     decision = evaluate_loaded_telemetry(
         demoted_samples,
         baseline_power_w=float(baseline["power_w"]),
-        baseline_core_clock_mhz=float(baseline["clock_mhz"]),
         power_limit_w=BALANCED_CAP_W,
-        thresholds=StabilityThresholds(min_core_clock_pct=94.0),
+        thresholds=StabilityThresholds(),
         log_path=None,
     )
 
-    assert not decision.passed
-    assert decision.failure_kind is FailureKind.LOW_CLOCK
+    assert decision.passed
 
 
 def test_zotac_capture_matches_crosschecked_anchors() -> None:

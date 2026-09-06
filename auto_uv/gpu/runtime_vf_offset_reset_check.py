@@ -8,6 +8,26 @@ from __future__ import annotations
 from auto_uv.domain.types import AutoUvError
 
 
+def assert_runtime_vf_offsets_match_plan(reader, plan: list[dict]) -> None:
+    """Check the refreshed driver control values before exercising a curve."""
+    if not plan:
+        return
+    readback = {
+        int(point["index"]): int(point["current_offset_khz"])
+        for point in reader.editable_core_points()
+    }
+    for point in plan:
+        index = int(point["index"])
+        expected_khz = int(point["new_offset_mhz"]) * 1000
+        actual_khz = readback.get(index)
+        if actual_khz != expected_khz:
+            raise AutoUvError(
+                f"V/F curve read-back mismatch at point {index}: "
+                f"requested {expected_khz:+d} kHz offset, received {actual_khz!r}; "
+                "scan stopped before probing an unverified curve"
+            )
+
+
 def assert_zero_runtime_vf_offsets(reader) -> None:
     reader.refresh_points()
     stale = []

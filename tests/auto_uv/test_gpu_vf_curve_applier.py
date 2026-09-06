@@ -52,6 +52,7 @@ def _patch_applier_environment(monkeypatch, gpu_client_type) -> None:
             "plan": [{"index": 0, "voltage_mv": 900, "target_mhz": 2500}],
             "gpu_name": "NVIDIA GeForce RTX 5080",
             "power_limit_w": 360,
+            "power_limit_set_supported": True,
         },
     )
     monkeypatch.setattr(gpu_vf_curve_applier, "apply_plan", lambda *_args: None)
@@ -195,6 +196,7 @@ def test_unsupported_power_limit_is_platform_managed_and_not_saved(
             "plan": [{"index": 0, "voltage_mv": 900, "target_mhz": 2490}],
             "gpu_name": "NVIDIA GeForce RTX 4090 Laptop GPU",
             "power_limit_w": 150,
+            "power_limit_set_supported": False,
             "power_limits": {
                 "power_limit_default_w": 150,
                 "power_limit_min_w": 5,
@@ -240,6 +242,7 @@ def test_successful_probe_is_authoritative_even_for_mobile_identity_strings(
             "gpu_name": "NVIDIA GeForce RTX 5090",
             "pci_device_id": "0x2C1810DE",
             "power_limit_w": 150,
+            "power_limit_set_supported": True,
             "power_limits": {
                 "power_limit_default_w": 150,
                 "power_limit_min_w": 5,
@@ -279,6 +282,7 @@ def test_unrecognized_rtx_2050_with_unsupported_setter_never_saves_power_limit(
             "gpu_name": "NVIDIA GeForce RTX 2050",
             "pci_device_id": "0x25B810DE",
             "power_limit_w": 35,
+            "power_limit_set_supported": False,
             "power_limits": {
                 "power_limit_default_w": 35,
                 "power_limit_min_w": 35,
@@ -292,7 +296,7 @@ def test_unrecognized_rtx_2050_with_unsupported_setter_never_saves_power_limit(
         log=logs.append,
     )
 
-    assert controllers[0].power_limit_probe_calls == 1
+    assert controllers[0].power_limit_probe_calls == 0
     assert controllers[0].power_limit_calls == []
     assert applier.power_limit_w is None
     assert applier.baseline_power_limit_w is None
@@ -303,27 +307,39 @@ def test_unrecognized_rtx_2050_with_unsupported_setter_never_saves_power_limit(
     ]
 
 
-def test_power_limit_probe_failure_disables_power_without_claiming_driver_result(
-    monkeypatch,
-) -> None:
-    logs: list[str] = []
-    _patch_power_environment(
-        monkeypatch,
-        power_limit_probe_error=RuntimeError("daemon timeout"),
+@pytest.mark.parametrize("support", [None, "false", 0])
+def test_missing_or_invalid_reset_power_support_stops_scan(monkeypatch, support) -> None:
+    controllers = _patch_power_environment(monkeypatch)
+    monkeypatch.setattr(
+        gpu_vf_curve_applier,
+        "reset_nvidia_runtime_defaults",
+        lambda **_kwargs: {
+            "plan": [{"index": 0, "voltage_mv": 900, "target_mhz": 2490}],
+            "gpu_name": "NVIDIA GeForce RTX 5080",
+            "power_limit_w": 360,
+            "power_limit_set_supported": support,
+        },
     )
+    with pytest.raises(AutoUvPowerLimitApplyError, match="did not establish"):
+        gpu_vf_curve_applier.open_live_gpu_vf_curve_applier(
+            gpu_index=0, runtime_options={"auto_uv_power_limit_w": 300},
+            log=lambda _message: None,
+        )
+    assert controllers[0].power_limit_calls == []
+    assert controllers[0].power_limit_probe_calls == 0
 
+
+def test_scan_uses_reset_setter_result_even_when_support_probe_is_deferred(monkeypatch) -> None:
+    controllers = _patch_power_environment(
+        monkeypatch, power_limit_probe_error=RuntimeError("auto-uv-scan-running")
+    )
     applier = gpu_vf_curve_applier.open_live_gpu_vf_curve_applier(
-        gpu_index=0,
-        runtime_options={},
-        log=logs.append,
+        gpu_index=0, runtime_options={"auto_uv_power_limit_w": 300},
+        log=lambda _message: None,
     )
-
-    assert applier.power_limit_set_supported is False
-    assert "power_limit_w" not in applier.translated_gpu_policy
-    assert logs == [
-        "Auto-UV power limit: could not verify fixed power-limit write support "
-        "(daemon timeout); continuing without saved power limit"
-    ]
+    assert controllers[0].power_limit_probe_calls == 0
+    assert controllers[0].power_limit_calls == [300]
+    assert applier.power_limit_w == 300
 
 
 def test_tier_power_limit_rejection_is_fatal_and_preserves_known_cap() -> None:
@@ -424,6 +440,86 @@ def test_power_limit_readback_error_stops_before_policy_is_updated() -> None:
 
     assert applier.power_limit_w == 360
     assert applier.requested_power_limit_w is None
+
+
+@pytest.mark.parametrize("pending", [None, 300])
+def test_cached_power_limit_must_still_match_live_state(pending) -> None:
+    controller = SimpleNamespace(capabilities=lambda **_: SimpleNamespace(
+        power=SimpleNamespace(current_w=360, enforced_w=300)
+    ))
+    applier = gpu_vf_curve_applier.LiveGpuVfCurveApplier(
+        gpu_index=0, gpu=cast(Any, controller), runtime_default_plan=[],
+        translated_gpu_policy={"power_limit_w": 300}, requested_power_limit_w=pending,
+    )
+    with pytest.raises(AutoUvPowerLimitApplyError, match="read-back mismatch"):
+        applier.apply_requested_power_limit(log=lambda _: None)
+
+
+@pytest.mark.parametrize("current,enforced,passes", [
+    (360, 300, False), (300, 280, True), (None, 300, True),
+    (None, None, False), (float("nan"), 300, False),
+])
+def test_power_readback_prefers_configured_limit(current, enforced, passes) -> None:
+    controller = SimpleNamespace(capabilities=lambda **_: SimpleNamespace(
+        power=SimpleNamespace(current_w=current, enforced_w=enforced)
+    ))
+    if passes:
+        assert gpu_vf_curve_applier.verify_applied_power_limit_w(
+            controller, requested_w=300, reported_applied_w=300
+        ) == 300
+    else:
+        with pytest.raises(AutoUvPowerLimitApplyError, match="read-back mismatch"):
+            gpu_vf_curve_applier.verify_applied_power_limit_w(
+                controller, requested_w=300, reported_applied_w=300
+            )
+
+
+@pytest.mark.parametrize("drift_during_probe", [False, True])
+def test_each_probe_stops_on_a_wrong_or_lost_power_cap(monkeypatch, drift_during_probe) -> None:
+    from auto_uv.probes import voltage_probe
+    from stability.q2rtx.models import Q2RTXStabilityConfig
+
+    power = SimpleNamespace(current_w=300 if drift_during_probe else 360, enforced_w=300)
+    reader = SimpleNamespace(
+        capabilities=lambda **_: SimpleNamespace(power=power),
+        refresh_points=lambda: None,
+    )
+    calls = []
+
+    def run(*_args, **_kwargs):
+        calls.append("workload")
+        power.current_w = 360
+        return SimpleNamespace(reason="ok")
+
+    monkeypatch.setattr(voltage_probe, "run_probe_with_hang_confirmation", run)
+    monkeypatch.setattr(voltage_probe, "handle_probe_result_logging_and_blacklist", lambda *_a, **_k: None)
+    monkeypatch.setattr(voltage_probe, "log_probe_start", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(voltage_probe, "apply_plan", lambda *_: None)
+    with pytest.raises(AutoUvPowerLimitApplyError, match="read-back mismatch"):
+        voltage_probe.probe_voltage_candidate(
+            reader=reader, candidate_plan=[], candidate_voltage_mv=850,
+            lock_clock_mhz=2700, q2rtx_config=Q2RTXStabilityConfig(), stable_history=[],
+            initial_probe_clock_mhz=2700,
+            nvml_session=SimpleNamespace(read_live_voltage_mv=lambda: 850),
+            log=lambda _: None, phase_label="candidate", power_limit_w=300,
+        )
+    assert calls == (["workload"] if drift_during_probe else [])
+
+
+@pytest.mark.parametrize("offset", [None, 0, 100_000, 105_000])
+def test_requested_curve_must_match_driver_readback(offset) -> None:
+    from auto_uv.domain.types import AutoUvError
+    from auto_uv.gpu.runtime_vf_offset_reset_check import assert_runtime_vf_offsets_match_plan
+
+    reader = SimpleNamespace(editable_core_points=lambda: (
+        [] if offset is None else [{"index": 12, "current_offset_khz": offset}]
+    ))
+    plan = [{"index": 12, "new_offset_mhz": 105}]
+    if offset == 105_000:
+        assert_runtime_vf_offsets_match_plan(reader, plan)
+    else:
+        with pytest.raises(AutoUvError, match="V/F curve read-back mismatch"):
+            assert_runtime_vf_offsets_match_plan(reader, plan)
 
 
 class _MemoryOffsetPolicyController:
@@ -529,6 +625,7 @@ def test_runtime_defaults_are_derived_from_semantic_daemon_reset(monkeypatch) ->
         "gpu_reset_defaults",
         lambda gpu_index: {
             "reset": True,
+            "power_limit_set_supported": True,
             "gpu_name": "NVIDIA GeForce RTX 5080",
             "power_limits": {"power_limit_default_w": 360},
             "points": [
@@ -550,6 +647,7 @@ def test_runtime_defaults_are_derived_from_semantic_daemon_reset(monkeypatch) ->
     )
 
     assert result["power_limit_w"] == 360
+    assert result["power_limit_set_supported"] is True
     assert result["plan"] == [
         {
             "index": 12,

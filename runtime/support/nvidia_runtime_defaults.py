@@ -72,5 +72,6 @@ def reset_nvidia_runtime_defaults(
         "pci_device_id": pci_device_id,
         "power_limits": power_limits,
         "power_limit_w": power_limit_w,
+        "power_limit_set_supported": result.get("power_limit_set_supported"),
         "source": "runtime-defaults",
     }

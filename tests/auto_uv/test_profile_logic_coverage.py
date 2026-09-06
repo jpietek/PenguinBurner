@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from auto_uv.domain.types import AutoUvError
-from auto_uv.domain.user_options import AUTO_UV_DEFAULTS, AutoUvMetricTuning
+from auto_uv.domain.user_options import AUTO_UV_DEFAULTS
 from auto_uv.curve.rising_tail import normalize_tail_rise_bins
 from auto_uv.curve.vf_curve_flattening import FlatteningRules, snap_target_clock
 from auto_uv.scan_mode.auto_uv_mode import normalize_auto_uv_mode
@@ -98,11 +98,3 @@ def test_voltage_drop_pct_normal() -> None:
 
 
 # --- auto_uv_user_options.AutoUvMetricTuning.max_core_clock_drop_pct ---
-def test_max_core_clock_drop_pct_property() -> None:
-    assert AutoUvMetricTuning(
-        min_performance_core_clock_pct=85.0
-    ).max_core_clock_drop_pct == pytest.approx(15.0)
-    # clamps at zero when the min pct exceeds 100
-    assert AutoUvMetricTuning(
-        min_performance_core_clock_pct=120.0
-    ).max_core_clock_drop_pct == 0.0

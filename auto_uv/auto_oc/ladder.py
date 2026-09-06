@@ -101,6 +101,16 @@ def build_auto_oc_ladder(
             clock_step_mhz=int(clock_step_mhz),
         )
         voltage_key = int(voltage_mv)
+        if ratio == 1.0 and steps and steps[-1].voltage_mv == voltage_key:
+            # A sparse grid may reach the endpoint voltage before the final
+            # clock. Keep one probe per voltage, but test the full endpoint.
+            steps[-1] = AutoOcStep(
+                index=steps[-1].index,
+                voltage_mv=voltage_key,
+                target_mhz=int(target_mhz),
+                ratio=ratio,
+            )
+            continue
         if voltage_key <= start_voltage or voltage_key in seen_voltages:
             continue
         seen_voltages.add(voltage_key)
