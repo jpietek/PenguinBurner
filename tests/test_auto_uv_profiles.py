@@ -227,7 +227,7 @@ def test_profile_table_headers_and_sorting_scope() -> None:
     assert ProfileList.COLUMNS[4] == "Target MHz"
     assert ProfileList.COLUMNS[5] == "Effective MHz"
     assert ProfileList.COLUMNS[6] == "FPS/W"
-    assert ProfileList.COLUMNS[8] == "Power W (vs stock limit)"
+    assert ProfileList.COLUMNS[8] == "Power W"
     assert ProfileList.COLUMNS[9] == "Mem"
     assert ProfileList.COLUMNS[10] == "Tier"
     assert "Autostart" not in ProfileList.COLUMNS

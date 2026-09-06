@@ -33,7 +33,7 @@ class ProfileList:
         "Effective MHz",
         "FPS/W",
         "FPS",
-        "Power W (vs stock limit)",
+        "Power W",
         "Mem",
         "Tier",
         "Source",
