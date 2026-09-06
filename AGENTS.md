@@ -49,9 +49,8 @@ responsibility, not arbitrary line count.
 
 ## Privileged operations use the root daemon
 
-PenguinBurner has one root-owned service, `penguin-burnerd.service`, on
-`/run/penguin-burnerd.sock`. Anything that needs root belongs behind that
-socket API.
+PenguinBurner has one root-owned service, `penguin-burnerd.service`.
+Anything that needs root belongs behind its socket API.
 
 - Never wrap GPU or system actions in `pkexec`, `sudo`, or
   `privileged_command`.
@@ -150,3 +149,25 @@ run, stop and report the exact blocker.
 8. In the PR body, explain what changed, why, user/developer impact, checks run,
    and any live validation that remains.
 9. Verify the remote result and leave the requested branch/worktree state clean.
+
+## Releases
+
+- Publish only when explicitly requested. Prepare version metadata and release
+  notes, pass the required checks, and merge the release commit to `main` first.
+- Use `scripts/release.sh VERSION` for GitHub/tag, PyPI, AUR, COPR, Ubuntu PPA,
+  and Flatpak/Pages. See [the release guide](docs/releasing.md) for prerequisites
+  and retry behavior. Do not substitute a partial manual publication.
+- Releases must run noninteractively. Check signing and credentials before
+  building; never put private keys, passphrases, or tokens in the repository.
+- Keep instructions portable: use repository-relative commands and documented
+  environment variables, not workstation-specific checkout or credential paths.
+- Keep the generated artifacts and completion receipts for retries. Never
+  overwrite a published tag or replace mismatched release artifacts.
+- Verify public versions, artifact hashes, and remote build/deployment results
+  before reporting completion. A local host upgrade is a separate action.
+- Use the containerized package checks for Arch/CachyOS, supported Fedora,
+  Ubuntu, and Flatpak. Check the built daemon, Vulkan layer, and NVAPI shim,
+  not just package metadata. Commands and scenarios are in the release guide.
+- Set `PENGUIN_BURNER_SKIP_PACKAGE_SMOKE=1` only when the same checks already
+  passed for the exact source and packaging being released. Record the CI run
+  or local evidence. Rawhide/devel are drift checks, not stable-release gates.

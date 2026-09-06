@@ -48,6 +48,13 @@ workroot="$(mktemp -d)"
 source_dir="${workroot}/${package}-${version}"
 orig="${workroot}/${package}_${version}.orig.tar.gz"
 
+stage_debian_recipe() {
+    mkdir -p "$1"
+    git ls-files -z -- packaging/debian |
+        tar --null --files-from=- --create --file=- |
+        tar --extract --file=- --directory="$1" --strip-components=2
+}
+
 cleanup() {
     rm -rf "$workroot"
 }
@@ -77,6 +84,7 @@ if [ "$source_python_version" != "$version" ] \
 fi
 gpg --batch --list-secret-keys "$key_id" >/dev/null 2>&1 \
     || { echo "Debian signing key not found: ${key_id}" >&2; exit 1; }
+"$ROOT/scripts/release-gpg.sh" --check "$key_id"
 
 if [ -n "$orig_tarball_path" ]; then
     [ -f "$orig_tarball_path" ] \
@@ -113,7 +121,7 @@ else
     # at the exact release tag. Generated crates are staged only in this
     # temporary tree and the source package; they never enter Git.
     rm -rf "$source_dir/packaging/debian"
-    cp -a packaging/debian "$source_dir/packaging/debian"
+    stage_debian_recipe "$source_dir/packaging/debian"
     mkdir -p "$source_dir/.cargo"
     (
         cd "$source_dir"
@@ -165,7 +173,7 @@ if [ -z "$orig_tarball_path" ]; then
 fi
 
 rm -rf "${source_dir}/debian"
-cp -a packaging/debian "${source_dir}/debian"
+stage_debian_recipe "${source_dir}/debian"
 
 cat > "${source_dir}/debian/changelog" <<EOF
 ${package} (${debian_version}) ${series}; urgency=medium
@@ -177,7 +185,10 @@ EOF
 
 (
     cd "$source_dir"
-    dpkg-buildpackage -S -sa -d -k"${key_id}"
+    # This is a fresh tag export or an accepted orig archive, with no binary
+    # build output to clean. Source-only packaging needs no host debhelper.
+    dpkg-buildpackage --no-pre-clean --sign-backend=gpg -S -sa -d \
+        -p"$ROOT/scripts/release-gpg.sh" -k"${key_id}"
 )
 
 cp "${workroot}"/*.{dsc,tar.xz,tar.gz,buildinfo,changes} "$outdir"/ 2>/dev/null || true

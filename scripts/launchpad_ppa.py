@@ -15,9 +15,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 
-ARCHIVE_API = (
-    "https://api.launchpad.net/1.0/~jpietek/+archive/ubuntu/penguin-burner"
-)
+ARCHIVE_API = "https://api.launchpad.net/1.0/~jpietek/+archive/ubuntu/penguin-burner"
 PACKAGE_NAME = "penguin-burner"
 SUCCESS_STATE = "Successfully built"
 FAILURE_STATES = frozenset(
@@ -60,7 +58,11 @@ def ppa_version(version: str, revision: str, series: str) -> str:
 def _fetch_json(url: str) -> JsonObject:
     request = Request(
         url,
-        headers={"Accept": "application/json", "User-Agent": "PenguinBurner-PPA/1"},
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "PenguinBurner-PPA/1",
+            "Cache-Control": "no-cache",
+        },
     )
     try:
         with urlopen(request, timeout=30) as response:  # noqa: S310
@@ -222,7 +224,7 @@ def wait_for_builds(
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("check", "wait"):
+    for name in ("check", "exists", "wait"):
         command = commands.add_parser(name)
         command.add_argument("version")
         command.add_argument("revision")
@@ -238,6 +240,21 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "check":
             check_available(args.version, args.revision, args.series)
+        elif args.command == "exists":
+            sources = _fetch_json(published_sources_url())
+            return (
+                0
+                if all(
+                    find_source(
+                        sources,
+                        ppa_version(args.version, args.revision, series),
+                        series,
+                    )
+                    is not None
+                    for series in args.series
+                )
+                else 3
+            )
         elif args.command == "wait":
             if args.timeout <= 0 or args.poll <= 0:
                 raise LaunchpadError("timeout and poll interval must be positive")

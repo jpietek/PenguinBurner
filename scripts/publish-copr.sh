@@ -45,4 +45,4 @@ if [ -n "$config_file" ]; then
     args+=(--config "$config_file")
 fi
 
-copr-cli "${args[@]}" build --nowait "$project" "$srpm"
+copr-cli "${args[@]}" build "$project" "$srpm"

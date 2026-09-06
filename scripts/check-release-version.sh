@@ -8,35 +8,44 @@ if [ "$#" -ne 1 ]; then
 fi
 
 requested_version="$1"
-package_version="$(
-    python3 - <<'PY'
+python3 - "$requested_version" <<'PY'
+import re
+import sys
 import tomllib
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
-metadata = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
-print(metadata["project"]["version"])
+version = sys.argv[1]
+def check(path, actual):
+    if actual != version:
+        sys.exit(f"release version does not match {path}: requested={version} actual={actual}")
+
+for path, section in (("pyproject.toml", "project"), ("burnerd/Cargo.toml", "package")):
+    check(path, tomllib.loads(Path(path).read_text())[section]["version"])
+
+lock_path = "burnerd/Cargo.lock"
+for package in tomllib.loads(Path(lock_path).read_text())["package"]:
+    if package["name"] == "penguin-burnerd":
+        check(lock_path, package["version"])
+        break
+else:
+    sys.exit(f"penguin-burnerd missing from {lock_path}")
+
+for path, pattern in (
+    ("packaging/arch/PKGBUILD", r"^pkgver=(.+)$"),
+    ("packaging/rpm/penguin-burner.spec", r"^Version:\s*(.+)$"),
+):
+    match = re.search(pattern, Path(path).read_text(), re.M)
+    check(path, match.group(1) if match else None)
+
+appstream = "packaging/flatpak/io.github.jpietek.PenguinBurner.metainfo.xml"
+release = ET.parse(appstream).find("releases/release")
+check(appstream, release.get("version") if release is not None else None)
 PY
-)"
-
-if [ "$requested_version" != "$package_version" ]; then
-    echo "release version does not match pyproject.toml: requested=$requested_version pyproject=$package_version" >&2
-    exit 1
-fi
-
-# The Rust daemon reports its own crate version over the socket, so it must
-# track the release too (a drift here shipped a 0.7.2 build whose daemon still
-# reported 0.7.1).
-burnerd_version="$(
-    sed -n 's/^version = "\(.*\)"/\1/p' burnerd/Cargo.toml | head -1
-)"
-if [ "$requested_version" != "$burnerd_version" ]; then
-    echo "release version does not match burnerd/Cargo.toml: requested=$requested_version burnerd=$burnerd_version" >&2
-    exit 1
-fi
 
 if [ ! -f "docs/release-notes-$requested_version.md" ]; then
     echo "missing docs/release-notes-$requested_version.md" >&2
     exit 1
 fi
 
-echo "$package_version"
+echo "$requested_version"

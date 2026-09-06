@@ -92,7 +92,9 @@ def test_check_available_rejects_duplicate_source_version() -> None:
         )
 
 
-def test_check_available_accepts_unpublished_versions(capsys: pytest.CaptureFixture[str]) -> None:
+def test_check_available_accepts_unpublished_versions(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     PPA.check_available(
         "0.7.2",
         "1",
@@ -175,3 +177,24 @@ def test_wait_for_builds_times_out_without_source() -> None:
             monotonic=lambda: next(clock),
             sleep=lambda _seconds: None,
         )
+
+
+def test_status_requests_revalidate_cached_build_results(monkeypatch) -> None:
+    from io import BytesIO
+
+    def fetch(request, *, timeout):
+        assert request.get_header("Cache-control") == "no-cache"
+        assert timeout == 30
+        return BytesIO(b'{"entries": []}')
+
+    monkeypatch.setattr(PPA, "urlopen", fetch)
+    assert PPA._fetch_json("https://api.launchpad.net/example") == {"entries": []}
+
+
+@pytest.mark.parametrize(("exists", "expected"), [(True, 0), (False, 3)])
+def test_exists_distinguishes_accepted_source_from_missing(
+    monkeypatch, exists, expected
+) -> None:
+    entries = [_source("resolute", "0.8.0-1~ppa1~resolute1")] if exists else []
+    monkeypatch.setattr(PPA, "_fetch_json", lambda _url: {"entries": entries})
+    assert PPA.main(["exists", "0.8.0", "1", "resolute"]) == expected

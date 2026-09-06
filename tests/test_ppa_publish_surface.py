@@ -170,7 +170,7 @@ def test_one_click_publisher_guards_git_and_waits() -> None:
     assert '"login": "anonymous"' in script
     assert '"method": "ftp"' in script
     assert '"passive_ftp": true' in script
-    assert '"$status_helper" check' in script
+    assert '"$status_helper" exists' in script
     assert '"$status_helper" wait' in script
     assert 'changes_files+=("$changes")' in script
     assert 'dput "$ppa" "$changes"' in script

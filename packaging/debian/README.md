@@ -46,7 +46,8 @@ are never committed to Git.
 
 ## Publish
 
-From a clean checkout containing the release tag and Debian signing key:
+From a clean checkout with the release tag available and a signing key in your
+local GPG keyring:
 
 ```bash
 scripts/publish-ppa.sh 0.8.0
@@ -56,6 +57,20 @@ That one command builds and validates the Resolute source package, uploads it
 through Launchpad's anonymous passive-FTP endpoint, waits for Launchpad's amd64
 build, prints its URL, and fails if the build fails. Pass a series name after
 the version to publish only that target.
+
+Signing is noninteractive: `scripts/release-gpg.sh` disables pinentry and checks
+the key before building. An unprotected key signs without an unlock; a protected
+key must already be unlocked in the GPG agent. Otherwise publication fails
+before the build instead of opening a password dialog. Override the key with
+`DEBSIGN_KEYID` and check it separately with:
+
+```bash
+scripts/release-gpg.sh --check KEY_ID
+```
+
+Build-status requests bypass cached responses, and progress is printed
+immediately when output is redirected to a log. Repeating publication of an
+accepted source resumes build monitoring without rebuilding or uploading it.
 
 When retrying the same upstream version with a new Debian revision, reuse the
 orig tarball already accepted by Launchpad so its immutable checksum does not

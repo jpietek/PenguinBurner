@@ -30,10 +30,11 @@ cp packaging/arch/PKGBUILD "$aur_repo/PKGBUILD"
     git add PKGBUILD .SRCINFO
     if git diff --cached --quiet; then
         echo "AUR package is already up to date."
-        exit 0
+    else
+        pkgver="$(awk -F ' = ' '$1 == "\tpkgver" { print $2; exit }' .SRCINFO)"
+        pkgrel="$(awk -F ' = ' '$1 == "\tpkgrel" { print $2; exit }' .SRCINFO)"
+        git commit -m "Update to ${pkgver}-${pkgrel}"
     fi
-    pkgver="$(awk -F ' = ' '$1 == "\tpkgver" { print $2; exit }' .SRCINFO)"
-    pkgrel="$(awk -F ' = ' '$1 == "\tpkgrel" { print $2; exit }' .SRCINFO)"
-    git commit -m "Update to ${pkgver}-${pkgrel}"
+    # A previous run may have committed successfully but failed to push.
     git push
 )
