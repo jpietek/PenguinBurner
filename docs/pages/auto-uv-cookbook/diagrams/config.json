@@ -1,0 +1,16 @@
+{
+  "theme": "base",
+  "handDrawnSeed": 72,
+  "securityLevel": "strict",
+  "themeVariables": {
+    "background": "#101b24",
+    "primaryColor": "#19334b",
+    "primaryTextColor": "#edf5fa",
+    "primaryBorderColor": "#84c7f5",
+    "lineColor": "#8da8b8",
+    "edgeLabelBackground": "#101b24",
+    "fontFamily": "system-ui, sans-serif",
+    "fontSize": "17px"
+  },
+  "flowchart": {"htmlLabels": false, "curve": "basis", "nodeSpacing": 30, "rankSpacing": 45, "padding": 18}
+}
