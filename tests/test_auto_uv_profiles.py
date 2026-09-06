@@ -97,10 +97,9 @@ from ui.components.profile_list import (
     PROFILE_SORTABLE_COLUMNS,
     ProfileList,
     _format_number,
-    _format_profile_metric_with_delta,
     _metric_delta_percent,
     _profile_base_metric,
-    _profile_metric_delta_color,
+    _profile_metric_tooltip,
     _profile_sort_values,
     _profile_source_label,
     _profile_tier_label,
@@ -205,44 +204,21 @@ def test_profile_summary_keeps_base_metrics_for_profile_table_delta() -> None:
     assert summary["base_efficiency_fps_per_w"] == 0.50
 
 
-def test_profile_metric_delta_text_and_color_vs_base() -> None:
+def test_profile_metric_tooltip_identifies_its_scan_baseline() -> None:
     assert _metric_delta_percent(0.75, 0.50) == 50.0
-    assert _format_profile_metric_with_delta(0.75, 0.50, precision=2) == (
-        "0.75 (+50.00%)"
+    assert _profile_metric_tooltip(240.0, 300.0, label="Power W") == (
+        "Power W: 240.00\n"
+        "-20.00% vs this scan's baseline: 300.00.\n"
+        "Baselines differ between scans; these percentages do not compare profiles."
     )
-    assert _profile_metric_delta_color(0.75, 0.50) == "#55d27a"
-    assert _format_profile_metric_with_delta(67.161, 64.228, precision=2) == (
-        "67.16 (+4.57%)"
+    assert "+4.57% vs this scan's baseline: 64.23" in _profile_metric_tooltip(
+        67.161, 64.228, label="FPS"
     )
-
-    assert (
-        _format_profile_metric_with_delta(
-            875,
-            1000,
-            precision=0,
-            lower_is_better=True,
-        )
-        == "875 (-12.50%)"
+    assert "baseline: 0.2043" in _profile_metric_tooltip(
+        0.242340, 0.204326, label="FPS/W", precision=4
     )
-    assert (
-        _format_profile_metric_with_delta(
-            2600.0,
-            2650.0,
-            precision=2,
-        )
-        == "2600.00 (-1.89%)"
-    )
-    assert (
-        _format_profile_metric_with_delta(
-            240.0,
-            300.0,
-            precision=2,
-            lower_is_better=True,
-        )
-        == "240.00 (-20.00%)"
-    )
-    assert _profile_metric_delta_color(240.0, 300.0, lower_is_better=True) == "#55d27a"
-    assert _profile_metric_delta_color(330.0, 300.0, lower_is_better=True) == "#ff6b6b"
+    for current, baseline in ((None, 300), (240, None), (240, 0)):
+        assert _profile_metric_tooltip(current, baseline, label="Power W") == ""
 
 
 def test_profile_table_headers_and_sorting_scope() -> None:
@@ -406,7 +382,7 @@ def test_profile_non_sort_columns_have_no_sort_keys() -> None:
     assert sort_values[11] == ""
 
 
-def test_profile_table_keeps_regular_font_for_highlight_and_deltas() -> None:
+def test_profile_table_keeps_plain_metrics_and_regular_font_for_highlight() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
     from PySide6 import QtCore, QtGui, QtWidgets
@@ -443,20 +419,20 @@ def test_profile_table_keeps_regular_font_for_highlight_and_deltas() -> None:
 
     assert (
         profile_list.table.item(0, profile_list.VOLTAGE_COLUMN).text()
-        == "875 (-12.50%)"
+        == "875"
     )
     assert (
         profile_list.table.item(0, profile_list.EFFECTIVE_MHZ_COLUMN).text()
-        == "2605.25 (-1.69%)"
+        == "2605.25"
     )
     assert profile_list.table.item(0, profile_list.FPSW_COLUMN).text() == (
-        "0.80 (+60.00%)"
+        "0.8000"
     )
     assert profile_list.table.item(0, profile_list.FPS_COLUMN).text() == (
-        "160.00 (+6.67%)"
+        "160.00"
     )
     assert profile_list.table.item(0, profile_list.POWER_COLUMN).text() == (
-        "200.00 (-20.00%)"
+        "200.00"
     )
     # The stored offset is an NVML transfer-rate value (MT/s); the table shows
     # the realized memory clock in MHz (half of it) with a unit suffix.
@@ -467,9 +443,10 @@ def test_profile_table_keeps_regular_font_for_highlight_and_deltas() -> None:
         item = profile_list.table.item(0, column)
         assert item is not None
         assert not item.font().bold()
+        assert item.foreground().style() == QtCore.Qt.BrushStyle.NoBrush
 
 
-def test_profile_table_recalculates_relative_text_and_colors_from_long_values() -> None:
+def test_profile_table_keeps_scan_deltas_in_tooltips_and_sorts_absolute_values() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
     from PySide6 import QtCore, QtGui, QtWidgets
@@ -494,26 +471,64 @@ def test_profile_table_recalculates_relative_text_and_colors_from_long_values() 
 
     expected = {
         profile_list.EFFECTIVE_MHZ_COLUMN: (
-            "2888.06 (+5.27%)",
-            "#55d27a",
+            "2888.06",
+            "+5.27%",
         ),
         profile_list.FPSW_COLUMN: (
-            "0.21 (+15.51%)",
-            "#55d27a",
+            "0.2118",
+            "+15.51%",
         ),
         profile_list.FPS_COLUMN: (
-            "67.16 (+4.57%)",
-            "#55d27a",
-        ),
-        profile_list.POWER_COLUMN: (
-            "317.10 (-9.47%)",
-            "#55d27a",
+            "67.16",
+            "+4.57%",
         ),
     }
-    for column, (text, color) in expected.items():
+    for column, (text, delta) in expected.items():
         item = profile_list.table.item(0, column)
         assert item.text() == text
-        assert item.foreground().color().name() == color
+        assert delta in item.toolTip()
+        assert "vs this scan's baseline:" in item.toolTip()
+        assert item.foreground().style() == QtCore.Qt.BrushStyle.NoBrush
+    power_item = profile_list.table.item(0, profile_list.POWER_COLUMN)
+    assert power_item.text() == "317.10"
+    assert "unavailable" in power_item.toolTip()
+    profile_list.set_profiles(
+        [
+            {
+                "profile_id": "efficiency",
+                "gpu_identity": {"uuid": "GPU-A"},
+                "avg_power_w": 247.895,
+                "base_avg_power_w": 300.129,
+                "avg_fps": 60.075,
+                "base_avg_fps": 61.324,
+            },
+            {
+                "profile_id": "balanced",
+                "gpu_identity": {"uuid": "GPU-A"},
+                "avg_power_w": 252.228,
+                "base_avg_power_w": 354.089,
+                "avg_fps": 61.933,
+                "base_avg_fps": 63.018,
+            },
+        ],
+        default_power_limits_w={"gpu-a": 360.0},
+    )
+    profile_list.table.sortItems(
+        profile_list.POWER_COLUMN, QtCore.Qt.SortOrder.AscendingOrder
+    )
+    power_items = [profile_list.table.item(row, profile_list.POWER_COLUMN) for row in range(2)]
+    assert [item.text() for item in power_items] == ["247.90 (-31.14%)", "252.23 (-29.94%)"]
+    for item in power_items:
+        assert "factory/default power limit (360.00 W)" in item.toolTip()
+        assert "not measured stock power savings" in item.toolTip()
+        assert "scan's baseline" not in item.toolTip()
+        assert item.foreground().color().name() == "#55d27a"
+    profile_list.table.sortItems(
+        profile_list.FPS_COLUMN, QtCore.Qt.SortOrder.DescendingOrder
+    )
+    assert [
+        profile_list.table.item(row, profile_list.FPS_COLUMN).text() for row in range(2)
+    ] == ["61.93", "60.08"]
 
 
 def test_profile_table_defaults_to_newest_date_first() -> None:
