@@ -22,6 +22,7 @@ from auto_uv.domain.console_log import log_phase
 from auto_uv.gpu.gpu_vf_curve_applier import verify_applied_power_limit_w
 from auto_uv.gpu.runtime_vf_offset_reset_check import assert_runtime_vf_offsets_match_plan
 from ..persistence.auto_uv_persisted_json_files import auto_uv_stop_requested
+from ..persistence.interrupted_probe_crash_cache import CRASH_CACHE_CANDIDATE_PHASES
 from auto_uv.domain.types import AutoUvProbeSummary
 from auto_uv.domain.user_options import AUTO_UV_METRIC_TUNING, AUTO_UV_STALL_TUNING
 from ..persistence.probe_in_progress_marker_file import (
@@ -565,10 +566,7 @@ def companion_duration_s_from_command(command: tuple[str, ...] | None) -> float:
 
 
 def probe_phase_writes_crash_marker(phase_label: str) -> bool:
-    return str(phase_label) in {
-        "candidate",
-        "final-verify",
-    }
+    return str(phase_label) in CRASH_CACHE_CANDIDATE_PHASES
 
 
 def unsafe_clock_bindings_from_plan(

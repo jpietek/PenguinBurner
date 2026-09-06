@@ -148,7 +148,13 @@ highest editable voltage bin within the configured target. It never exceeds that
 voltage target to force a higher clock. A new critical GPU or workload error aborts the scan instead of
 triggering retries or starting another tier. Earlier verified checkpoints remain
 available. Explicit lower-clock targets also retain
-their crash markers across abrupt exits.
+their crash markers across abrupt exits. Every tier's candidate phase uses the
+same marker path, including the first shallow voltage step. Recovery requires
+an in-progress candidate marker with a valid positive voltage and clock; voltage
+drop and baseline-clock percentages do not filter it out. An unrelated power
+loss or forced kill during a probe can therefore conservatively block that
+point too; the record says the previous run ended abruptly, not that GPU
+instability was proven. Clean stops clear the marker.
 
 When stable checkpoints exist for the same requested tier, the GUI shows a
 previous-crash recovery dialog before starting discovery again. The default
@@ -288,7 +294,7 @@ Under the PenguinBurner user config directory:
 ## Troubleshooting
 
 If a scan stops early, read the latest log in `debug-logs/` first — common
-causes are an unsafe-voltage history entry, a clock guardrail, a Q2RTX/CUDA
+causes are an unsafe-voltage history entry, a power wall, a Q2RTX/CUDA
 failure, or interrupted final verification. To wipe history and rerun clean:
 
 ```bash

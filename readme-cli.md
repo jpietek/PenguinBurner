@@ -68,10 +68,9 @@ The CLI scan options mirror the GUI Auto-UV tuning dialog. Start with
 `--auto-uv-voltage-scan`, then choose the same preset family shown in the GUI
 with `--auto-uv-mode efficiency|balanced|performance`.
 
-Clock-loss thresholds are automatic for each GPU and tier, with a 12.5% fallback
-for unknown GPUs. The scan still checks loaded clocks during probing and final
-verification, accounting for sustained power-limit evidence. These thresholds
-are not editable.
+Clock-loss percentage cutoffs have been removed. The scan still measures loaded
+clocks and rejects workload failures, lost load, and FPS regressions. Confirmed
+power limits can stop an ineffective clock climb.
 
 Auto-OC target defaults are optimized for most GPUs. Change voltage or clock
 targets only if you understand GPU voltage/frequency tuning and the risks of

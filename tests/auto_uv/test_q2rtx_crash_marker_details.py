@@ -1,11 +1,23 @@
 from __future__ import annotations
 
+import json
+from contextlib import nullcontext
+from types import SimpleNamespace
+
 import pytest
 
+from auto_uv.persistence.auto_uv_persisted_json_files import probe_in_progress_path
+from auto_uv.persistence.interrupted_probe_crash_cache import (
+    consume_interrupted_probe_crash_marker,
+)
+from auto_uv.persistence.unsafe_voltage_blacklist_file import load_unsafe_voltage_blacklist
+from auto_uv.persistence.unsafe_voltage_cache import unsafe_voltage_block_reason
+from auto_uv.probes import voltage_probe
 from auto_uv.probes.voltage_probe import (
     probe_crash_marker_details,
     probe_unsafe_details,
 )
+from stability.q2rtx.models import Q2RTXStabilityConfig
 
 
 def test_probe_crash_marker_details_describe_normal_candidate_context() -> None:
@@ -47,3 +59,94 @@ def test_probe_unsafe_details_keep_marker_tier_context() -> None:
     assert details["generated_profile_tier"] == "performance"
     assert details["tail_rise_bins"] == 6
     assert details["result_reason"] == "fatal-q2rtx-output"
+
+
+@pytest.mark.parametrize("phase,marked", [
+    ("candidate", True),
+    ("final-verify", True),
+    ("efficiency-candidate", True),
+    ("balanced-candidate", True),
+    ("performance-candidate", True),
+    ("baseline", False),
+    ("base-baseline", False),
+    ("unknown-candidate", False),
+])
+@pytest.mark.parametrize("reason,start_voltage,voltage,clock", [
+    ("stable", 1000, 900, 2400),
+    ("stable", 985, 970, 2400),
+    ("stable", 985, 970, 2160),
+    ("fatal-q2rtx-output", 1000, 900, 2400),
+    ("q2rtx-launcher-error", 1000, 900, 2400),
+    ("user-stop-requested", 1000, 900, 2400),
+])
+def test_probe_wrapper_persists_only_supported_candidate_failures(
+    monkeypatch, phase: str, marked: bool, reason: str,
+    start_voltage: int, voltage: int, clock: int,
+) -> None:
+    marker_path = probe_in_progress_path()
+    captured_marker = None
+    result = SimpleNamespace(
+        success=reason == "stable", reason=reason, telemetry_samples=[],
+        workload_kind="q2rtx", workload_name="Q2RTX", shutdown_mode="completed",
+        process_exit_code=0 if reason == "stable" else 1, log_path=None,
+    )
+
+    def workload(_config):
+        nonlocal captured_marker
+        assert marker_path.exists() is marked
+        if marked:
+            captured_marker = marker_path.read_text()
+            marker = json.loads(captured_marker)
+            assert marker["phase"] == phase
+            assert marker["candidate_voltage_mv"] == voltage
+            assert marker["lock_clock_mhz"] == clock
+            assert marker["details"]["generated_profile_tier"] == "efficiency"
+        return result
+
+    monkeypatch.setattr(voltage_probe, "run_q2rtx_stability_test", workload)
+    monkeypatch.setattr(voltage_probe, "log_probe_start", lambda *_a, **_k: None)
+    monkeypatch.setattr(voltage_probe, "apply_plan", lambda *_a: None)
+    monkeypatch.setattr(voltage_probe, "print_q2rtx_stability_result", lambda *_a: None)
+    monkeypatch.setattr(voltage_probe, "summarize_q2rtx_cuda_probe", lambda **_k: SimpleNamespace())
+    reader = SimpleNamespace(
+        refresh_points=lambda: None,
+        editable_core_points=lambda: [{"index": 0, "current_offset_khz": 0}],
+    )
+    plan = [{"index": 0, "voltage_mv": voltage, "base_mhz": clock,
+             "target_mhz": clock, "new_offset_mhz": 0}]
+    with pytest.raises(KeyboardInterrupt) if reason == "user-stop-requested" else nullcontext():
+        voltage_probe.probe_voltage_candidate(
+            reader=reader, candidate_plan=plan, candidate_voltage_mv=voltage,
+            lock_clock_mhz=clock, q2rtx_config=Q2RTXStabilityConfig(),
+            stable_history=[], initial_probe_clock_mhz=2400,
+            initial_target_voltage_mv=start_voltage,
+            nvml_session=SimpleNamespace(read_live_voltage_mv=lambda: voltage),
+            phase_label=phase, log=lambda _: None,
+            marker_details={"generated_profile_tier": "efficiency"},
+        )
+
+    assert not marker_path.exists()
+    entries = load_unsafe_voltage_blacklist()
+    if marked and reason == "fatal-q2rtx-output":
+        assert len(entries) == 1
+        assert entries[0]["phase"] == phase
+        assert entries[0]["candidate_voltage_mv"] == voltage
+        assert entries[0]["lock_clock_mhz"] == clock
+        assert entries[0]["details"]["result_reason"] == reason
+    else:
+        assert entries == []
+
+    if marked and reason == "stable":
+        # Replay the actual in-flight marker as if the process died before cleanup.
+        assert captured_marker is not None
+        marker_path.write_text(captured_marker)
+        assert consume_interrupted_probe_crash_marker() is not None
+        assert not marker_path.exists()
+        recovered = load_unsafe_voltage_blacklist()
+        assert len(recovered) == 1
+        assert recovered[0]["phase"] == phase
+        assert recovered[0]["reason"] == "previous-run-abruptly-ended"
+        assert unsafe_voltage_block_reason(
+            recovered, candidate_voltage_mv=voltage, lock_clock_mhz=clock,
+            profile_tier="efficiency",
+        )
