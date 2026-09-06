@@ -353,7 +353,7 @@ def test_5070_ti_sweep_reaches_auto_oc_after_initial_clock_shortfall(
         baseline_candidate=VfCurveCandidate("baseline", 1025, 2730, curve),
         initial_stable_outcome=None, fallback_probe=baseline,
         discovery_summary=baseline, accumulated_unsafe=accumulated_unsafe,
-        effective_min_search_voltage_mv=925, runner=runner, probe_history=[],
+        runner=runner, probe_history=[],
         gpu=SimpleNamespace(clock_ceiling=None, power_limit_w=300), log=lambda _: None,
     )
 

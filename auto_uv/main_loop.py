@@ -63,7 +63,6 @@ from ui.features.auto_uv.candidate_choice import (
 from auto_uv.efficiency_tune.voltage_floor import min_search_voltage_mv
 from auto_uv.gpu.gpu_vf_curve_applier import open_live_gpu_vf_curve_applier
 from auto_uv.base_uv_loop import BaseUvLoopIO, run_base_uv_loop
-from auto_uv.efficiency_uv_loop import run_efficiency_uv_loop
 from auto_uv.performance_uv_loop import (
     select_power_bound_clock_reclaim_candidate,
     select_performance_auto_oc_candidate,
@@ -800,9 +799,6 @@ def run_voltage_frequency_undervolt_main_loop(
                     discovery_summary=discovery_summary,
                     probe_history=probe_history,
                     baseline_target=baseline_target,
-                    effective_min_search_voltage_mv=int(
-                        effective_min_search_voltage_mv
-                    ),
                     unsafe_entries=unsafe_entries,
                     prepare_tier_baseline=prepare_tier_baseline,
                     finish_with_final_verification=finish_with_final_verification,
@@ -816,8 +812,6 @@ def run_voltage_frequency_undervolt_main_loop(
                 io=loop_io,
                 unsafe_entries=unsafe_entries,
                 initial_stable_outcome=initial_stable_outcome,
-                min_search_voltage_mv=int(effective_min_search_voltage_mv),
-                initial_tail_rise_bins=int(descent_tail_rise_bins),
                 log=log,
             )
             log_lower_voltage_sweep_events(log, loop_result.events)
@@ -936,21 +930,19 @@ def run_preset_uv_loop(
     io: BaseUvLoopIO,
     unsafe_entries: list[dict] | None,
     initial_stable_outcome: VoltageProbeOutcome | None,
-    min_search_voltage_mv: int,
-    initial_tail_rise_bins: int,
     log: Callable[[str], None],
 ) -> LowerVoltageSweepResult:
     if settings.auto_uv_mode == AUTO_UV_MODE_EFFICIENCY:
-        return run_efficiency_uv_loop(
-            base_curve,
-            settings=settings,
-            initial_stable_candidate=initial_stable_candidate,
-            io=io,
-            unsafe_entries=unsafe_entries,
-            initial_stable_outcome=initial_stable_outcome,
-            min_search_voltage_mv=int(min_search_voltage_mv),
-            initial_tail_rise_bins=int(initial_tail_rise_bins),
-            log=log,
+        log_user_stage(
+            log,
+            "Auto-UV efficiency lower-voltage search",
+            [
+                (
+                    "Searching toward the card minimum voltage with "
+                    f"{int(settings.tail_rise_bins)} tail-rise bins."
+                ),
+                f"Keeping target clock: {int(initial_stable_candidate.target_mhz)}MHz.",
+            ],
         )
     # Performance adds its Auto-OC climb after this shared descent.
     return run_base_uv_loop(
@@ -977,7 +969,6 @@ def run_adaptive_tier_scans(
     discovery_summary: AutoUvProbeSummary,
     probe_history: list,
     baseline_target,
-    effective_min_search_voltage_mv: int,
     unsafe_entries: list[dict] | None,
     finish_with_final_verification: Callable[..., AutoUvVoltageScanResult],
     event_callback: AutoUvEventCallback | None,
@@ -1085,9 +1076,6 @@ def run_adaptive_tier_scans(
         tier_stable_probe = stable_probe
         tier_discovery_summary = discovery_summary
         tier_baseline_target = baseline_target
-        tier_effective_min_search_voltage_mv = int(
-            effective_min_search_voltage_mv
-        )
         tier_base_loop_settings = base_loop_settings
         if prepare_tier_baseline is not None:
             try:
@@ -1112,13 +1100,10 @@ def run_adaptive_tier_scans(
             tier_stable_probe = prepared.stable_probe
             tier_discovery_summary = prepared.discovery_summary
             tier_baseline_target = prepared.target
-            tier_effective_min_search_voltage_mv = int(
-                prepared.min_search_voltage_mv
-            )
             tier_base_loop_settings = replace(
                 base_loop_settings,
                 start_voltage_mv=int(tier_baseline_candidate.voltage_mv),
-                min_search_voltage_mv=int(tier_effective_min_search_voltage_mv),
+                min_search_voltage_mv=int(prepared.min_search_voltage_mv),
                 reference_actual_voltage_mv=tier_stable_probe.avg_voltage_mv,
             )
         try:
@@ -1176,9 +1161,6 @@ def run_adaptive_tier_scans(
                         fallback_probe=tier_stable_probe,
                         discovery_summary=tier_discovery_summary,
                         accumulated_unsafe=accumulated_unsafe,
-                        effective_min_search_voltage_mv=int(
-                            tier_effective_min_search_voltage_mv
-                        ),
                         runner=tier_runner,
                         probe_history=probe_history,
                         gpu=gpu,
@@ -1337,7 +1319,6 @@ def run_adaptive_tier_descent(
     fallback_probe: AutoUvProbeSummary | None,
     discovery_summary: AutoUvProbeSummary,
     accumulated_unsafe: list[dict],
-    effective_min_search_voltage_mv: int,
     runner: AutoUvProbeRunner,
     probe_history: list,
     gpu,
@@ -1419,8 +1400,6 @@ def run_adaptive_tier_descent(
         io=tier_loop_io,
         unsafe_entries=accumulated_unsafe,
         initial_stable_outcome=initial_stable_outcome,
-        min_search_voltage_mv=int(effective_min_search_voltage_mv),
-        initial_tail_rise_bins=int(tier_descent_tail),
         log=log,
     )
     log_lower_voltage_sweep_events(log, loop_result.events)

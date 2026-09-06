@@ -134,11 +134,10 @@ def run_base_uv_loop(
     while state.next_voltage_mv is not None:
         # Retained measured gains can raise the clock. Check the built
         # candidate, before any GPU operation, rather than the previous lock.
-        candidate, state = build_next_lower_voltage_candidate(
+        candidate = build_next_lower_voltage_candidate(
             base_curve,
             settings=settings,
             state=state,
-            probe_history=probe_history,
         )
         block_reason = unsafe_voltage_block_reason(
             list(unsafe_entries or []),
@@ -279,10 +278,8 @@ def build_next_lower_voltage_candidate(
     *,
     settings: AutoUvScanSettings,
     state: VoltageSweepState,
-    probe_history: list[VoltageProbeOutcome],
-) -> tuple[VfCurveCandidate, VoltageSweepState]:
+) -> VfCurveCandidate:
     assert state.next_voltage_mv is not None
-    _ = probe_history
     tail_rise_bins = max(0, int(settings.tail_rise_bins))
     target_mhz = base_curve_target_for_lower_voltage(
         base_curve,
@@ -294,7 +291,7 @@ def build_next_lower_voltage_candidate(
         start_voltage_mv=int(settings.start_voltage_mv),
         candidate_voltage_mv=int(state.next_voltage_mv),
     )
-    candidate = build_flattened_voltage_probe_curve(
+    return build_flattened_voltage_probe_curve(
         base_curve,
         candidate_voltage_mv=int(state.next_voltage_mv),
         target_clock_mhz=int(target_mhz),
@@ -308,7 +305,6 @@ def build_next_lower_voltage_candidate(
             "target_policy": "hold-required-clock",
         },
     )
-    return candidate, state
 
 
 def propagated_measured_target_mhz(
@@ -491,7 +487,6 @@ def accept_voltage_probe(
         stable_voltage_mv=int(candidate.voltage_mv),
         reference_actual_voltage_mv=reference_voltage_mv,
         min_search_voltage_mv=min_search_voltage_mv,
-        failed_floor_voltage_mv=state.failed_floor_voltage_mv,
     )
     next_state = replace(
         state,

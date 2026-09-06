@@ -22,7 +22,6 @@ from auto_uv.domain.types import (
 from auto_uv.run import baseline_probe
 from auto_uv.run import crash_recovery
 from auto_uv import main_loop as undervolt_main_loop
-from auto_uv import efficiency_uv_loop
 from auto_uv import performance_uv_loop
 from auto_uv.final_verification.main_loop import (
     run_final_verification_and_save as real_run_final_verification_and_save,
@@ -391,7 +390,7 @@ def test_auto_uv_final_choice_runs_before_final_verification(monkeypatch) -> Non
     )
     monkeypatch.setattr(undervolt_main_loop, "AutoUvProbeRunner", FakeRunner)
     monkeypatch.setattr(undervolt_main_loop, "write_verified_candidate", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(efficiency_uv_loop, "run_base_uv_loop", fake_sweep_loop)
+    monkeypatch.setattr(undervolt_main_loop, "run_base_uv_loop", fake_sweep_loop)
     monkeypatch.setattr(undervolt_main_loop, "choose_final_verification_candidate", fake_choice)
     monkeypatch.setattr(undervolt_main_loop, "run_final_verification_and_save", fake_final)
 
@@ -2656,7 +2655,6 @@ def test_adaptive_tier_progress_events_are_chronological(monkeypatch) -> None:
         discovery_summary=object(),
         probe_history=[],
         baseline_target=SimpleNamespace(measured_clock_mhz=2400),
-        effective_min_search_voltage_mv=800,
         unsafe_entries=[],
         finish_with_final_verification=fake_finish,
         event_callback=lambda event, payload: events.append((event, payload)),
@@ -2878,7 +2876,6 @@ def _adaptive_scan_kwargs(*, events, descent_calls, runtime_options=None):
         discovery_summary=object(),
         probe_history=[],
         baseline_target=SimpleNamespace(measured_clock_mhz=2400),
-        effective_min_search_voltage_mv=800,
         unsafe_entries=[],
         finish_with_final_verification=fake_finish,
         event_callback=lambda event, payload: events.append((event, payload)),
@@ -3956,7 +3953,6 @@ def test_adaptive_tiers_keep_power_requests(
         discovery_summary=object(),
         probe_history=[],
         baseline_target=SimpleNamespace(measured_clock_mhz=2400),
-        effective_min_search_voltage_mv=800,
         unsafe_entries=[],
         finish_with_final_verification=fake_finish,
         event_callback=lambda event, payload: events.append((event, payload)),

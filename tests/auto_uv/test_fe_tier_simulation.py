@@ -122,7 +122,6 @@ def test_fe_tier_search_preserves_measured_curve_under_power_limits(
         initial_stable_candidate=start,
         io=BaseUvLoopIO(probe, lambda *_: None, lambda *_: None),
         initial_stable_outcome=initial, unsafe_entries=None,
-        min_search_voltage_mv=floor, initial_tail_rise_bins=bins,
         log=lambda _: None,
     )
     assert result.stable_outcome is not None

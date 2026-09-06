@@ -112,7 +112,7 @@ def test_lower_voltage_phase_returns_fine_below_medium_threshold() -> None:
 
 def test_lower_voltage_candidate_holds_requested_target_and_tail() -> None:
     curve = rtx_5080_20260524_high_oc_base_curve()
-    candidate, _state = build_next_lower_voltage_candidate(
+    candidate = build_next_lower_voltage_candidate(
         curve,
         settings=AutoUvScanSettings(
             start_voltage_mv=1000,
@@ -127,7 +127,6 @@ def test_lower_voltage_candidate_holds_requested_target_and_tail() -> None:
             stable_measured_target_mhz=2730,
             next_voltage_mv=860,
         ),
-        probe_history=[],
     )
 
     tail_targets = [

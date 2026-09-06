@@ -15,7 +15,7 @@ from auto_uv.domain.types import (
     StableRunDecision,
     VfCurveCandidate,
 )
-from auto_uv.efficiency_uv_loop import run_efficiency_uv_loop
+from auto_uv.main_loop import run_preset_uv_loop
 from auto_uv.run.voltage_sweep_state import VoltageProbeOutcome
 
 from auto_uv_test_data import base_curve
@@ -117,17 +117,17 @@ def test_first_failure_stops_efficiency_without_repeating_the_probe(critical: bo
 
     result = None
     with pytest.raises(AutoUvCriticalProbeError, match="Xid 109") if critical else nullcontext():
-        result = run_efficiency_uv_loop(
+        result = run_preset_uv_loop(
             curve,
-            settings=_settings(min_search_voltage_mv=950),
+            settings=_settings(min_search_voltage_mv=825),
             initial_stable_candidate=initial,
             io=BaseUvLoopIO(
                 probe_candidate=probe,
                 write_verified_candidate=lambda candidate, _: written.append(candidate),
                 mark_unsafe_candidate=lambda candidate, _: unsafe.append(candidate),
             ),
-            min_search_voltage_mv=825,
-            initial_tail_rise_bins=0,
+            unsafe_entries=None,
+            initial_stable_outcome=None,
             log=lambda _: None,
         )
 
@@ -151,15 +151,15 @@ def test_efficiency_stops_on_fps_regression_without_accepting_it() -> None:
             return _passing_outcome()
         return _fps_regression_outcome()
 
-    result = run_efficiency_uv_loop(
-        curve, settings=_settings(min_search_voltage_mv=950),
+    result = run_preset_uv_loop(
+        curve, settings=_settings(min_search_voltage_mv=825),
         initial_stable_candidate=_initial_candidate(curve, voltage_mv=1000, lock_mhz=2240),
         io=BaseUvLoopIO(
             probe_candidate=probe,
             write_verified_candidate=lambda candidate, _outcome: written.append(candidate),
             mark_unsafe_candidate=lambda _candidate, _outcome: None,
         ),
-        min_search_voltage_mv=825, initial_tail_rise_bins=0, log=lambda _: None,
+        unsafe_entries=None, initial_stable_outcome=None, log=lambda _: None,
     )
     assert len(probed) == 2
     assert probed[-1].voltage_mv < 925
@@ -170,9 +170,9 @@ def test_efficiency_stops_on_fps_regression_without_accepting_it() -> None:
 
 
 @pytest.mark.parametrize("tail_bins", [0, 2])
-@pytest.mark.parametrize("configured_floor,final_floor", [(900, 900), (950, 825)])
+@pytest.mark.parametrize("final_floor", [900, 825])
 def test_efficiency_descends_once_to_floor_preserving_tested_tail_and_history(
-    tail_bins: int, configured_floor: int, final_floor: int
+    tail_bins: int, final_floor: int
 ) -> None:
     curve = base_curve()
     probed: list[VfCurveCandidate] = []
@@ -183,16 +183,16 @@ def test_efficiency_descends_once_to_floor_preserving_tested_tail_and_history(
         probed.append(candidate)
         return outcome
 
-    result = run_efficiency_uv_loop(
+    result = run_preset_uv_loop(
         curve,
-        settings=replace(_settings(min_search_voltage_mv=configured_floor), tail_rise_bins=tail_bins),
+        settings=replace(_settings(min_search_voltage_mv=final_floor), tail_rise_bins=tail_bins),
         initial_stable_candidate=_initial_candidate(curve, voltage_mv=1000, lock_mhz=2240),
         io=BaseUvLoopIO(
             probe_candidate=probe,
             write_verified_candidate=lambda candidate, measured: written.append((candidate, measured)),
             mark_unsafe_candidate=lambda *_: None,
         ),
-        min_search_voltage_mv=final_floor, initial_tail_rise_bins=tail_bins,
+        unsafe_entries=None, initial_stable_outcome=None,
         log=lambda _: None,
     )
 
@@ -210,13 +210,13 @@ def test_efficiency_descends_once_to_floor_preserving_tested_tail_and_history(
 
 def test_non_efficiency_mode_returns_base_sweep_unchanged() -> None:
     curve = base_curve()
-    result = run_efficiency_uv_loop(
+    result = run_preset_uv_loop(
         curve,
         settings=_settings(auto_uv_mode="balanced", min_search_voltage_mv=900),
         initial_stable_candidate=_initial_candidate(curve, voltage_mv=1000, lock_mhz=2240),
         io=_all_pass_io(),
-        min_search_voltage_mv=900,
-        initial_tail_rise_bins=0,
+        unsafe_entries=None,
+        initial_stable_outcome=None,
         log=lambda _message: None,
     )
 
