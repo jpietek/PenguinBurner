@@ -14,6 +14,7 @@ from stability.q2rtx.models import Q2RTXStabilityConfig
 from stability.q2rtx.process_harness import cleanup_managed_q2rtx_processes
 
 from auto_uv.domain.types import (
+    AutoUvCriticalProbeError,
     AutoUvError,
     AutoUvFinalChoiceDiscarded,
     AutoUvPowerLimitApplyError,
@@ -28,7 +29,6 @@ from auto_uv.domain.scan_result import build_voltage_scan_result
 from auto_uv.domain.user_options import AUTO_UV_DEFAULTS, AUTO_UV_METRIC_TUNING
 from auto_uv.shared.positive_int import positive_int
 from auto_uv.run.baseline_probe import (
-    adjust_baseline_to_measured_clock,
     build_loaded_baseline_candidate,
     baseline_load_reference_power_limit_w,
     require_probe_summary,
@@ -416,13 +416,6 @@ def run_voltage_frequency_undervolt_main_loop(
                 f"{baseline_outcome.decision.reason}"
             )
         stable_probe = require_probe_summary(baseline_outcome)
-        baseline_candidate = adjust_baseline_to_measured_clock(
-            base_curve,
-            candidate=baseline_candidate,
-            stable_probe=stable_probe,
-            gpu=gpu,
-            tail_rise_bins=int(tail_rise_bins),
-        )
         stable_history.append(stable_probe)
         write_verified_candidate(
             baseline_candidate,
@@ -757,13 +750,6 @@ def run_voltage_frequency_undervolt_main_loop(
                     tier_stable_probe = require_probe_summary(
                         tier_baseline_outcome
                     )
-                    tier_baseline_candidate = adjust_baseline_to_measured_clock(
-                        base_curve,
-                        candidate=tier_baseline_candidate,
-                        stable_probe=tier_stable_probe,
-                        gpu=gpu,
-                        tail_rise_bins=int(tier_tail_rise_bins),
-                    )
                     write_verified_candidate(
                         tier_baseline_candidate,
                         tier_stable_probe,
@@ -1013,8 +999,8 @@ def run_adaptive_tier_scans(
     performance_can_reuse_balanced_descent) and runs only its Auto-OC climb.
     The tiers accumulate genuinely-unsafe voltages so a later tier never
     re-crashes a point an earlier tier condemned. The
-    first verified (deepest) profile soaks the full final duration; shallower
-    tiers get the graduated confirm. Raises on producing no profile at all.
+    tiers use their own final-verification duration, unless explicitly
+    overridden for all tiers. Raises on producing no profile at all.
     """
     primary_scan_result: AutoUvVoltageScanResult | None = None
     last_tier_error: AutoUvError | None = None
@@ -1030,6 +1016,8 @@ def run_adaptive_tier_scans(
         event_details: dict,
     ) -> None:
         nonlocal last_tier_error, balanced_donation
+        if isinstance(tier_error, AutoUvCriticalProbeError):
+            raise tier_error
         last_tier_error = tier_error
         if tier_mode == AUTO_UV_MODE_BALANCED:
             balanced_donation = None

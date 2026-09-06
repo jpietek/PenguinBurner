@@ -10,6 +10,7 @@ from stability.q2rtx.long_stability_config import (
 
 from auto_uv.domain.console_log import log_benchmark, log_phase, log_user_stage
 from auto_uv.domain.types import (
+    AutoUvCriticalProbeError,
     AutoUvError,
     AutoUvProbeSummary,
     FailureSeverity,
@@ -221,7 +222,7 @@ def run_final_verification_and_save(
         reason = str(decision.reason or raw_reason or "unknown")
         log_phase(log, "final-verify", f"rejected {reason}")
         if decision.severity is FailureSeverity.CRITICAL:
-            raise AutoUvError(
+            raise AutoUvCriticalProbeError(
                 f"Final verification stopped after critical probe failure: {reason}"
             )
         raise AutoUvError(f"final long verification failed: {reason}")

@@ -9,7 +9,7 @@ from auto_uv.shared.positive_int import positive_int
 
 from auto_uv.domain.console_log import log_phase
 from auto_uv.domain.types import (
-    AutoUvError,
+    AutoUvCriticalProbeError,
     AutoUvProbeSummary,
     FailureKind,
     FailureSeverity,
@@ -183,7 +183,7 @@ def run_auto_oc_candidate_search(
             outcome.decision.severity is FailureSeverity.CRITICAL
             and outcome.decision.failure_kind is not FailureKind.USER_STOP
         ):
-            raise AutoUvError(
+            raise AutoUvCriticalProbeError(
                 f"Auto-OC stopped after critical probe failure: {outcome.decision.reason}"
             )
         return candidate, outcome
@@ -279,10 +279,10 @@ def run_auto_oc_candidate_search(
                 "auto-oc",
                 f"skip {outcome.decision.reason}; back off to passed {selected_candidate.target_mhz}MHz",
             )
-            if selected_candidate.voltage_mv < endpoint.voltage_mv:
+            if selected_candidate.voltage_mv < ladder[-1].voltage_mv:
                 fallback = AutoOcStep(
                     index=step.index,
-                    voltage_mv=endpoint.voltage_mv,
+                    voltage_mv=ladder[-1].voltage_mv,
                     target_mhz=selected_candidate.target_mhz,
                     ratio=step.ratio,
                 )

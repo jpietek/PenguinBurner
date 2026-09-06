@@ -10,7 +10,7 @@ from auto_uv.auto_oc.ladder import AutoOcStep, build_auto_oc_ladder
 from auto_uv.auto_oc.scoring import auto_oc_probe_key
 from auto_uv.auto_oc.search import run_auto_oc_candidate_search
 from auto_uv.domain.types import (
-    AutoUvError,
+    AutoUvCriticalProbeError,
     AutoUvProbeSummary,
     FailureKind,
     FailureSeverity,
@@ -187,6 +187,33 @@ def test_auto_oc_clock_climb_skips_cached_unsafe_points(monkeypatch) -> None:
     assert result.selected_candidate is start
     assert result.attempts
     assert all(a.outcome.decision.failure_kind is FailureKind.CACHED_UNSAFE for a in result.attempts)
+
+
+def test_cached_unsafe_backoff_uses_existing_voltage_bin_and_passed_clock(monkeypatch) -> None:
+    monkeypatch.setattr(auto_oc_search, "load_unsafe_voltage_blacklist", lambda: [{
+        "candidate_voltage_mv": 950, "lock_clock_mhz": 2410, "reason": "benchmark-crash",
+    }])
+    curve = base_curve(850, 950, 20, 2400, 15)
+    start = VfCurveCandidate("start", 850, 2400, curve)
+    tried: list[tuple[int, int]] = []
+
+    class FakeRunner:
+        def probe_candidate(self, candidate, **_kwargs):
+            tried.append((candidate.voltage_mv, candidate.target_mhz))
+            return _passed_outcome(_probe(candidate.voltage_mv, candidate.target_mhz))
+
+    result = run_auto_oc_candidate_search(
+        base_curve=curve, start_candidate=start, start_probe=_probe(850, 2400),
+        runner=FakeRunner(), gpu_name="NVIDIA GeForce RTX 5080", clock_ceiling=None,
+        probe_history=[], log=lambda _: None, target_voltage_mv=925,
+        target_clock_mhz=2950,
+    )
+
+    assert tried == [(910, 2400)]
+    assert result.attempts[0].outcome.decision.failure_kind is FailureKind.CACHED_UNSAFE
+    assert (result.selected_candidate.voltage_mv, result.selected_candidate.target_mhz) == (910, 2400)
+    assert result.selected_candidate.flattened_plan
+    assert result.selected_probe is result.attempts[-1].outcome.raw_probe
 
 
 def test_auto_oc_search_climbs_voltage_and_clock_to_target() -> None:
@@ -542,7 +569,7 @@ def test_auto_oc_search_aborts_without_retry_after_stop_or_critical_failure(
             )
 
     result = None
-    with nullcontext() if kind is FailureKind.USER_STOP else pytest.raises(AutoUvError):
+    with nullcontext() if kind is FailureKind.USER_STOP else pytest.raises(AutoUvCriticalProbeError):
         result = run_auto_oc_candidate_search(
             base_curve=curve,
             start_candidate=start,

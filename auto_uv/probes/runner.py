@@ -10,7 +10,12 @@ from typing import Callable
 
 from stability.q2rtx.models import Q2RTXStabilityConfig
 
-from auto_uv.domain.types import AutoUvProbeSummary, VfCurveCandidate
+from auto_uv.domain.types import (
+    AutoUvCriticalProbeError,
+    AutoUvProbeSummary,
+    FailureSeverity,
+    VfCurveCandidate,
+)
 from .stability_decision import evaluate_stable_run
 from .voltage_probe import probe_voltage_candidate
 from .voltage_probe import companion_duration_s_from_command
@@ -75,7 +80,7 @@ class AutoUvProbeRunner:
         self,
         candidate: VfCurveCandidate,
     ) -> VoltageProbeOutcome:
-        return self.probe_candidate(
+        outcome = self.probe_candidate(
             candidate,
             stable_history=[],
             phase_label="baseline",
@@ -83,6 +88,11 @@ class AutoUvProbeRunner:
             use_power_limit_floor=True,
             use_companion_load=False,
         )
+        if outcome.decision.severity is FailureSeverity.CRITICAL:
+            raise AutoUvCriticalProbeError(
+                f"Baseline stopped after critical probe failure: {outcome.decision.reason}"
+            )
+        return outcome
 
     def probe_sweep_candidate(
         self,

@@ -5,9 +5,11 @@ from typing import Any, Callable, cast
 from stability.q2rtx.models import Q2RTXStabilityConfig
 
 from auto_uv.domain.types import (
+    AutoUvCriticalProbeError,
     AutoUvError,
     AutoUvProbeSummary,
     BaseLoadTarget,
+    FailureSeverity,
     VfCurveCandidate,
 )
 from auto_uv.domain.console_log import log_benchmark, log_phase
@@ -21,7 +23,6 @@ from auto_uv.curve.base_vf_curve_voltage_bins import (
     lock_voltage_for_target_clock,
     nearest_editable_voltage_bin,
 )
-from auto_uv.curve.measured_probe_lock_clock import lock_clock_from_probe_loaded_clock
 from auto_uv.curve.vf_curve_flattening import (
     build_flatten_target_for_plan,
     build_flattened_plan,
@@ -29,6 +30,7 @@ from auto_uv.curve.vf_curve_flattening import (
 from auto_uv.persistence.verified_candidate_result_file import write_latest_verified_candidate
 from auto_uv.probes.config import reference_discovery_q2rtx_duration_s
 from auto_uv.probes.runner import AutoUvProbeRunner
+from auto_uv.probes.stability_decision import classify_failed_result
 from auto_uv.probes.event_payload import probe_summary_event_payload
 from auto_uv.domain.events import AutoUvEventCallback, emit_auto_uv_event
 from auto_uv.run.voltage_sweep_state import VoltageProbeOutcome
@@ -139,6 +141,14 @@ def run_discovery_probe_with_runner(
         ),
     )
     log_benchmark(log, phase="discover", probe=summary)
+    if not getattr(result, "success", False):
+        decision = classify_failed_result(
+            str(getattr(result, "reason", "")), log_path=getattr(result, "log_path", None)
+        )
+        if decision.severity is FailureSeverity.CRITICAL:
+            raise AutoUvCriticalProbeError(
+                f"Stock baseline stopped after critical probe failure: {decision.reason}"
+            )
     light_load_diagnostic = selected_nvidia_light_load_diagnostic(
         list(getattr(result, "telemetry_samples", []) or []),
         power_limit_w=runner.power_limit_w,
@@ -205,46 +215,6 @@ def build_loaded_baseline_candidate(
             flattened_plan=plan,
         ),
         target,
-    )
-
-
-def adjust_baseline_to_measured_clock(
-    base_curve: list[dict],
-    *,
-    candidate: VfCurveCandidate,
-    stable_probe: AutoUvProbeSummary,
-    gpu,
-    tail_rise_bins: int = 0,
-) -> VfCurveCandidate:
-    measured_target_mhz = lock_clock_from_probe_loaded_clock(
-        base_curve,
-        probe=stable_probe,
-        previous_lock_clock_mhz=int(candidate.target_mhz),
-        power_limit_w=getattr(gpu, "power_limit_w", None),
-    )
-    if int(measured_target_mhz) == int(candidate.target_mhz):
-        return candidate
-    plan = build_flattened_plan(
-        base_curve,
-        lock_clock_mhz=int(measured_target_mhz),
-        candidate_voltage_mv=int(candidate.voltage_mv),
-        tail_rise_bins=int(tail_rise_bins),
-    )
-    if gpu.clock_ceiling is not None:
-        gpu.clock_ceiling.retarget(
-            lock_clock_mhz=int(measured_target_mhz),
-            lock_voltage_mv=int(candidate.voltage_mv),
-            ceiling_clock_mhz=tail_ceiling_for_plan(
-                plan,
-                lock_clock_mhz=int(measured_target_mhz),
-                lock_voltage_mv=int(candidate.voltage_mv),
-            ),
-        )
-    return VfCurveCandidate(
-        label="baseline-measured-clock-adjusted",
-        voltage_mv=int(candidate.voltage_mv),
-        target_mhz=int(measured_target_mhz),
-        flattened_plan=plan,
     )
 
 

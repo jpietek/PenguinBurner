@@ -6,6 +6,7 @@ import pytest
 
 from auto_uv.domain.scan_settings import AutoUvScanSettings
 from auto_uv.domain.types import (
+    AutoUvCriticalProbeError,
     FailureKind,
     FailureSeverity,
     StableRunDecision,
@@ -231,6 +232,40 @@ def test_rising_tail_measured_gains_can_still_raise_the_next_target() -> None:
     assert targets == [2160, 2190]
 
 
+def test_cached_unsafe_check_uses_the_next_candidates_raised_clock() -> None:
+    curve = base_curve(900, 1025, 25, 2000, 40)
+    initial = VfCurveCandidate("baseline", 1000, 2240, curve)
+    initial_outcome = replace(_passed_outcome(initial), measured_core_clock_mhz=2260.0)
+
+    def unexpected_probe(_candidate):
+        pytest.fail("cached unsafe candidate reached the GPU")
+
+    result = run_base_uv_loop(
+        curve,
+        settings=AutoUvScanSettings(
+            start_voltage_mv=1000, min_search_voltage_mv=900,
+            auto_uv_mode="balanced", tail_rise_bins=4,
+        ),
+        initial_stable_candidate=initial,
+        initial_stable_outcome=initial_outcome,
+        unsafe_entries=[{
+            "candidate_voltage_mv": 925,
+            "lock_clock_mhz": 2250,
+            "reason": "nvidia-xid",
+        }],
+        io=BaseUvLoopIO(
+            probe_candidate=unexpected_probe,
+            write_verified_candidate=lambda *_: None,
+            mark_unsafe_candidate=lambda *_: None,
+        ),
+    )
+
+    assert result.stable_candidate is initial
+    assert result.stable_outcome is initial_outcome
+    assert result.probe_history == []
+    assert [event.name for event in result.events] == ["stop"]
+
+
 def test_performance_mode_lower_sweep_uses_plain_lower_voltage_probe() -> None:
     curve = base_curve(900, 1025, 25, 2000, 40)
     probed: list[tuple[int, int, str]] = []
@@ -271,41 +306,26 @@ def test_performance_mode_lower_sweep_uses_plain_lower_voltage_probe() -> None:
     assert len(probed) == 1
     assert probed[0][0] == 950
     assert "oc-budget" not in probed[0][2]
+    assert result.stable_candidate.voltage_mv == 950
 
 
-def _critical_outcome(candidate: VfCurveCandidate) -> VoltageProbeOutcome:
-    return VoltageProbeOutcome(
-        decision=StableRunDecision(
-            passed=False,
-            failure_kind=FailureKind.Q2RTX_FAILED,
-            severity=FailureSeverity.CRITICAL,
-            reason="benchmark-crashed-signal",
-        ),
-        measured_core_clock_mhz=float(candidate.target_mhz),
-        measured_voltage_mv=float(candidate.voltage_mv),
-        raw_probe=probe_summary(
-            candidate.voltage_mv,
-            clock_mhz=float(candidate.target_mhz),
-        ),
-    )
-
-
-def _run_failed_sweep(
-    *,
-    probe,
-    min_search_voltage_mv: int = 900,
-):
+def test_critical_failure_marks_unsafe_and_aborts() -> None:
     curve = base_curve(880, 1025, 20, 2000, 40)
     probed: list[int] = []
     unsafe: list[int] = []
     written: list[int] = []
 
-    def wrapped(candidate: VfCurveCandidate) -> VoltageProbeOutcome:
+    def probe(candidate: VfCurveCandidate) -> VoltageProbeOutcome:
         probed.append(int(candidate.voltage_mv))
-        return probe(candidate)
+        return replace(_passed_outcome(candidate), decision=StableRunDecision(
+            passed=False,
+            failure_kind=FailureKind.Q2RTX_FAILED,
+            severity=FailureSeverity.CRITICAL,
+            reason="benchmark-crashed-signal",
+        ))
 
     io = BaseUvLoopIO(
-        probe_candidate=wrapped,
+        probe_candidate=probe,
         write_verified_candidate=lambda candidate, _outcome: written.append(
             int(candidate.voltage_mv)
         ),
@@ -313,31 +333,24 @@ def _run_failed_sweep(
             int(candidate.voltage_mv)
         ),
     )
-    result = run_base_uv_loop(
-        curve,
-        settings=AutoUvScanSettings(
-            start_voltage_mv=1000,
-            min_search_voltage_mv=min_search_voltage_mv,
-            auto_uv_mode="performance",
-            reference_actual_voltage_mv=1000.0,
-        ),
-        initial_stable_candidate=VfCurveCandidate(
-            label="baseline",
-            voltage_mv=1000,
-            target_mhz=2160,
-            flattened_plan=curve,
-        ),
-        io=io,
-    )
-    return result, probed, unsafe, written
-
-
-def test_critical_failure_marks_unsafe_and_stops() -> None:
-    result, probed, unsafe, _written = _run_failed_sweep(
-        probe=_critical_outcome,
-    )
+    with pytest.raises(AutoUvCriticalProbeError, match="benchmark-crashed-signal"):
+        run_base_uv_loop(
+            curve,
+            settings=AutoUvScanSettings(
+                start_voltage_mv=1000,
+                min_search_voltage_mv=900,
+                auto_uv_mode="performance",
+                reference_actual_voltage_mv=1000.0,
+            ),
+            initial_stable_candidate=VfCurveCandidate(
+                label="baseline",
+                voltage_mv=1000,
+                target_mhz=2160,
+                flattened_plan=curve,
+            ),
+            io=io,
+        )
 
     assert len(probed) == 1
-    assert len(unsafe) == 1
-    assert result.stable_candidate.voltage_mv == 1000
-    assert "stop" in [event.name for event in result.events]
+    assert unsafe == probed
+    assert written == []

@@ -281,7 +281,7 @@ def test_state_for_selected_candidate_uses_candidate_target_without_outcome() ->
 
 
 def test_decide_passed_probe_records_without_stopping() -> None:
-    """Efficiency declines but stop is not yet armed: record-not-write path.
+    """Balanced efficiency declines before its stopping threshold is armed.
 
     Covers lines 292-311 + the non-stop return (323-332).
     """
@@ -290,6 +290,7 @@ def test_decide_passed_probe_records_without_stopping() -> None:
         min_search_voltage_mv=900,
         reference_actual_voltage_mv=1000.0,
         efficiency_stop_streak=2,
+        auto_uv_mode="balanced",
     )
     state = VoltageSweepState(
         stable_voltage_mv=975, stable_target_mhz=2100, next_voltage_mv=950
@@ -392,7 +393,7 @@ def test_sweep_loop_stops_when_cached_unsafe_blocks_first_candidate() -> None:
     assert result.stable_candidate.voltage_mv == 1000
 
 
-def test_sweep_loop_efficiency_records_pending_curve_then_finishes() -> None:
+def test_balanced_sweep_records_pending_curve_then_finishes() -> None:
     """Efficiency declines on the last reachable bin.
 
     The probe passes but efficiency drops, so it is recorded (not written) and
@@ -424,6 +425,7 @@ def test_sweep_loop_efficiency_records_pending_curve_then_finishes() -> None:
             reference_actual_voltage_mv=1000.0,
             # high voltage-drop requirement so stop never arms; only one bin (950)
             min_efficiency_stop_voltage_drop_pct=99.0,
+            auto_uv_mode="balanced",
         ),
         initial_stable_candidate=_baseline_candidate(curve),
         io=io,
@@ -479,7 +481,7 @@ def test_sweep_loop_balanced_uses_fps_per_w_selection_wall() -> None:
     assert result.state.stable_voltage_mv == 1000
 
 
-def test_sweep_loop_efficiency_stop_uses_current_curve() -> None:
+def test_balanced_sweep_efficiency_stop_uses_current_curve() -> None:
     """Efficiency wall reached with use_current_curve -> stop on current curve.
 
     Drives the no-gain streak past the required confirmations so
@@ -509,6 +511,7 @@ def test_sweep_loop_efficiency_stop_uses_current_curve() -> None:
             reference_actual_voltage_mv=1000.0,
             efficiency_stop_streak=0,  # arm + confirm quickly
             min_efficiency_stop_voltage_drop_pct=0.0,
+            auto_uv_mode="balanced",
         ),
         initial_stable_candidate=_baseline_candidate(curve),
         io=io,

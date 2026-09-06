@@ -11,16 +11,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
-from auto_uv.curve.base_load_flatten_target import choose_base_load_flatten_target
-from auto_uv.curve.measured_probe_lock_clock import lock_clock_from_probe_loaded_clock
-from auto_uv.curve.shipped_plan import assert_monotonic_editable_targets
-from auto_uv.curve.vf_curve_flattening import build_flattened_plan
-from auto_uv.domain.types import AutoUvProbeSummary
-from auto_uv.probes.stability_decision import (
-    StabilityThresholds,
-    evaluate_loaded_telemetry,
-)
 from auto_uv_test_data import (
     rtx_5080_20260524_high_oc_base_curve,
     rtx_5090_steep_synthetic_curve,
@@ -31,6 +21,16 @@ from power_governor_sim import (
     scenario_5090_power_models,
     settle_operating_point,
     synthesize_busy_samples,
+)
+
+from auto_uv.curve.base_load_flatten_target import choose_base_load_flatten_target
+from auto_uv.curve.measured_probe_lock_clock import probe_indicates_power_saturation
+from auto_uv.curve.shipped_plan import assert_monotonic_editable_targets
+from auto_uv.curve.vf_curve_flattening import build_flattened_plan
+from auto_uv.domain.types import AutoUvProbeSummary
+from auto_uv.probes.stability_decision import (
+    StabilityThresholds,
+    evaluate_loaded_telemetry,
 )
 
 EFFICIENCY_CAP_W = 430
@@ -153,23 +153,18 @@ def test_product_tier_caps_order_synthetic_operating_points(
     )
 
 
-def test_s3_ratchet_keeps_target_when_probe_was_power_capped() -> None:
-    curve = rtx_5090_steep_synthetic_curve()
+def test_s3_capped_probe_can_trigger_reclaim_without_ending_the_climb() -> None:
     probe = _probe(
         avg_core_clock_mhz=2418.5,
         avg_power_w=553.0,
         perf_cap_reason="sw-power",
     )
 
-    # The field scan turned this exact probe into a 2595 -> 2418 ratchet.
-    assert (
-        lock_clock_from_probe_loaded_clock(
-            curve,
-            probe=probe,
-            previous_lock_clock_mhz=2595,
-            power_limit_w=575,
-        )
-        == 2595
+    # The reported cap can motivate reclaim, but 553W of 575W does not prove
+    # that a higher requested clock cannot be delivered.
+    assert probe_indicates_power_saturation(probe, power_limit_w=575)
+    assert not probe_indicates_power_saturation(
+        probe, power_limit_w=575, require_power_evidence=True
     )
 
 

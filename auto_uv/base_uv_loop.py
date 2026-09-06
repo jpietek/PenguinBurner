@@ -4,7 +4,7 @@ Algorithm:
 - start from the loaded stable baseline curve
 - build and probe one lower-voltage VF curve at a time
 - accept passing candidates and descend again
-- Efficiency may keep an older FPS/W-best candidate instead of the latest pass
+- Balanced may stop at an older FPS/W-best point; Efficiency reaches its floor
 - hard failures are marked unsafe and stop the sweep
 
 GPU side effects stay behind IO callbacks; this file shows scan order and
@@ -17,6 +17,8 @@ from dataclasses import dataclass, replace
 from typing import Any, Callable, cast
 
 from auto_uv.domain.types import (
+    AutoUvCriticalProbeError,
+    FailureSeverity,
     VfCurveCandidate,
 )
 from auto_uv.domain.scan_settings import AutoUvScanSettings
@@ -28,7 +30,6 @@ from auto_uv.scan_mode.efficiency_fps_per_w_policy import (
 )
 from auto_uv.scan_mode.auto_uv_mode import (
     AUTO_UV_MODE_BALANCED,
-    AUTO_UV_MODE_EFFICIENCY,
 )
 from auto_uv.curve.flattened_voltage_probe_curve import build_flattened_voltage_probe_curve
 from auto_uv.run.lower_voltage_probe_target import (
@@ -131,28 +132,28 @@ def run_base_uv_loop(
     events: list[LowerVoltageSweepEvent] = []
 
     while state.next_voltage_mv is not None:
-        # 1. Do not retest a voltage/clock pair already marked unsafe.
-        block_reason = unsafe_voltage_block_reason(
-            list(unsafe_entries or []),
-            candidate_voltage_mv=int(state.next_voltage_mv),
-            lock_clock_mhz=int(state.stable_target_mhz),
-            profile_tier=settings.auto_uv_mode,
-        )
-        if block_reason:
-            events.append(LowerVoltageSweepEvent("stop", block_reason))
-            break
-
-        # 2. Build and probe the next lower-voltage curve.
+        # Retained measured gains can raise the clock. Check the built
+        # candidate, before any GPU operation, rather than the previous lock.
         candidate, state = build_next_lower_voltage_candidate(
             base_curve,
             settings=settings,
             state=state,
             probe_history=probe_history,
         )
+        block_reason = unsafe_voltage_block_reason(
+            list(unsafe_entries or []),
+            candidate_voltage_mv=int(candidate.voltage_mv),
+            lock_clock_mhz=int(candidate.target_mhz),
+            profile_tier=settings.auto_uv_mode,
+        )
+        if block_reason:
+            events.append(LowerVoltageSweepEvent("stop", block_reason))
+            break
+
         outcome = io.probe_candidate(candidate)
         probe_history.append(outcome)
 
-        # 3. Passing probes become the latest safe point; Efficiency may select
+        # Passing probes become the latest safe point; Balanced may select
         #    the previous better FPS/W point and stop.
         if outcome.decision.passed:
             step = accept_passing_probe(
@@ -173,9 +174,13 @@ def run_base_uv_loop(
                 break
             continue
 
-        # 4. Failed probes stop this sweep. The persistence layer decides
+        # Failed probes stop this sweep. The persistence layer decides
         #    which failures identify an unsafe voltage.
         io.mark_unsafe_candidate(candidate, outcome)
+        if outcome.decision.severity is FailureSeverity.CRITICAL:
+            raise AutoUvCriticalProbeError(
+                f"Voltage sweep stopped after critical probe failure: {outcome.decision.reason}"
+            )
         events.append(LowerVoltageSweepEvent("stop", outcome.decision.reason))
         break
 
@@ -405,10 +410,7 @@ def decide_passed_probe(
 
 
 def uses_efficiency_fps_per_w_wall(settings: AutoUvScanSettings) -> bool:
-    return str(settings.auto_uv_mode) in {
-        AUTO_UV_MODE_BALANCED,
-        AUTO_UV_MODE_EFFICIENCY,
-    }
+    return str(settings.auto_uv_mode) == AUTO_UV_MODE_BALANCED
 
 
 def accept_current_candidate(

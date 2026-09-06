@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import replace
 
 import pytest
@@ -8,6 +9,7 @@ from auto_uv.base_uv_loop import BaseUvLoopIO
 from auto_uv.curve.vf_curve_flattening import build_flattened_plan
 from auto_uv.domain.scan_settings import AutoUvScanSettings
 from auto_uv.domain.types import (
+    AutoUvCriticalProbeError,
     FailureKind,
     FailureSeverity,
     StableRunDecision,
@@ -93,14 +95,59 @@ def _fps_regression_outcome() -> VoltageProbeOutcome:
     )
 
 
-def test_deeper_search_stops_on_fps_regression_without_accepting_it() -> None:
+@pytest.mark.parametrize("critical", [False, True], ids=["fps-regression", "nvidia-xid"])
+def test_first_failure_stops_efficiency_without_repeating_the_probe(critical: bool) -> None:
+    curve = base_curve()
+    initial = _initial_candidate(curve, voltage_mv=1000, lock_mhz=2240)
+    probed: list[VfCurveCandidate] = []
+    written: list[VfCurveCandidate] = []
+    unsafe: list[VfCurveCandidate] = []
+    outcome = _fps_regression_outcome()
+    if critical:
+        outcome = replace(outcome, decision=StableRunDecision(
+            passed=False,
+            failure_kind=FailureKind.NVIDIA_XID,
+            severity=FailureSeverity.CRITICAL,
+            reason="NVIDIA Xid 109",
+        ))
+
+    def probe(candidate: VfCurveCandidate) -> VoltageProbeOutcome:
+        probed.append(candidate)
+        return outcome
+
+    result = None
+    with pytest.raises(AutoUvCriticalProbeError, match="Xid 109") if critical else nullcontext():
+        result = run_efficiency_uv_loop(
+            curve,
+            settings=_settings(min_search_voltage_mv=950),
+            initial_stable_candidate=initial,
+            io=BaseUvLoopIO(
+                probe_candidate=probe,
+                write_verified_candidate=lambda candidate, _: written.append(candidate),
+                mark_unsafe_candidate=lambda candidate, _: unsafe.append(candidate),
+            ),
+            min_search_voltage_mv=825,
+            initial_tail_rise_bins=0,
+            log=lambda _: None,
+        )
+
+    assert len(probed) == 1
+    assert unsafe == probed
+    assert written == []
+    if not critical:
+        assert result is not None
+        assert result.stable_candidate is initial
+        assert result.probe_history == [outcome]
+
+
+def test_efficiency_stops_on_fps_regression_without_accepting_it() -> None:
     curve = base_curve()
     probed: list[VfCurveCandidate] = []
     written: list[VfCurveCandidate] = []
 
     def probe(candidate: VfCurveCandidate) -> VoltageProbeOutcome:
         probed.append(candidate)
-        if candidate.voltage_mv >= 950:
+        if candidate.voltage_mv >= 925:
             return _passing_outcome()
         return _fps_regression_outcome()
 
@@ -114,17 +161,18 @@ def test_deeper_search_stops_on_fps_regression_without_accepting_it() -> None:
         ),
         min_search_voltage_mv=825, initial_tail_rise_bins=0, log=lambda _: None,
     )
-    assert len([c for c in probed if c.voltage_mv < 950]) == 1
-    assert result.stable_candidate.voltage_mv == 950
-    assert all(c.voltage_mv >= 950 for c in written)
+    assert len(probed) == 2
+    assert probed[-1].voltage_mv < 925
+    assert result.stable_candidate.voltage_mv == 925
+    assert all(c.voltage_mv >= 925 for c in written)
     assert all(c.metadata["tail_rise_bins"] == 0 for c in probed)
     assert all(all(t == c.target_mhz for t in _tail_targets_above_lock(c)) for c in probed)
 
 
 @pytest.mark.parametrize("tail_bins", [0, 2])
-@pytest.mark.parametrize("first_floor,final_floor", [(900, 900), (950, 825)])
-def test_efficiency_preserves_tested_tail_through_both_passes_and_persistence(
-    tail_bins: int, first_floor: int, final_floor: int
+@pytest.mark.parametrize("configured_floor,final_floor", [(900, 900), (950, 825)])
+def test_efficiency_descends_once_to_floor_preserving_tested_tail_and_history(
+    tail_bins: int, configured_floor: int, final_floor: int
 ) -> None:
     curve = base_curve()
     probed: list[VfCurveCandidate] = []
@@ -137,7 +185,7 @@ def test_efficiency_preserves_tested_tail_through_both_passes_and_persistence(
 
     result = run_efficiency_uv_loop(
         curve,
-        settings=replace(_settings(min_search_voltage_mv=first_floor), tail_rise_bins=tail_bins),
+        settings=replace(_settings(min_search_voltage_mv=configured_floor), tail_rise_bins=tail_bins),
         initial_stable_candidate=_initial_candidate(curve, voltage_mv=1000, lock_mhz=2240),
         io=BaseUvLoopIO(
             probe_candidate=probe,
@@ -149,6 +197,9 @@ def test_efficiency_preserves_tested_tail_through_both_passes_and_persistence(
     )
 
     assert result.stable_candidate.voltage_mv == final_floor
+    voltages = [candidate.voltage_mv for candidate in probed]
+    assert voltages == sorted(set(voltages), reverse=True)
+    assert len(result.probe_history) == len(probed)
     assert written[-1][0] is result.stable_candidate
     assert all(measured is outcome for _, measured in written)
     assert all(candidate.metadata["tail_rise_bins"] == tail_bins for candidate in probed)
@@ -157,7 +208,7 @@ def test_efficiency_preserves_tested_tail_through_both_passes_and_persistence(
         assert max(tail) == candidate.target_mhz + 15 * tail_bins
 
 
-def test_non_efficiency_mode_returns_first_pass_unchanged() -> None:
+def test_non_efficiency_mode_returns_base_sweep_unchanged() -> None:
     curve = base_curve()
     result = run_efficiency_uv_loop(
         curve,

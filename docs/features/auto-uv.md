@@ -50,6 +50,8 @@ its measurements. Selection and final verification preserve every point,
 including the lower ramp and rising tail; no final rewrite introduces a jump.
 Performance keeps the selected Auto-OC candidate intact as well; it does not
 combine lower-voltage points from other candidates into a new curve.
+If descent cannot improve on the passing baseline, that exact baseline remains
+available. Its clock label and curve are not rebuilt from a lower measured clock.
 
 Final verification runs Q2RTX and CUDA on that complete curve, preserving its
 selected voltage, clock, tail, and power limit throughout the soak and save.
@@ -72,7 +74,9 @@ On a power-limited card, Efficiency and Balanced may probe a bounded clock
 climb at the already-proven voltage. The climb keeps the same workload checks.
 
 Efficiency chooses the highest measured FPS/W among passed candidates, including
-candidates from before the climb. Comparisons use unrounded measurements; the
+candidates from before the climb. It descends once toward the voltage floor,
+without restarting at an earlier candidate when efficiency stops improving.
+Comparisons use unrounded measurements; the
 tables show four FPS/W decimal places. Equal FPS/W favors the higher measured
 clock, then lower power. Its table clock is an upper search limit. Balanced keeps
 the faster stable choice; Performance pursues its higher Auto-OC target.
@@ -135,13 +139,15 @@ machine hangs, reboots, loses power, or the process is killed during a probe,
 the next Auto-UV run consumes the stale marker, records that voltage/clock band
 in `uv-result/auto-uv-unsafe-voltages.json`, and avoids repeating it.
 
-The blacklist is checked before applying a climb or final-verification curve.
+The blacklist is checked against the actual voltage and clock before applying
+a descent, climb, or final-verification curve, including any retained clock gain.
 It blocks the failed voltage and lower voltages at the recorded clock band and
 above, including a small clock guard band. If a climb reaches a cached unsafe
 point, Auto-UV backs off to a passing clock and can test that clock at the
-configured voltage target. It never exceeds that voltage target to force a
-higher clock. A new critical GPU or workload error aborts the scan instead of
-triggering higher-voltage retries. Explicit lower-clock targets also retain
+highest editable voltage bin within the configured target. It never exceeds that
+voltage target to force a higher clock. A new critical GPU or workload error aborts the scan instead of
+triggering retries or starting another tier. Earlier verified checkpoints remain
+available. Explicit lower-clock targets also retain
 their crash markers across abrupt exits.
 
 When stable checkpoints exist for the same requested tier, the GUI shows a

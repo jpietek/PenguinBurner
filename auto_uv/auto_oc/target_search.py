@@ -17,6 +17,7 @@ from auto_uv.curve.flattened_voltage_probe_curve import (
 )
 from auto_uv.domain.console_log import log_phase
 from auto_uv.domain.types import (
+    AutoUvCriticalProbeError,
     AutoUvError,
     AutoUvProbeSummary,
     FailureKind,
@@ -106,7 +107,7 @@ def run_custom_tier_target_search(
         if outcome.decision.failure_kind is FailureKind.USER_STOP:
             raise AutoUvError("user-stop-requested during custom target search")
         if outcome.decision.severity is FailureSeverity.CRITICAL:
-            raise AutoUvError(
+            raise AutoUvCriticalProbeError(
                 f"Custom target search stopped after critical probe failure: {outcome.decision.reason}"
             )
         summary = outcome.raw_probe

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -7,7 +8,12 @@ import pytest
 
 from stability.q2rtx.models import Q2RTXStabilityConfig
 
-from auto_uv.domain.types import AutoUvProbeSummary, VfCurveCandidate
+from auto_uv.domain.types import (
+    AutoUvCriticalProbeError,
+    AutoUvProbeSummary,
+    FailureSeverity,
+    VfCurveCandidate,
+)
 from auto_uv.curve.vf_curve_flattening import build_flattened_plan
 from auto_uv.probes.runner import (
     AutoUvProbeRunner,
@@ -199,6 +205,43 @@ def test_probe_runner_baseline_skips_cuda_companion(monkeypatch) -> None:
     assert isinstance(config, Q2RTXStabilityConfig)
     assert config.duration_s == 10
     assert config.companion_command is None
+
+
+@pytest.mark.parametrize("reason,critical", [
+    ("nvidia-xid-detected: 109", True),
+    ("workload-setup-failed", False),
+])
+def test_baseline_wrapper_aborts_critical_failure_but_returns_recoverable_failure(
+    monkeypatch, reason: str, critical: bool,
+) -> None:
+    from auto_uv.probes import runner as module
+
+    calls: list[dict] = []
+    summary = _summary(1000, 2500, used_companion_load=False)
+    raw_result = {"success": False, "reason": reason}
+
+    def fake_probe_voltage_candidate(**kwargs):
+        calls.append(kwargs)
+        return summary, raw_result
+
+    monkeypatch.setattr(module, "probe_voltage_candidate", fake_probe_voltage_candidate)
+    runner = _runner(q2rtx_config=Q2RTXStabilityConfig(), short_probe_base_duration_s=10)
+    candidate = VfCurveCandidate("baseline", 1000, 2500, base_curve())
+    outcome = None
+
+    with pytest.raises(AutoUvCriticalProbeError, match=reason) if critical else nullcontext():
+        outcome = runner.probe_baseline_candidate(candidate)
+
+    assert len(calls) == 1
+    assert calls[0]["phase_label"] == "baseline"
+    assert calls[0]["candidate_plan"] is candidate.flattened_plan
+    if not critical:
+        assert outcome is not None
+        assert not outcome.decision.passed
+        assert outcome.decision.severity is FailureSeverity.RECOVERABLE
+        assert outcome.decision.reason == reason
+        assert outcome.raw_probe is summary
+        assert outcome.raw_result is raw_result
 
 
 def test_probe_runner_evaluates_cuda_from_per_voltage_config() -> None:

@@ -15,6 +15,10 @@ class AutoUvError(RuntimeError):
     pass
 
 
+class AutoUvCriticalProbeError(AutoUvError):
+    """A probe failed critically; no later tier or retry may touch the GPU."""
+
+
 class AutoUvPowerLimitApplyError(AutoUvError):
     """The requested scan power regime could not be established reliably."""
 

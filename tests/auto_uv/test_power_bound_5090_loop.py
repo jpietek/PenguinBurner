@@ -16,12 +16,14 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any, cast
 
+import pytest
+
 from auto_uv.auto_oc.search import AUTO_OC_WALL_SHORTFALL_TOLERANCE_MHZ
 from auto_uv.base_uv_loop import BaseUvLoopIO, run_base_uv_loop
 from auto_uv.curve.measured_probe_lock_clock import probe_indicates_power_saturation
 from auto_uv.curve.vf_curve_flattening import build_flattened_plan
 from auto_uv.domain.scan_settings import AutoUvScanSettings
-from auto_uv.domain.types import VfCurveCandidate
+from auto_uv.domain.types import AutoUvCriticalProbeError, VfCurveCandidate
 from auto_uv.performance_uv_loop import select_power_bound_clock_reclaim_candidate
 from auto_uv.probes.stability_decision import (
     StabilityThresholds,
@@ -304,32 +306,37 @@ def test_descent_walks_down_instead_of_stopping_at_the_capped_clock() -> None:
     )
     unsafe: list[dict] = []
 
-    result = run_base_uv_loop(
-        curve,
-        settings=AutoUvScanSettings(
-            start_voltage_mv=start_voltage_mv,
-            min_search_voltage_mv=850,
-            auto_uv_mode="balanced",
-            tail_rise_bins=4,
-        ),
-        initial_stable_candidate=start,
-        io=BaseUvLoopIO(
-            probe_candidate=harness.probe,
-            write_verified_candidate=lambda _candidate, _outcome: None,
-            mark_unsafe_candidate=lambda candidate, _outcome: unsafe.append(
-                {"voltage_mv": int(candidate.voltage_mv)}
+    checkpoints: list[int] = []
+    with pytest.raises(AutoUvCriticalProbeError, match="q2rtx crashed"):
+        run_base_uv_loop(
+            curve,
+            settings=AutoUvScanSettings(
+                start_voltage_mv=start_voltage_mv,
+                min_search_voltage_mv=850,
+                auto_uv_mode="balanced",
+                tail_rise_bins=4,
             ),
-        ),
-        unsafe_entries=None,
-        initial_stable_outcome=harness.probe(start),
-    )
+            initial_stable_candidate=start,
+            io=BaseUvLoopIO(
+                probe_candidate=harness.probe,
+                write_verified_candidate=lambda candidate, _outcome: checkpoints.append(
+                    int(candidate.voltage_mv)
+                ),
+                mark_unsafe_candidate=lambda candidate, _outcome: unsafe.append(
+                    {"voltage_mv": int(candidate.voltage_mv)}
+                ),
+            ),
+            unsafe_entries=None,
+            initial_stable_outcome=harness.probe(start),
+        )
 
     probed_voltages = sorted({probe["voltage_mv"] for probe in harness.probes})
     assert len(probed_voltages) >= 4, (
         f"descent stopped after {probed_voltages}: a power-bound sweep must "
         "keep walking the voltage down"
     )
-    assert int(result.stable_candidate.voltage_mv) < start_voltage_mv
+    assert checkpoints and checkpoints[-1] < start_voltage_mv
+    assert checkpoints[-1] >= unstable_floor_mv
     # It stopped for a real reason, not for a governed clock: the sweep
     # reached the injected V/F floor and nothing else failed on the way.
     assert min(probed_voltages) <= unstable_floor_mv
