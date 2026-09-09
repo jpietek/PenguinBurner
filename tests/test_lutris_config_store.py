@@ -1,4 +1,4 @@
-"""Injecting the wrapper into a Lutris game's prefix_command, and taking it out."""
+"""Reading and writing ``system.prefix_command`` in a Lutris game's config."""
 
 from __future__ import annotations
 
@@ -9,11 +9,8 @@ import yaml
 
 from integrations.lutris.config_store import (
     LutrisConfigError,
-    inject_prefix_command,
-    prefix_command_wrapped,
     read_game_config,
     read_prefix_command,
-    remove_injection,
     write_prefix_command,
 )
 
@@ -22,66 +19,6 @@ def _config(tmp_path, document: dict):
     path = tmp_path / "game.yml"
     path.write_text(yaml.safe_dump(document), encoding="utf-8")
     return path
-
-
-# -- token building ------------------------------------------------------------
-
-
-def test_injection_puts_the_wrapper_in_front_of_the_users_own_prefix() -> None:
-    """Lutris runs prefix_command outermost, so ours goes first and theirs follows."""
-    result = inject_prefix_command("game-performance", overlay=True, game_id="27")
-
-    assert result == "PENGUIN_BURNER --pb-overlay=1 --pb-lutris-id=27 game-performance"
-
-
-def test_injection_carries_the_game_id_because_lutris_publishes_none() -> None:
-    result = inject_prefix_command("", overlay=False, game_id="27")
-
-    assert "--pb-lutris-id=27" in result
-    assert "--pb-overlay=0" in result
-
-
-def test_injection_is_idempotent() -> None:
-    once = inject_prefix_command("game-performance", overlay=True, game_id="27")
-    twice = inject_prefix_command(once, overlay=True, game_id="27")
-
-    assert twice == once
-
-
-def test_injection_normalizes_a_hand_added_wrapper() -> None:
-    """A user who added the bare wrapper themselves gets the flags it needs."""
-    result = inject_prefix_command(
-        "game-performance PENGUIN_BURNER", overlay=False, game_id="27"
-    )
-
-    assert result == "PENGUIN_BURNER --pb-overlay=0 --pb-lutris-id=27 game-performance"
-
-
-def test_removal_restores_a_matching_stored_original() -> None:
-    original = "game-performance"
-    injected = inject_prefix_command(original, overlay=True, game_id="27")
-
-    assert (
-        remove_injection(
-            injected, stored_original=original, stored_injected=injected
-        )
-        == original
-    )
-
-
-def test_removal_of_an_edited_prefix_strips_only_our_tokens() -> None:
-    """The user changed it after we wrote it; their edit must survive."""
-    edited = "PENGUIN_BURNER --pb-overlay=1 --pb-lutris-id=27 gamemoderun mangohud"
-
-    assert remove_injection(edited, stored_original="x", stored_injected="y") == (
-        "gamemoderun mangohud"
-    )
-
-
-def test_wrapped_detection() -> None:
-    assert prefix_command_wrapped("PENGUIN_BURNER --pb-overlay=0") is True
-    assert prefix_command_wrapped("game-performance") is False
-    assert prefix_command_wrapped(None) is False
 
 
 # -- reading and writing the file ----------------------------------------------

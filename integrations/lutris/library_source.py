@@ -93,10 +93,10 @@ class LutrisLibrarySource:
 
     @staticmethod
     def _prefix_command_field(row: LutrisGameRow) -> LauncherField:
-        value = str(row.prefix_command or "")
+        value = str(row.command or "")
         subtitle = "prefix_command in the Lutris config"
-        if value and row.inherited_prefix:
-            subtitle = f"prefix_command — inherited from {row.prefix_source_label}"
+        if value and row.inherited:
+            subtitle = f"prefix_command — inherited from {row.source_label}"
         return LauncherField(
             key="prefix_command",
             kind=FIELD_TEXT,

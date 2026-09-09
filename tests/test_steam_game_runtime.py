@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from drivers.nvidia.daemon_gpu import DaemonGpuClient
 from profiles import game_profile
 
 import integrations.steam.game_runtime as game_runtime
@@ -11,6 +12,10 @@ from integrations.steam.game_runtime import (
     game_account_id,
     game_app_id,
     game_runtime_profile_argv,
+)
+from integrations.steam.identity import (
+    steam_app_id_from_game_key,
+    steam_game_key,
 )
 from profiles.game_profile import (
     game_gpu_target,
@@ -42,6 +47,25 @@ def steam_home(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return tmp_path
+
+
+def test_the_daemon_identity_of_a_steam_game_is_namespaced() -> None:
+    """One identity format across launchers, so the daemon's registry of
+    running games cannot confuse a Lutris game 570 with Steam app 570."""
+    assert steam_game_key("570") == "steam:570"
+    assert steam_game_key(" 570 ") == "steam:570"
+    assert steam_game_key("") == ""
+
+
+def test_a_daemon_key_reads_back_as_a_steam_app_id() -> None:
+    assert steam_app_id_from_game_key("steam:570") == "570"
+    # What a wrapper from before the namespace registered, still running.
+    assert steam_app_id_from_game_key("570") == "570"
+    # Not this launcher's, and not an id at all.
+    assert steam_app_id_from_game_key("lutris:570") == ""
+    assert steam_app_id_from_game_key("steam:") == ""
+    assert steam_app_id_from_game_key("heroic:Turkey") == ""
+    assert steam_app_id_from_game_key("") == ""
 
 
 def test_game_app_id_prefers_steam_app_id() -> None:
@@ -82,7 +106,7 @@ def _stub_adaptive_profiles(monkeypatch) -> None:
         },
     )
     monkeypatch.setattr(
-        game_runtime.DaemonGpuClient,
+        DaemonGpuClient,
         "discover_identities",
         classmethod(
             lambda cls: [
@@ -162,8 +186,10 @@ def test_game_runtime_profile_argv_reads_setting(
         env, home=steam_home, settings_path=settings_path
     )
     assert resolved is not None
-    argv, app_id = resolved
-    assert app_id == "1089130"
+    argv, game_key = resolved
+    # Namespaced like every other launcher's: the daemon keys running games by
+    # one opaque string, and a Lutris game 1089130 is not this game.
+    assert game_key == "steam:1089130"
     assert "--adaptive-auto-uv" in argv
 
 
@@ -191,7 +217,7 @@ def test_game_runtime_profile_argv_keeps_legacy_profile_on_single_gpu(
         ],
     )
     monkeypatch.setattr(
-        game_runtime.DaemonGpuClient,
+        DaemonGpuClient,
         "discover_identities",
         classmethod(
             lambda cls: [
@@ -208,7 +234,7 @@ def test_game_runtime_profile_argv_keeps_legacy_profile_on_single_gpu(
 
     assert resolved == (
         ["--auto-uv-profile", "legacy-balanced", "--gpu-index", "0"],
-        "1089130",
+        "steam:1089130",
     )
 
 
@@ -263,7 +289,7 @@ def test_apply_calls_daemon_with_own_pid(
                 "0",
             ],
             "watch_pid": os.getpid(),
-            "app_id": "1089130",
+            "app_id": "steam:1089130",
         }
     ]
 

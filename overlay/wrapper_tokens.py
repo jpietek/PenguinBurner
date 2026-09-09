@@ -1,17 +1,18 @@
 """The tokens that put the PenguinBurner wrapper in front of a game.
 
-Both launchers splice the same argv fragment — the wrapper name plus its
+Every launcher splices the same argv fragment — the wrapper name plus its
 ``--pb-*`` flags — into a string the launcher later runs. Only the surrounding
 field differs: Steam replaces ``%command%`` inside its launch options, Lutris
-prepends to ``prefix_command``. The vocabulary itself, and stripping it back
-out, is the wrapper's own business, so it lives beside the wrapper rather than
-inside either integration.
+prepends to ``prefix_command``, Heroic adds a wrapper entry. The vocabulary
+itself, and stripping it back out, is the wrapper's own business, so it lives
+beside the wrapper rather than inside any one integration.
 """
 
 from __future__ import annotations
 
 import re
 import shlex
+from urllib.parse import quote, unquote
 
 from overlay.telemetry.steam_launch_check import PENGUIN_BURNER_WRAPPER
 
@@ -24,10 +25,9 @@ from overlay.telemetry.steam_launch_check import PENGUIN_BURNER_WRAPPER
 OVERLAY_FLAG = "--pb-overlay=1"
 OVERLAY_OFF_FLAG = "--pb-overlay=0"
 
-# Lutris has no stable per-launch app id of its own (LUTRIS_GAME_UUID is
-# regenerated every run), so the game identity is injected by us and read back
-# off argv. Steam does not need this: it publishes SteamAppId in the
-# environment.
+# Only Steam publishes a usable game identity in the environment (SteamAppId).
+# Lutris regenerates LUTRIS_GAME_UUID every run and Heroic publishes nothing,
+# so for those the identity is injected by us and read back off argv.
 # Latency markers ride an env assignment rather than a --pb-* flag, because the
 # launcher reads them before it parses anything: the opt-in has to be in the
 # environment the wrapper starts with. It is introduced by `env` so the pair
@@ -40,13 +40,19 @@ INGAME_LATENCY_TOKENS = f"env {INGAME_LATENCY_ASSIGNMENT}"
 # there is a program name to anything that execs its child directly -- which
 # is exactly what `gamescope -- %command%` does. Lutris cannot use a flag for
 # it (the wrapper is not running yet when prefix_command's env is built), so
-# the two launchers write the same meaning in the two shapes each can run.
+# the launchers write the same meaning in the two shapes each can run.
 INGAME_LATENCY_FLAG = "--pb-ingame-latency=1"
 
-LUTRIS_ID_FLAG_PREFIX = "--pb-lutris-id="
-# Where the wrapper parks the id it read off that flag, so the Lutris runtime
-# hook can find it the same way the Steam one finds SteamAppId.
-LUTRIS_GAME_ID_ENV = "PENGUIN_BURNER_LUTRIS_GAME_ID"
+# "<launcher>:<game id>" -- the same string the daemon keys a running game by,
+# so one identity travels from the library tab to the wrapper to the daemon.
+GAME_KEY_FLAG_PREFIX = "--pb-game-id="
+#: What the Lutris tab wrote before launchers shared one flag. Still parsed,
+#: because it is sitting in prefix_commands users configured; never written.
+LEGACY_LUTRIS_ID_FLAG_PREFIX = "--pb-lutris-id="
+LEGACY_LUTRIS_LAUNCHER_ID = "lutris"
+# Where the wrapper parks the key it read off that flag, so the per-launcher
+# runtime hook can find it the same way the Steam one finds SteamAppId.
+GAME_KEY_ENV = "PENGUIN_BURNER_GAME_KEY"
 
 # Match complete shell words, never fragments inside a quoted argument.
 _PB_TOKEN_RE = re.compile(
@@ -135,14 +141,32 @@ def overlay_flag(overlay: bool) -> str:
     return OVERLAY_FLAG if overlay else OVERLAY_OFF_FLAG
 
 
-def lutris_id_flag(game_id: str) -> str:
-    return f"{LUTRIS_ID_FLAG_PREFIX}{str(game_id).strip()}"
+def game_key_flag(game_key: str) -> str:
+    """The identity flag, percent-encoded.
+
+    A game id is the launcher's own string -- Heroic's app names are whatever
+    the store called the game -- and this flag is spliced into a command line
+    that gets split on whitespace. Encoding keeps it one shell word without
+    quoting, which is what lets the token stay recognisable to the stripper.
+    """
+    return f"{GAME_KEY_FLAG_PREFIX}{quote(str(game_key).strip(), safe=':._-')}"
+
+
+def game_key_from_flag(flag: str) -> str:
+    """The "<launcher>:<id>" a flag carries, in either spelling, or ""."""
+    word = str(flag or "").strip()
+    if word.startswith(GAME_KEY_FLAG_PREFIX):
+        return unquote(word[len(GAME_KEY_FLAG_PREFIX) :].strip())
+    if word.startswith(LEGACY_LUTRIS_ID_FLAG_PREFIX):
+        game_id = word[len(LEGACY_LUTRIS_ID_FLAG_PREFIX) :].strip()
+        return f"{LEGACY_LUTRIS_LAUNCHER_ID}:{game_id}" if game_id else ""
+    return ""
 
 
 def wrapper_tokens(
     *,
     overlay: bool,
-    lutris_game_id: str = "",
+    game_key: str = "",
     ingame_latency: bool = False,
     latency_as_flag: bool = False,
 ) -> str:
@@ -156,7 +180,7 @@ def wrapper_tokens(
     parts += [PENGUIN_BURNER_WRAPPER, overlay_flag(overlay)]
     if ingame_latency and latency_as_flag:
         parts.append(INGAME_LATENCY_FLAG)
-    game_id = str(lutris_game_id or "").strip()
-    if game_id:
-        parts.append(lutris_id_flag(game_id))
+    key = str(game_key or "").strip()
+    if key:
+        parts.append(game_key_flag(key))
     return " ".join(parts)

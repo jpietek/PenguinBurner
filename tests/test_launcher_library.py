@@ -358,9 +358,9 @@ def test_the_steam_adapter_carries_the_wrapper_state_off_the_launch_options(
 
 def test_the_lutris_adapter_reports_hours_straight_from_the_library() -> None:
     """Lutris already records hours, so nothing converts them twice."""
-    from integrations.lutris.config_store import (
+    from integrations.launchers.wrapper_manager import (
         SOURCE_GAME,
-        EffectivePrefixCommand,
+        EffectiveCommand,
     )
     from integrations.lutris.library import InstalledLutrisGame
     from integrations.lutris.library_source import LutrisLibrarySource
@@ -386,7 +386,7 @@ def test_the_lutris_adapter_reports_hours_straight_from_the_library() -> None:
         LutrisGameRow(
             game=game,
             setting=LutrisGameSetting(enabled=False),
-            effective=EffectivePrefixCommand(value="", source=SOURCE_GAME),
+            effective=EffectiveCommand(value="", source=SOURCE_GAME),
         ),
     )
 

@@ -2,41 +2,27 @@
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
 import time
 
+from integrations.launchers.host_process import (
+    HOST_PGREP,
+    HOST_SHELL,
+    HOST_WORKING_DIRECTORY,
+    running_in_flatpak,
+)
 
 _STEAM_LAUNCH_APPID_RE = re.compile(r"SteamLaunch AppId=(\d+)")
 
 
-FLATPAK_INFO_PATH = Path("/.flatpak-info")
-HOST_PGREP = "/usr/bin/pgrep"
-HOST_SHELL = "/usr/bin/sh"
-HOST_WORKING_DIRECTORY = "/tmp"
-
-
-def running_in_flatpak() -> bool:
-    return bool(os.environ.get("FLATPAK_ID", "").strip()) or FLATPAK_INFO_PATH.is_file()
-
-
 def _flatpak_host_command(command: list[str]) -> list[str] | None:
+    """Steam's own host bridge, kept because its callers decide when to use it."""
     flatpak_spawn = shutil.which("flatpak-spawn")
     if not flatpak_spawn:
         return None
-    # flatpak-spawn otherwise mirrors the sandbox cwd. App-only paths such as
-    # /app do not exist on the host, so the portal rejects the command before
-    # Steam ever sees it. A neutral host directory makes every caller
-    # independent of how the Flatpak itself was launched.
-    return [
-        flatpak_spawn,
-        "--host",
-        f"--directory={HOST_WORKING_DIRECTORY}",
-        *command,
-    ]
+    return [flatpak_spawn, "--host", f"--directory={HOST_WORKING_DIRECTORY}", *command]
 
 
 def _steam_executable() -> str | None:

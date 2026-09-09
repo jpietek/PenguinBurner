@@ -12,7 +12,10 @@ target, and overlay for each Steam game alongside your Lutris library.
 
 Scanning does not change launch options. Enabling a game adds the wrapper to
 that game's options and preserves the existing command. Settings are stored
-per Steam account in `~/.config/PenguinBurner/steam-game-settings.json`.
+per Steam account in `~/.config/PenguinBurner/steam-game-settings.json`. If
+that file is ever damaged and cannot be read, PenguinBurner keeps it as
+`steam-game-settings.json.corrupt-<timestamp>` beside it and starts a new one,
+so the old presets stay recoverable.
 
 ## When edits are available
 
