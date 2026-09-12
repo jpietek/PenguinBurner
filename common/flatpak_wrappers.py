@@ -338,8 +338,9 @@ def ensure_host_integration() -> Path | None:
     game start because Proton can overwrite nvapi64.dll during prefix setup.
     Here we verify that the immutable shim payload is shipped and that the
     generated host wrapper points the launch at that full launcher path.
-    Steam launch options and Lutris prefix_commands both exec that same
-    wrapper, so either launcher being present is reason to install it.
+    Steam launch options, Lutris prefix_commands and Heroic wrapper entries
+    all exec that same wrapper, so any launcher being present is reason to
+    install it.
 
     Hosts without any launcher are skipped: no wrapper, manifest, or shim
     files are written, and nothing here may keep the rest of the app
@@ -350,11 +351,7 @@ def ensure_host_integration() -> Path | None:
     """
     if not running_in_flatpak():
         return None
-    if (
-        not _host_has_steam()
-        and not _host_has_lutris()
-        and not _managed_integration_present()
-    ):
+    if not _host_has_a_launcher() and not _managed_integration_present():
         return None
     ensure_flatpak_wrappers()
     wrapper = _default_bin_dir() / "PENGUIN_BURNER"
@@ -373,19 +370,14 @@ def ensure_host_integration() -> Path | None:
     return wrapper
 
 
-def _host_has_steam() -> bool:
-    from integrations.steam.users import default_steam_root
+def _host_has_a_launcher() -> bool:
+    # Each launcher's own installed-here answer, asked through the registry
+    # that owns the list. Never the binary on PATH: the sandbox cannot see the
+    # host's, but the host home is mounted, and a machine holding a launcher's
+    # library is exactly one whose games may carry our wrapper.
+    from integrations.launchers.registry import any_launcher_installed
 
-    return default_steam_root() is not None
-
-
-def _host_has_lutris() -> bool:
-    # The library database, not the binary: the sandbox cannot see the host
-    # PATH, but the host home is mounted, and a machine with a Lutris library
-    # is exactly one whose games may carry our wrapper in a prefix_command.
-    from integrations.lutris.paths import lutris_installed
-
-    return lutris_installed()
+    return any_launcher_installed()
 
 
 def _managed_integration_present() -> bool:

@@ -176,17 +176,17 @@ def test_a_cover_falls_back_to_the_banner(tmp_path) -> None:
 
 def test_the_lutris_icon_is_found_where_lutris_installs_it(tmp_path) -> None:
     """Shown in the tab instead of shipping a copy of someone's logo."""
-    from integrations.lutris.paths import lutris_desktop_icon
+    from integrations.lutris.library_source import LutrisLibrarySource
 
     icon = tmp_path / "icons/hicolor/scalable/apps/net.lutris.Lutris.svg"
     icon.parent.mkdir(parents=True, exist_ok=True)
     icon.write_text("<svg/>", encoding="utf-8")
 
-    assert lutris_desktop_icon(data_dirs=[tmp_path]) == icon
+    assert LutrisLibrarySource().desktop_icon(data_dirs=[tmp_path]) == icon
 
 
 def test_a_scalable_icon_wins_over_a_fixed_size_one(tmp_path) -> None:
-    from integrations.lutris.paths import lutris_desktop_icon
+    from integrations.lutris.library_source import LutrisLibrarySource
 
     for relative in (
         "icons/hicolor/scalable/apps/net.lutris.Lutris.svg",
@@ -196,11 +196,11 @@ def test_a_scalable_icon_wins_over_a_fixed_size_one(tmp_path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"x")
 
-    assert lutris_desktop_icon(data_dirs=[tmp_path]).suffix == ".svg"
+    assert LutrisLibrarySource().desktop_icon(data_dirs=[tmp_path]).suffix == ".svg"
 
 
 def test_earlier_data_dirs_win(tmp_path) -> None:
-    from integrations.lutris.paths import lutris_desktop_icon
+    from integrations.lutris.library_source import LutrisLibrarySource
 
     first, second = tmp_path / "a", tmp_path / "b"
     for root in (first, second):
@@ -208,14 +208,14 @@ def test_earlier_data_dirs_win(tmp_path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"x")
 
-    assert lutris_desktop_icon(data_dirs=[first, second]).is_relative_to(first)
+    assert LutrisLibrarySource().desktop_icon(data_dirs=[first, second]).is_relative_to(first)
 
 
 def test_no_lutris_installed_means_no_icon(tmp_path) -> None:
     """The tab then uses PenguinBurner's own glyph, which is right there."""
-    from integrations.lutris.paths import lutris_desktop_icon
+    from integrations.lutris.library_source import LutrisLibrarySource
 
-    assert lutris_desktop_icon(data_dirs=[tmp_path]) is None
+    assert LutrisLibrarySource().desktop_icon(data_dirs=[tmp_path]) is None
 
 
 def test_the_fallback_glyph_ships_with_the_package() -> None:
@@ -256,7 +256,8 @@ def test_configs_fall_back_to_the_data_dir_without_a_legacy_dir(tmp_path) -> Non
 def test_default_paths_honor_the_xdg_environment(tmp_path, monkeypatch) -> None:
     monkeypatch.delenv("FLATPAK_ID", raising=False)
     monkeypatch.setattr(
-        "integrations.lutris.paths.FLATPAK_INFO_PATH", tmp_path / "not-flatpak"
+        "integrations.launchers.host_process.FLATPAK_INFO_PATH",
+        tmp_path / "not-flatpak",
     )
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))

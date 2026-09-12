@@ -7,7 +7,7 @@
 - **[Adaptive Undervolting](adaptive-uv.md)** — switch tiers while playing.
   [Tuning reference](adaptive-tuning.md)
 - **[Game Library](game-library.md)** — per-game profiles, FPS targets, and overlay.
-  [Steam setup](../steam.md) · [Lutris setup](lutris.md)
+  [Steam setup](../steam.md) · [Lutris setup](lutris.md) · [Heroic setup](heroic.md)
 - **[Profiles](profile-management.md)** — apply, verify, edit, and export curves.
   [Multi-GPU behavior](profile-multi-gpu.md)
 - **[Overlay](overlay.md)** — configure the in-game HUD.

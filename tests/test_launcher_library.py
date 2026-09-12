@@ -213,7 +213,7 @@ def test_lutris_renderer_probe_runs_during_refresh_and_rechecks_on_deep_scan(
     game = SimpleNamespace(
         game_id="3", display_name="Game", runner_label="linux",
         directory=str(tmp_path), config_path=config, last_played=0,
-        playtime_hours=0, cover_path=None, ready=True,
+        playtime_hours=0, art_path=None, ready=True,
     )
     row = SimpleNamespace(
         game=game, wrapped=True, setting=SimpleNamespace(enabled=True, overlay=True)
@@ -358,9 +358,9 @@ def test_the_steam_adapter_carries_the_wrapper_state_off_the_launch_options(
 
 def test_the_lutris_adapter_reports_hours_straight_from_the_library() -> None:
     """Lutris already records hours, so nothing converts them twice."""
-    from integrations.lutris.config_store import (
+    from integrations.launchers.wrapper_manager import (
         SOURCE_GAME,
-        EffectivePrefixCommand,
+        EffectiveCommand,
     )
     from integrations.lutris.library import InstalledLutrisGame
     from integrations.lutris.library_source import LutrisLibrarySource
@@ -386,7 +386,7 @@ def test_the_lutris_adapter_reports_hours_straight_from_the_library() -> None:
         LutrisGameRow(
             game=game,
             setting=LutrisGameSetting(enabled=False),
-            effective=EffectivePrefixCommand(value="", source=SOURCE_GAME),
+            effective=EffectiveCommand(value="", source=SOURCE_GAME),
         ),
     )
 

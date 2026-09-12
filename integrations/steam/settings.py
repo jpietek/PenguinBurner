@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 
 from auto_uv.persistence.auto_uv_persisted_json_files import safe_json_write
+from common.atomic_write import preserve_unreadable_file
 from common.penguin_burner_paths import default_user_config_dir
 from overlay.wrapper_tokens import ingame_latency_present
 from profiles.game_profile import (
@@ -157,13 +158,31 @@ def _settings_path(path: str | Path | None) -> Path:
 
 
 def _read_payload(path: str | Path | None) -> dict:
+    payload, _ = _read_payload_state(_settings_path(path))
+    return payload
+
+
+def _read_payload_state(path: Path) -> tuple[dict, bool]:
+    """The stored payload, and whether the file exists but could not be read.
+
+    An absent file is simply "nothing saved yet". A file that exists and does
+    not parse is different in kind: it holds settings for every account and
+    every game, and reading it as empty is what would let a write for one game
+    delete all of them.
+    """
     try:
-        payload = json.loads(
-            _settings_path(path).read_text(encoding="utf-8", errors="replace")
-        )
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return {}, False
+    except OSError:
+        return {}, True
+    if not text.strip():
+        return {}, False
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return {}, True
+    return (payload, False) if isinstance(payload, dict) else ({}, True)
 
 
 def _write_settings(
@@ -172,7 +191,17 @@ def _write_settings(
     display_names: dict[str, str] | None = None,
     path: str | Path | None = None,
 ) -> Path:
+    """Rewrite the whole file from the map that was read out of it.
+
+    A file that could not be parsed was read as empty, so writing here would
+    replace every account's presets with the one game being saved. It is moved
+    aside first and left recoverable; an OSError doing so aborts the write, the
+    same way an unwritable settings file already does.
+    """
     settings_path = _settings_path(path)
+    _, unreadable = _read_payload_state(settings_path)
+    if unreadable:
+        preserve_unreadable_file(settings_path)
     names = display_names or {}
     payload = {
         "format_version": 2,

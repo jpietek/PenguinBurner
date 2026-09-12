@@ -53,6 +53,11 @@ class InstalledLutrisGame:
         return self.installed and self.config_path is not None
 
     @property
+    def art_path(self) -> Path | None:
+        """Named as every launcher's record names it, for the shared adapter."""
+        return self.cover_path
+
+    @property
     def display_name(self) -> str:
         return self.name or self.slug or self.game_id
 

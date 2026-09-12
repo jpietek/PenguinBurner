@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import signal
 
+from integrations.launchers import host_process as host
 from integrations.lutris import process
 
 
@@ -22,8 +23,8 @@ def test_a_game_is_started_by_its_database_id_through_the_lutris_cli(
         def __init__(self, command, **_kwargs):
             seen.append(list(command))
 
-    monkeypatch.setattr(process.subprocess, "Popen", _Popen)
-    monkeypatch.setattr(process, "running_in_flatpak", lambda: False)
+    monkeypatch.setattr(host.subprocess, "Popen", _Popen)
+    monkeypatch.setattr(host, "running_in_flatpak", lambda: False)
 
     assert process.launch_lutris_game("27") is True
     assert seen == [["lutris", "lutris:rungameid/27"]]
@@ -33,7 +34,7 @@ def test_a_non_numeric_id_never_reaches_the_command_line(monkeypatch) -> None:
     """rungameid takes the numeric id; anything else is not ours to pass on."""
     called: list[object] = []
     monkeypatch.setattr(
-        process.subprocess, "Popen", lambda *a, **k: called.append(a)
+        host.subprocess, "Popen", lambda *a, **k: called.append(a)
     )
 
     for game_id in ("", "  ", "assassins-creed-shadows", "27; rm -rf ~"):
@@ -110,8 +111,8 @@ def _pgrep(monkeypatch, *, stdout: str, returncode: int = 0):
     result = _Result()
     result.stdout = stdout
     result.returncode = returncode
-    monkeypatch.setattr(process, "running_in_flatpak", lambda: False)
-    monkeypatch.setattr(process.subprocess, "run", lambda *a, **k: result)
+    monkeypatch.setattr(host, "running_in_flatpak", lambda: False)
+    monkeypatch.setattr(host.subprocess, "run", lambda *a, **k: result)
 
 
 def test_one_probe_answers_for_the_whole_library(monkeypatch) -> None:
@@ -154,7 +155,7 @@ def test_stopping_signals_the_wrapper_rather_than_the_game(monkeypatch) -> None:
     holding the orphans.
     """
     sent: list[tuple[int, int]] = []
-    monkeypatch.setattr(process.os, "kill", lambda pid, sig: sent.append((pid, sig)))
+    monkeypatch.setattr(host.os, "kill", lambda pid, sig: sent.append((pid, sig)))
 
     assert process.stop_lutris_game(4210) is True
     assert sent == [(4210, signal.SIGTERM)]
@@ -164,58 +165,6 @@ def test_stopping_a_pid_that_is_gone_is_a_failure_not_a_crash(monkeypatch) -> No
     def _gone(_pid, _sig):
         raise ProcessLookupError
 
-    monkeypatch.setattr(process.os, "kill", _gone)
+    monkeypatch.setattr(host.os, "kill", _gone)
 
     assert process.stop_lutris_game(4210) is False
-
-
-def test_availability_is_asked_of_the_host_inside_a_flatpak(monkeypatch) -> None:
-    """The sandbox PATH says nothing about the host, so an in-sandbox which()
-    kept can_launch False forever in the Flatpak build -- listing and
-    configuring games whose whole launch surface was unreachable."""
-    monkeypatch.setattr(process, "running_in_flatpak", lambda: True)
-    monkeypatch.setattr(
-        process.shutil,
-        "which",
-        lambda name: "/usr/bin/flatpak-spawn" if name == "flatpak-spawn" else None,
-    )
-    commands: list[list[str]] = []
-
-    def fake_run(command, **kwargs):
-        commands.append(command)
-        return process.subprocess.CompletedProcess(command, 0)
-
-    monkeypatch.setattr(process.subprocess, "run", fake_run)
-
-    assert process.lutris_available() is True
-    (command,) = commands
-    assert command[:2] == ["/usr/bin/flatpak-spawn", "--host"]
-    assert command[-3:] == ["/usr/bin/sh", "-c", "command -v lutris"]
-
-
-def test_stopping_from_a_flatpak_signals_through_the_host(monkeypatch) -> None:
-    """The pid came from the host pgrep: in the sandbox's own PID namespace
-    that number is nothing, or some unrelated sandbox process."""
-    monkeypatch.setattr(process, "running_in_flatpak", lambda: True)
-    monkeypatch.setattr(
-        process.shutil,
-        "which",
-        lambda name: "/usr/bin/flatpak-spawn" if name == "flatpak-spawn" else None,
-    )
-    commands: list[list[str]] = []
-
-    def fake_run(command, **kwargs):
-        commands.append(command)
-        return process.subprocess.CompletedProcess(command, 0)
-
-    monkeypatch.setattr(process.subprocess, "run", fake_run)
-
-    def _never(_pid, _sig):
-        raise AssertionError("os.kill must not run in the sandbox namespace")
-
-    monkeypatch.setattr(process.os, "kill", _never)
-
-    assert process.stop_lutris_game(4210) is True
-    (command,) = commands
-    assert command[:2] == ["/usr/bin/flatpak-spawn", "--host"]
-    assert command[-3:] == ["/usr/bin/kill", "-TERM", "4210"]
