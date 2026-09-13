@@ -17,8 +17,15 @@ SORT_ALPHABETICAL = "alphabetical"
 SORT_LAUNCHER = "launcher"
 SORT_RECENT = "recent"
 SORT_PLAYTIME = "playtime"
+SORT_INSTALLED = "installed"
 
-SORT_MODES = (SORT_ALPHABETICAL, SORT_LAUNCHER, SORT_RECENT, SORT_PLAYTIME)
+SORT_MODES = (
+    SORT_ALPHABETICAL,
+    SORT_LAUNCHER,
+    SORT_RECENT,
+    SORT_PLAYTIME,
+    SORT_INSTALLED,
+)
 
 #: The kinds of control a launcher-specific field can ask the tab to draw.
 FIELD_TEXT = "text"
@@ -45,6 +52,11 @@ class LibraryGame:
     name: str
     #: Epoch seconds; 0 when the launcher never recorded a session.
     last_played: int = 0
+    #: Epoch seconds for when this game was installed, 0 when the launcher
+    #: does not report it. Launchers disagree on how exact this is -- Steam
+    #: refreshes its stamp on every update, the others record the install
+    #: itself -- so it orders a list, it does not date one.
+    installed_at: int = 0
     #: Hours. Steam reports minutes and Lutris hours, so both are normalised
     #: here rather than at every place that wants to compare them. 0.0 means
     #: "never played or not reported" -- the two are indistinguishable in the
@@ -288,6 +300,15 @@ def sorted_library_games(
             sorted(
                 rows,
                 key=lambda game: (-game.last_played, game.name.casefold(), game.key),
+            )
+        )
+    if mode == SORT_INSTALLED:
+        # Same shape as SORT_RECENT: descending, so a 0 -- not installed
+        # through a launcher that records it -- sorts to the end by itself.
+        return tuple(
+            sorted(
+                rows,
+                key=lambda game: (-game.installed_at, game.name.casefold(), game.key),
             )
         )
     if mode == SORT_PLAYTIME:

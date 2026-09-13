@@ -139,6 +139,17 @@ def test_a_corrupt_library_reads_as_empty(tmp_path) -> None:
     assert lutris_installed(tmp_path) is True
 
 
+def test_reads_the_install_timestamp_from_the_library(tmp_path: Path) -> None:
+    """Lutris stamps installed_at when the install finishes."""
+    _library(tmp_path, [_row(installed_at=1783870852), _row(id=28, slug="no-stamp")])
+
+    games = {game.game_id: game for game in read_lutris_games(tmp_path)}
+
+    assert games["27"].installed_at == 1783870852
+    # A row that predates the column, or a game added without installing.
+    assert games["28"].installed_at == 0
+
+
 def test_an_older_schema_without_our_columns_reads_as_empty(tmp_path) -> None:
     db = lutris_library_db(tmp_path)
     db.parent.mkdir(parents=True, exist_ok=True)

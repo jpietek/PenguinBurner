@@ -53,6 +53,10 @@ class InstalledSteamGame:
     effective_compat_tool_display: str = ""
     effective_compat_tool_priority: int = 0
     effective_platforms: tuple[str, ...] = ()
+    # Steam's LastUpdated timestamp: set when the app is first installed and
+    # refreshed on every update. The closest proxy to "install time". Defaulted
+    # so callers written before it existed keep working.
+    last_updated: int = 0
 
     @property
     def ready(self) -> bool:
@@ -143,6 +147,10 @@ def _game_from_manifest(
         last_played = max(0, int(str(vdf_lookup(state, "LastPlayed") or 0)))
     except ValueError:
         last_played = 0
+    try:
+        last_updated = max(0, int(str(vdf_lookup(state, "LastUpdated") or 0)))
+    except ValueError:
+        last_updated = 0
     return InstalledSteamGame(
         app_id=app_id,
         name=name,
@@ -150,6 +158,7 @@ def _game_from_manifest(
         steamapps_dir=steamapps_dir,
         state_flags=state_flags,
         last_played=last_played,
+        last_updated=last_updated,
         icon_path=game_icon_path(app_id, steam_root=steam_root),
         compat_tool=compat_tools.get(app_id, ""),
     )

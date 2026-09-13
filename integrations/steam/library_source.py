@@ -112,6 +112,7 @@ class SteamLibrarySource:
             name=row.game.name,
             subtitle=str(row.game.runtime_label or ""),
             last_played=int(row.game.last_played or 0),
+            installed_at=int(row.game.last_updated or 0),
             playtime_hours=float(self._playtime.get(row.game.app_id, 0.0)),
             art_path=row.game.icon_path,
             ready=bool(row.game.ready),

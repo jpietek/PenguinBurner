@@ -22,6 +22,7 @@ from integrations.launchers.library import (
     GROUP_COMMAND,
     GROUP_IN_GAME,
     SORT_ALPHABETICAL,
+    SORT_INSTALLED,
     SORT_LAUNCHER,
     SORT_PLAYTIME,
     SORT_RECENT,
@@ -65,6 +66,7 @@ _SORT_LABELS = (
     ("Launcher", SORT_LAUNCHER),
     ("Recently played", SORT_RECENT),
     ("Most played", SORT_PLAYTIME),
+    ("Recently installed", SORT_INSTALLED),
 )
 
 # Lutris cover art is 3:4 box art and Steam icons are square, so the slot keeps

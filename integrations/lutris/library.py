@@ -26,6 +26,7 @@ _COLUMNS = (
     "platform",
     "installed",
     "lastplayed",
+    "installed_at",
     "playtime",
     "configpath",
     "directory",
@@ -46,6 +47,10 @@ class InstalledLutrisGame:
     directory: str
     config_path: Path | None
     cover_path: Path | None
+    #: Epoch seconds Lutris stamps when the install finishes; 0 when the row
+    #: predates the column or the game was added without installing. Defaulted
+    #: so callers written before it existed keep working.
+    installed_at: int = 0
 
     @property
     def ready(self) -> bool:
@@ -142,6 +147,7 @@ def _game_from_row(row: sqlite3.Row, home: Path | None) -> InstalledLutrisGame |
         platform=str(_value(row, "platform") or "").strip(),
         installed=bool(_int(_value(row, "installed"))),
         last_played=_int(_value(row, "lastplayed")),
+        installed_at=_int(_value(row, "installed_at")),
         playtime_hours=_float(_value(row, "playtime")),
         configpath=configpath,
         directory=str(_value(row, "directory") or "").strip(),

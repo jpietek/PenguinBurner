@@ -9,6 +9,7 @@ import pytest
 from integrations.launchers.library import (
     SORT_ALPHABETICAL,
     SORT_LAUNCHER,
+    SORT_INSTALLED,
     SORT_PLAYTIME,
     SORT_RECENT,
     LauncherSource,
@@ -115,6 +116,25 @@ def test_most_played_orders_by_hours_and_parks_the_unplayed() -> None:
     ]
 
 
+def test_recently_installed_parks_launchers_that_do_not_report_it() -> None:
+    """A zero stamp means "this launcher does not say", not 1970.
+
+    Heroic and Lutris record the install itself; Steam refreshes its stamp on
+    every update. A launcher that reports nothing must not jump to the top.
+    """
+    games = [
+        _game("Unknown", installed_at=0),
+        _game("Older", installed_at=1_700_000_000),
+        _game("Newest", installed_at=1_780_000_000),
+    ]
+
+    assert [g.name for g in sorted_library_games(games, SORT_INSTALLED)] == [
+        "Newest",
+        "Older",
+        "Unknown",
+    ]
+
+
 def test_a_tie_keeps_a_stable_order_across_launchers() -> None:
     """Two launchers can hold the same game; the list must not shuffle.
 
@@ -127,7 +147,13 @@ def test_a_tie_keeps_a_stable_order_across_launchers() -> None:
     steam = _game("Path of Exile", launcher="steam", game_id="7", playtime_hours=8.0)
     lutris = _game("Path of Exile", launcher="lutris", game_id="7", playtime_hours=8.0)
 
-    for mode in (SORT_ALPHABETICAL, SORT_LAUNCHER, SORT_RECENT, SORT_PLAYTIME):
+    for mode in (
+        SORT_ALPHABETICAL,
+        SORT_LAUNCHER,
+        SORT_RECENT,
+        SORT_PLAYTIME,
+        SORT_INSTALLED,
+    ):
         # Compared by launcher, not by the sort key itself: a key that stopped
         # telling the two apart would compare equal to itself and prove
         # nothing.
@@ -213,7 +239,7 @@ def test_lutris_renderer_probe_runs_during_refresh_and_rechecks_on_deep_scan(
     game = SimpleNamespace(
         game_id="3", display_name="Game", runner_label="linux",
         directory=str(tmp_path), config_path=config, last_played=0,
-        playtime_hours=0, cover_path=None, ready=True,
+        installed_at=0, playtime_hours=0, cover_path=None, ready=True,
     )
     row = SimpleNamespace(
         game=game, wrapped=True, setting=SimpleNamespace(enabled=True, overlay=True)
@@ -380,6 +406,7 @@ def test_the_lutris_adapter_reports_hours_straight_from_the_library() -> None:
         directory="",
         config_path=None,
         cover_path=None,
+        installed_at=1783870852,
     )
     source = LutrisLibrarySource(manager=object())
     source._rows = (
@@ -539,6 +566,21 @@ def test_the_library_tab_never_names_a_launcher_in_its_code() -> None:
     assert named == [], f"the tab still names a launcher: {named}"
 
 
+def test_the_steam_adapter_carries_the_install_stamp_into_the_library_row() -> None:
+    """Steam's LastUpdated is what the Recently installed sort orders on."""
+    from typing import cast
+
+    from integrations.steam.library_source import SteamLibrarySource
+
+    stub = _SteamStub()
+    stub.refresh = lambda **kwargs: (_row(last_updated=1783870852),)
+    source = SteamLibrarySource(manager=cast("Any", stub))
+    source.refresh()
+
+    (game,) = source.games()
+    assert game.installed_at == 1783870852
+
+
 def test_steam_declares_everything_its_own_tab_used_to_offer() -> None:
     """Parity as a test, so a lost feature fails here and not on a user.
 
@@ -631,6 +673,7 @@ def _row(
     launch_options="PENGUIN_BURNER %command%",
     tmp_path=None,
     effective_compat_tool=None,
+    last_updated=0,
 ):
     from integrations.steam.library import InstalledSteamGame
     from integrations.steam.manager import SteamGameRow
@@ -647,6 +690,7 @@ def _row(
             icon_path=None,
             compat_tool=compat_tool,
             effective_compat_tool=effective_compat_tool,
+            last_updated=last_updated,
         ),
         setting=SteamGameSetting(enabled=True),
         launch_options=launch_options,

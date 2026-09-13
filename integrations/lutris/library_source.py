@@ -162,6 +162,7 @@ class LutrisLibrarySource:
             name=row.game.display_name,
             subtitle=str(row.game.runner_label or ""),
             last_played=int(row.game.last_played or 0),
+            installed_at=int(row.game.installed_at or 0),
             playtime_hours=float(row.game.playtime_hours or 0.0),
             art_path=row.game.cover_path,
             ready=bool(row.game.ready),
