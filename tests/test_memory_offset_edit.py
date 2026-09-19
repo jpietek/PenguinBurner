@@ -137,4 +137,3 @@ def test_profile_presentation_name_falls_back_without_a_saved_name() -> None:
         )
         == "User edited memory offset +0 MT/s"
     )
-

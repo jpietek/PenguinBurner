@@ -51,13 +51,12 @@ std::string overlay_env_value() {
     return "";
 }
 
-bool overlay_enabled() {
+static int overlay_visibility_override() {
     // Launch-time default from the wrapper env, overridable LIVE by a small
     // runtime file the UI writes ("1"/"0"): the layer is always loaded, so
     // visibility can flip on a running game without a restart. The file is
     // re-checked at most once a second; the wrapper clears it at launch so a
     // stale override never leaks into the next game.
-    static const bool env_default = !value_is_false(overlay_env_value());
     static std::mutex override_mutex;
     static std::chrono::steady_clock::time_point last_check{};
     static int override_state = -1;  // -1 unknown/absent, 0 off, 1 on
@@ -81,15 +80,19 @@ bool overlay_enabled() {
             }
         }
     }
-    if (override_state >= 0) {
-        return override_state == 1;
-    }
-    return env_default;
+    return override_state;
+}
+
+bool overlay_enabled() {
+    static const bool env_default = !value_is_false(overlay_env_value());
+    const int override_state = overlay_visibility_override();
+    return override_state >= 0 ? override_state == 1 : env_default;
 }
 
 bool overlay_env_fallback_enabled() {
     static const bool enabled = value_is_true(overlay_env_value());
-    return enabled;
+    const int override_state = overlay_visibility_override();
+    return override_state >= 0 ? override_state == 1 : enabled;
 }
 
 std::string overlay_runtime_path(const char* env_name, const char* file_name) {
@@ -288,8 +291,8 @@ OverlayTextConfig read_overlay_text_config() {
         }
     }
     std::fclose(file);
-    // An explicit launch env (PB_OVERLAY=1) wins over the saved UI toggle; the
-    // saved config only decides the wrapper's automatic/default overlay mode.
+    // An explicit launch env or live visibility override wins over the saved
+    // UI toggle; config only decides the automatic/default overlay mode.
     if (fallback_enabled) {
         enabled = true;
     }

@@ -23,6 +23,7 @@ from integrations.launchers.library import (
     LibraryGame,
 )
 
+from .identity import STEAM_LAUNCHER_ID
 from .launch_options import injection_state
 from .library import steam_playtime_hours
 from .manager import SteamGameRow, SteamIntegrationManager
@@ -31,7 +32,7 @@ from .users import default_steam_root
 
 
 class SteamLibrarySource:
-    launcher_id = "steam"
+    launcher_id = STEAM_LAUNCHER_ID
     display_name = "Steam"
     #: Shipped fallback, used when the machine has no Steam icon of its own.
     icon_asset = "tab-steam.png"

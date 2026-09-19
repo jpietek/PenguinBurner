@@ -288,7 +288,7 @@ def _steam_and_lutris():
                 kind=FIELD_TEXT,
                 title="Command",
                 subtitle="prefix_command in the Lutris config",
-                setter="set_game_prefix_command",
+                setter="set_game_command",
                 value="gamemoderun",
                 group=GROUP_COMMAND,
             ),
@@ -1357,7 +1357,7 @@ def test_switching_games_saves_the_edit_for_the_game_it_was_typed_on(qapp) -> No
 
     panel._select_key("steam:620")
 
-    assert ("set_game_prefix_command", "27", "mangohud") in lutris.manager.calls
+    assert ("set_game_command", "27", "mangohud") in lutris.manager.calls
 
 
 def test_a_refused_edit_stays_on_screen_as_typed(qapp) -> None:
@@ -1365,7 +1365,7 @@ def test_a_refused_edit_stays_on_screen_as_typed(qapp) -> None:
     cursor at zero -- the user's text ate, the error shown for something no
     longer on screen."""
     steam, lutris = _steam_and_lutris()
-    lutris.manager.set_game_prefix_command = lambda _id, _value: SimpleNamespace(
+    lutris.manager.set_game_command = lambda _id, _value: SimpleNamespace(
         ok=False, message="unbalanced quotes"
     )
     panel = _panel(qapp, (steam, lutris))
@@ -1385,14 +1385,14 @@ def test_a_refused_edit_stays_on_screen_as_typed(qapp) -> None:
 @pytest.mark.parametrize("raises", [False, True])
 def test_a_refused_edit_keeps_the_game_selected_until_retry_succeeds(qapp, raises) -> None:
     steam, lutris = _steam_and_lutris()
-    setter = lutris.manager.set_game_prefix_command
+    setter = lutris.manager.set_game_command
 
     def refuse(*_):
         if raises:
             raise PermissionError("permission denied")
         return SimpleNamespace(ok=False, message="permission denied")
 
-    lutris.manager.set_game_prefix_command = refuse
+    lutris.manager.set_game_command = refuse
     panel = _panel(qapp, (steam, lutris))
     panel.ensure_scanned()
     panel._select_key("lutris:27")
@@ -1410,12 +1410,12 @@ def test_a_refused_edit_keeps_the_game_selected_until_retry_succeeds(qapp, raise
     assert control.text() == "gamescope -w 2560 --"
     assert "permission denied" in panel.status_label.text()
 
-    lutris.manager.set_game_prefix_command = setter
+    lutris.manager.set_game_command = setter
     panel.game_list.setCurrentRow(1 - original_row)
 
     assert panel._selected_key == "steam:620"
     assert panel._pending_field == ""
-    assert ("set_game_prefix_command", "27", "gamescope -w 2560 --") in lutris.manager.calls
+    assert ("set_game_command", "27", "gamescope -w 2560 --") in lutris.manager.calls
 
 
 def test_command_save_during_scan_keeps_the_draft_without_blocking_qt(qapp, qtbot) -> None:
@@ -1450,7 +1450,7 @@ def test_command_save_during_scan_keeps_the_draft_without_blocking_qt(qapp, qtbo
 
     panel._select_key("steam:620")
     assert panel._selected_key == "steam:620"
-    assert ("set_game_prefix_command", "27", "gamescope --") in lutris.manager.calls
+    assert ("set_game_command", "27", "gamescope --") in lutris.manager.calls
 
 
 def test_rescan_notices_a_launcher_installed_after_startup(qapp) -> None:
@@ -1584,3 +1584,135 @@ def test_individual_enable_requires_a_gpu_on_multi_gpu_hosts(qapp) -> None:
     panel.gpu_combo.setCurrentIndex(panel.gpu_combo.findData("GPU-a"))
     _finish_worker(qapp, panel, "_setting_thread")
     assert source.manager.calls == [("set_game_gpu", "620", "GPU-a")]
+
+
+def test_unwrapped_launch_reports_restart_and_clears_promptly_after_exit(qapp):
+    from dataclasses import replace
+
+    steam, lutris = _launchable_pair()
+    steam._inner._games = tuple(replace(game, wrapped=True) for game in steam._inner._games)
+    panel = _panel(qapp, (steam, lutris))
+    panel.ensure_scanned()
+    panel._select_key('steam:620')
+    panel._play_stop_clicked()
+    deadline = panel._tracked['steam:620'].deadline
+    panel._apply_game_states({'steam': frozenset({'620'})}, {'steam': frozenset({'620'})})
+    assert panel.play_button.text() == 'Running in Steam'
+    assert not panel.play_button.isEnabled()
+    assert 'started without PenguinBurner' in panel.launch_warning_label.text()
+    assert 'relaunch with Play in Game Library' in panel.launch_warning_label.text()
+    panel._play_stop_clicked()
+    assert steam.stopped == []
+    assert steam.launched == ['620']
+
+    # The game exits well before the pending-launch deadline.
+    panel._apply_game_states({'steam': frozenset()})
+    panel._apply_game_states({'steam': frozenset()})
+    assert time.monotonic() < deadline
+    assert panel.play_button.text() == 'Play'
+    assert panel.play_button.isEnabled()
+    assert not panel._state_timer.isActive()
+    assert 'relaunch with Play in Game Library' in panel.launch_warning_label.text()
+
+    # A fresh, wrapped launch clears the previous warning.
+    panel._play_stop_clicked()
+    panel._apply_game_states({'steam': frozenset({'620'})})
+    assert panel.play_button.text() == 'Stop'
+    assert panel.launch_warning_label.isHidden()
+    panel.widget.close()
+
+
+def test_unwrapped_game_still_blocks_launching_another_game(qapp):
+    steam, lutris = _launchable_pair()
+    steam._inner._games += (_game('steam', '440', 'Team Fortress 2'),)
+    panel = _panel(qapp, (steam, lutris))
+    panel.ensure_scanned()
+    panel._select_key('steam:620')
+    panel._play_stop_clicked()
+    panel._apply_game_states({'steam': frozenset({'620'})}, {'steam': frozenset({'620'})})
+    panel._select_key('steam:440')
+    assert not panel.play_button.isEnabled()
+    assert panel.launch_warning_label.isHidden()
+    panel.widget.close()
+
+
+def test_wrapped_session_shutting_down_is_not_reported_as_missing_wrapper(qapp):
+    steam, lutris = _launchable_pair()
+    panel = _panel(qapp, (steam, lutris))
+    panel.ensure_scanned()
+    panel._select_key('steam:620')
+    panel._play_stop_clicked()
+    panel._apply_game_states({'steam': frozenset({'620'})})
+    panel._apply_game_states({'steam': frozenset({'620'})}, {'steam': frozenset({'620'})})
+    assert panel._tracked_state('steam:620') == 'running'
+    assert panel.launch_warning_label.isHidden()
+    panel._apply_game_states({'steam': frozenset()})
+    panel._apply_game_states({'steam': frozenset()})
+    assert panel.play_button.text() == 'Play'
+    panel.widget.close()
+
+
+def test_failed_launcher_probe_does_not_hide_another_external_game(qapp, qtbot, monkeypatch):
+    steam, lutris = _launchable_pair()
+    lutris = _LaunchableSource(lutris)
+    lutris._inner.can_launch = True
+    steam.running_game_ids = lambda: (_ for _ in ()).throw(OSError('probe failed'))
+    lutris.running = frozenset({'27'})
+    monkeypatch.setattr(lutris, 'external_game_ids', lambda: frozenset({'27'}), raising=False)
+    panel = _panel(qapp, (steam, lutris))
+    panel.ensure_scanned()
+    panel._select_key('lutris:27')
+    panel._play_stop_clicked()
+    panel._poll_game_states()
+    qtbot.waitUntil(lambda: panel._tracked_state('lutris:27') == 'external')
+    assert panel.play_button.text() == 'Running in Lutris'
+    panel.widget.close()
+
+
+def test_wrapper_arriving_after_heroic_runner_clears_external_warning(qapp):
+    steam, lutris = _launchable_pair()
+    panel = _panel(qapp, (steam, lutris))
+    panel.ensure_scanned()
+    panel._select_key('steam:620')
+    panel._play_stop_clicked()
+    panel._apply_game_states({'steam': frozenset({'620'})}, {'steam': frozenset({'620'})})
+    panel._apply_game_states({'steam': None})
+    assert panel._tracked_state('steam:620') == 'external'
+    panel._apply_game_states({'steam': frozenset({'620'})})
+    assert panel.play_button.text() == 'Stop'
+    assert panel.play_button.isEnabled()
+    assert panel.launch_warning_label.isHidden()
+    panel.widget.close()
+
+
+def test_launcher_refresh_runs_off_gui_thread_and_failure_restores_play(qapp, qtbot):
+    steam, lutris = _launchable_pair()
+    release = threading.Event()
+    worker_threads = []
+    def launch(game_id):
+        worker_threads.append(threading.get_ident())
+        assert release.wait(2)
+        raise RuntimeError('Heroic is busy')
+    steam.launch = launch
+    panel = _panel(qapp, (steam, lutris))
+    panel.ensure_scanned()
+    panel._select_key('steam:620')
+    try:
+        began = time.monotonic()
+        panel._play_stop_clicked()
+        assert time.monotonic() - began < .25
+        assert panel.play_button.text() == 'Starting…'
+        assert not panel.play_button.isEnabled()
+        ticks = []
+        panel.QtCore.QTimer.singleShot(0, lambda: ticks.append(True))
+        qtbot.waitUntil(lambda: bool(ticks))
+        release.set()
+        qtbot.waitUntil(lambda: panel._launch_thread is None)
+        assert worker_threads == [worker_threads[0]]
+        assert worker_threads[0] != threading.get_ident()
+        assert panel.play_button.text() == 'Play'
+        assert panel.play_button.isEnabled()
+        assert 'Heroic is busy' in panel.status_label.text()
+    finally:
+        release.set()
+        panel.widget.close()

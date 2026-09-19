@@ -1,27 +1,15 @@
-"""Lutris seen through the launcher contract the game library tab speaks.
-
-A thin read-only face over LutrisIntegrationManager, which stays the only thing
-that edits a game's prefix_command.
-"""
+"""Lutris's library adapter; settings writes belong to LutrisIntegrationManager."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
+from integrations.launchers.library_source import WrapperLibrarySource
+from integrations.launchers.wrapper_manager import LauncherGameRow
 from overlay.render_api import overlay_support
 
-from integrations.launchers.library import (
-    FIELD_TEXT,
-    GROUP_COMMAND,
-    LauncherBulkAction,
-    LauncherField,
-    LauncherWriteState,
-    LibraryGame,
-)
-
 from .config_store import LutrisConfigError, read_game_config
-from .manager import LutrisGameRow, LutrisIntegrationManager
-from .paths import lutris_desktop_icon
+from .manager import LutrisIntegrationManager
 from .process import (
     launch_lutris_game,
     lutris_available,
@@ -30,152 +18,24 @@ from .process import (
 )
 
 
-class LutrisLibrarySource:
+class LutrisLibrarySource(WrapperLibrarySource):
     launcher_id = "lutris"
     display_name = "Lutris"
-    #: Shipped fallback, used when the machine has no Lutris icon of its own.
     icon_asset = "tab-lutris.png"
-    #: Probed during refresh, off the GUI thread: a machine can hold a Lutris
-    #: database whose Lutris is no longer installed, and those games are still
-    #: worth listing and configuring -- just not startable. Inside a Flatpak
-    #: the probe is a flatpak-spawn round-trip, which is also why it cannot
-    #: live in the constructor the window builds tabs with.
-    can_launch = False
+    #: Lutris's freedesktop application id, which is also its icon filename.
+    desktop_icon_names = ("net.lutris.Lutris",)
 
-    def __init__(
-        self,
-        manager: LutrisIntegrationManager | None = None,
-        *,
-        home: Path | None = None,
-        settings_path: str | Path | None = None,
-    ) -> None:
-        self.manager = manager or LutrisIntegrationManager(
-            home=home,
-            settings_path=settings_path,
-        )
-        self._home = home
-        self._rows: tuple[LutrisGameRow, ...] = ()
-        self._overlay_support: dict[str, tuple[bool, str]] = {}
+    command_field_key = "prefix_command"
+    command_field_subtitle = "prefix_command in the Lutris config"
+    command_noun = "launch command"
 
-    def desktop_icon(self):
-        """Lutris's own installed icon, or None when it has none here."""
-        return lutris_desktop_icon(self._home)
+    def build_manager(self, *, home, settings_path) -> LutrisIntegrationManager:
+        return LutrisIntegrationManager(home=home, settings_path=settings_path)
 
-    def available(self) -> bool:
-        return bool(self.manager.available)
+    def probe_can_launch(self) -> bool:
+        return lutris_available()
 
-    def refresh(self, *, deep: bool = True) -> None:
-        # Lutris keeps everything in a local database and config files, so
-        # there is no expensive pass to skip: the cheap one is the only one.
-        self.manager.refresh()
-        self._rows = tuple(self.manager.rows())
-        # Renderer inspection belongs on the scan worker, never in games()
-        # or selection handling. A deep rescan picks up renderer changes.
-        self._overlay_support = {
-            row.game.game_id: (
-                self._overlay_capability(row)
-                if deep or row.game.game_id not in self._overlay_support
-                else self._overlay_support[row.game.game_id]
-            )
-            for row in self._rows
-        }
-        # Installing or removing Lutris while the tab is open should change
-        # the Play button on the next scan, not on the next app start.
-        self.can_launch = lutris_available()
-
-    # -- what only Lutris has ------------------------------------------------
-
-    def fields(self, game: LibraryGame) -> tuple[LauncherField, ...]:
-        row = game.detail
-        if not isinstance(row, LutrisGameRow):
-            return ()
-        return (self._prefix_command_field(row),)
-
-    @staticmethod
-    def _prefix_command_field(row: LutrisGameRow) -> LauncherField:
-        value = str(row.prefix_command or "")
-        subtitle = "prefix_command in the Lutris config"
-        if value and row.inherited_prefix:
-            subtitle = f"prefix_command — inherited from {row.prefix_source_label}"
-        return LauncherField(
-            key="prefix_command",
-            kind=FIELD_TEXT,
-            title="Command",
-            subtitle=subtitle,
-            setter="set_game_prefix_command",
-            value=value,
-            group=GROUP_COMMAND,
-        )
-
-    def write_state(self) -> LauncherWriteState:
-        """Always ready: Lutris's settings are files we own the writing of.
-
-        Nothing to initialise and nothing racing us for them, unlike Steam,
-        which holds its launch options in memory while the client runs.
-        """
-        return LauncherWriteState()
-
-    def bulk_actions(self) -> tuple[LauncherBulkAction, ...]:
-        # Keys shared with the other launchers on purpose: the tab shows one
-        # "disable everything" and means it across the whole library.
-        return (
-            LauncherBulkAction(
-                key="enable_all",
-                label="Enable PenguinBurner for all games",
-                setter="set_all_games_enabled",
-                value=True,
-                affects="enabled",
-                confirm=(
-                    "Add the PenguinBurner wrapper to the launch command of "
-                    "{count} {games}?\n\nThe In-Game overlay stays off, and "
-                    "MangoHud is disabled in wrapped games. \"Disable "
-                    "PenguinBurner for all games\" restores each game's own "
-                    "launch command."
-                ),
-            ),
-            LauncherBulkAction(
-                key="disable_all",
-                label="Disable PenguinBurner for all games",
-                setter="set_all_games_enabled",
-                value=False,
-                affects="enabled",
-                confirm=(
-                    "Remove the PenguinBurner wrapper from {count} {games} and "
-                    "restore their own launch command?"
-                ),
-            ),
-        )
-
-    def after_setting_write(self, game_id: str, setter: str) -> None:
-        """Lutris changes are picked up on the next launch, not live."""
-        del game_id, setter
-        return None
-
-    def games(self) -> tuple[LibraryGame, ...]:
-        return tuple(self._library_game(row) for row in self._rows)
-
-    def _library_game(self, row: LutrisGameRow) -> LibraryGame:
-        supported, reason = self._overlay_support.get(row.game.game_id, (True, ""))
-        return LibraryGame(
-            launcher=self.launcher_id,
-            game_id=row.game.game_id,
-            name=row.game.display_name,
-            subtitle=str(row.game.runner_label or ""),
-            last_played=int(row.game.last_played or 0),
-            installed_at=int(row.game.installed_at or 0),
-            playtime_hours=float(row.game.playtime_hours or 0.0),
-            art_path=row.game.cover_path,
-            ready=bool(row.game.ready),
-            wrapped=bool(row.wrapped),
-            enabled=bool(row.setting.enabled),
-            overlay=bool(row.setting.overlay),
-            detail=row,
-            overlay_supported=supported,
-            overlay_unsupported_reason=reason,
-        )
-
-    @staticmethod
-    def _overlay_capability(row: LutrisGameRow) -> tuple[bool, str]:
+    def overlay_capability(self, row: LauncherGameRow) -> tuple[bool, str]:
         game = row.game
         # Wine, Proton, and unknown runners are not native ELF programs.
         if game.runner_label.lower() != "linux":
@@ -244,6 +104,9 @@ class LutrisLibrarySource:
         None is not "nothing is running": it means the check itself failed, and
         the caller must hold every state rather than read a stalled probe as
         every game having exited.
+
+        Matched by title rather than by the key we inject, so a game the user
+        started with PenguinBurner switched off is still seen running.
         """
         titles = self._titles_by_id()
         running = running_lutris_games(titles.values())

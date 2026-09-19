@@ -16,11 +16,13 @@ your existing command. For example:
 
 ```yaml
 system:
-  prefix_command: PENGUIN_BURNER --pb-overlay=1 --pb-lutris-id=27 game-performance
+  prefix_command: PENGUIN_BURNER --pb-overlay=1 --pb-game-id=lutris:27 game-performance
 ```
 
-The ID identifies the game to PenguinBurner. Other configuration keys remain
-unchanged. Disabling wrapping restores an explicit per-game prefix, or resumes
+The ID identifies the game to PenguinBurner, qualified by the launcher that
+owns it. Prefixes written by earlier versions carry `--pb-lutris-id=27`
+instead and keep working; they are rewritten the next time you change a
+setting. Other configuration keys remain unchanged. Disabling wrapping restores an explicit per-game prefix, or resumes
 runner/global inheritance when the game originally inherited its prefix.
 
 The **Command** field is editable. Press Enter or leave the field to save.
@@ -49,3 +51,7 @@ wrapper commands.
 PenguinBurner stores per-game preferences in
 `~/.config/PenguinBurner/lutris-game-settings.json`. Lutris game configuration
 uses `~/.config/lutris` when present, otherwise `~/.local/share/lutris`.
+
+If the preferences file is ever damaged and cannot be read, PenguinBurner keeps
+it as `lutris-game-settings.json.corrupt-<timestamp>` beside it and starts a
+new one, naming the copy in the status line; the old presets stay recoverable.

@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from drivers.nvidia.daemon_gpu import DaemonGpuClient
 from profiles import game_profile
 
 import integrations.steam.manager as manager_module
@@ -21,6 +22,9 @@ from integrations.steam.users import STEAMID64_BASE
 
 ACCOUNT_ID = "78675700"
 APP_ID = "10"
+#: The identity the daemon registers this game under: namespaced, because it
+#: keys running games by one opaque string shared with the other launchers.
+GAME_KEY = "steam:10"
 
 
 class _FakeCdpClient:
@@ -242,6 +246,34 @@ def test_bulk_apply_hot_reapplies_only_watched_running_games(
     manager.set_all_games_enabled([APP_ID], True)
 
     assert reapplied == [APP_ID]
+
+
+def test_the_daemons_watch_list_is_read_as_steam_app_ids(manager, monkeypatch) -> None:
+    """The list is every launcher's running games under one opaque key each.
+
+    Reading it back has to keep this launcher's games and drop the rest --
+    matching the bare string would have a Lutris game 10 answer for Steam
+    app 10.
+    """
+    import runtime.daemon_client as daemon_client
+
+    monkeypatch.setattr(
+        daemon_client,
+        "daemon_status",
+        lambda **kwargs: {
+            "game_runtime": {
+                "watched": [
+                    {"pid": 1, "app_id": GAME_KEY},
+                    {"pid": 2, "app_id": f"lutris:{APP_ID}"},
+                    # A wrapper from before Steam was namespaced.
+                    {"pid": 3, "app_id": "620"},
+                    {"pid": 4, "app_id": ""},
+                ]
+            }
+        },
+    )
+
+    assert manager._watched_running_app_ids() == frozenset({APP_ID, "620"})
 
 
 def test_bulk_overlay_show_updates_wrapper_flag(manager, monkeypatch) -> None:
@@ -546,7 +578,16 @@ def test_bulk_overlay_updates_live_visibility_without_reapplying_profile(
     assert "live visibility update failed" in result.message
 
 
-def test_hot_reapply_pushes_profile_to_running_game(manager, monkeypatch) -> None:
+@pytest.mark.parametrize("watched_id", [GAME_KEY, APP_ID])
+def test_hot_reapply_pushes_profile_to_running_game(
+    manager, monkeypatch, watched_id
+) -> None:
+    """Either spelling of the identity finds the session.
+
+    The wrapper registers the namespaced key; a game started before that was
+    written registered the bare app id and can still be running when the user
+    changes a setting.
+    """
     import runtime.daemon_client as daemon_client
     import integrations.steam.game_runtime as game_runtime
 
@@ -560,7 +601,11 @@ def test_hot_reapply_pushes_profile_to_running_game(manager, monkeypatch) -> Non
             "state": "runtime_profile_running",
             "game_runtime": {
                 "active": True,
-                "watched": [{"pid": 4242, "app_id": APP_ID}],
+                "watched": [
+                    # Another launcher's game, which this must not answer for.
+                    {"pid": 99, "app_id": f"lutris:{APP_ID}"},
+                    {"pid": 4242, "app_id": watched_id},
+                ],
             },
         },
     )
@@ -573,7 +618,7 @@ def test_hot_reapply_pushes_profile_to_running_game(manager, monkeypatch) -> Non
         lambda profiles, **_kwargs: {"balanced": {"profile_id": "profile-9"}},
     )
     monkeypatch.setattr(
-        game_runtime.DaemonGpuClient,
+        DaemonGpuClient,
         "discover_identities",
         classmethod(
             lambda cls: [SimpleNamespace(index=0, uuid="GPU-only")]
@@ -589,7 +634,7 @@ def test_hot_reapply_pushes_profile_to_running_game(manager, monkeypatch) -> Non
     result = manager.hot_reapply(APP_ID)
     assert result is not None and result.ok
     assert calls == [
-        (["--auto-uv-profile", "profile-9", "--gpu-index", "0"], 4242, APP_ID)
+        (["--auto-uv-profile", "profile-9", "--gpu-index", "0"], 4242, GAME_KEY)
     ]
 
 
@@ -628,7 +673,7 @@ def test_hot_reapply_legacy_default_migrates_to_adaptive(manager, monkeypatch) -
         },
     )
     monkeypatch.setattr(
-        game_runtime.DaemonGpuClient,
+        DaemonGpuClient,
         "discover_identities",
         classmethod(
             lambda cls: [SimpleNamespace(index=0, uuid="GPU-only")]
@@ -648,7 +693,7 @@ def test_hot_reapply_legacy_default_migrates_to_adaptive(manager, monkeypatch) -
                 "0",
             ],
             4242,
-            APP_ID,
+            GAME_KEY,
         )
     ]
 
@@ -673,7 +718,7 @@ def test_hot_reapply_tolerates_grace_window_exit(manager, monkeypatch) -> None:
         },
     )
     monkeypatch.setattr(
-        game_runtime.DaemonGpuClient,
+        DaemonGpuClient,
         "discover_identities",
         classmethod(lambda cls: [SimpleNamespace(index=0, uuid="GPU-only")]),
     )
@@ -708,7 +753,7 @@ def test_hot_reapply_targets_saved_gpu_for_stock(manager, monkeypatch) -> None:
         },
     )
     monkeypatch.setattr(
-        game_runtime.DaemonGpuClient,
+        DaemonGpuClient,
         "discover_identities",
         classmethod(
             lambda cls: [
@@ -750,7 +795,7 @@ def test_hot_reapply_reports_ignored_concurrent_game(manager, monkeypatch) -> No
         },
     )
     monkeypatch.setattr(
-        game_runtime.DaemonGpuClient,
+        DaemonGpuClient,
         "discover_identities",
         classmethod(lambda cls: [SimpleNamespace(index=0, uuid="GPU-only")]),
     )

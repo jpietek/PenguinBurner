@@ -19,6 +19,7 @@ use crate::supervisor::{self, Supervisor};
 pub const PROTOCOL_MAJOR: u32 = 2;
 pub const PROTOCOL_MINOR: u32 = 0;
 pub const DAEMON_CAPABILITIES: &[&str] = &[
+    "client-identity-v1",
     "deep-sleep-status-v1",
     "energy-savings-v1",
     "game-runtime-v1",
@@ -432,7 +433,7 @@ mod tests {
         assert_eq!(
             text,
             format!(
-                "{{\"ok\":true,\"result\":{{\"state\":\"idle\",\"active_job\":null,\"version\":\"{}\",\"build\":\"{}\",\"protocol_major\":2,\"protocol_minor\":0,\"capabilities\":[\"deep-sleep-status-v1\",\"energy-savings-v1\",\"game-runtime-v1\",\"gpu-capabilities-v1\",\"gpu-telemetry-v1\",\"gpu-vf-snapshot-v1\",\"gpu-writes-v1\",\"runtime-spec-v1\",\"scan-stream-v1\",\"verification-stream-v1\"]}}}}",
+                "{{\"ok\":true,\"result\":{{\"state\":\"idle\",\"active_job\":null,\"version\":\"{}\",\"build\":\"{}\",\"protocol_major\":2,\"protocol_minor\":0,\"capabilities\":[\"client-identity-v1\",\"deep-sleep-status-v1\",\"energy-savings-v1\",\"game-runtime-v1\",\"gpu-capabilities-v1\",\"gpu-telemetry-v1\",\"gpu-vf-snapshot-v1\",\"gpu-writes-v1\",\"runtime-spec-v1\",\"scan-stream-v1\",\"verification-stream-v1\"]}}}}",
                 env!("CARGO_PKG_VERSION"),
                 env!("PENGUIN_BURNERD_BUILD_ID"),
             )
