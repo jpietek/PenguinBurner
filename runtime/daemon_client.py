@@ -31,6 +31,15 @@ class DaemonCompatibilityError(RuntimeError):
     """The reachable daemon cannot serve this client's required protocol."""
 
 
+def client_host_pid() -> int:
+    """Our PID as seen by the root daemon, even inside a PID namespace."""
+    result = daemon_request("client_identity", socket_path=_resolved_socket_path(None))
+    pid = result.get("pid")
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        raise RuntimeError("PenguinBurner daemon did not return a valid host PID")
+    return pid
+
+
 def _resolved_socket_path(socket_path: str | Path | None) -> str | Path:
     if socket_path is not None:
         return socket_path

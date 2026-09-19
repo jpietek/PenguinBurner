@@ -26,6 +26,7 @@ from .cdp import (
     cdp_marker_present,
     ensure_cdp_marker,
 )
+from .identity import steam_app_id_from_game_key, steam_game_key
 from .launch_options import (
     inject_launch_options,
     injection_state,
@@ -366,6 +367,13 @@ class SteamIntegrationManager:
         return ApplyResult(not live_problems, message)
 
     def _watched_running_app_ids(self) -> frozenset[str]:
+        """Steam games the daemon is watching right now, as Steam app ids.
+
+        The daemon holds one opaque game key per watched pid, and for Steam
+        that key is namespaced. Reading it back through the identity helper
+        drops the other launchers' games and understands the bare app id an
+        older wrapper still running would have registered.
+        """
         from runtime.daemon_client import daemon_status
 
         try:
@@ -373,11 +381,11 @@ class SteamIntegrationManager:
         except Exception:
             return frozenset()
         watched = (status.get("game_runtime") or {}).get("watched") or []
-        return frozenset(
-            str(entry.get("app_id"))
+        app_ids = (
+            steam_app_id_from_game_key(str(entry.get("app_id") or ""))
             for entry in watched
-            if entry.get("app_id")
         )
+        return frozenset(app_id for app_id in app_ids if app_id)
 
     def available_compat_tools(self, app_id: str) -> tuple[tuple[str, str], ...]:
         if app_id in self._compat_tools:
@@ -489,10 +497,15 @@ class SteamIntegrationManager:
         except Exception:
             return None
         watched = (status.get("game_runtime") or {}).get("watched") or []
+        # The daemon holds one opaque game key per watched pid; for Steam that
+        # is the namespaced identity, and an older wrapper still running has
+        # registered the bare app id. Both have to find this game.
+        wanted = str(app_id)
         pids = [
             int(entry["pid"])
             for entry in watched
-            if str(entry.get("app_id")) == str(app_id) and entry.get("pid")
+            if entry.get("pid")
+            and steam_app_id_from_game_key(str(entry.get("app_id") or "")) == wanted
         ]
         if not pids:
             return None
@@ -539,7 +552,9 @@ class SteamIntegrationManager:
             result = start_game_runtime_profile(
                 argv,
                 watch_pid=pids[0],
-                app_id=app_id,
+                # Re-registering the same pid: the identity it is registered
+                # under stays the one the launch wrapper wrote.
+                app_id=steam_game_key(app_id),
             )
         except Exception as error:
             if "not a running process" in str(error):

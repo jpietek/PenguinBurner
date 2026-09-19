@@ -140,3 +140,35 @@ def test_legacy_hidden_mode_loads_as_adaptive(tmp_path: Path) -> None:
     assert setting is not None
     assert setting.enabled is True
     assert setting.mode == GAME_MODE_ADAPTIVE
+
+
+def test_a_settings_file_that_cannot_be_read_is_kept_before_it_is_replaced(
+    tmp_path: Path,
+) -> None:
+    """This file holds every account's presets and is rewritten whole.
+
+    Read as empty, one game's save would take all of them with it -- so the
+    unreadable file is moved aside and stays recoverable.
+    """
+    path = tmp_path / "steam-game-settings.json"
+    corrupt = '{"accounts": {"78675700": {"games": {"1089130": {"enab'
+    path.write_text(corrupt, encoding="utf-8")
+
+    store_steam_game_setting(
+        "78675700", "570", SteamGameSetting(enabled=True), path=path
+    )
+
+    (backup,) = sorted(tmp_path.glob("steam-game-settings.json.corrupt-*"))
+    assert backup.read_text(encoding="utf-8") == corrupt
+    assert steam_game_setting("78675700", "570", path=path) is not None
+
+
+def test_an_absent_settings_file_is_simply_empty(tmp_path: Path) -> None:
+    path = tmp_path / "steam-game-settings.json"
+
+    store_steam_game_setting(
+        "78675700", "570", SteamGameSetting(enabled=True), path=path
+    )
+
+    assert load_steam_game_settings(path)["78675700"]["570"].enabled is True
+    assert sorted(tmp_path.glob("steam-game-settings.json.corrupt-*")) == []

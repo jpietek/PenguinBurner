@@ -63,6 +63,34 @@ def test_native_overlay_env_false_still_disables_enabled_config(tmp_path: Path) 
     assert result.stdout.strip() == ""
 
 
+@pytest.mark.parametrize("config_enabled", [False, True, None])
+def test_native_overlay_switches_on_and_off_in_same_process(tmp_path, config_enabled):
+    from overlay.state import OVERLAY_OVERRIDE_ENV, write_overlay_override
+
+    binary = _build_native_overlay_probe(tmp_path)
+    config_path = tmp_path / "overlay.toml"
+    if config_enabled is not None:
+        config_path.write_text(
+            f'enabled = {str(config_enabled).lower()}\nitems = ["base_fps"]\n'
+        )
+    override = tmp_path / "overlay-override"
+    env = _probe_env(config_path, pb_overlay="0")
+    env[OVERLAY_OVERRIDE_ENV] = str(override)
+    with subprocess.Popen(
+        [str(binary), "--live"], env=env, stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE, text=True,
+    ) as process:
+        assert process.stdout.readline().strip() == ""
+        for enabled in (True, False, True):
+            assert write_overlay_override(enabled, override)
+            process.stdin.write("tick\n")
+            process.stdin.flush()
+            text = process.stdout.readline().strip()
+            assert ("19 FPS" in text) is enabled
+        process.stdin.close()
+        assert process.wait(timeout=5) == 0
+
+
 def _build_native_overlay_probe(tmp_path: Path) -> Path:
     compiler = shutil.which("c++") or shutil.which("g++")
     if compiler is None:
@@ -72,6 +100,7 @@ def _build_native_overlay_probe(tmp_path: Path) -> Path:
     source.write_text(
         r'''
 #include <iostream>
+#include <thread>
 #include "latency_layer_internal.h"
 
 namespace pblayer {
@@ -79,14 +108,21 @@ std::string build_overlay_text(
     uint64_t fps, const OverlayGpuState& state, uint64_t now_us);
 }
 
-int main() {
+int main(int argc, char**) {
     pblayer::OverlayGpuState state{};
     state.clock_mhz = "1777";
     state.voltage_mv = "885";
     state.power_w = "54";
     state.latency_ms = "73";
     state.profile_tier = "Performance";
-    std::cout << pblayer::build_overlay_text(19, state, 1000000) << "\n";
+    uint64_t now_us = 1000000;
+    std::cout << pblayer::build_overlay_text(19, state, now_us) << std::endl;
+    std::string command;
+    while (argc > 1 && std::getline(std::cin, command)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+        now_us += 1100000;
+        std::cout << pblayer::build_overlay_text(19, state, now_us) << std::endl;
+    }
     return 0;
 }
 ''',

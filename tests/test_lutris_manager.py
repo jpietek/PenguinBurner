@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 
@@ -9,7 +10,7 @@ import pytest
 import yaml
 
 from integrations.lutris.manager import LutrisIntegrationManager
-from integrations.lutris.settings import load_lutris_game_settings
+from integrations.lutris.settings import LUTRIS_GAME_SETTINGS_STORE
 from profiles.game_profile import GAME_MODE_ADAPTIVE, GAME_MODE_STOCK
 
 _SCHEMA = (
@@ -70,7 +71,7 @@ def test_rows_carry_the_live_prefix_command(tmp_path) -> None:
     row = manager.row("27")
 
     assert row.game.display_name == "Test Game"
-    assert row.prefix_command == "game-performance"
+    assert row.command == "game-performance"
     assert row.wrapped is False
 
 
@@ -92,10 +93,10 @@ def test_enabling_wraps_the_game_and_records_the_original(tmp_path) -> None:
     assert result.ok is True
     prefix = _config(tmp_path)["system"]["prefix_command"]
     assert prefix.startswith("env PB_INGAME_LATENCY=1 PENGUIN_BURNER ")
-    assert "--pb-lutris-id=27" in prefix
+    assert "--pb-game-id=lutris:27" in prefix
     assert prefix.endswith("game-performance")
-    stored = load_lutris_game_settings(tmp_path / "lutris-game-settings.json")["27"]
-    assert stored.original_prefix_command == "game-performance"
+    stored = LUTRIS_GAME_SETTINGS_STORE.load(tmp_path / "lutris-game-settings.json")["27"]
+    assert stored.original_command == "game-performance"
     assert stored.mode == GAME_MODE_ADAPTIVE
 
 
@@ -106,10 +107,11 @@ def test_enabling_repairs_the_host_wrapper_before_writing(
     the wrapper must be made real before a config names it -- a Lutris-only
     host otherwise gets a prefix_command that stops the game launching."""
     import integrations.lutris.manager as manager_module
+    from integrations.launchers import wrapper_manager
 
     calls: list[bool] = []
     monkeypatch.setattr(
-        manager_module, "ensure_host_integration", lambda: calls.append(True)
+        wrapper_manager, "ensure_host_integration", lambda: calls.append(True)
     )
     manager = _manager(tmp_path)
 
@@ -119,11 +121,12 @@ def test_enabling_repairs_the_host_wrapper_before_writing(
 
 def test_a_failed_wrapper_repair_blocks_the_write(tmp_path, monkeypatch) -> None:
     import integrations.lutris.manager as manager_module
+    from integrations.launchers import wrapper_manager
 
     def boom() -> None:
         raise RuntimeError("packaged NVAPI shim is missing")
 
-    monkeypatch.setattr(manager_module, "ensure_host_integration", boom)
+    monkeypatch.setattr(wrapper_manager, "ensure_host_integration", boom)
     manager = _manager(tmp_path)
 
     result = manager.set_game_enabled("27", True)
@@ -140,9 +143,9 @@ def test_disabling_restores_the_users_own_prefix(tmp_path) -> None:
     manager.set_game_enabled("27", False)
 
     assert _config(tmp_path)["system"]["prefix_command"] == "game-performance"
-    stored = load_lutris_game_settings(tmp_path / "lutris-game-settings.json")["27"]
+    stored = LUTRIS_GAME_SETTINGS_STORE.load(tmp_path / "lutris-game-settings.json")["27"]
     assert stored.enabled is False
-    assert stored.injected_prefix_command == ""
+    assert stored.injected_command == ""
 
 
 def test_disabling_keeps_the_users_choices_for_the_next_enable(tmp_path) -> None:
@@ -162,7 +165,7 @@ def test_disabling_keeps_the_users_choices_for_the_next_enable(tmp_path) -> None
     manager.set_game_enabled("27", False)
     manager.set_game_enabled("27", True)
 
-    stored = load_lutris_game_settings(tmp_path / "lutris-game-settings.json")["27"]
+    stored = LUTRIS_GAME_SETTINGS_STORE.load(tmp_path / "lutris-game-settings.json")["27"]
     assert stored.enabled is True
     assert stored.mode == "balanced"
     assert stored.gpu_uuid == "GPU-abc"
@@ -219,7 +222,7 @@ def test_the_target_fps_is_stored_but_stays_out_of_the_prefix(tmp_path) -> None:
 
     manager.set_game_target_fps("27", 120)
 
-    stored = load_lutris_game_settings(tmp_path / "lutris-game-settings.json")["27"]
+    stored = LUTRIS_GAME_SETTINGS_STORE.load(tmp_path / "lutris-game-settings.json")["27"]
     assert stored.target_fps == 120.0
     assert "120" not in _config(tmp_path)["system"]["prefix_command"]
 
@@ -230,7 +233,7 @@ def test_a_mode_change_is_stored(tmp_path) -> None:
 
     manager.set_game_mode("27", GAME_MODE_STOCK)
 
-    stored = load_lutris_game_settings(tmp_path / "lutris-game-settings.json")["27"]
+    stored = LUTRIS_GAME_SETTINGS_STORE.load(tmp_path / "lutris-game-settings.json")["27"]
     assert stored.mode == GAME_MODE_STOCK
     assert stored.ingame_latency is False
     assert "PB_INGAME_LATENCY" not in _config(tmp_path)["system"]["prefix_command"]
@@ -266,18 +269,18 @@ def test_a_refused_config_write_stores_no_setting(tmp_path, monkeypatch) -> None
     """A stored setting must never claim a state the game config does not have."""
     manager = _manager(tmp_path)
     import integrations.lutris.manager as manager_module
-    from integrations.lutris.config_store import PrefixCommandWrite
+    from integrations.launchers.wrapper_manager import CommandWrite
 
     monkeypatch.setattr(
         manager_module,
         "write_prefix_command",
-        lambda path, value: PrefixCommandWrite(False, "", "Lutris overwrote it"),
+        lambda path, value: CommandWrite(False, "", "Lutris overwrote it"),
     )
 
     result = manager.set_game_enabled("27", True)
 
     assert result.ok is False
-    assert load_lutris_game_settings(tmp_path / "lutris-game-settings.json") == {}
+    assert LUTRIS_GAME_SETTINGS_STORE.load(tmp_path / "lutris-game-settings.json") == {}
 
 
 def test_a_malformed_game_config_still_lists_the_game(tmp_path) -> None:
@@ -292,7 +295,7 @@ def test_a_malformed_game_config_still_lists_the_game(tmp_path) -> None:
     rows = manager.refresh()
 
     assert [row.game.game_id for row in rows] == ["27"]
-    assert rows[0].prefix_command == ""
+    assert rows[0].command == ""
 
 
 # -- config levels -------------------------------------------------------------
@@ -319,10 +322,10 @@ def test_a_prefix_inherited_from_the_runner_is_reported(tmp_path) -> None:
 
     row = manager.row("27")
 
-    assert row.prefix_command == "game-performance"
+    assert row.command == "game-performance"
     assert row.effective.source == "runner"
-    assert row.inherited_prefix is True
-    assert row.prefix_source_label == "the runner"
+    assert row.inherited is True
+    assert row.source_label == "the runner"
 
 
 def test_enabling_keeps_a_prefix_the_game_only_inherited(tmp_path) -> None:
@@ -357,7 +360,7 @@ def test_disabling_lets_inheritance_resume_instead_of_freezing_it(tmp_path) -> N
 
     assert "prefix_command" not in _config(tmp_path).get("system", {})
     row = manager.row("27")
-    assert row.prefix_command == "game-performance"
+    assert row.command == "game-performance"
     assert row.effective.source == "runner"
 
 
@@ -376,7 +379,7 @@ def test_disable_resumes_updated_inheritance_after_restart(tmp_path) -> None:
     assert "prefix_command" not in _config(tmp_path).get("system", {})
     row = manager.row("27")
     assert row is not None
-    assert row.prefix_command == "new-prefix"
+    assert row.command == "new-prefix"
 
 
 def test_disable_preserves_explicit_prefix_equal_to_runner(tmp_path) -> None:
@@ -405,7 +408,7 @@ def test_disable_preserves_external_edits_to_inherited_wrapped_prefix(tmp_path) 
 def test_raw_prefix_preserves_quoted_spaces_across_wrap_cycle(tmp_path) -> None:
     manager = _manager(tmp_path)
     command = "env NAME='two  spaces'  gamemoderun"
-    assert manager.set_game_prefix_command("27", command).ok
+    assert manager.set_game_command("27", command).ok
     assert _config(tmp_path)["system"]["prefix_command"] == command
     assert manager.set_game_enabled("27", True).ok
     assert manager.set_game_enabled("27", False).ok
@@ -422,9 +425,9 @@ def test_a_game_level_prefix_wins_over_the_runner(tmp_path) -> None:
 
     row = manager.row("27")
 
-    assert row.prefix_command == "dlss-swapper"
+    assert row.command == "dlss-swapper"
     assert row.effective.source == "game"
-    assert row.inherited_prefix is False
+    assert row.inherited is False
 
 
 def test_a_game_level_prefix_is_restored_on_disable(tmp_path) -> None:
@@ -446,7 +449,7 @@ def test_a_hand_written_prefix_is_taken_verbatim(tmp_path) -> None:
     manager = _manager(tmp_path)
     manager.set_game_enabled("27", True)
 
-    result = manager.set_game_prefix_command(
+    result = manager.set_game_command(
         "27", "  PB_INGAME_LATENCY=1   PENGUIN_BURNER --pb-overlay=0  "
     )
 
@@ -467,18 +470,18 @@ def test_a_hand_edit_re_reads_the_toggles_from_what_landed(tmp_path) -> None:
     manager.set_game_enabled("27", True)
     assert manager.row("27").setting.enabled is True
 
-    manager.set_game_prefix_command("27", "game-performance")
+    manager.set_game_command("27", "game-performance")
 
     row = manager.row("27")
     assert row.setting.enabled is False
-    assert row.prefix_command == "game-performance"
+    assert row.command == "game-performance"
 
 
 def test_a_hand_edit_that_adds_the_overlay_flag_is_read_back(tmp_path) -> None:
     manager = _manager(tmp_path)
     manager.set_game_enabled("27", True)
 
-    manager.set_game_prefix_command("27", "PENGUIN_BURNER --pb-overlay=1")
+    manager.set_game_command("27", "PENGUIN_BURNER --pb-overlay=1")
 
     row = manager.row("27")
     assert row.setting.enabled is True
@@ -492,7 +495,7 @@ def test_a_hand_edit_under_overlay_keeps_adaptive_markers_enabled(tmp_path) -> N
     manager.set_game_enabled("27", True)
     manager.set_game_overlay("27", True)
 
-    manager.set_game_prefix_command("27", "PENGUIN_BURNER --pb-overlay=1")
+    manager.set_game_command("27", "PENGUIN_BURNER --pb-overlay=1")
 
     row = manager.row("27")
     assert row is not None
@@ -506,9 +509,9 @@ def test_a_hand_edit_that_removes_the_wrapper_keeps_the_choices(tmp_path) -> Non
     manager.set_game_mode("27", "balanced")
     manager.set_game_target_fps("27", 90.0)
 
-    manager.set_game_prefix_command("27", "game-performance")
+    manager.set_game_command("27", "game-performance")
 
-    stored = load_lutris_game_settings(tmp_path / "lutris-game-settings.json")["27"]
+    stored = LUTRIS_GAME_SETTINGS_STORE.load(tmp_path / "lutris-game-settings.json")["27"]
     assert stored.enabled is False
     assert stored.mode == "balanced"
     assert stored.target_fps == 90.0
@@ -555,17 +558,119 @@ def test_disabling_the_game_takes_the_opt_in_with_it(tmp_path) -> None:
     )
 
 
+def test_inheritance_that_changed_while_enabled_is_resumed(tmp_path) -> None:
+    """The runner file is Lutris's, not ours: it can change while we are on.
+
+    Disabling then owes the game the runner's *current* prefix, which means
+    clearing the game level rather than writing back the value we snapshotted
+    when the wrapper went in.
+    """
+    manager = _manager(tmp_path)
+    _runner_config(tmp_path, "game-performance")
+    manager.refresh()
+    assert manager.set_game_enabled("27", True).ok
+
+    _runner_config(tmp_path, "mangohud")
+
+    assert manager.set_game_enabled("27", False).ok
+    assert "prefix_command" not in _config(tmp_path).get("system", {})
+    row = manager.row("27")
+    assert row is not None
+    assert row.command == "mangohud"
+    assert "PENGUIN_BURNER" not in row.command
+
+
+def test_settings_written_by_earlier_versions_still_disable_cleanly(tmp_path) -> None:
+    """A game left enabled by an older PenguinBurner carries the old field
+    names and the old identity flag. It has to be restorable as it stands."""
+    settings_path = tmp_path / "lutris-game-settings.json"
+    injected = "PENGUIN_BURNER --pb-overlay=1 --pb-lutris-id=27 gamemoderun"
+    settings_path.write_text(
+        json.dumps(
+            {
+                "games": {
+                    "27": {
+                        "enabled": True,
+                        "mode": "adaptive",
+                        "overlay": True,
+                        "original_prefix_command": "gamemoderun",
+                        "injected_prefix_command": injected,
+                        "original_prefix_inherited": False,
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    home = _home(tmp_path, prefix_command=injected)
+    manager = LutrisIntegrationManager(home=home, settings_path=settings_path)
+    manager.refresh()
+    row = manager.row("27")
+    assert row is not None
+    assert row.setting.enabled is True
+    assert row.setting.overlay is True
+
+    assert manager.set_game_enabled("27", False).ok
+
+    assert _config(tmp_path)["system"]["prefix_command"] == "gamemoderun"
+    stored = LUTRIS_GAME_SETTINGS_STORE.load(settings_path)["27"]
+    assert stored.enabled is False
+    assert stored.mode == GAME_MODE_ADAPTIVE
+    assert stored.original_command == "gamemoderun"
+    # The save migrated the file to the names in use now.
+    written = json.loads(settings_path.read_text(encoding="utf-8"))["games"]["27"]
+    assert "original_prefix_command" not in written
+    assert written["original_command"] == "gamemoderun"
+
+
+def test_the_legacy_identity_flag_is_rewritten_on_the_next_change(tmp_path) -> None:
+    """--pb-lutris-id=27 keeps working; the next managed write says lutris:27."""
+    settings_path = tmp_path / "lutris-game-settings.json"
+    injected = "PENGUIN_BURNER --pb-overlay=0 --pb-lutris-id=27 gamemoderun"
+    settings_path.write_text(
+        json.dumps(
+            {
+                "games": {
+                    "27": {
+                        "enabled": True,
+                        "mode": "adaptive",
+                        "original_prefix_command": "gamemoderun",
+                        "injected_prefix_command": injected,
+                        "original_prefix_inherited": False,
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    home = _home(tmp_path, prefix_command=injected)
+    manager = LutrisIntegrationManager(home=home, settings_path=settings_path)
+    manager.refresh()
+
+    assert manager.set_game_overlay("27", True).ok
+
+    written = _config(tmp_path)["system"]["prefix_command"]
+    assert "--pb-game-id=lutris:27" in written
+    assert "--pb-lutris-id" not in written
+    assert written.endswith("gamemoderun")
+
+    # And the game still comes back to exactly what it launched with before.
+    assert manager.set_game_enabled("27", False).ok
+    assert _config(tmp_path)["system"]["prefix_command"] == "gamemoderun"
+
+
 @pytest.mark.parametrize("bulk", [False, True])
 def test_library_scan_cannot_revert_a_setting_before_the_next_edit(
     tmp_path, monkeypatch, qapp, qtbot, bulk
 ) -> None:
     """A scan that read old settings must finish before a write uses the cache."""
     import integrations.lutris.manager as manager_module
+    from integrations.launchers import wrapper_manager
     from integrations.lutris.library_source import LutrisLibrarySource
     from ui.components.game_library_panel import GameLibraryPanel
     from ui.qt import import_qt
 
-    monkeypatch.setattr(manager_module, "ensure_host_integration", lambda: None)
+    monkeypatch.setattr(wrapper_manager, "ensure_host_integration", lambda: None)
     manager = _manager(tmp_path, prefix_command="gamemoderun")
     source = LutrisLibrarySource(manager, home=tmp_path)
     QtCore, QtGui, QtWidgets, _pg = import_qt()
@@ -576,7 +681,8 @@ def test_library_scan_cannot_revert_a_setting_before_the_next_edit(
     panel.ensure_scanned()
     panel._library_timer.stop()
     started, release, write_started = (threading.Event() for _ in range(3))
-    original_load = manager_module.load_lutris_game_settings
+    store = manager_module.LUTRIS_GAME_SETTINGS_STORE
+    original_load = store.load
     intercepted = False
 
     def delayed_load(path):
@@ -595,7 +701,7 @@ def test_library_scan_cannot_revert_a_setting_before_the_next_edit(
         write_started.set()
         return original_write(game_id, enabled)
 
-    monkeypatch.setattr(manager_module, "load_lutris_game_settings", delayed_load)
+    monkeypatch.setattr(store, "load", delayed_load)
     monkeypatch.setattr(manager, "set_game_enabled", enable)
     panel.rescan(deep=False, quiet=True)
     try:
@@ -622,7 +728,7 @@ def test_library_scan_cannot_revert_a_setting_before_the_next_edit(
     panel._write_async(panel._selected_game(), "set_game_gpu", "GPU-test")
     qtbot.waitUntil(lambda: panel._setting_thread is None, timeout=5000)
 
-    stored = load_lutris_game_settings(tmp_path / "lutris-game-settings.json")["27"]
+    stored = LUTRIS_GAME_SETTINGS_STORE.load(tmp_path / "lutris-game-settings.json")["27"]
     assert stored.enabled is True
     assert stored.gpu_uuid == "GPU-test"
     assert "PENGUIN_BURNER" in _config(tmp_path)["system"]["prefix_command"]

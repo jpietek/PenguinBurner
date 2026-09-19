@@ -264,6 +264,10 @@ class LaunchableSource(Protocol):
         None means the check itself failed, which is not the same as nothing
         running: the caller must hold what it knows rather than read a stalled
         probe as every game having exited.
+
+        An adapter may also expose external_game_ids() -> frozenset[str], a
+        cached subset from this poll that must be closed in the launcher.
+        Observing those games does not authorize stop() to signal their PIDs.
         """
         ...
 

@@ -8,8 +8,8 @@ import pytest
 
 from integrations.launchers.library import (
     SORT_ALPHABETICAL,
-    SORT_LAUNCHER,
     SORT_INSTALLED,
+    SORT_LAUNCHER,
     SORT_PLAYTIME,
     SORT_RECENT,
     LauncherSource,
@@ -119,8 +119,8 @@ def test_most_played_orders_by_hours_and_parks_the_unplayed() -> None:
 def test_recently_installed_parks_launchers_that_do_not_report_it() -> None:
     """A zero stamp means "this launcher does not say", not 1970.
 
-    Heroic and Lutris record the install itself; Steam refreshes its stamp on
-    every update. A launcher that reports nothing must not jump to the top.
+    Lutris records the install itself; Steam refreshes its stamp on every
+    update. A launcher that reports nothing must not jump to the top.
     """
     games = [
         _game("Unknown", installed_at=0),
@@ -239,7 +239,7 @@ def test_lutris_renderer_probe_runs_during_refresh_and_rechecks_on_deep_scan(
     game = SimpleNamespace(
         game_id="3", display_name="Game", runner_label="linux",
         directory=str(tmp_path), config_path=config, last_played=0,
-        installed_at=0, playtime_hours=0, cover_path=None, ready=True,
+        installed_at=0, playtime_hours=0, art_path=None, ready=True,
     )
     row = SimpleNamespace(
         game=game, wrapped=True, setting=SimpleNamespace(enabled=True, overlay=True)
@@ -384,14 +384,14 @@ def test_the_steam_adapter_carries_the_wrapper_state_off_the_launch_options(
 
 def test_the_lutris_adapter_reports_hours_straight_from_the_library() -> None:
     """Lutris already records hours, so nothing converts them twice."""
-    from integrations.lutris.config_store import (
+    from integrations.launchers.game_settings import LauncherGameSetting
+    from integrations.launchers.wrapper_manager import (
         SOURCE_GAME,
-        EffectivePrefixCommand,
+        EffectiveCommand,
+        LauncherGameRow,
     )
     from integrations.lutris.library import InstalledLutrisGame
     from integrations.lutris.library_source import LutrisLibrarySource
-    from integrations.lutris.manager import LutrisGameRow
-    from integrations.lutris.settings import LutrisGameSetting
 
     game = InstalledLutrisGame(
         game_id="27",
@@ -410,10 +410,10 @@ def test_the_lutris_adapter_reports_hours_straight_from_the_library() -> None:
     )
     source = LutrisLibrarySource(manager=object())
     source._rows = (
-        LutrisGameRow(
+        LauncherGameRow(
             game=game,
-            setting=LutrisGameSetting(enabled=False),
-            effective=EffectivePrefixCommand(value="", source=SOURCE_GAME),
+            setting=LauncherGameSetting(enabled=False),
+            effective=EffectiveCommand(value="", source=SOURCE_GAME),
         ),
     )
 
@@ -422,6 +422,7 @@ def test_the_lutris_adapter_reports_hours_straight_from_the_library() -> None:
     assert mapped.launcher == "lutris"
     assert mapped.game_id == "27"
     assert mapped.playtime_hours == 38.8
+    assert mapped.installed_at == 1783870852
     assert mapped.subtitle == "wine"
     assert mapped.wrapped is False
     assert mapped.enabled is False

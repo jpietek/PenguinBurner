@@ -125,7 +125,12 @@ fn handle_connection(stream: UnixStream, sup: &Arc<Mutex<Supervisor>>) {
                     handle_start_stream(kind, &value, sup, &mut writer);
                     return; // streaming consumes the connection
                 }
-                let response = api::handle_request(sup, &value);
+                let response =
+                    if value.get("method").and_then(Value::as_str) == Some("client_identity") {
+                        client_identity(&writer, &value)
+                    } else {
+                        api::handle_request(sup, &value)
+                    };
                 if !api::write_response(&mut writer, response) {
                     return;
                 }
@@ -139,6 +144,21 @@ fn handle_connection(stream: UnixStream, sup: &Arc<Mutex<Supervisor>>) {
             }
         }
     }
+}
+
+/// Credentials are reported in the daemon's host PID namespace, including for
+/// Flatpak clients. Never accept a caller-supplied PID for this read-only query.
+fn client_identity(stream: &UnixStream, value: &Value) -> Result<api::MethodResult, String> {
+    if value.as_object().is_none_or(|object| object.len() != 1) {
+        return Err("client_identity accepts only method".to_string());
+    }
+    let credentials = getsockopt(stream, PeerCredentials).map_err(|error| error.to_string())?;
+    if credentials.pid() <= 0 {
+        return Err("client host PID is unavailable".to_string());
+    }
+    Ok(api::MethodResult::Value(serde_json::json!({
+        "pid": credentials.pid(), "uid": credentials.uid()
+    })))
 }
 
 fn streaming_kind(value: &Value) -> Option<ChildKind> {
@@ -232,6 +252,23 @@ fn peer_uid(stream: &UnixStream) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::peer_uid_allowed_with;
+
+    #[test]
+    fn client_identity_uses_socket_credentials() {
+        let (client, _server) = std::os::unix::net::UnixStream::pair().unwrap();
+        let result =
+            super::client_identity(&client, &serde_json::json!({"method": "client_identity"}))
+                .unwrap();
+        let value = serde_json::to_value(result).unwrap();
+        assert_eq!(value["pid"], std::process::id());
+        assert!(super::client_identity(
+            &client,
+            &serde_json::json!({
+                "method": "client_identity", "pid": 1
+            })
+        )
+        .is_err());
+    }
 
     #[test]
     fn empty_allowlist_fails_closed_as_root() {

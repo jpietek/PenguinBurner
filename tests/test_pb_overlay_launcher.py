@@ -14,6 +14,23 @@ from overlay.state import (
 )
 
 
+def test_flatpak_session_uses_daemon_host_pid(monkeypatch, tmp_path):
+    from runtime import daemon_client
+    from integrations.launchers import runtime_profile
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("FLATPAK_ID", "com.heroicgameslauncher.hgl")
+    monkeypatch.setattr(daemon_client, "client_host_pid", lambda: 98765)
+    monkeypatch.setattr(launcher, "configure_penguin_burner_environment", lambda *a, **k: False)
+    profiles = []
+    monkeypatch.setattr(runtime_profile, "apply_game_key_profile", lambda key, **kw: profiles.append((key, kw)))
+    launched = []
+    monkeypatch.setattr(launcher.os, "execvpe", lambda exe, args, env: launched.append(env))
+    launcher.main(["--pb-overlay=0", "--pb-game-id=heroic:test", "game"])
+    assert launched[0][launcher.TELEMETRY_SESSION_ENV] == "98765"
+    assert profiles == [("heroic:test", {"watch_pid": 98765})]
+
+
 def test_pb_overlay_launcher_execs_with_layer_environment(monkeypatch, tmp_path) -> None:
     calls = []
     monkeypatch.setenv("HOME", str(tmp_path))

@@ -11,11 +11,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-import json
 from pathlib import Path
 
-from auto_uv.persistence.auto_uv_persisted_json_files import safe_json_write
+from common.atomic_write import atomic_write_json, preserve_unreadable_file
 from common.penguin_burner_paths import default_user_config_dir
+from integrations.launchers.game_settings import read_settings_payload
 from overlay.wrapper_tokens import ingame_latency_present
 from profiles.game_profile import (
     GAME_MODE_ADAPTIVE,
@@ -58,7 +58,7 @@ def load_steam_game_settings(
     path: str | Path | None = None,
 ) -> dict[str, dict[str, SteamGameSetting]]:
     """account_id -> app_id -> setting."""
-    payload = _read_payload(path)
+    payload, _ = read_settings_payload(_settings_path(path))
     accounts = payload.get("accounts")
     if not isinstance(accounts, dict):
         return {}
@@ -111,7 +111,8 @@ def steam_game_setting(
 
 def account_display_names(path: str | Path | None = None) -> dict[str, str]:
     """Persisted human-readable name per account id (for the settings file)."""
-    accounts = _read_payload(path).get("accounts")
+    payload, _ = read_settings_payload(_settings_path(path))
+    accounts = payload.get("accounts")
     if not isinstance(accounts, dict):
         return {}
     return {
@@ -156,23 +157,23 @@ def _settings_path(path: str | Path | None) -> Path:
     return Path(path).expanduser() if path is not None else steam_game_settings_path()
 
 
-def _read_payload(path: str | Path | None) -> dict:
-    try:
-        payload = json.loads(
-            _settings_path(path).read_text(encoding="utf-8", errors="replace")
-        )
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
-
-
 def _write_settings(
     settings: dict[str, dict[str, SteamGameSetting]],
     *,
     display_names: dict[str, str] | None = None,
     path: str | Path | None = None,
 ) -> Path:
+    """Rewrite the whole file from the map that was read out of it.
+
+    A file that could not be parsed was read as empty, so writing here would
+    replace every account's presets with the one game being saved. It is moved
+    aside first and left recoverable; an OSError doing so aborts the write, the
+    same way an unwritable settings file already does.
+    """
     settings_path = _settings_path(path)
+    _, unreadable = read_settings_payload(settings_path)
+    if unreadable:
+        preserve_unreadable_file(settings_path)
     names = display_names or {}
     payload = {
         "format_version": 2,
@@ -206,4 +207,4 @@ def _write_settings(
             if games
         },
     }
-    return safe_json_write(settings_path, payload)
+    return atomic_write_json(settings_path, payload, durable=True)

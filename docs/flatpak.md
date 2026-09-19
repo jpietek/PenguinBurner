@@ -3,6 +3,29 @@
 PenguinBurner publishes a self-hosted Flatpak repository at
 `https://jpietek.github.io/PenguinBurner/penguin-burner.flatpakrepo`.
 
+## Heroic installed as Flatpak
+
+The Heroic integration supports `com.heroicgameslauncher.hgl`. Enabling **Wrap
+this game** prepares a PenguinBurner launch runtime in Heroic's own data directory
+and checks it inside a fresh sandbox. The wrapper uses Heroic's Python runtime;
+the game continues to launch through Heroic and its selected Wine/Proton runner.
+
+This explicit action grants Heroic access to `~/.config/PenguinBurner`,
+`~/.cache/penguin-burner`, and `/run/penguin-burnerd.sock`. The daemon remains
+responsible for privileged operations and authenticates the connecting user.
+No general host-execution permission is added. Existing Heroic overrides and
+other game wrappers are preserved.
+
+**Fully exit and reopen Heroic after enabling integration for the first time.**
+An already-running Heroic process retains its previous sandbox permissions.
+Then relaunch the game: the switches show saved launch settings, not proof that
+an already-running game loaded the overlay. Reapply the setting after a PB
+upgrade to refresh Heroic's runtime payload. An integration-check error must be
+resolved before PB saves an enabled wrapper; an old daemon needs updating too.
+
+Disabling a game's wrapper restores its previous wrapper configuration. Shared
+runtime files and grants remain available for other enabled Heroic games.
+
 ## Install
 
 ```bash
