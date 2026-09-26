@@ -1090,3 +1090,26 @@ def test_combined_cuda_failure_keeps_evidence_for_auto_uv_classification(
     )
     assert not decision.passed
     assert decision.severity.value == expected_severity
+
+
+def test_q2rtx_runtime_env_exports_target_uuid_for_patched_benchmark() -> None:
+    env = q2rtx_runtime._apply_nvidia_render_offload_env(
+        {},
+        selected_gpu={
+            "uuid": "GPU-3675cb07-a528-1d90-6ed0-2b9c5eb84caf",
+            "index": "0",
+        },
+    )
+
+    # NVML "GPU-<hex-with-dashes>" must be normalized to the 32-hex form the
+    # Vulkan deviceUUID exposes; a patched Q2RTX (Q2RTX-headless) pins to it.
+    assert env["Q2RTX_TARGET_UUID"] == "3675cb07a5281d906ed02b9c5eb84caf"
+
+
+def test_q2rtx_runtime_env_omits_target_uuid_without_identity() -> None:
+    env = q2rtx_runtime._apply_nvidia_render_offload_env(
+        {},
+        selected_gpu={"index": "0"},
+    )
+
+    assert "Q2RTX_TARGET_UUID" not in env
