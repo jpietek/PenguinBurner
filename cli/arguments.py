@@ -12,6 +12,7 @@ from auto_uv.scan_mode.auto_uv_mode import ADAPTIVE_TIER_MODES, AUTO_UV_MODES
 from common.penguin_burner_paths import default_runtime_config_path
 from integrations.afterburner.policy import MAX_AFTERBURNER_MEM_OFFSET_MHZ
 from runtime.support.runtime_service import DEFAULT_JOURNAL_HOURS
+from stability.q2rtx.resolution import Q2RTX_SCAN_RESOLUTIONS
 
 DEFAULT_AUTO_UV_FINAL_DURATION_S = AUTO_UV_DEFAULTS.final_duration_s
 
@@ -102,6 +103,16 @@ def parse_arguments(argv):
             "Auto-UV preset path. efficiency uses one 2-bin tail sweep to the "
             "voltage floor; balanced uses the 2-bin tail sweep; "
             "performance uses the 2-bin tail sweep plus Auto-OC."
+        ),
+    )
+    auto_uv_group.add_argument(
+        "--auto-uv-q2rtx-resolution",
+        choices=tuple(Q2RTX_SCAN_RESOLUTIONS),
+        default=None,
+        help=(
+            "Q2RTX resolution for the complete Auto-UV scan and final verification. "
+            "Default: auto (1440p with up to 8 GiB VRAM, otherwise 4K). "
+            "Use 1080p to compare a lighter rendering workload. CUDA is unchanged."
         ),
     )
     auto_uv_group.add_argument(
