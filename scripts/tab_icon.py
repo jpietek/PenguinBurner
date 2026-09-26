@@ -66,7 +66,8 @@ def main(
     draw_glyph: Callable[..., None],
     *,
     asset_name: str,
-    doc: str,
+    # The callers pass their own __doc__, which is None under python -OO.
+    doc: str | None,
     argv: list[str] | None = None,
 ) -> int:
     parser = argparse.ArgumentParser(description=doc)

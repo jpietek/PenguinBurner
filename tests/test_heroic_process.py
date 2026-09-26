@@ -10,7 +10,8 @@ import sys
 import pytest
 
 from integrations.heroic import paths, process
-from integrations.launchers import installation
+from integrations.launchers import installation, wrapped_sessions
+from integrations.launchers.wrapped_sessions import LauncherSessions
 
 
 @pytest.fixture(autouse=True)
@@ -78,7 +79,7 @@ def test_running_sessions_are_read_from_the_host_probe(
 ) -> None:
     """Session identities remain usable after the wrapper's exec."""
     monkeypatch.setattr(
-        process,
+        wrapped_sessions,
         "run_on_host",
         lambda *args, **kwargs: subprocess.CompletedProcess(
             args, 0, json.dumps({"sessions": [
@@ -95,7 +96,7 @@ def test_running_sessions_are_read_from_the_host_probe(
 def test_a_failed_probe_says_so_instead_of_reporting_nothing_running(
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr(process, "run_on_host", lambda *args, **kwargs: None)
+    monkeypatch.setattr(wrapped_sessions, "run_on_host", lambda *args, **kwargs: None)
 
     assert process.probe_heroic_sessions() is None
 
@@ -103,7 +104,7 @@ def test_a_failed_probe_says_so_instead_of_reporting_nothing_running(
 def test_a_game_id_with_a_space_survives_the_host_probe(monkeypatch) -> None:
     """The environment carries the decoded game key, not its flag encoding."""
     monkeypatch.setattr(
-        process,
+        wrapped_sessions,
         "run_on_host",
         lambda *args, **kwargs: subprocess.CompletedProcess(
             args, 0, json.dumps({"sessions": [(9, "heroic:Sid Meier")], "unreadable": []})
@@ -115,14 +116,15 @@ def test_a_game_id_with_a_space_survives_the_host_probe(monkeypatch) -> None:
     assert sessions.wrapped == {"Sid Meier": (9,)}
 
 
-def test_stop_revalidates_the_game_before_signalling() -> None:
-    env = dict(os.environ, PENGUIN_BURNER_GAME_KEY='heroic:StopIdentityProbe',
+@pytest.mark.parametrize("launcher", ["heroic", "faugus"])
+def test_stop_revalidates_the_game_before_signalling(launcher) -> None:
+    env = dict(os.environ, PENGUIN_BURNER_GAME_KEY=f'{launcher}:StopIdentityProbe',
                PENGUIN_BURNER_SESSION_ID='stop-identity')
     with subprocess.Popen(['/bin/sleep', '30'], env=env) as child:
         try:
-            assert not process.stop_heroic_game(child.pid, 'WrongGame')
+            assert not wrapped_sessions.stop_wrapped_session(child.pid, f'{launcher}:WrongGame')
             assert child.poll() is None
-            assert process.stop_heroic_game(child.pid, 'StopIdentityProbe')
+            assert wrapped_sessions.stop_wrapped_session(child.pid, f'{launcher}:StopIdentityProbe')
             child.wait(timeout=5)
         finally:
             if child.poll() is None:
@@ -147,37 +149,41 @@ def test_unwrapped_launch_probe_excludes_helpers_and_orphans(tmp_path, monkeypat
     proc(23, 10, b'/bin/unrelated', b'HEROIC_APP_NAME=Turkey\0')
 
     def probe(command, **kwargs):
-        command[-2] = str(tmp_path)
+        command[-3] = str(tmp_path)
         return subprocess.run(command, capture_output=True, text=True, check=False)
 
-    monkeypatch.setattr(process, 'run_on_host', probe)
-    assert process.probe_heroic_sessions() == process.HeroicSessions(external={'Turkey': (20,)})
+    monkeypatch.setattr(wrapped_sessions, 'run_on_host', probe)
+    assert process.probe_heroic_sessions() == LauncherSessions(external={'Turkey': (20,)})
 
     # After the actual runner exits, a surviving child belongs to the reaper.
     proc(21, 1, b'/bin/game', identity)
     (tmp_path / '20/environ').unlink()
-    assert process.probe_heroic_sessions() == process.HeroicSessions()
+    assert process.probe_heroic_sessions() == LauncherSessions()
 
 
-def test_external_session_cannot_be_stopped_and_wrapped_session_takes_precedence(monkeypatch):
-    from integrations.heroic import library_source
-    from integrations.heroic.library_source import HeroicLibrarySource
+@pytest.mark.parametrize("launcher", ["heroic", "faugus"])
+def test_external_session_cannot_be_stopped_and_wrapped_session_takes_precedence(monkeypatch, launcher):
+    from integrations.launchers.library_source import WrapperLibrarySource
+    from integrations.launchers.registry import build_sources
 
-    source = HeroicLibrarySource()
-    sessions = process.HeroicSessions(external={'Turkey': (20,)})
-    monkeypatch.setattr(library_source, 'probe_heroic_sessions', lambda **kwargs: sessions)
+    source = next(source for source in build_sources() if source.launcher_id == launcher)
+    assert isinstance(source, WrapperLibrarySource)
+    sessions = LauncherSessions(external={'Turkey': (20,)})
+    monkeypatch.setattr(source, 'probe_sessions', lambda **kwargs: sessions)
     signalled = []
-    monkeypatch.setattr(library_source, 'stop_heroic_game', lambda pid, game: signalled.append(pid) or True)
+    monkeypatch.setattr('integrations.launchers.library_source.stop_wrapped_session', lambda pid, game: signalled.append((pid, game)) or True)
     assert source.running_game_ids() == frozenset({'Turkey'})
     assert source.external_game_ids() == frozenset({'Turkey'})
     assert not source.stop('Turkey')[0]
     assert not signalled
 
-    sessions = process.HeroicSessions(wrapped={'Turkey': (21,)}, external={'Turkey': (20,)})
+    sessions = LauncherSessions(wrapped={'Turkey': (21, 22)}, external={'Turkey': (20,)})
     assert source.running_game_ids() == frozenset({'Turkey'})
     assert source.external_game_ids() == frozenset()
     assert source.stop('Turkey')[0]
-    assert signalled == [21]
+    assert signalled == [(21, f'{launcher}:Turkey'), (22, f'{launcher}:Turkey')]
+    monkeypatch.setattr('integrations.launchers.library_source.stop_wrapped_session', lambda pid, key: pid == 21)
+    assert not source.stop('Turkey')[0]
 
 
 def test_real_unwrapped_heroic_child_is_observed_until_exit():

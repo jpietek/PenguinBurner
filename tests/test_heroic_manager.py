@@ -202,13 +202,13 @@ def test_enabling_keeps_the_wrappers_the_game_inherited(tmp_path) -> None:
     assert manager.set_game_enabled("Turkey", True).ok
 
     assert _wrappers(tmp_path) == [
+        {"exe": "game-performance", "args": ""},
         {
             "exe": "env",
             "args": (
                 f"PB_INGAME_LATENCY=1 PENGUIN_BURNER --pb-overlay=0 {WRAPPER_FLAG}"
             ),
         },
-        {"exe": "game-performance", "args": ""},
     ]
     assert _stored(tmp_path).original_command == "game-performance"
 
@@ -244,11 +244,11 @@ def test_the_overlay_switch_rewrites_only_our_own_row(tmp_path) -> None:
     rows = _wrappers(tmp_path)
     # Overlay on, so the wrapper turns the markers on by itself and the env
     # prefix goes away with them.
-    assert rows[0] == {
+    assert rows[-1] == {
         "exe": "PENGUIN_BURNER",
         "args": f"--pb-overlay=1 {WRAPPER_FLAG}",
     }
-    assert rows[1:] == [{"exe": "game-performance", "args": ""}]
+    assert rows[:-1] == [{"exe": "game-performance", "args": ""}]
 
 
 def test_a_hand_edit_re_reads_the_toggles_from_what_landed(tmp_path) -> None:
@@ -363,7 +363,7 @@ def _wrapped_overlay_identity(monkeypatch):
 @pytest.mark.parametrize("enabled", [True, False])
 def test_overlay_toggle_updates_running_heroic_session(tmp_path, monkeypatch, enabled):
     from integrations.heroic import library_source
-    from integrations.heroic.process import HeroicSessions
+    from integrations.launchers.wrapped_sessions import LauncherSessions
     from overlay.state import OVERLAY_OVERRIDE_ENV
 
     manager = _manager(tmp_path)
@@ -374,7 +374,7 @@ def test_overlay_toggle_updates_running_heroic_session(tmp_path, monkeypatch, en
     monkeypatch.setenv(OVERLAY_OVERRIDE_ENV, str(override))
     monkeypatch.setattr(
         library_source, "probe_heroic_sessions",
-        lambda **kwargs: HeroicSessions(wrapped={"Turkey": (42,)}),
+        lambda **kwargs: LauncherSessions(wrapped={"Turkey": (42,)}),
     )
 
     assert manager.set_game_overlay("Turkey", enabled).ok
@@ -391,16 +391,16 @@ def test_overlay_toggle_does_not_claim_live_update_without_wrapped_session(
     tmp_path, monkeypatch, state
 ):
     from integrations.heroic import library_source
-    from integrations.heroic.process import HeroicSessions
+    from integrations.launchers.wrapped_sessions import LauncherSessions
     from overlay.state import OVERLAY_OVERRIDE_ENV
 
     manager = _manager(tmp_path)
     assert manager.set_game_enabled("Turkey", True).ok
     source = HeroicLibrarySource(manager, home=tmp_path)
     sessions = {
-        "idle": HeroicSessions(),
-        "other_game": HeroicSessions(wrapped={"Other": (42,)}),
-        "external": HeroicSessions(external={"Turkey": (42,)}),
+        "idle": LauncherSessions(),
+        "other_game": LauncherSessions(wrapped={"Other": (42,)}),
+        "external": LauncherSessions(external={"Turkey": (42,)}),
         "unknown": None,
     }
     monkeypatch.setattr(
@@ -428,14 +428,14 @@ def test_overlay_toggle_does_not_claim_live_update_without_wrapped_session(
 
 def test_live_overlay_write_failure_keeps_saved_preference(tmp_path, monkeypatch):
     from integrations.heroic import library_source
-    from integrations.heroic.process import HeroicSessions
+    from integrations.launchers.wrapped_sessions import LauncherSessions
 
     manager = _manager(tmp_path)
     assert manager.set_game_enabled("Turkey", True).ok
     source = HeroicLibrarySource(manager, home=tmp_path)
     monkeypatch.setattr(
         library_source, "probe_heroic_sessions",
-        lambda **kwargs: HeroicSessions(wrapped={"Turkey": (42,)}),
+        lambda **kwargs: LauncherSessions(wrapped={"Turkey": (42,)}),
     )
     monkeypatch.setattr("overlay.state.write_overlay_override", lambda enabled: False)
 
@@ -510,7 +510,7 @@ def test_heroic_target_qt_edit_applies_saved_target_live(qapp, qtbot, tmp_path, 
 @pytest.mark.parametrize("launcher", ["heroic", "lutris"])
 def test_overlay_qt_toggle_writes_live_visibility(qapp, qtbot, tmp_path, monkeypatch, bulk, launcher):
     from integrations.heroic import library_source
-    from integrations.heroic.process import HeroicSessions
+    from integrations.launchers.wrapped_sessions import LauncherSessions
     from overlay.state import OVERLAY_OVERRIDE_ENV
     from ui.components.game_library_panel import GameLibraryPanel
     from ui.qt import import_qt
@@ -520,7 +520,7 @@ def test_overlay_qt_toggle_writes_live_visibility(qapp, qtbot, tmp_path, monkeyp
         game_id = "Turkey"
         source = HeroicLibrarySource(manager, home=tmp_path)
         monkeypatch.setattr(library_source, "probe_heroic_sessions",
-                            lambda **kwargs: HeroicSessions(wrapped={game_id: (42,)}))
+                            lambda **kwargs: LauncherSessions(wrapped={game_id: (42,)}))
     else:
         from test_lutris_manager import _manager as lutris_manager
 
@@ -596,7 +596,7 @@ def test_bulk_overlay_preserves_settings_and_skips_unwrapped_games(tmp_path, mon
 
 @pytest.mark.parametrize("running_id", ["Turkey", "Other"])
 def test_bulk_overlay_live_update_uses_only_successfully_saved_games(tmp_path, monkeypatch, running_id):
-    from integrations.heroic.process import HeroicSessions
+    from integrations.launchers.wrapped_sessions import LauncherSessions
     from overlay.state import OVERLAY_OVERRIDE_ENV
 
     manager = _manager(tmp_path, app_names=("Turkey", "Other"))
@@ -607,7 +607,7 @@ def test_bulk_overlay_live_update_uses_only_successfully_saved_games(tmp_path, m
     probes = []
     def sessions():
         probes.append(True)
-        return HeroicSessions(wrapped={running_id: (42,)})
+        return LauncherSessions(wrapped={running_id: (42,)})
     monkeypatch.setattr(source, "_running_sessions", sessions)
     override = tmp_path / "overlay-override"
     override.write_text("0")

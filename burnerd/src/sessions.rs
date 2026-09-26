@@ -147,7 +147,7 @@ fn text<'a>(value: &'a Value, name: &str) -> Result<&'a str, String> {
 
 fn valid_app_id(app_id: &str) -> bool {
     app_id.split_once(':').is_some_and(|(launcher, id)| {
-        matches!(launcher, "steam" | "lutris" | "heroic") && !id.is_empty()
+        matches!(launcher, "steam" | "lutris" | "heroic" | "faugus") && !id.is_empty()
     })
 }
 
@@ -332,6 +332,19 @@ pub fn observe(uid: u32, value: &Value) -> Result<MethodResult, String> {
     let (launcher, game) = app_id.split_once(':').ok_or("invalid app_id")?;
     let agrees = match launcher {
         "heroic" => env.get("HEROIC_APP_NAME") == Some(&game),
+        "faugus" => {
+            !game.is_empty()
+                && (env.get("FAUGUSID") == Some(&game)
+                    || (env.contains_key("FAUGUSID")
+                        && executable_matches(
+                            args.first().copied().unwrap_or_default(),
+                            env.get("WINEPREFIX").copied().unwrap_or_default(),
+                            value
+                                .get("executable")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default(),
+                        )))
+        }
         "steam" => args.iter().any(|arg| *arg == format!("AppId={game}")),
         "lutris" => {
             let title = text(value, "title")?;
@@ -364,6 +377,33 @@ pub fn observe(uid: u32, value: &Value) -> Result<MethodResult, String> {
         fd,
     )
     .map(MethodResult::Value)
+}
+
+/// An already-running store client can spawn a game with its own inherited ID.
+/// Verify the full executable and prefix, never a basename or client-supplied PID alone.
+fn executable_matches(command: &str, prefix: &str, expected: &str) -> bool {
+    use std::path::Path;
+    if !Path::new(expected).is_absolute() {
+        return false;
+    }
+    let command = command.replace('\\', "/");
+    let path = if command.as_bytes().get(1..3) == Some(b":/") {
+        if prefix.is_empty() {
+            return false;
+        }
+        Path::new(prefix)
+            .join("dosdevices")
+            .join(command[..2].to_ascii_lowercase())
+            .join(&command[3..])
+    } else {
+        Path::new(&command).to_path_buf()
+    };
+    path.is_absolute()
+        && path.canonicalize().ok().is_some_and(|actual| {
+            Path::new(expected)
+                .canonicalize()
+                .is_ok_and(|wanted| actual == wanted)
+        })
 }
 
 pub fn subscribe(stream: &mut UnixStream) {
@@ -537,6 +577,39 @@ fn recover_handoff(session: &Session) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn handoff_requires_full_executable_in_the_same_wine_prefix() {
+        let root = tempfile::tempdir().unwrap();
+        let prefix = root.path();
+        std::fs::create_dir(prefix.join("dosdevices")).unwrap();
+        std::fs::create_dir(prefix.join("drive_c")).unwrap();
+        std::os::unix::fs::symlink("../drive_c", prefix.join("dosdevices/c:")).unwrap();
+        let exe = prefix.join("drive_c/NFS.exe");
+        std::fs::write(&exe, "").unwrap();
+        let expected = exe.to_str().unwrap();
+        assert!(executable_matches(
+            r"C:\NFS.exe",
+            prefix.to_str().unwrap(),
+            expected
+        ));
+        assert!(!executable_matches(
+            r"C:\NFS.exe",
+            "/other-prefix",
+            expected
+        ));
+        assert!(!executable_matches(
+            r"C:\EADesktop.exe",
+            prefix.to_str().unwrap(),
+            expected
+        ));
+        assert!(!executable_matches(
+            "NFS.exe",
+            prefix.to_str().unwrap(),
+            expected
+        ));
+        assert!(!executable_matches(r"C:\NFS.exe", "", expected));
+    }
 
     #[test]
     fn old_exit_cannot_remove_a_replacement_session() {

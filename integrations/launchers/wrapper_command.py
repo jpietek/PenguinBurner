@@ -1,10 +1,11 @@
 """Putting the PenguinBurner wrapper into a launch command, and taking it out.
 
-Lutris prepends to ``prefix_command`` and Heroic adds a wrapper entry, but both
-end up with the same shape: our tokens run first and whatever the user already
-had there stays between us and the game. Only Steam differs, because it splices
-into a ``%command%`` placeholder instead of prepending, and keeps its own
-module for it.
+Lutris's ``prefix_command``, Heroic's wrapper rows and Faugus's
+``launch_arguments`` all have the same shape: a command prefix the launcher
+puts in front of the game. Our tokens go at the END of it, innermost, the spot
+Steam's ``%command%`` marks: env assignments, gamemoderun and gamescope's
+``--`` all stay outside us, so our layer env reaches only the game and never a
+nested compositor. Steam keeps its own module for the placeholder splice.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ def inject_wrapper(
     ingame_latency: bool = False,
     executable: str = "PENGUIN_BURNER",
 ) -> str:
-    """Put our tokens in front of whatever the user already had there."""
+    """Append our tokens innermost; idempotent, and moves a legacy placement."""
     base = strip_penguin_burner_tokens(command or "")
     tokens = wrapper_tokens(
         overlay=overlay,
@@ -35,7 +36,7 @@ def inject_wrapper(
         # writing the opt-in as well would only be noise in the command.
         ingame_latency=ingame_latency and not overlay,
     )
-    return f"{tokens} {base}".strip() if base else tokens
+    return " ".join(part for part in (base, tokens) if part)
 
 
 def remove_wrapper(

@@ -166,6 +166,15 @@ def _game(launcher, game_id, name, **kwargs):
     )
 
 
+@pytest.fixture(autouse=True)
+def _launch_settles_at_once(monkeypatch):
+    """State-machine tests read the raw outcome; settling has its own tests."""
+    import ui.components.game_library_panel as panel_module
+
+    monkeypatch.setattr(panel_module, "_LAUNCH_SETTLE_S", 0.0)
+    monkeypatch.setattr(panel_module, "_LAUNCH_EXIT_SETTLE_S", 0.0)
+
+
 def _panel(qapp, sources):
     QtCore, QtGui, QtWidgets, _pg = import_qt()
     if QtWidgets is None:
@@ -1600,7 +1609,7 @@ def test_runner_before_wrapper_never_claims_missing_integration(qapp):
     panel._select_key('steam:620')
     panel._play_stop_clicked()
     _session_snapshot(panel, [{"app_id": "steam:620", "wrapped": False}])
-    assert panel.play_button.text() == 'Running — PBurn unconfirmed'
+    assert panel.play_button.text() == 'Running'
     assert not panel.play_button.isEnabled()
     assert panel.launch_warning_label.isHidden()
     panel._play_stop_clicked()
@@ -1660,7 +1669,7 @@ def test_failed_launcher_probe_does_not_hide_another_external_game(qapp, qtbot, 
     panel._play_stop_clicked()
     panel._poll_game_states()
     qtbot.waitUntil(lambda: panel._tracked_state('lutris:27') == 'external')
-    assert panel.play_button.text() == 'Running — PBurn unconfirmed'
+    assert panel.play_button.text() == 'Running'
     panel.widget.close()
 
 
@@ -1722,16 +1731,138 @@ def test_late_session_and_daemon_restart_never_infer_failure(qapp):
     for _ in range(100):
         panel._apply_game_states({"steam": frozenset()})
     assert panel.play_button.text() == "Starting…"
-    assert panel.retry_launch_button.isVisibleTo(panel.widget)
     assert panel.launch_warning_label.isHidden()
     _session_snapshot(panel, [{"app_id": "steam:620", "wrapped": True, "phase": "running"}])
     panel._session_stream_lost()
     assert panel.play_button.text() == "Stop"
     _session_snapshot(panel, [], epoch="restarted")
-    assert panel.play_button.text() == "Retry launch…"
+    assert panel.play_button.text() == "Play"
     assert panel.launch_warning_label.isHidden()
     _session_snapshot(panel, [{"app_id": "steam:620", "wrapped": True, "phase": "running"}], epoch="restarted", sequence=2)
     assert panel.play_button.text() == "Stop"
+
+
+def _clock(monkeypatch):
+    import ui.components.game_library_panel as panel_module
+
+    now = [1000.0]
+    monkeypatch.setattr(panel_module, "_LAUNCH_SETTLE_S", 5.0)
+    monkeypatch.setattr(panel_module, "_LAUNCH_EXIT_SETTLE_S", 15.0)
+    monkeypatch.setattr(panel_module.time, "monotonic", lambda: now[0])
+    return now
+
+
+def test_a_store_client_handoff_holds_starting_then_shows_running(qapp, monkeypatch):
+    """The recorded EA App handoff: wrapper runs ~1 s, exits, the client starts
+    the game. Every hop used to flip the button; now it says Starting… once."""
+    now = _clock(monkeypatch)
+    steam, lutris = _launchable_pair()
+    panel = _panel(qapp, (steam, lutris))
+    panel.ensure_scanned()
+    panel._select_key("steam:620")
+    _session_snapshot(panel, [], sequence=0)
+    panel._play_stop_clicked()
+    shown = [panel.play_button.text()]
+    _session_snapshot(panel, [{"app_id": "steam:620", "wrapped": False}], sequence=1)
+    shown.append(panel.play_button.text())
+    _session_snapshot(panel, [{"app_id": "steam:620", "session_id": "w", "wrapped": True,
+                               "phase": "running"}], sequence=2)
+    shown.append(panel.play_button.text())
+    now[0] += 1
+    _session_snapshot(panel, [], sequence=3, ended=[{"sequence": 3, "session": {
+        "app_id": "steam:620", "session_id": "w", "wrapped": True, "phase": "exited"}}])
+    shown.append(panel.play_button.text())
+    now[0] += 3
+    panel._apply_game_states({"steam": frozenset({"620"})}, {"steam": frozenset({"620"})})
+    shown.append(panel.play_button.text())
+    assert set(shown) == {"Starting…"}
+    now[0] += 6
+    panel._sync_play_button(panel._selected_game())
+    assert panel.play_button.text() == "Running"
+    assert not panel.play_button.isEnabled()
+    panel.widget.close()
+
+
+def test_an_exit_right_after_play_returns_to_play_after_settling(qapp, monkeypatch):
+    now = _clock(monkeypatch)
+    steam, lutris = _launchable_pair()
+    steam._inner._games += (_game("steam", "440", "Team Fortress 2"),)
+    panel = _panel(qapp, (steam, lutris))
+    panel.ensure_scanned()
+    panel._select_key("steam:620")
+    _session_snapshot(panel, [], sequence=0)
+    panel._play_stop_clicked()
+    _session_snapshot(panel, [{"app_id": "steam:620", "session_id": "w", "wrapped": True,
+                               "phase": "running"}], sequence=1)
+    _session_snapshot(panel, [], sequence=2, ended=[{"sequence": 2, "session": {
+        "app_id": "steam:620", "session_id": "w", "wrapped": True, "phase": "exited"}}])
+    assert panel.play_button.text() == "Starting…"
+    panel._select_key("steam:440")
+    assert not panel.play_button.isEnabled()  # the handoff gap still counts
+    now[0] += 16
+    panel._sync_play_button(panel._selected_game())
+    assert panel.play_button.isEnabled()
+    panel._select_key("steam:620")
+    assert panel.play_button.text() == "Play"
+    panel.widget.close()
+
+
+def test_a_wrapped_game_that_keeps_running_shows_stop_once_settled(qapp, monkeypatch):
+    now = _clock(monkeypatch)
+    steam, lutris = _launchable_pair()
+    panel = _panel(qapp, (steam, lutris))
+    panel.ensure_scanned()
+    panel._select_key("steam:620")
+    _session_snapshot(panel, [], sequence=0)
+    panel._play_stop_clicked()
+    _session_snapshot(panel, [{"app_id": "steam:620", "wrapped": True, "phase": "running"}])
+    assert panel.play_button.text() == "Starting…"
+    now[0] += 6
+    panel._sync_play_button(panel._selected_game())
+    assert panel.play_button.text() == "Stop"
+    assert panel.play_button.isEnabled()
+    panel.widget.close()
+
+
+def test_launch_is_one_button_without_flickering_extras(qapp, monkeypatch):
+    """Play, Starting…, Stop: session detail rides the tooltip, no extra rows."""
+    steam, lutris = _launchable_pair()
+    panel = _panel(qapp, (steam, lutris))
+    panel.ensure_scanned()
+    panel._select_key("steam:620")
+    _session_snapshot(panel, [], sequence=0)
+    panel._play_stop_clicked()
+    assert panel.play_button.text() == "Starting…"
+    assert not hasattr(panel, "retry_launch_button")
+    assert not hasattr(panel, "launch_note_label")
+    _session_snapshot(panel, [{"app_id": "steam:620", "wrapped": True, "phase": "starting"}])
+    assert panel.play_button.text() == "Starting…"
+    assert "unconfirmed" in panel.play_button.toolTip()
+    _session_snapshot(panel, [{"app_id": "steam:620", "wrapped": True, "phase": "running",
+                               "profile": "applied"}], sequence=2)
+    assert panel.play_button.text() == "Stop"
+    assert panel.play_button.toolTip() == ""
+    panel.widget.close()
+
+
+def test_a_stalled_launch_hands_play_back_behind_confirmation(qapp, monkeypatch):
+    steam, lutris = _launchable_pair()
+    panel = _panel(qapp, (steam, lutris))
+    panel.ensure_scanned()
+    panel._select_key("steam:620")
+    _session_snapshot(panel, [], sequence=0)
+    panel._play_stop_clicked()
+    _finish_worker(qapp, panel, "_launch_thread")
+    assert panel.play_button.text() == "Starting…"
+    panel._tracked["steam:620"].since -= 1000
+    panel._apply_game_states({"steam": frozenset()})
+    assert panel.play_button.text() == "Play"
+    assert panel.play_button.isEnabled()
+    asked = []
+    monkeypatch.setattr(panel, "_confirm", lambda *args: asked.append(args) or False)
+    panel._play_stop_clicked()
+    assert asked and steam.launched == ["620"]
+    panel.widget.close()
 
 
 def test_coalesced_failure_is_reported_but_old_failure_is_not_replayed(qapp):
@@ -1846,7 +1977,7 @@ def test_handoff_and_replayed_history_do_not_account_for_pending_retry(qapp, mon
     ended = [{'sequence': 3, 'session': dict(session, phase='exited')}]
     _session_snapshot(panel, [], sequence=3, ended=ended)
     _session_snapshot(panel, [], sequence=4, ended=ended)
-    assert panel.play_button.text() == 'Retry launch…'
+    assert panel.play_button.text() == 'Play'
     assert panel.launch_warning_label.isHidden()
     panel.widget.close()
 
@@ -1902,7 +2033,7 @@ def test_only_known_undispatched_failures_release_other_games(qapp, failure):
     _finish_worker(qapp, panel, '_launch_thread')
     _session_snapshot(panel, [], sequence=1)
     panel._apply_game_states({'steam': frozenset()})
-    assert panel.play_button.text() == ('Retry launch…' if failure == 'unknown' else 'Play')
+    assert panel.play_button.text() == 'Play'
     panel._select_key('steam:440')
     assert panel.play_button.isEnabled() == (failure != 'unknown')
     panel.widget.close()
@@ -1920,7 +2051,7 @@ def test_refused_retry_preserves_first_attempt_until_its_exit(qapp, monkeypatch)
     monkeypatch.setattr(panel, '_confirm', lambda *args: True)
     panel._retry_launch()
     _finish_worker(qapp, panel, '_launch_thread')
-    assert panel.play_button.text() == 'Retry launch…'
+    assert panel.play_button.text() == 'Play'
     assert len(panel._launch_attempts['steam:620']) == 1
     _session_snapshot(panel, [], sequence=3, ended=[{
         'sequence': 3, 'session': {'app_id': 'steam:620', 'session_id': 'first',
@@ -1985,3 +2116,48 @@ def test_bulk_overlay_respects_renderer_support_and_enabled_scope(qapp, show):
         expected = [game_id] + ([] if show else ["unsupported"])
         assert source.manager.calls == [("set_all_games_overlay", expected, show)]
     assert f"{2 if show else 4} " in confirmations[0]
+
+
+@pytest.mark.parametrize('daemon_snapshot', [False, True])
+@pytest.mark.parametrize('client_launcher', ['steam', 'lutris'])
+def test_store_client_does_not_block_play_but_unknown_game_does(qapp, daemon_snapshot, client_launcher):
+    steam, lutris = _launchable_pair()
+    client_source = steam if client_launcher == 'steam' else lutris
+    client_source.non_game_ids = frozenset({'store-client'})
+    panel = _panel(qapp, (steam, lutris))
+    panel.ensure_scanned()
+    panel._select_key('steam:620')
+    if daemon_snapshot:
+        _session_snapshot(panel, [{'app_id': f'{client_launcher}:store-client', 'wrapped': False}])
+    else:
+        panel._apply_game_states({client_launcher: {'store-client'}}, {client_launcher: {'store-client'}})
+    assert panel.play_button.isEnabled()
+    assert f'{client_launcher}:store-client' not in panel._tracked
+    panel._apply_game_states({'steam': {'unknown-game'}}, {'steam': {'unknown-game'}})
+    assert not panel.play_button.isEnabled()
+    panel.widget.close()
+
+
+def test_late_store_classification_unblocks_existing_session(qapp):
+    steam, lutris = _launchable_pair()
+    panel = _panel(qapp, (steam, lutris))
+    panel.ensure_scanned()
+    panel._select_key('steam:620')
+    panel._apply_game_states({'lutris': {'client'}}, {'lutris': {'client'}})
+    assert not panel.play_button.isEnabled()
+    lutris.non_game_ids = frozenset({'client'})
+    panel._sync_play_button(panel._selected_game())
+    assert panel.play_button.isEnabled()
+    panel.widget.close()
+
+
+def test_row_art_is_painted_at_the_screen_pixel_density(qapp, monkeypatch):
+    """A 36x48 bitmap stretched 2.5x by the compositor is what looked smeared."""
+    steam, lutris = _launchable_pair()
+    panel = _panel(qapp, (steam, lutris))
+    monkeypatch.setattr(panel, "_pixel_ratio", lambda: 2.5)
+    game = steam.games()[0]
+    pixmap = panel._row_icon(game).pixmap(panel.QtCore.QSize(36, 48), 2.5)
+    assert (pixmap.width(), pixmap.height()) == (90, 120)
+    assert pixmap.devicePixelRatio() == 2.5
+    panel.widget.close()

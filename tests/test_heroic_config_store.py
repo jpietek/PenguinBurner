@@ -56,12 +56,31 @@ def test_a_row_with_unbalanced_quotes_is_not_claimed() -> None:
 
 
 def test_writing_back_keeps_the_rows_the_user_configured() -> None:
-    """Our tokens are prepended, so their rows are still the command's tail."""
+    """Our tokens are appended innermost, so their rows lead the command."""
     rows = [_entry("gamescope", "-w 2560 --"), _entry("mangohud")]
 
-    assert command_entries(f"{WRAPPED} gamescope -w 2560 -- mangohud", rows) == [
-        _entry("PENGUIN_BURNER", "--pb-overlay=1 --pb-game-id=heroic:Turkey"),
+    assert command_entries(f"gamescope -w 2560 -- mangohud {WRAPPED}", rows) == [
         *rows,
+        _entry("PENGUIN_BURNER", "--pb-overlay=1 --pb-game-id=heroic:Turkey"),
+    ]
+
+
+def test_moving_a_legacy_leading_row_keeps_the_rows_around_it() -> None:
+    """A table the outermost adapter wrote still has its user rows as rows."""
+    legacy = [
+        _entry("PENGUIN_BURNER", "--pb-overlay=1 --pb-game-id=heroic:Turkey"),
+        _entry("gamescope", "-w 2560 --"),
+        _entry("mangohud"),
+    ]
+
+    assert command_entries(f"gamescope -w 2560 -- mangohud {WRAPPED}", legacy) == [
+        *legacy[1:],
+        legacy[0],
+    ]
+    # Rows on both sides of a changed middle stay rows.
+    rows = [_entry("gamescope", "-w 2560 --"), _entry("OLD"), _entry("mangohud")]
+    assert command_entries("gamescope -w 2560 -- NEW x mangohud", rows) == [
+        rows[0], _entry("NEW", "x"), rows[2],
     ]
 
 

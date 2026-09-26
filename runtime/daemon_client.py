@@ -171,10 +171,13 @@ def reconcile_launcher_sessions() -> dict[str, Any]:
     return daemon_request("reconcile_launcher_sessions", socket_path=_resolved_socket_path(None))
 
 
-def observe_launcher_session(pid: int, app_id: str, *, title: str = "") -> None:
+def observe_launcher_session(
+    pid: int, app_id: str, *, title: str = "", executable: str = "",
+) -> None:
     """Ask the daemon to verify and watch a launcher process, without GPU writes."""
     daemon_payload_request(
-        {"method": "observe_launcher_session", "pid": pid, "app_id": app_id, "title": title},
+        {"method": "observe_launcher_session", "pid": pid, "app_id": app_id,
+         "title": title, "executable": executable},
         socket_path=_resolved_socket_path(None),
     )
 

@@ -87,6 +87,8 @@ class LibraryGame:
     #: Native renderer capability, independent of wrapper and saved settings.
     overlay_supported: bool = True
     overlay_unsupported_reason: str = ""
+    #: Optional executable evidence for store-client handoffs, never Stop authority.
+    executable: str = ""
 
     @property
     def key(self) -> tuple[str, str]:
@@ -248,6 +250,11 @@ class LauncherSource(Protocol):
     icon_asset: str
     #: Whether PenguinBurner can ask this launcher to start a game.
     can_launch: bool
+
+    @property
+    def non_game_ids(self) -> frozenset[str]:
+        """Known launcher-client IDs, not games. Unknown IDs remain guarded."""
+        ...
 
     def available(self) -> bool:
         """Whether this launcher is installed on the machine at all."""

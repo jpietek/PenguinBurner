@@ -2,8 +2,9 @@
 
 Every launcher splices the same argv fragment — the wrapper name plus its
 ``--pb-*`` flags — into a string the launcher later runs. Only the surrounding
-field differs: Steam replaces ``%command%`` inside its launch options, Lutris
-prepends to ``prefix_command``, Heroic adds a wrapper entry. The vocabulary
+field differs: Steam replaces ``%command%`` inside its launch options; Lutris,
+Heroic and Faugus append to the end of their command prefix. Either way the
+wrapper is innermost, next to the game. The vocabulary
 itself, and stripping it back out, is the wrapper's own business, so it lives
 beside the wrapper rather than inside any one integration.
 """

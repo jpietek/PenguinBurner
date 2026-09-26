@@ -9,7 +9,9 @@ the part they share.
 
 from __future__ import annotations
 
+import dataclasses
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -83,6 +85,21 @@ _ACTIVE_GAME_STATES = ("launching", "running", "external", "stopping", "unconfir
 
 #: Reconcile unsupported launcher notifications and missed filesystem events.
 _RECONCILE_MS = 30000  # recovery for missed events; never establishes failure
+#: A launch with no sign of the game after this long hands Play back, behind a
+#: second-instance confirmation. Launcher clients such as the EA App can take
+#: a minute before the wrapper starts, so this is generous.
+_LAUNCH_STALL_S = 120.0
+#: After Play, a state must hold this long before the button leaves
+#: Starting…. Launcher clients hand a launch between processes -- our wrapper
+#: can run for a second and exit while the EA App starts the game -- and each
+#: hop would otherwise flip the button between Stop, Running and Play.
+_LAUNCH_SETTLE_S = 5.0
+#: An exit right after Play settles slower: during a client handoff the wrapper
+#: is gone for several seconds before the handed-off game is found.
+_LAUNCH_EXIT_SETTLE_S = 15.0
+#: Recovery polling while a launch settles, so the handed-off game is found
+#: in seconds rather than at the next 30 s reconcile.
+_LAUNCH_POLL_MS = 3000
 #: Roughly three wrapped lines of a launch command.
 _MULTILINE_HEIGHT = 78
 #: Wide enough for a full Proton build name without eliding it.
@@ -102,6 +119,16 @@ class _TrackedGame:
     warning: str = ""
     note: str = ""
     confirmed: bool = False
+    since: float = dataclasses.field(default_factory=time.monotonic)
+
+
+@dataclass
+class _PendingLaunch:
+    """A Play press whose outcome has not held still yet."""
+
+    started: float
+    seen_state: str = ""
+    seen_since: float = 0.0
 
 
 @dataclass
@@ -273,7 +300,7 @@ class GameLibraryPanel:
         self._sort_mode = SORT_ALPHABETICAL
         self._syncing = False
         self._scanned = False
-        self._badges: dict[str, Any] = {}
+        self._badges: dict[tuple[str, float], Any] = {}
         # Launcher-declared fields: the widgets, which game they were filled
         # for, and which one is holding text the user has not saved yet.
         self._fields: dict[str, dict[str, Any]] = {}
@@ -325,6 +352,7 @@ class GameLibraryPanel:
         self._launch_sequences: dict[str, tuple[str, int]] = {}
         self._ambiguous_launches: set[str] = set()
         self._launch_attempts: dict[str, list[_LaunchAttempt]] = {}
+        self._pending_launches: dict[str, _PendingLaunch] = {}
         self._session_epoch = ""
         self._library_change_pending = False
         if self._events is not None:
@@ -549,20 +577,12 @@ class GameLibraryPanel:
         self.play_button.setProperty("playState", "idle")
         self.play_button.clicked.connect(self._play_stop_clicked)
         hero.addWidget(self.play_button, 0, self.QtCore.Qt.AlignTop)
-        self.retry_launch_button = self.QtWidgets.QPushButton("Retry launch…")
-        self.retry_launch_button.clicked.connect(self._retry_launch)
-        self.retry_launch_button.hide()
-        hero.addWidget(self.retry_launch_button, 0, self.QtCore.Qt.AlignTop)
         page.addLayout(hero)
         self.launch_warning_label = self.QtWidgets.QLabel("")
         self.launch_warning_label.setObjectName("gameLaunchWarning")
         self.launch_warning_label.setWordWrap(True)
         self.launch_warning_label.hide()
         page.addWidget(self.launch_warning_label)
-        self.launch_note_label = self.QtWidgets.QLabel("")
-        self.launch_note_label.setWordWrap(True)
-        self.launch_note_label.hide()
-        page.addWidget(self.launch_note_label)
         self.compatibility_label = self.QtWidgets.QLabel("")
         self.compatibility_label.setObjectName("gameCompatibility")
         self.compatibility_label.setWordWrap(True)
@@ -855,7 +875,7 @@ class GameLibraryPanel:
             if not isinstance(session, dict):
                 continue
             key = str(session.get("app_id") or "")
-            if key.partition(":")[0] not in self._by_launcher:
+            if key.partition(":")[0] not in self._by_launcher or not self._is_game_session(key):
                 continue
             current.add(key)
             if not session.get("wrapped"):
@@ -1242,8 +1262,9 @@ class GameLibraryPanel:
         recognises -- and PenguinBurner's own glyph only where the launcher
         has none, which is also where its brand mark would be the wrong icon.
         """
-        if launcher in self._badges:
-            return self._badges[launcher]
+        ratio = self._pixel_ratio()
+        if (launcher, ratio) in self._badges:
+            return self._badges[(launcher, ratio)]
         source = self._by_launcher.get(launcher)
         pixmap = None
         path = None
@@ -1257,13 +1278,23 @@ class GameLibraryPanel:
             candidate = self.QtGui.QPixmap(str(path))
             if not candidate.isNull():
                 pixmap = candidate.scaled(
-                    _BADGE,
-                    _BADGE,
+                    round(_BADGE * ratio),
+                    round(_BADGE * ratio),
                     self.QtCore.Qt.KeepAspectRatio,
                     self.QtCore.Qt.SmoothTransformation,
                 )
-        self._badges[launcher] = pixmap
+                pixmap.setDevicePixelRatio(ratio)
+        self._badges[(launcher, ratio)] = pixmap
         return pixmap
+
+    def _pixel_ratio(self) -> float:
+        """Device pixels per logical pixel where the list is shown (2.5 on a
+        4K screen at 250 %). Row art is painted at this density; a 36x48
+        bitmap stretched by the compositor is what made it look smeared."""
+        try:
+            return max(float(self.game_list.devicePixelRatioF()), 1.0)
+        except (AttributeError, TypeError, ValueError):
+            return 1.0
 
     def _row_icon(self, game: LibraryGame):
         """The game's art with its launcher's badge in the corner.
@@ -1272,23 +1303,28 @@ class GameLibraryPanel:
         the art keeps one icon slot doing both jobs, so a merged list still
         reads at a glance without a second column of chrome.
         """
-        canvas = self.QtGui.QPixmap(_ART_WIDTH, _ART_HEIGHT)
+        ratio = self._pixel_ratio()
+        canvas = self.QtGui.QPixmap(round(_ART_WIDTH * ratio), round(_ART_HEIGHT * ratio))
+        canvas.setDevicePixelRatio(ratio)
         canvas.fill(self.QtCore.Qt.transparent)
         painter = self.QtGui.QPainter(canvas)
+        painter.setRenderHint(self.QtGui.QPainter.SmoothPixmapTransform)
         art = None
         if game.art_path is not None:
             loaded = self.QtGui.QPixmap(str(game.art_path))
             if not loaded.isNull():
                 art = loaded.scaled(
-                    _ART_WIDTH,
-                    _ART_HEIGHT,
+                    round(_ART_WIDTH * ratio),
+                    round(_ART_HEIGHT * ratio),
                     self.QtCore.Qt.KeepAspectRatio,
                     self.QtCore.Qt.SmoothTransformation,
                 )
+                art.setDevicePixelRatio(ratio)
         if art is not None:
+            # Logical coordinates: the painter works in the canvas's DPR.
+            width, height = art.width() / ratio, art.height() / ratio
             painter.drawPixmap(
-                (_ART_WIDTH - art.width()) // 2,
-                (_ART_HEIGHT - art.height()) // 2,
+                self.QtCore.QPointF((_ART_WIDTH - width) / 2, (_ART_HEIGHT - height) / 2),
                 art,
             )
         badge = self._launcher_badge(game.launcher)
@@ -1296,8 +1332,10 @@ class GameLibraryPanel:
             # Bottom-right, and drawn last so it survives whatever art is
             # underneath. With no art at all it becomes the whole icon.
             painter.drawPixmap(
-                _ART_WIDTH - badge.width(),
-                _ART_HEIGHT - badge.height(),
+                self.QtCore.QPointF(
+                    _ART_WIDTH - badge.width() / badge.devicePixelRatio(),
+                    _ART_HEIGHT - badge.height() / badge.devicePixelRatio(),
+                ),
                 badge,
             )
         painter.end()
@@ -1396,8 +1434,6 @@ class GameLibraryPanel:
                 self.title_label.setText("Select a game")
                 self.metadata_label.setText("")
                 self.play_button.setVisible(False)
-                self.retry_launch_button.hide()
-                self.launch_note_label.hide()
                 self.launch_warning_label.hide()
                 self.compatibility_label.hide()
                 self._set_gated(False)
@@ -2212,6 +2248,11 @@ class GameLibraryPanel:
         track = self._tracked.get(key)
         return track.state if track is not None else ""
 
+    def _is_game_session(self, key: str) -> bool:
+        launcher, _, game_id = key.partition(":")
+        source = self._by_launcher.get(launcher)
+        return game_id not in getattr(source, "non_game_ids", ())
+
     def _other_active_game(self) -> str:
         """Name of another game that is launching, running or stopping.
 
@@ -2220,6 +2261,17 @@ class GameLibraryPanel:
         """
         for key, track in self._tracked.items():
             if key == self._selected_key or track.state not in _ACTIVE_GAME_STATES:
+                continue
+            # Also covers clients classified after the first session event.
+            if not self._is_game_session(key):
+                continue
+            game = self._game_for_key(key)
+            return game.name if game is not None else key
+        # A launch still settling (a client handoff gap reads as stopped).
+        for key in list(self._pending_launches):
+            if key == self._selected_key or not self._is_game_session(key):
+                continue
+            if self._settled_state(key, self._tracked.get(key)) != "launching":
                 continue
             game = self._game_for_key(key)
             return game.name if game is not None else key
@@ -2231,32 +2283,27 @@ class GameLibraryPanel:
         warning = track.warning if track else ""
         self.launch_warning_label.setText(warning)
         self.launch_warning_label.setVisible(bool(warning))
+        # One button, one line of state. Transient session detail goes in the
+        # tooltip: labels appearing and vanishing under the button while a
+        # launcher hands off between processes read as a flickering mess.
         note = track.note if track else ""
-        self.launch_note_label.setText(note)
-        self.launch_note_label.setVisible(bool(note))
-        self.retry_launch_button.setVisible(
-            bool(game) and self._tracked_state(self._selected_key) == "launching"
-            and self._launch_thread is None
-        )
-        self.retry_launch_button.setEnabled(not self._write_busy and not self._other_active_game())
         if not self._can_launch(game):
-            self.retry_launch_button.hide()
             self.play_button.setVisible(False)
             return
         self.play_button.setVisible(True)
-        state = self._tracked_state(self._selected_key)
+        state = self._settled_state(self._selected_key, track)
         blocking = self._other_active_game()
-        if state == "launching":
+        if state == "launching" and self._launch_stalled(track):
+            text, enabled, play_state = "Play", not blocking, "idle"
+        elif state == "launching":
             text, enabled, play_state = "Starting…", False, "starting"
         elif state == "running":
             text, enabled, play_state = "Stop", True, "running"
         elif state == "external":
-            source = self._by_launcher.get(game.launcher) if game is not None else None
-            text = (f"Running in {source.display_name}" if track and track.confirmed and source
-                    else "Running — PBurn unconfirmed")
-            enabled, play_state = False, "external"
+            # Started outside our wrapper: observable, not ours to stop.
+            text, enabled, play_state = "Running", False, "external"
         elif state == "unconfirmed":
-            text, enabled, play_state = "Retry launch…", not blocking, "idle"
+            text, enabled, play_state = "Play", not blocking, "idle"
         elif state == "stopping":
             # Live, not greyed out. A launcher's stop is a request its game may
             # shrug off -- Lutris passes one SIGTERM on and only insists when
@@ -2277,7 +2324,7 @@ class GameLibraryPanel:
                 f"{blocking} is still running. Stop it before launching another game."
             )
             if blocking and state not in _ACTIVE_GAME_STATES
-            else ""
+            else wrapped_tooltip(note) if note else ""
         )
         if self.play_button.property("playState") != play_state:
             self.play_button.setProperty("playState", play_state)
@@ -2294,10 +2341,53 @@ class GameLibraryPanel:
             # Pressed again while a stop is pending: ask once more rather than
             # ignore it. Which signal that turns into is the launcher's affair.
             self._stop_game(game)
-        elif state == "unconfirmed":
+        elif state == "unconfirmed" or (
+            state == "launching" and self._launch_stalled(self._tracked.get(self._selected_key))
+        ):
             self._retry_launch()
         elif state not in _ACTIVE_GAME_STATES and not self._other_active_game():
             self._play_game(game)
+
+    def _settled_state(self, key: str, track: _TrackedGame | None) -> str:
+        """The state to show: Starting… until a pressed Play's outcome holds.
+
+        Only the button waits. Tracking, Stop and the other games' guards keep
+        reading the raw state.
+        """
+        state = self._tracked_state(key)
+        pending = self._pending_launches.get(key)
+        if pending is None:
+            return state
+        now = time.monotonic()
+        if ((track is not None and track.warning) or state == "stopping"
+                or now - pending.started > _LAUNCH_STALL_S):
+            self._finish_pending_launch(key)
+            return state
+        if state != pending.seen_state:
+            pending.seen_state, pending.seen_since = state, now
+        if state == "launching":
+            return state
+        settle = _LAUNCH_SETTLE_S if state in ("running", "external") else _LAUNCH_EXIT_SETTLE_S
+        remaining = settle - (now - pending.seen_since)
+        if remaining <= 0:
+            self._finish_pending_launch(key)
+            return state
+        self.QtCore.QTimer.singleShot(
+            int(remaining * 1000) + 50,
+            lambda: self._sync_play_button(self._selected_game()),
+        )
+        return "launching"
+
+    def _finish_pending_launch(self, key: str) -> None:
+        self._pending_launches.pop(key, None)
+        if not self._pending_launches:
+            self._state_timer.setInterval(_RECONCILE_MS)
+
+    def _launch_stalled(self, track: _TrackedGame | None) -> bool:
+        """A dispatched launch that nothing has confirmed for a long time."""
+        return (track is not None and track.state == "launching" and not track.confirmed
+                and self._launch_thread is None
+                and time.monotonic() - track.since > _LAUNCH_STALL_S)
 
     def _retry_launch(self) -> None:
         game = self._selected_game()
@@ -2344,6 +2434,8 @@ class GameLibraryPanel:
                 self._launch_result = (None, f"Launch status unknown: {error}")
 
         self._launch_thread = self._worker("launch", run, lambda: self._collect_launch(game))
+        self._pending_launches[game_key(game)] = _PendingLaunch(time.monotonic())
+        self._state_timer.setInterval(_LAUNCH_POLL_MS)
         self._set_game_state(game_key(game), "launching")
         self._sync_status(f"{game.name}: preparing launch…")
         self._launch_thread.start()
@@ -2460,13 +2552,17 @@ class GameLibraryPanel:
                     if self._events is not None and self._events.available and callable(observe):
                         from runtime.daemon_client import observe_launcher_session
 
-                        titles = {g.game_id: g.name for g in source.games()}
+                        games = {g.game_id: g for g in source.games()}
                         for game_id, pids in cast(dict[str, tuple[int, ...]], observe() or {}).items():
+                            if not self._is_game_session(f"{source.launcher_id}:{game_id}"):
+                                continue
+                            game = games.get(game_id)
                             for pid in pids:
                                 try:
                                     observe_launcher_session(
                                         pid, f"{source.launcher_id}:{game_id}",
-                                        title=titles.get(game_id, ""),
+                                        title=game.name if game else "",
+                                        executable=game.executable if game else "",
                                     )
                                 except (RuntimeError, OSError, ValueError):
                                     pass  # An exited/inaccessible process is unconfirmed.
@@ -2501,7 +2597,7 @@ class GameLibraryPanel:
                 continue
             for game_id in running:
                 key = f"{launcher}:{game_id}"
-                if key in self._session_keys:
+                if key in self._session_keys or not self._is_game_session(key):
                     continue
                 track = self._tracked.setdefault(key, _TrackedGame("unconfirmed"))
                 if game_id in (external_by_launcher or {}).get(launcher, ()):

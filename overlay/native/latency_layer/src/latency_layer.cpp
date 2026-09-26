@@ -456,11 +456,23 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_swapchain_khr(
     const VkAllocationCallbacks* allocator,
     VkSwapchainKHR* swapchain) {
     PFN_vkCreateSwapchainKHR next_create_swapchain = nullptr;
+    VkPhysicalDevice physical_device = VK_NULL_HANDLE;
+    VkInstance instance = VK_NULL_HANDLE;
+    PFN_vkGetInstanceProcAddr get_instance_proc_addr = nullptr;
     {
         std::lock_guard lock(g_mutex);
         auto it = g_devices.find(device);
         if (it != g_devices.end()) {
             next_create_swapchain = it->second.create_swapchain_khr;
+            physical_device = it->second.physical_device;
+            auto physical_it = g_physical_devices.find(physical_device);
+            if (physical_it != g_physical_devices.end()) {
+                instance = physical_it->second;
+                auto instance_it = g_instances.find(instance);
+                if (instance_it != g_instances.end()) {
+                    get_instance_proc_addr = instance_it->second.get_instance_proc_addr;
+                }
+            }
         }
     }
 
@@ -468,6 +480,27 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_swapchain_khr(
         return VK_ERROR_EXTENSION_NOT_PRESENT;
     }
 
+    // DXVK can present storage-only images (notably D3D9). Our HUD needs
+    // color attachments, including when enabled later through the live toggle.
+    // Request that usage only when the surface supports it; keep the caller's
+    // structure and extension chain intact. Shared-present modes have different
+    // capability rules and image layouts, so leave those untouched.
+    VkSwapchainCreateInfoKHR overlay_info{};
+    if (create_info && get_instance_proc_addr
+        && !(create_info->imageUsage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+        && create_info->presentMode != VK_PRESENT_MODE_SHARED_DEMAND_REFRESH_KHR
+        && create_info->presentMode != VK_PRESENT_MODE_SHARED_CONTINUOUS_REFRESH_KHR) {
+        auto get_capabilities = reinterpret_cast<PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR>(
+            get_instance_proc_addr(instance, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR"));
+        VkSurfaceCapabilitiesKHR capabilities{};
+        if (get_capabilities
+            && get_capabilities(physical_device, create_info->surface, &capabilities) == VK_SUCCESS
+            && (capabilities.supportedUsageFlags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)) {
+            overlay_info = *create_info;
+            overlay_info.imageUsage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+            create_info = &overlay_info;
+        }
+    }
     VkResult result =
         next_create_swapchain(device, create_info, allocator, swapchain);
     const bool latency_mode_enabled = swapchain_latency_mode_enabled(create_info);

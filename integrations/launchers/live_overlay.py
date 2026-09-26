@@ -62,6 +62,11 @@ class LiveOverlaySource:
 
     launcher_id: str
 
+    @property
+    def non_game_ids(self) -> frozenset[str]:
+        """Known store-client entries, excluded from the game-session guard."""
+        return getattr(getattr(self, "manager", None), "non_game_ids", frozenset())
+
     def saved_overlay(self, game_id: str) -> bool:
         raise NotImplementedError
 

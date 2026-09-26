@@ -5,6 +5,7 @@ import subprocess
 
 import pytest
 
+from integrations.faugus.paths import faugus_installation
 from integrations.heroic.paths import heroic_installation
 from integrations.launchers import installation
 from integrations.lutris.paths import lutris_config_root, lutris_installation
@@ -15,6 +16,8 @@ LAUNCHERS = [
     (heroic_installation, '.config/heroic', '.var/app/com.heroicgameslauncher.hgl/config/heroic', 'config.json'),
     (lutris_installation, '.local/share/lutris', '.var/app/net.lutris.Lutris/data/lutris', 'pga.db'),
     (steam_installation, '.local/share/Steam', '.var/app/com.valvesoftware.Steam/.local/share/Steam', 'steamapps'),
+    (faugus_installation, '.local/share/faugus-launcher',
+     '.var/app/io.github.Faugus.faugus-launcher/data/faugus-launcher', 'games.json'),
 ]
 
 

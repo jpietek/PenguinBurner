@@ -92,9 +92,8 @@ def test_enabling_wraps_the_game_and_records_the_original(tmp_path) -> None:
 
     assert result.ok is True
     prefix = _config(tmp_path)["system"]["prefix_command"]
-    assert prefix.startswith("env PB_INGAME_LATENCY=1 PENGUIN_BURNER ")
-    assert "--pb-game-id=lutris:27" in prefix
-    assert prefix.endswith("game-performance")
+    assert prefix.startswith("game-performance env PB_INGAME_LATENCY=1 PENGUIN_BURNER ")
+    assert prefix.endswith("--pb-game-id=lutris:27")
     stored = LUTRIS_GAME_SETTINGS_STORE.load(tmp_path / "lutris-game-settings.json")["27"]
     assert stored.original_command == "game-performance"
     assert stored.mode == GAME_MODE_ADAPTIVE
@@ -339,8 +338,7 @@ def test_enabling_keeps_a_prefix_the_game_only_inherited(tmp_path) -> None:
     manager.set_game_enabled("27", True)
 
     written = _config(tmp_path)["system"]["prefix_command"]
-    assert written.startswith("env PB_INGAME_LATENCY=1 PENGUIN_BURNER ")
-    assert written.endswith("game-performance")
+    assert written.startswith("game-performance env PB_INGAME_LATENCY=1 PENGUIN_BURNER ")
 
 
 def test_disabling_lets_inheritance_resume_instead_of_freezing_it(tmp_path) -> None:
@@ -650,7 +648,8 @@ def test_the_legacy_identity_flag_is_rewritten_on_the_next_change(tmp_path) -> N
     written = _config(tmp_path)["system"]["prefix_command"]
     assert "--pb-game-id=lutris:27" in written
     assert "--pb-lutris-id" not in written
-    assert written.endswith("gamemoderun")
+    # The legacy outermost placement moves innermost on that same write.
+    assert written.startswith("gamemoderun PENGUIN_BURNER ")
 
     # And the game still comes back to exactly what it launched with before.
     assert manager.set_game_enabled("27", False).ok

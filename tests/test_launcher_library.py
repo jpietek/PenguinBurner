@@ -376,7 +376,7 @@ def test_the_steam_adapter_carries_the_wrapper_state_off_the_launch_options(
         steamapps_dir=tmp_path,
         state_flags=4,
         last_played=900,
-        icon_path=None,
+        art_path=None,
         compat_tool="",
     )
     source = SteamLibrarySource(manager=object())
@@ -706,7 +706,7 @@ def _row(
             steamapps_dir=tmp_path or Path("/tmp"),
             state_flags=4,
             last_played=900,
-            icon_path=None,
+            art_path=None,
             compat_tool=compat_tool,
             effective_compat_tool=effective_compat_tool,
             last_updated=last_updated,
@@ -1060,3 +1060,35 @@ def test_stop_refuses_when_one_title_has_two_live_sessions(monkeypatch) -> None:
 
     assert ok is False
     assert "shares this game's name" in message
+
+
+@pytest.mark.parametrize("launcher", ["heroic", "faugus"])
+@pytest.mark.parametrize("case", ["unavailable", "missing", "refused", "started"])
+def test_shared_launch_validates_then_dispatches_to_the_selected_launcher(
+    tmp_path, monkeypatch, launcher, case,
+):
+    from types import SimpleNamespace
+
+    from integrations.launchers.library_source import WrapperLibrarySource
+    from integrations.launchers.registry import build_sources
+
+    source = next(source for source in build_sources(home=tmp_path) if source.launcher_id == launcher)
+    assert isinstance(source, WrapperLibrarySource)
+    source.can_launch = case != "unavailable"
+    row = SimpleNamespace(game=SimpleNamespace(game_id="demo", runner="legendary"))
+    monkeypatch.setattr(source.manager, "row", lambda _id: None if case == "missing" else row)
+    calls = []
+    def launch(*args, **kwargs):
+        calls.append((args, kwargs))
+        return case == "started"
+    monkeypatch.setattr(f"integrations.{launcher}.library_source.launch_{launcher}_game", launch)
+
+    ok, message = source.launch("demo")
+
+    assert ok == (case == "started")
+    assert source.display_name in message
+    if case in ("unavailable", "missing"):
+        assert not calls
+    else:
+        args = ("legendary", "demo") if launcher == "heroic" else ("demo",)
+        assert calls == [(args, {"home": tmp_path})]

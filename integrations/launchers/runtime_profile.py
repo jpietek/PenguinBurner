@@ -144,6 +144,8 @@ def game_setting(
         from integrations.lutris.settings import LUTRIS_GAME_SETTINGS_STORE as store
     elif launcher_id == "heroic":
         from integrations.heroic.settings import HEROIC_GAME_SETTINGS_STORE as store
+    elif launcher_id == "faugus":
+        from integrations.faugus.settings import FAUGUS_GAME_SETTINGS_STORE as store
     else:
         return None
     return store.get(game_id, path=settings_path)

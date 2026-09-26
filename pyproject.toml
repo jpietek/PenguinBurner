@@ -105,6 +105,7 @@ packages = [
   "curve_editors.uv",
   "integrations",
   "integrations.afterburner",
+  "integrations.faugus",
   "integrations.heroic",
   "integrations.lact",
   "integrations.launchers",
