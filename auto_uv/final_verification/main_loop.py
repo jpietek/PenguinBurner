@@ -31,6 +31,7 @@ from stability.q2rtx.long_stability_config import (
     build_long_stability_test_config,
     long_stability_workload_durations,
 )
+from stability.q2rtx.resolution import Q2RTX_SCAN_RESOLUTIONS
 
 from ..curve.rising_tail import tail_ceiling_clock_mhz
 from ..persistence.unsafe_voltage_blacklist_file import load_unsafe_voltage_blacklist
@@ -281,6 +282,11 @@ def run_final_verification_and_save(
         auto_uv_mode=str(auto_uv_mode or ""),
         generated_profile_tier=str(generated_profile_tier or ""),
         gpu_identity=gpu_identity,
+        q2rtx_resolution=next(
+            (preset for preset, dimensions in Q2RTX_SCAN_RESOLUTIONS.items()
+             if dimensions == (final_config.width, final_config.height)),
+            None,
+        ),
     )
     log_final_summary(
         log,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import copy
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -133,12 +134,16 @@ def run_profile_verification(
         )
         stack.callback(close_clock_ceiling)
 
-        label, flatten_target, verify_plan = apply_verify_auto_uv_profile(
+        label, flatten_target, verify_plan, saved_resolution = apply_verify_auto_uv_profile(
             vf_curve_reader,
             selector,
             gpu_policy_controller,
             dependencies=deps,
         )
+
+        args = copy.copy(args)
+        if getattr(args, "auto_uv_q2rtx_resolution", None) is None:
+            args.auto_uv_q2rtx_resolution = saved_resolution
 
         if flatten_target is not None and gpu_policy_controller is not None:
             try:
@@ -341,7 +346,12 @@ def apply_verify_auto_uv_profile(
             "Applied profile memory offset for verification: "
             f"{int(memory_policy['mem_clk_vf_offset_mhz']):+d}MHz."
         )
-    return label, auto_uv_final_curve["flatten_target"], auto_uv_final_curve["plan"]
+    return (
+        label,
+        auto_uv_final_curve["flatten_target"],
+        auto_uv_final_curve["plan"],
+        auto_uv_final_curve.get("q2rtx_resolution"),
+    )
 
 
 def apply_and_verify_profile_vf_plan(

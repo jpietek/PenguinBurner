@@ -64,6 +64,22 @@ The managed [headless Q2RTX benchmark](https://github.com/jpietek/Q2RTX-headless
 needs no display server. Resolution is 2560×1440 for GPUs with at most 8 GiB of
 VRAM, otherwise 3840×2160, including when VRAM is unavailable.
 
+For a manual CLI comparison, select `auto`, `1080p`, `1440p`, or `4k` with
+`--auto-uv-q2rtx-resolution`. For example:
+
+```bash
+penguin-burner-cli --auto-uv-voltage-scan --gpu-index 0 \
+  --auto-uv-mode performance --auto-uv-q2rtx-resolution 1080p
+```
+
+The selected resolution applies to the baseline, every scanned tier and final
+Q2RTX verification; CUDA is unchanged. New profiles record the resolved Q2RTX
+resolution and reuse it for later verification. Older profiles retain automatic
+resolution selection. The GUI keeps its automatic default. Compare FPS and
+FPS/W only between runs at the same resolution; this override does not establish
+that a lower resolution improves tuning on a particular GPU.
+
+
 `hw-power-brake` reports the board's power-delivery protection. It is recorded
 in the Cap column, logs, and scan result separately from the configured power
 limit. Repeated events indicate a delivery limit at that operating point.

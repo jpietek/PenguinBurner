@@ -1720,6 +1720,7 @@ def test_profile_verification_promotes_verified_profile(
     baseline_calls = []
 
     def fake_baseline_probe(*_args, **kwargs):
+        assert _args[0].auto_uv_q2rtx_resolution == "1080p"
         baseline_calls.append(kwargs)
         return {
             "avg_core_clock_mhz": 2500.0,
@@ -1731,7 +1732,7 @@ def test_profile_verification_promotes_verified_profile(
     monkeypatch.setattr(
         profile_verification_runner,
         "apply_verify_auto_uv_profile",
-        lambda *_args, **_kwargs: ("auto-UV:2600MHz@900mV", None, plan),
+        lambda *_args, **_kwargs: ("auto-UV:2600MHz@900mV", None, plan, "1080p"),
     )
     monkeypatch.setattr(
         profile_verification_runner,
@@ -1739,12 +1740,16 @@ def test_profile_verification_promotes_verified_profile(
         fake_baseline_probe,
     )
 
+    def build_config(args, **_kwargs):
+        assert args.auto_uv_q2rtx_resolution == "1080p"
+        return config
+
     deps = profile_verification_runner.ProfileVerificationDependencies(
         stop_existing_penguin_burner_runtime=lambda **_kwargs: None,
         gpu_client_factory=lambda **_kwargs: FakeGpuClient(),
         backup_current_offsets=lambda *_args, **_kwargs: None,
         restore_offsets=lambda *_args, **_kwargs: None,
-        build_stability_config=lambda *_args, **_kwargs: config,
+        build_stability_config=build_config,
         build_long_stability_test_config=lambda stability_config, **_kwargs: (
             stability_config
         ),
@@ -1858,6 +1863,7 @@ def test_profile_verification_wires_live_telemetry_events_when_target_known(
             "auto-UV:2600MHz@900mV",
             {"lock_voltage_mv": 900, "lock_clock_mhz": 2600},
             plan,
+            None,
         ),
     )
 
