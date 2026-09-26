@@ -1,0 +1,12 @@
+{
+  "state": "runtime_profile_running",
+  "active_job": {
+    "type": "runtime_profile",
+    "profile_id": "20260906-201123-527746-925mv-3000mhz",
+    "runtime_mode": "static",
+    "silent_fan_curve": true,
+    "returncode": null
+  },
+  "version": "0.8.0",
+  "build": "28ca694"
+}

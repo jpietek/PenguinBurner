@@ -1,0 +1,335 @@
+{
+  "cases": [
+    {
+      "label": "Prompt pp2048 \u00b7 depth 0",
+      "sample_count": 12,
+      "tokens_s": 8515.967319,
+      "tokens_s_stddev": 100.503444,
+      "graphics_mhz": {
+        "min": 2895,
+        "median": 2940.0,
+        "max": 3022
+      },
+      "voltage_mv": {
+        "min": 925,
+        "median": 930.0,
+        "max": 935
+      },
+      "power_w": {
+        "min": 96.127,
+        "median": 138.774,
+        "max": 229.529
+      },
+      "memory_mhz": {
+        "min": 16801,
+        "median": 16801.0,
+        "max": 16801
+      },
+      "utilization_pct": {
+        "min": 0,
+        "median": 100.0,
+        "max": 100
+      },
+      "throttle_masks": {
+        "0": 12
+      }
+    },
+    {
+      "label": "Decode tg256 \u00b7 depth 0",
+      "sample_count": 72,
+      "tokens_s": 176.528886,
+      "tokens_s_stddev": 0.079807,
+      "graphics_mhz": {
+        "min": 2805,
+        "median": 2812.0,
+        "max": 2940
+      },
+      "voltage_mv": {
+        "min": 915,
+        "median": 915.0,
+        "max": 925
+      },
+      "power_w": {
+        "min": 229.529,
+        "median": 258.42949999999996,
+        "max": 266.633
+      },
+      "memory_mhz": {
+        "min": 16801,
+        "median": 16801.0,
+        "max": 16801
+      },
+      "utilization_pct": {
+        "min": 79,
+        "median": 99.0,
+        "max": 100
+      },
+      "throttle_masks": {
+        "0": 1,
+        "4": 71
+      }
+    },
+    {
+      "label": "Prompt pp2048 \u00b7 depth 4096",
+      "sample_count": 14,
+      "tokens_s": 7338.043574,
+      "tokens_s_stddev": 66.295577,
+      "graphics_mhz": {
+        "min": 2865,
+        "median": 2902.0,
+        "max": 2925
+      },
+      "voltage_mv": {
+        "min": 920,
+        "median": 925.0,
+        "max": 930
+      },
+      "power_w": {
+        "min": 241.537,
+        "median": 250.587,
+        "max": 263.192
+      },
+      "memory_mhz": {
+        "min": 16801,
+        "median": 16801.0,
+        "max": 16801
+      },
+      "utilization_pct": {
+        "min": 35,
+        "median": 93.0,
+        "max": 100
+      },
+      "throttle_masks": {
+        "4": 5,
+        "0": 9
+      }
+    },
+    {
+      "label": "Decode tg256 \u00b7 depth 4096",
+      "sample_count": 82,
+      "tokens_s": 157.251177,
+      "tokens_s_stddev": 0.162999,
+      "graphics_mhz": {
+        "min": 2805,
+        "median": 2805.0,
+        "max": 2865
+      },
+      "voltage_mv": {
+        "min": 915,
+        "median": 915.0,
+        "max": 920
+      },
+      "power_w": {
+        "min": 249.17,
+        "median": 259.416,
+        "max": 267.309
+      },
+      "memory_mhz": {
+        "min": 16801,
+        "median": 16801.0,
+        "max": 16801
+      },
+      "utilization_pct": {
+        "min": 94,
+        "median": 99.0,
+        "max": 100
+      },
+      "throttle_masks": {
+        "0": 4,
+        "4": 78
+      }
+    }
+  ],
+  "curve_unchanged": false,
+  "active_job_unchanged": true,
+  "offsets_unchanged": true,
+  "applied_curve_readback_changes": [
+    {
+      "mv": 810.0,
+      "before_mhz": 1957.0,
+      "after_mhz": 1972.0
+    },
+    {
+      "mv": 815.0,
+      "before_mhz": 1987.0,
+      "after_mhz": 2002.0
+    },
+    {
+      "mv": 820.0,
+      "before_mhz": 2017.0,
+      "after_mhz": 2025.0
+    },
+    {
+      "mv": 825.0,
+      "before_mhz": 2047.0,
+      "after_mhz": 2055.0
+    },
+    {
+      "mv": 835.0,
+      "before_mhz": 2077.0,
+      "after_mhz": 2085.0
+    },
+    {
+      "mv": 840.0,
+      "before_mhz": 2107.0,
+      "after_mhz": 2115.0
+    },
+    {
+      "mv": 845.0,
+      "before_mhz": 2130.0,
+      "after_mhz": 2137.0
+    },
+    {
+      "mv": 850.0,
+      "before_mhz": 2160.0,
+      "after_mhz": 2167.0
+    },
+    {
+      "mv": 860.0,
+      "before_mhz": 2190.0,
+      "after_mhz": 2197.0
+    },
+    {
+      "mv": 865.0,
+      "before_mhz": 2212.0,
+      "after_mhz": 2220.0
+    },
+    {
+      "mv": 870.0,
+      "before_mhz": 2242.0,
+      "after_mhz": 2250.0
+    },
+    {
+      "mv": 885.0,
+      "before_mhz": 2295.0,
+      "after_mhz": 2302.0
+    },
+    {
+      "mv": 900.0,
+      "before_mhz": 2610.0,
+      "after_mhz": 2617.0
+    }
+  ],
+  "measured_intervals": [
+    {
+      "case": 0,
+      "rep": 0,
+      "start": 6.118481444000281,
+      "end": 6.363711331000281
+    },
+    {
+      "case": 0,
+      "rep": 1,
+      "start": 6.363758881000194,
+      "end": 6.603023253000194
+    },
+    {
+      "case": 0,
+      "rep": 2,
+      "start": 6.603089023000393,
+      "end": 6.843596136000393
+    },
+    {
+      "case": 0,
+      "rep": 3,
+      "start": 6.843683535000309,
+      "end": 7.0837197310003095
+    },
+    {
+      "case": 0,
+      "rep": 4,
+      "start": 7.0837192020003386,
+      "end": 7.321263978000339
+    },
+    {
+      "case": 1,
+      "rep": 0,
+      "start": 7.407474193000326,
+      "end": 8.858559550000326
+    },
+    {
+      "case": 1,
+      "rep": 1,
+      "start": 8.85857986000019,
+      "end": 10.308269368000191
+    },
+    {
+      "case": 1,
+      "rep": 2,
+      "start": 10.308265527999993,
+      "end": 11.758463421999993
+    },
+    {
+      "case": 1,
+      "rep": 3,
+      "start": 11.758481872000175,
+      "end": 13.207925662000175
+    },
+    {
+      "case": 1,
+      "rep": 4,
+      "start": 13.207923732000381,
+      "end": 14.658446324000382
+    },
+    {
+      "case": 2,
+      "rep": 0,
+      "start": 15.551360151000154,
+      "end": 15.827483224000154
+    },
+    {
+      "case": 2,
+      "rep": 1,
+      "start": 15.868450262000351,
+      "end": 16.149700226000352
+    },
+    {
+      "case": 2,
+      "rep": 2,
+      "start": 16.188469321999946,
+      "end": 16.466772217999946
+    },
+    {
+      "case": 2,
+      "rep": 3,
+      "start": 16.506767394000235,
+      "end": 16.788940091000235
+    },
+    {
+      "case": 2,
+      "rep": 4,
+      "start": 16.828032453000105,
+      "end": 17.105742373000105
+    },
+    {
+      "case": 3,
+      "rep": 0,
+      "start": 17.172918544000368,
+      "end": 18.803837755000366
+    },
+    {
+      "case": 3,
+      "rep": 1,
+      "start": 18.843351655000333,
+      "end": 20.47089915200033
+    },
+    {
+      "case": 3,
+      "rep": 2,
+      "start": 20.510688250000385,
+      "end": 22.137805940000383
+    },
+    {
+      "case": 3,
+      "rep": 3,
+      "start": 22.178189893000308,
+      "end": 23.80486767700031
+    },
+    {
+      "case": 3,
+      "rep": 4,
+      "start": 23.844257288000335,
+      "end": 25.471845785000337
+    }
+  ]
+}

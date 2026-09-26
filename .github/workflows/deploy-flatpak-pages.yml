@@ -72,6 +72,12 @@ jobs:
           test -s "$source_page"
           install -Dm0644 "$source_page" "$target_page"
           cmp --silent "$source_page" "$target_page"
+          source_dir="docs/pages/llm-performance-vf"
+          target_dir="site/llm-performance-vf"
+          test -s "$source_dir/index.html"
+          mkdir -p "$target_dir"
+          cp -a "$source_dir/." "$target_dir/"
+          diff -qr "$source_dir" "$target_dir"
           python3 scripts/flatpak_pages_artifact.py validate site
 
       - name: Configure Pages

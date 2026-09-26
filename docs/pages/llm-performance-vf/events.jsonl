@@ -1,0 +1,40 @@
+{"elapsed_s": 2.1923636169999554, "line": "ggml_cuda_init: found 1 CUDA devices (Total VRAM: 15930 MiB):"}
+{"elapsed_s": 2.1924029970000447, "line": "  Device 0: NVIDIA GeForce RTX 5080, compute capability 12.0, VMM: yes, VRAM: 15930 MiB"}
+{"elapsed_s": 2.194606720000138, "line": "llama-bench: benchmark 1/4: starting"}
+{"elapsed_s": 4.262994138000067, "line": "llama-bench: benchmark 1/4: warmup prompt run"}
+{"elapsed_s": 6.118481444000281, "line": "llama-bench: benchmark 1/4: prompt run 1/5"}
+{"elapsed_s": 6.363758881000194, "line": "llama-bench: benchmark 1/4: prompt run 2/5"}
+{"elapsed_s": 6.603089023000393, "line": "llama-bench: benchmark 1/4: prompt run 3/5"}
+{"elapsed_s": 6.843683535000309, "line": "llama-bench: benchmark 1/4: prompt run 4/5"}
+{"elapsed_s": 7.0837192020003386, "line": "llama-bench: benchmark 1/4: prompt run 5/5"}
+{"elapsed_s": 7.326874585000041, "line": "llama-bench: benchmark 2/4: starting"}
+{"elapsed_s": 7.334906314000364, "line": "llama-bench: benchmark 2/4: warmup generation run"}
+{"elapsed_s": 7.407474193000326, "line": "llama-bench: benchmark 2/4: generation run 1/5"}
+{"elapsed_s": 8.85857986000019, "line": "llama-bench: benchmark 2/4: generation run 2/5"}
+{"elapsed_s": 10.308265527999993, "line": "llama-bench: benchmark 2/4: generation run 3/5"}
+{"elapsed_s": 11.758481872000175, "line": "llama-bench: benchmark 2/4: generation run 4/5"}
+{"elapsed_s": 13.207923732000381, "line": "llama-bench: benchmark 2/4: generation run 5/5"}
+{"elapsed_s": 14.661399951000021, "line": "llama-bench: benchmark 3/4: starting"}
+{"elapsed_s": 14.677126112000224, "line": "llama-bench: benchmark 3/4: warmup prompt run"}
+{"elapsed_s": 14.91637367400017, "line": "llama-bench: benchmark 3/4: depth run 1/5"}
+{"elapsed_s": 15.551360151000154, "line": "llama-bench: benchmark 3/4: prompt run 1/5"}
+{"elapsed_s": 15.868385133000174, "line": "llama-bench: benchmark 3/4: depth run 2/5 (cached)"}
+{"elapsed_s": 15.868450262000351, "line": "llama-bench: benchmark 3/4: prompt run 2/5"}
+{"elapsed_s": 16.188433562000228, "line": "llama-bench: benchmark 3/4: depth run 3/5 (cached)"}
+{"elapsed_s": 16.188469321999946, "line": "llama-bench: benchmark 3/4: prompt run 3/5"}
+{"elapsed_s": 16.50673189400004, "line": "llama-bench: benchmark 3/4: depth run 4/5 (cached)"}
+{"elapsed_s": 16.506767394000235, "line": "llama-bench: benchmark 3/4: prompt run 4/5"}
+{"elapsed_s": 16.827991164000196, "line": "llama-bench: benchmark 3/4: depth run 5/5 (cached)"}
+{"elapsed_s": 16.828032453000105, "line": "llama-bench: benchmark 3/4: prompt run 5/5"}
+{"elapsed_s": 17.112278014000367, "line": "llama-bench: benchmark 4/4: starting"}
+{"elapsed_s": 17.126885563000087, "line": "llama-bench: benchmark 4/4: warmup generation run"}
+{"elapsed_s": 17.1728844940003, "line": "llama-bench: benchmark 4/4: depth run 1/5 (cached)"}
+{"elapsed_s": 17.172918544000368, "line": "llama-bench: benchmark 4/4: generation run 1/5"}
+{"elapsed_s": 18.84331305500018, "line": "llama-bench: benchmark 4/4: depth run 2/5 (cached)"}
+{"elapsed_s": 18.843351655000333, "line": "llama-bench: benchmark 4/4: generation run 2/5"}
+{"elapsed_s": 20.510650330000317, "line": "llama-bench: benchmark 4/4: depth run 3/5 (cached)"}
+{"elapsed_s": 20.510688250000385, "line": "llama-bench: benchmark 4/4: generation run 3/5"}
+{"elapsed_s": 22.178150043000187, "line": "llama-bench: benchmark 4/4: depth run 4/5 (cached)"}
+{"elapsed_s": 22.178189893000308, "line": "llama-bench: benchmark 4/4: generation run 4/5"}
+{"elapsed_s": 23.844214498000383, "line": "llama-bench: benchmark 4/4: depth run 5/5 (cached)"}
+{"elapsed_s": 23.844257288000335, "line": "llama-bench: benchmark 4/4: generation run 5/5"}

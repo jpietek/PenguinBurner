@@ -1,0 +1,27 @@
+{
+  "command": [
+    "${HOME}/.local/opt/llama.cpp-v0.5.0/build/bin/llama-bench",
+    "-m",
+    "${HOME}/.local/share/llama.cpp/models/Qwen3-8B-Q4_K_M.gguf",
+    "-ngl",
+    "99",
+    "-dev",
+    "CUDA0",
+    "-fa",
+    "on",
+    "-p",
+    "2048",
+    "-n",
+    "256",
+    "-d",
+    "0,4096",
+    "-r",
+    "5",
+    "-o",
+    "json",
+    "--progress"
+  ],
+  "start_utc": "2026-09-26T20:57:54.129933+00:00",
+  "sample_interval_s": 0.1,
+  "profile_id": "20260906-201123-527746-925mv-3000mhz"
+}

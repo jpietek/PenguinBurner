@@ -1,0 +1,24 @@
+{
+  "source_url": "https://github.com/ggml-org/llama.cpp",
+  "source_tag": "v0.5.0",
+  "source_commit": "7fe450e19305b828c199d602c23a8337aaa1f03b",
+  "source_path": "${HOME}/.local/opt/llama.cpp-v0.5.0",
+  "cuda_toolkit": "13.1.115",
+  "cuda_architecture": "120a-real",
+  "model_repo": "Qwen/Qwen3-8B-GGUF",
+  "model_revision": "7c41481f57cb95916b40956ab2f0b139b296d974",
+  "model_file": "Qwen3-8B-Q4_K_M.gguf",
+  "model_sha256": "d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785",
+  "model_size_bytes": 5027783488,
+  "binaries": {
+    "llama-bench": {
+      "path": "${HOME}/.local/opt/llama.cpp-v0.5.0/build/bin/llama-bench",
+      "sha256": "4977c7f817bc5577ba1058b2e8854fb96596767b91fa97a1963c66d6723dd550"
+    },
+    "llama-batched-bench": {
+      "path": "${HOME}/.local/opt/llama.cpp-v0.5.0/build/bin/llama-batched-bench",
+      "sha256": "81b83bbaaa60187f9ba2d095d81bc371e16601fe94c87933695fe3f688dc4b09"
+    }
+  },
+  "added_system_package": "libcublas-devel-13-1-13.2.2.2-1.x86_64"
+}

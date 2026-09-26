@@ -1,0 +1,17 @@
+{
+  "generated_profile_tier": "performance",
+  "lock_clock_mhz": 3000,
+  "candidate_voltage_mv": 925,
+  "power_limit_w": 390,
+  "memory_offset_mhz": 4000,
+  "flatten_target": {
+    "baseline_measurement": "q2rtx-loaded-telemetry",
+    "lock_clock_mhz": 3000,
+    "lock_voltage_mv": 925,
+    "end_voltage_mv": 1240,
+    "tail_point_count": 51,
+    "tail_rise_bins": 2,
+    "ceiling_clock_mhz": 3030,
+    "source": "auto-uv-final"
+  }
+}

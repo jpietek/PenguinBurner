@@ -1,0 +1,1330 @@
+{
+  "gpu_index": 0,
+  "points": [
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 450000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 0,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 450000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 460000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 1,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 460000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 465000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 2,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 465000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 470000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 3,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 470000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 475000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 4,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 475000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 485000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 5,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 485000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 490000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 6,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 490000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 495000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 7,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 495000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 500000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 8,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 500000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 510000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 9,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 510000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 515000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 10,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 515000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 520000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 11,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 520000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 525000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 12,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 525000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 535000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 13,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 535000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 540000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 14,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 540000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 545000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 15,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 545000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 550000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 16,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 550000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 560000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 17,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 560000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 565000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 18,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 565000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 570000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 19,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 570000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 575000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 20,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 575000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 585000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 21,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 585000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 590000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 22,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 590000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 595000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 23,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 595000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 600000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 24,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 600000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 610000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 25,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 610000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 615000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 26,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 615000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 620000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 27,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 620000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 625000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 28,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 625000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 635000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 29,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 635000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 640000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 30,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 640000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 645000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 31,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 645000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 650000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 32,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 650000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 660000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 33,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 660000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 665000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 34,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 665000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 670000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 35,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 670000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 675000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 36,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 675000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 685000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 37,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 685000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 690000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 38,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 690000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 695000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 39,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 695000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 700000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 40,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 700000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 710000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 41,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 710000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 715000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 42,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 715000
+    },
+    {
+      "base_freq_khz": 180000,
+      "base_voltage_uv": 720000,
+      "current_offset_khz": 0,
+      "freq_khz": 180000,
+      "index": 43,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 720000
+    },
+    {
+      "base_freq_khz": 195000,
+      "base_voltage_uv": 725000,
+      "current_offset_khz": 0,
+      "freq_khz": 195000,
+      "index": 44,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 725000
+    },
+    {
+      "base_freq_khz": 337000,
+      "base_voltage_uv": 735000,
+      "current_offset_khz": 0,
+      "freq_khz": 337000,
+      "index": 45,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 735000
+    },
+    {
+      "base_freq_khz": 480000,
+      "base_voltage_uv": 740000,
+      "current_offset_khz": 0,
+      "freq_khz": 480000,
+      "index": 46,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 740000
+    },
+    {
+      "base_freq_khz": 615000,
+      "base_voltage_uv": 745000,
+      "current_offset_khz": 0,
+      "freq_khz": 615000,
+      "index": 47,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 745000
+    },
+    {
+      "base_freq_khz": 757000,
+      "base_voltage_uv": 750000,
+      "current_offset_khz": 0,
+      "freq_khz": 757000,
+      "index": 48,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 750000
+    },
+    {
+      "base_freq_khz": 892000,
+      "base_voltage_uv": 760000,
+      "current_offset_khz": 0,
+      "freq_khz": 892000,
+      "index": 49,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 760000
+    },
+    {
+      "base_freq_khz": 1035000,
+      "base_voltage_uv": 765000,
+      "current_offset_khz": 0,
+      "freq_khz": 1035000,
+      "index": 50,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 765000
+    },
+    {
+      "base_freq_khz": 1177000,
+      "base_voltage_uv": 770000,
+      "current_offset_khz": 0,
+      "freq_khz": 1177000,
+      "index": 51,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 770000
+    },
+    {
+      "base_freq_khz": 1312000,
+      "base_voltage_uv": 775000,
+      "current_offset_khz": 0,
+      "freq_khz": 1312000,
+      "index": 52,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 775000
+    },
+    {
+      "base_freq_khz": 1455000,
+      "base_voltage_uv": 785000,
+      "current_offset_khz": 0,
+      "freq_khz": 1455000,
+      "index": 53,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 785000
+    },
+    {
+      "base_freq_khz": 1590000,
+      "base_voltage_uv": 790000,
+      "current_offset_khz": 0,
+      "freq_khz": 1590000,
+      "index": 54,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 790000
+    },
+    {
+      "base_freq_khz": 1732000,
+      "base_voltage_uv": 795000,
+      "current_offset_khz": 0,
+      "freq_khz": 1732000,
+      "index": 55,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 795000
+    },
+    {
+      "base_freq_khz": 1875000,
+      "base_voltage_uv": 800000,
+      "current_offset_khz": 0,
+      "freq_khz": 1875000,
+      "index": 56,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 800000
+    },
+    {
+      "base_freq_khz": 1957000,
+      "base_voltage_uv": 810000,
+      "current_offset_khz": 0,
+      "freq_khz": 1957000,
+      "index": 57,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 810000
+    },
+    {
+      "base_freq_khz": 1987000,
+      "base_voltage_uv": 815000,
+      "current_offset_khz": 0,
+      "freq_khz": 1987000,
+      "index": 58,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 815000
+    },
+    {
+      "base_freq_khz": 2017000,
+      "base_voltage_uv": 820000,
+      "current_offset_khz": 0,
+      "freq_khz": 2017000,
+      "index": 59,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 820000
+    },
+    {
+      "base_freq_khz": 2047000,
+      "base_voltage_uv": 825000,
+      "current_offset_khz": 0,
+      "freq_khz": 2047000,
+      "index": 60,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 825000
+    },
+    {
+      "base_freq_khz": 2077000,
+      "base_voltage_uv": 835000,
+      "current_offset_khz": 0,
+      "freq_khz": 2077000,
+      "index": 61,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 835000
+    },
+    {
+      "base_freq_khz": 2107000,
+      "base_voltage_uv": 840000,
+      "current_offset_khz": 0,
+      "freq_khz": 2107000,
+      "index": 62,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 840000
+    },
+    {
+      "base_freq_khz": 2130000,
+      "base_voltage_uv": 845000,
+      "current_offset_khz": 0,
+      "freq_khz": 2130000,
+      "index": 63,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 845000
+    },
+    {
+      "base_freq_khz": 2160000,
+      "base_voltage_uv": 850000,
+      "current_offset_khz": 0,
+      "freq_khz": 2160000,
+      "index": 64,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 850000
+    },
+    {
+      "base_freq_khz": 2190000,
+      "base_voltage_uv": 860000,
+      "current_offset_khz": 0,
+      "freq_khz": 2190000,
+      "index": 65,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 860000
+    },
+    {
+      "base_freq_khz": 2212000,
+      "base_voltage_uv": 865000,
+      "current_offset_khz": 0,
+      "freq_khz": 2212000,
+      "index": 66,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 865000
+    },
+    {
+      "base_freq_khz": 2242000,
+      "base_voltage_uv": 870000,
+      "current_offset_khz": 0,
+      "freq_khz": 2242000,
+      "index": 67,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 870000
+    },
+    {
+      "base_freq_khz": 2272000,
+      "base_voltage_uv": 875000,
+      "current_offset_khz": 0,
+      "freq_khz": 2272000,
+      "index": 68,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 875000
+    },
+    {
+      "base_freq_khz": 2295000,
+      "base_voltage_uv": 885000,
+      "current_offset_khz": 0,
+      "freq_khz": 2295000,
+      "index": 69,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 885000
+    },
+    {
+      "base_freq_khz": 2325000,
+      "base_voltage_uv": 890000,
+      "current_offset_khz": 90000,
+      "freq_khz": 2415000,
+      "index": 70,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 890000
+    },
+    {
+      "base_freq_khz": 2347000,
+      "base_voltage_uv": 895000,
+      "current_offset_khz": 158000,
+      "freq_khz": 2497000,
+      "index": 71,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 895000
+    },
+    {
+      "base_freq_khz": 2370000,
+      "base_voltage_uv": 900000,
+      "current_offset_khz": 240000,
+      "freq_khz": 2610000,
+      "index": 72,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 900000
+    },
+    {
+      "base_freq_khz": 2400000,
+      "base_voltage_uv": 910000,
+      "current_offset_khz": 375000,
+      "freq_khz": 2775000,
+      "index": 73,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 910000
+    },
+    {
+      "base_freq_khz": 2422000,
+      "base_voltage_uv": 915000,
+      "current_offset_khz": 428000,
+      "freq_khz": 2842000,
+      "index": 74,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 915000
+    },
+    {
+      "base_freq_khz": 2445000,
+      "base_voltage_uv": 920000,
+      "current_offset_khz": 480000,
+      "freq_khz": 2925000,
+      "index": 75,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 920000
+    },
+    {
+      "base_freq_khz": 2475000,
+      "base_voltage_uv": 925000,
+      "current_offset_khz": 525000,
+      "freq_khz": 3000000,
+      "index": 76,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 925000
+    },
+    {
+      "base_freq_khz": 2497000,
+      "base_voltage_uv": 935000,
+      "current_offset_khz": 518000,
+      "freq_khz": 3007000,
+      "index": 77,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 935000
+    },
+    {
+      "base_freq_khz": 2520000,
+      "base_voltage_uv": 940000,
+      "current_offset_khz": 510000,
+      "freq_khz": 3030000,
+      "index": 78,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 940000
+    },
+    {
+      "base_freq_khz": 2542000,
+      "base_voltage_uv": 945000,
+      "current_offset_khz": 488000,
+      "freq_khz": 3030000,
+      "index": 79,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 945000
+    },
+    {
+      "base_freq_khz": 2565000,
+      "base_voltage_uv": 950000,
+      "current_offset_khz": 465000,
+      "freq_khz": 3030000,
+      "index": 80,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 950000
+    },
+    {
+      "base_freq_khz": 2587000,
+      "base_voltage_uv": 960000,
+      "current_offset_khz": 443000,
+      "freq_khz": 3030000,
+      "index": 81,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 960000
+    },
+    {
+      "base_freq_khz": 2610000,
+      "base_voltage_uv": 965000,
+      "current_offset_khz": 420000,
+      "freq_khz": 3030000,
+      "index": 82,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 965000
+    },
+    {
+      "base_freq_khz": 2632000,
+      "base_voltage_uv": 970000,
+      "current_offset_khz": 398000,
+      "freq_khz": 3030000,
+      "index": 83,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 970000
+    },
+    {
+      "base_freq_khz": 2647000,
+      "base_voltage_uv": 975000,
+      "current_offset_khz": 383000,
+      "freq_khz": 3030000,
+      "index": 84,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 975000
+    },
+    {
+      "base_freq_khz": 2670000,
+      "base_voltage_uv": 985000,
+      "current_offset_khz": 360000,
+      "freq_khz": 3030000,
+      "index": 85,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 985000
+    },
+    {
+      "base_freq_khz": 2692000,
+      "base_voltage_uv": 990000,
+      "current_offset_khz": 338000,
+      "freq_khz": 3030000,
+      "index": 86,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 990000
+    },
+    {
+      "base_freq_khz": 2707000,
+      "base_voltage_uv": 995000,
+      "current_offset_khz": 323000,
+      "freq_khz": 3030000,
+      "index": 87,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 995000
+    },
+    {
+      "base_freq_khz": 2737000,
+      "base_voltage_uv": 1000000,
+      "current_offset_khz": 293000,
+      "freq_khz": 3030000,
+      "index": 88,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1000000
+    },
+    {
+      "base_freq_khz": 2760000,
+      "base_voltage_uv": 1010000,
+      "current_offset_khz": 270000,
+      "freq_khz": 3030000,
+      "index": 89,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1010000
+    },
+    {
+      "base_freq_khz": 2782000,
+      "base_voltage_uv": 1015000,
+      "current_offset_khz": 248000,
+      "freq_khz": 3030000,
+      "index": 90,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1015000
+    },
+    {
+      "base_freq_khz": 2797000,
+      "base_voltage_uv": 1020000,
+      "current_offset_khz": 233000,
+      "freq_khz": 3030000,
+      "index": 91,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1020000
+    },
+    {
+      "base_freq_khz": 2812000,
+      "base_voltage_uv": 1025000,
+      "current_offset_khz": 218000,
+      "freq_khz": 3030000,
+      "index": 92,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1025000
+    },
+    {
+      "base_freq_khz": 2827000,
+      "base_voltage_uv": 1035000,
+      "current_offset_khz": 203000,
+      "freq_khz": 3030000,
+      "index": 93,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1035000
+    },
+    {
+      "base_freq_khz": 2842000,
+      "base_voltage_uv": 1040000,
+      "current_offset_khz": 188000,
+      "freq_khz": 3030000,
+      "index": 94,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1040000
+    },
+    {
+      "base_freq_khz": 2857000,
+      "base_voltage_uv": 1045000,
+      "current_offset_khz": 173000,
+      "freq_khz": 3030000,
+      "index": 95,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1045000
+    },
+    {
+      "base_freq_khz": 2865000,
+      "base_voltage_uv": 1050000,
+      "current_offset_khz": 165000,
+      "freq_khz": 3030000,
+      "index": 96,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1050000
+    },
+    {
+      "base_freq_khz": 2880000,
+      "base_voltage_uv": 1060000,
+      "current_offset_khz": 150000,
+      "freq_khz": 3030000,
+      "index": 97,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1060000
+    },
+    {
+      "base_freq_khz": 2887000,
+      "base_voltage_uv": 1065000,
+      "current_offset_khz": 143000,
+      "freq_khz": 3030000,
+      "index": 98,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1065000
+    },
+    {
+      "base_freq_khz": 2902000,
+      "base_voltage_uv": 1070000,
+      "current_offset_khz": 128000,
+      "freq_khz": 3030000,
+      "index": 99,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1070000
+    },
+    {
+      "base_freq_khz": 2917000,
+      "base_voltage_uv": 1075000,
+      "current_offset_khz": 113000,
+      "freq_khz": 3030000,
+      "index": 100,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1075000
+    },
+    {
+      "base_freq_khz": 2925000,
+      "base_voltage_uv": 1085000,
+      "current_offset_khz": 105000,
+      "freq_khz": 3030000,
+      "index": 101,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1085000
+    },
+    {
+      "base_freq_khz": 2940000,
+      "base_voltage_uv": 1090000,
+      "current_offset_khz": 90000,
+      "freq_khz": 3030000,
+      "index": 102,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1090000
+    },
+    {
+      "base_freq_khz": 2947000,
+      "base_voltage_uv": 1095000,
+      "current_offset_khz": 83000,
+      "freq_khz": 3030000,
+      "index": 103,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1095000
+    },
+    {
+      "base_freq_khz": 2962000,
+      "base_voltage_uv": 1100000,
+      "current_offset_khz": 68000,
+      "freq_khz": 3030000,
+      "index": 104,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1100000
+    },
+    {
+      "base_freq_khz": 2977000,
+      "base_voltage_uv": 1110000,
+      "current_offset_khz": 53000,
+      "freq_khz": 3030000,
+      "index": 105,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1110000
+    },
+    {
+      "base_freq_khz": 2985000,
+      "base_voltage_uv": 1115000,
+      "current_offset_khz": 45000,
+      "freq_khz": 3030000,
+      "index": 106,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1115000
+    },
+    {
+      "base_freq_khz": 2992000,
+      "base_voltage_uv": 1120000,
+      "current_offset_khz": 38000,
+      "freq_khz": 3030000,
+      "index": 107,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1120000
+    },
+    {
+      "base_freq_khz": 3007000,
+      "base_voltage_uv": 1125000,
+      "current_offset_khz": 23000,
+      "freq_khz": 3030000,
+      "index": 108,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1125000
+    },
+    {
+      "base_freq_khz": 3015000,
+      "base_voltage_uv": 1135000,
+      "current_offset_khz": 15000,
+      "freq_khz": 3030000,
+      "index": 109,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1135000
+    },
+    {
+      "base_freq_khz": 3030000,
+      "base_voltage_uv": 1140000,
+      "current_offset_khz": 0,
+      "freq_khz": 3030000,
+      "index": 110,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1140000
+    },
+    {
+      "base_freq_khz": 3037000,
+      "base_voltage_uv": 1145000,
+      "current_offset_khz": -7000,
+      "freq_khz": 3030000,
+      "index": 111,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1145000
+    },
+    {
+      "base_freq_khz": 3052000,
+      "base_voltage_uv": 1150000,
+      "current_offset_khz": -22000,
+      "freq_khz": 3030000,
+      "index": 112,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1150000
+    },
+    {
+      "base_freq_khz": 3060000,
+      "base_voltage_uv": 1160000,
+      "current_offset_khz": -30000,
+      "freq_khz": 3030000,
+      "index": 113,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1160000
+    },
+    {
+      "base_freq_khz": 3067000,
+      "base_voltage_uv": 1165000,
+      "current_offset_khz": -37000,
+      "freq_khz": 3030000,
+      "index": 114,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1165000
+    },
+    {
+      "base_freq_khz": 3082000,
+      "base_voltage_uv": 1170000,
+      "current_offset_khz": -52000,
+      "freq_khz": 3030000,
+      "index": 115,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1170000
+    },
+    {
+      "base_freq_khz": 3090000,
+      "base_voltage_uv": 1175000,
+      "current_offset_khz": -60000,
+      "freq_khz": 3030000,
+      "index": 116,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1175000
+    },
+    {
+      "base_freq_khz": 3097000,
+      "base_voltage_uv": 1185000,
+      "current_offset_khz": -67000,
+      "freq_khz": 3030000,
+      "index": 117,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1185000
+    },
+    {
+      "base_freq_khz": 3112000,
+      "base_voltage_uv": 1190000,
+      "current_offset_khz": -82000,
+      "freq_khz": 3030000,
+      "index": 118,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1190000
+    },
+    {
+      "base_freq_khz": 3120000,
+      "base_voltage_uv": 1195000,
+      "current_offset_khz": -90000,
+      "freq_khz": 3030000,
+      "index": 119,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1195000
+    },
+    {
+      "base_freq_khz": 3127000,
+      "base_voltage_uv": 1200000,
+      "current_offset_khz": -97000,
+      "freq_khz": 3030000,
+      "index": 120,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1200000
+    },
+    {
+      "base_freq_khz": 3135000,
+      "base_voltage_uv": 1210000,
+      "current_offset_khz": -105000,
+      "freq_khz": 3030000,
+      "index": 121,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1210000
+    },
+    {
+      "base_freq_khz": 3142000,
+      "base_voltage_uv": 1215000,
+      "current_offset_khz": -112000,
+      "freq_khz": 3030000,
+      "index": 122,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1215000
+    },
+    {
+      "base_freq_khz": 3157000,
+      "base_voltage_uv": 1220000,
+      "current_offset_khz": -127000,
+      "freq_khz": 3030000,
+      "index": 123,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1220000
+    },
+    {
+      "base_freq_khz": 3165000,
+      "base_voltage_uv": 1225000,
+      "current_offset_khz": -135000,
+      "freq_khz": 3030000,
+      "index": 124,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1225000
+    },
+    {
+      "base_freq_khz": 3172000,
+      "base_voltage_uv": 1235000,
+      "current_offset_khz": -142000,
+      "freq_khz": 3030000,
+      "index": 125,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1235000
+    },
+    {
+      "base_freq_khz": 3180000,
+      "base_voltage_uv": 1240000,
+      "current_offset_khz": -150000,
+      "freq_khz": 3030000,
+      "index": 126,
+      "type": 0,
+      "voltage_based": 1,
+      "voltage_uv": 1240000
+    },
+    {
+      "base_freq_khz": 405000,
+      "base_voltage_uv": 515000,
+      "current_offset_khz": 0,
+      "freq_khz": 405000,
+      "index": 127,
+      "type": 1,
+      "voltage_based": 0,
+      "voltage_uv": 515000
+    },
+    {
+      "base_freq_khz": 810000,
+      "base_voltage_uv": 535000,
+      "current_offset_khz": 0,
+      "freq_khz": 810000,
+      "index": 128,
+      "type": 1,
+      "voltage_based": 0,
+      "voltage_uv": 535000
+    },
+    {
+      "base_freq_khz": 7001000,
+      "base_voltage_uv": 620000,
+      "current_offset_khz": 0,
+      "freq_khz": 7001000,
+      "index": 129,
+      "type": 1,
+      "voltage_based": 0,
+      "voltage_uv": 620000
+    },
+    {
+      "base_freq_khz": 14801000,
+      "base_voltage_uv": 705000,
+      "current_offset_khz": 2000000,
+      "freq_khz": 16801000,
+      "index": 130,
+      "type": 0,
+      "voltage_based": 0,
+      "voltage_uv": 705000
+    },
+    {
+      "base_freq_khz": 15001000,
+      "base_voltage_uv": 705000,
+      "current_offset_khz": 2000000,
+      "freq_khz": 17001000,
+      "index": 131,
+      "type": 0,
+      "voltage_based": 0,
+      "voltage_uv": 705000
+    }
+  ],
+  "summary": {
+    "active_points": 132,
+    "editable_core_points": 127
+  },
+  "updated_unix_ns": 1790456274012293204
+}
