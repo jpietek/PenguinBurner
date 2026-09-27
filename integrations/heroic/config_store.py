@@ -24,6 +24,7 @@ from integrations.launchers.wrapper_manager import (
     CommandWrite,
     EffectiveCommand,
 )
+from overlay.wrapper_tokens import wrapper_present
 
 from .paths import game_config_path, global_config_path
 
@@ -71,25 +72,36 @@ def entries_command(entries: object) -> str:
 def command_entries(command: str, previous: object = ()) -> list[dict]:
     """The ``wrapperOptions`` list that runs ``command``, keeping the user's rows.
 
-    Our tokens are prepended, so every row the user configured is still at the
-    tail of the command word for word. Matching from the end keeps those rows
-    exactly as Heroic's settings table shows them, and rebuilds only the part
-    that actually changed.
+    Our tokens are appended innermost, so the user's rows sit ahead of them.
+    Matching whole rows from both ends keeps those exactly as Heroic's settings
+    table shows them, and rebuilds only the part that actually changed as one
+    row. Our own previous row is never matched: it is rebuilt from the command,
+    which is also what moves a legacy leading row innermost.
     """
     try:
         words = shlex.split(command or "")
     except ValueError as error:
         raise HeroicConfigError(f"Invalid wrapper command: {error}") from error
-    kept: list[dict] = []
-    rows = [entry for entry in (previous if isinstance(previous, list) else []) if isinstance(entry, dict)]
-    for entry in reversed(rows):
+    rows = [
+        entry for entry in (previous if isinstance(previous, list) else [])
+        if isinstance(entry, dict) and not wrapper_present(entries_command([entry]))
+    ]
+    head: list[dict] = []
+    for entry in rows:
+        entry_words = shlex.split(entries_command([entry]))
+        if not entry_words or words[: len(entry_words)] != entry_words:
+            break
+        head.append(entry)
+        words = words[len(entry_words) :]
+    tail: list[dict] = []
+    for entry in reversed(rows[len(head) :]):
         entry_words = shlex.split(entries_command([entry]))
         if not entry_words or words[len(words) - len(entry_words) :] != entry_words:
             break
-        kept.insert(0, entry)
+        tail.insert(0, entry)
         words = words[: len(words) - len(entry_words)]
-    head = [{"exe": words[0], "args": shlex.join(words[1:])}] if words else []
-    return head + kept
+    middle = [{"exe": words[0], "args": shlex.join(words[1:])}] if words else []
+    return head + middle + tail
 
 
 def read_game_config(app_name: str, home: Path | None = None, *, strict: bool = False) -> dict:

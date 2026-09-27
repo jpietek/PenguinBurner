@@ -8,9 +8,12 @@ from pathlib import Path
 
 import pytest
 import yaml
+from test_faugus_manager import _faugus, _game
+from test_faugus_manager import _manager as faugus_manager
 from test_heroic_manager import _manager as heroic_manager
 from test_lutris_manager import _manager as lutris_manager
 
+from integrations.faugus.library_source import FaugusLibrarySource
 from integrations.heroic import compat_probe
 from integrations.heroic import compatibility as heroic_compat
 from integrations.heroic.library_source import HeroicLibrarySource
@@ -31,7 +34,7 @@ def executable(path):
     return path
 
 
-@pytest.fixture(params=['heroic', 'lutris'])
+@pytest.fixture(params=['heroic', 'lutris', 'faugus'])
 def setup(request, tmp_path, monkeypatch):
     if request.param == 'heroic':
         manager = heroic_manager(tmp_path)
@@ -43,6 +46,14 @@ def setup(request, tmp_path, monkeypatch):
         path = root / 'GamesConfig/Turkey.json'
         document = {'version': 'v0', 'Turkey': {'winePrefix': '/keep/prefix', 'wrapperOptions': []}}
         path.write_text(json.dumps(document))
+    elif request.param == 'faugus':
+        document = [_game(runner=''), _game(gameid='other', runner='Keep-Me')]
+        path = _faugus(tmp_path, document)
+        manager = faugus_manager(tmp_path)
+        source = FaugusLibrarySource(manager, home=tmp_path)
+        game_id = 'e33'
+        value = 'GE-Test'
+        executable(tmp_path / '.local/share/Steam/compatibilitytools.d/GE-Test/proton')
     else:
         manager = lutris_manager(tmp_path)
         source = LutrisLibrarySource(manager, home=tmp_path)
@@ -74,6 +85,9 @@ def test_selection_and_default_preserve_other_settings(setup):
     if source.launcher_id == 'heroic':
         record = changed[game_id].pop('wineVersion')
         assert record == {'bin': value, 'name': 'GE-Test', 'type': 'proton'}
+    elif source.launcher_id == 'faugus':
+        assert changed[0]['runner'] == value
+        changed[0]['runner'] = ''
     else:
         assert changed['wine'].pop('version') == value
     assert changed == original
@@ -121,7 +135,12 @@ def test_invalid_document_is_never_overwritten(setup, broken):
 def test_native_games_disable_version_selection(setup):
     manager, source, game_id, value, path, _ = setup
     row = manager.row(game_id)
-    game = replace(row.game, **({'platform': 'linux'} if source.launcher_id == 'heroic' else {'runner': 'linux'}))
+    native_runner = 'Linux-Native' if source.launcher_id == 'faugus' else 'linux'
+    game = replace(row.game, **({'platform': 'linux'} if source.launcher_id == 'heroic' else {'runner': native_runner}))
+    if source.launcher_id == 'faugus':
+        document = read_config(path)
+        document[0]['runner'] = native_runner
+        path.write_text(json.dumps(document))
     manager._rows[game_id] = replace(row, game=game)
     before = path.read_bytes()
     assert not manager.compatibility.field(manager.row(game_id).game).enabled
@@ -129,7 +148,7 @@ def test_native_games_disable_version_selection(setup):
     assert path.read_bytes() == before
 
 
-def test_both_launchers_use_existing_qt_picker(setup, qapp, qtbot):
+def test_launchers_use_existing_qt_picker(setup, qapp, qtbot):
     from ui.components.game_library_panel import GameLibraryPanel
     from ui.qt import import_qt
 

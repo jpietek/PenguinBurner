@@ -12,11 +12,9 @@ from overlay.render_api import overlay_support
 
 from .manager import HeroicIntegrationManager
 from .process import (
-    HeroicSessions,
     heroic_available,
     launch_heroic_game,
     probe_heroic_sessions,
-    stop_heroic_game,
 )
 
 
@@ -30,8 +28,6 @@ class HeroicLibrarySource(WrapperLibrarySource):
     command_field_key = "wrapper_command"
     command_field_subtitle = "Wrapper command in the Heroic settings"
     command_field_inherited_subtitle = "Wrapper command — inherited from {source}"
-    _running_pids: tuple[int, ...] = ()
-    _external_games: frozenset[str] = frozenset()
 
     def watch_paths(self) -> tuple[Path, ...]:
         from .paths import (
@@ -87,57 +83,8 @@ class HeroicLibrarySource(WrapperLibrarySource):
             directory=game.install_path or None,
         )
 
-    # -- launching -------------------------------------------------------------
+    def _launch_game(self, row: LauncherGameRow) -> bool:
+        return launch_heroic_game(row.game.runner, row.game.game_id, home=self._home)
 
-    def launch(self, game_id: str) -> tuple[bool, str]:
-        """Ask Heroic to start a game. Returns (started, what to tell the user)."""
-        if not self.can_launch:
-            return False, "FAILED to launch (Heroic is not installed or could not be found)"
-        row = self.manager.row(game_id)
-        if row is None:
-            return False, "FAILED to launch (no such game in the Heroic library)"
-        if launch_heroic_game(row.game.runner, row.game.game_id, home=self._home):
-            return True, "launching via Heroic…"
-        return False, "FAILED to launch (heroic would not start the game)"
-
-    def stop(self, game_id: str) -> tuple[bool, str]:
-        """Signal the wrapped game's surviving session members."""
-        running = self._running_sessions()
-        if running is None:
-            return False, "FAILED to stop (could not tell what is running)"
-        pids = running.wrapped.get(str(game_id), ())
-        if not pids:
-            return False, "FAILED to stop (no running session for this game)"
-        # Handoffs can leave several identified successors. Stop every wrapped
-        # member, never an external launcher process or detached PB helper.
-        stopped = [stop_heroic_game(pid, str(game_id)) for pid in pids]
-        if all(stopped):
-            return True, "stopping…"
-        return False, "FAILED to stop (the wrapper would not take the signal)"
-
-    def running_game_ids(self) -> frozenset[str] | None:
-        """Which of this launcher's games are running, or None if unknowable.
-
-        Heroic's own launch children remain observable without our wrapper.
-        They are kept separate from the wrapper sessions Stop can control.
-        """
-        running = self._running_sessions()
-        return None if running is None else frozenset(running.wrapped) | frozenset(running.external)
-
-    def external_game_ids(self) -> frozenset[str]:
-        """Observed games that must be closed in Heroic, from the latest poll."""
-        return self._external_games
-
-    def observed_processes(self) -> dict[str, tuple[int, ...]] | None:
-        sessions = self._running_sessions()
-        return None if sessions is None else sessions.external
-
-    def _running_sessions(self) -> HeroicSessions | None:
-        running = probe_heroic_sessions(known_pids=self._running_pids)
-        if running is not None:
-            self._running_pids = tuple(
-                pid for group in (running.wrapped, running.external)
-                for pids in group.values() for pid in pids
-            )
-            self._external_games = frozenset(running.external) - frozenset(running.wrapped)
-        return running
+    def probe_sessions(self, *, known_pids=()):
+        return probe_heroic_sessions(known_pids=known_pids)
