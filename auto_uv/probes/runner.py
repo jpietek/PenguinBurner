@@ -15,6 +15,7 @@ from auto_uv.domain.types import (
     FailureSeverity,
     VfCurveCandidate,
 )
+from auto_uv.persistence.scan_checkpoint import ScanCheckpoint
 from auto_uv.run.voltage_sweep_state import VoltageProbeOutcome
 from stability.q2rtx.models import Q2RTXStabilityConfig
 
@@ -44,6 +45,7 @@ class AutoUvProbeRunner:
     log: Callable[[str], None]
     marker_details: dict | None = None
     event_callback: AutoUvEventCallback | None = None
+    checkpoint: ScanCheckpoint | None = None
 
     def probe_default_curve(
         self,
@@ -52,7 +54,7 @@ class AutoUvProbeRunner:
         label_voltage_mv: int,
         label_clock_mhz: int,
     ) -> tuple[AutoUvProbeSummary, object]:
-        return probe_voltage_candidate(
+        return self._probe(
             reader=self.reader,
             candidate_plan=base_curve,
             candidate_voltage_mv=int(label_voltage_mv),
@@ -136,7 +138,7 @@ class AutoUvProbeRunner:
             stage=str(phase_label),
             target_duration_s=probe_ui_target_duration_s(config),
         )
-        summary, result = probe_voltage_candidate(
+        summary, result = self._probe(
             reader=self.reader,
             candidate_plan=candidate.flattened_plan,
             candidate_voltage_mv=int(candidate.voltage_mv),
@@ -161,6 +163,8 @@ class AutoUvProbeRunner:
             stable_history=stable_history,
             q2rtx_config=config,
         )
+        if self.checkpoint is not None and outcome.decision.passed:
+            self.checkpoint.note_pass(candidate, summary)
         emit_voltage_probe_finished(
             self.event_callback,
             candidate,
@@ -168,6 +172,17 @@ class AutoUvProbeRunner:
             stage=str(phase_label),
         )
         return outcome
+
+    def _probe(self, **kwargs):
+        if self.checkpoint is None:
+            return probe_voltage_candidate(**kwargs)
+        key = {
+            name: value for name, value in kwargs.items()
+            if name not in {"reader", "nvml_session", "log", "event_callback", "stable_history"}
+        }
+        return self.checkpoint.probe(
+            {"probe": key}, lambda: probe_voltage_candidate(**kwargs),
+        )
 
     def outcome_from_probe_result(
         self,

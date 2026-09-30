@@ -46,7 +46,8 @@ def parse_arguments(argv):
         help=(
             "Discover a stable fixed-clock undervolt from the live/default "
             "NVIDIA V/F curve, step the lock voltage down through real editable "
-            "VF bins, and verify candidates with Q2RTX plus CUDA load"
+            "VF bins, and verify candidates with Q2RTX plus CUDA load. "
+            "Resume an unfinished scan automatically when the GPU and settings match"
         ),
     )
     auto_uv_group.add_argument(
@@ -111,7 +112,8 @@ def parse_arguments(argv):
         default=None,
         help=(
             "Q2RTX resolution for the complete Auto-UV scan and final verification. "
-            "Default: auto (1440p with up to 8 GiB VRAM, otherwise 4K). "
+            "Default: auto (4K on desktop RTX 4080/Super, 4090, 5070 Ti, "
+            "5080 and 5090; 1080p on all others, including unknown GPUs). "
             "Use 1080p to compare a lighter rendering workload. CUDA is unchanged."
         ),
     )

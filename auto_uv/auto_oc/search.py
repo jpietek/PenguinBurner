@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Protocol
 
 from auto_uv.curve.base_vf_curve_voltage_bins import editable_voltage_bins
@@ -99,6 +99,22 @@ def run_auto_oc_candidate_search(
         return AutoOcSearchResult(
             selected_candidate=start_candidate, selected_probe=start_probe
         )
+
+    # The loaded descent can need more voltage than the default table point.
+    # Keep that proven voltage and search the remaining clock headroom; an
+    # explicit user voltage limit must still remain a hard bound.
+    if (
+        target_profile_id == AUTO_OC_TARGET_PROFILE_ID
+        and target_voltage_mv is None
+        and start_candidate.voltage_mv > endpoint.voltage_mv
+        and start_candidate.target_mhz < endpoint.clock_mhz
+    ):
+        log_phase(
+            log, "auto-oc",
+            f"default voltage target {endpoint.voltage_mv}mV below proven "
+            f"{start_candidate.voltage_mv}mV; climbing at the proven voltage",
+        )
+        endpoint = replace(endpoint, voltage_mv=int(start_candidate.voltage_mv))
 
     ladder = build_auto_oc_ladder(
         base_curve,

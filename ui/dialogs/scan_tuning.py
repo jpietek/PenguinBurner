@@ -665,6 +665,9 @@ def select_scan_tuning(
     buttons.addButton(standard_enum.Cancel)
     buttons.accepted.connect(dialog.accept)
     buttons.rejected.connect(dialog.reject)
+    start_button.setToolTip(
+        "Resume an unfinished scan when the GPU and settings match; otherwise start a new scan."
+    )
     start_button.setDefault(True)
     start_button.setEnabled(bool(gpu_choices))
     for group in (scope_group, preset_group, advanced_group):

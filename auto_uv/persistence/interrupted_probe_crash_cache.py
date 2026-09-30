@@ -11,6 +11,7 @@ from .unsafe_voltage_blacklist_file import record_unsafe_voltage
 CRASH_CACHE_CANDIDATE_PHASES = {
     "candidate",
     "final-verify",
+    "resume-verify",
     "efficiency-candidate",
     "balanced-candidate",
     "performance-candidate",

@@ -86,6 +86,9 @@ def run_final_verification_and_save(
     final_lock_clock_mhz = int(stable_lock_clock_mhz)
     final_plan = stable_plan
     final_status = "not-run"
+    verification_stage = (
+        "resume-verify" if (auto_oc_metadata or {}).get("resume_recovery") else "final-verify"
+    )
     blocked = unsafe_voltage_block_reason(
         load_unsafe_voltage_blacklist(),
         candidate_voltage_mv=final_voltage_mv,
@@ -130,7 +133,7 @@ def run_final_verification_and_save(
     emit_voltage_probe_started(
         event_callback,
         candidate,
-        stage="final-verify",
+        stage=verification_stage,
         target_duration_s=int(final_verification_duration_s),
     )
     log_final_probe_start(
@@ -181,7 +184,7 @@ def run_final_verification_and_save(
         initial_probe_clock_mhz=measured_clock_mhz,
         nvml_session=nvml_session,
         log=log,
-        phase_label="final-verify",
+        phase_label=verification_stage,
         log_context="",
         power_limit_w=gpu_policy.get("power_limit_w"),
         reset_plan=runtime_default_plan,
@@ -210,7 +213,7 @@ def run_final_verification_and_save(
         event_callback,
         candidate,
         outcome,
-        stage="final-verify",
+        stage=verification_stage,
     )
     log_benchmark(
         log,

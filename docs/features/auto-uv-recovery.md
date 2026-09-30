@@ -48,10 +48,33 @@ force a higher clock.
 An abrupt power loss or forced kill can leave the same marker. The record
 means the probe ended abruptly; it does not prove GPU instability.
 
-When compatible checkpoints exist for the requested tier, the GUI offers a
-recovery candidate before repeating discovery. Resuming skips completed voltage
-work and proceeds to remaining clock tuning and final verification.
-**Start From Scratch** repeats the scan while retaining unsafe-point history.
+Click **Start Auto Undervolt** again with the same GPU and scan settings to
+resume an unfinished scan. Opening the app never starts or resumes GPU work.
+The Auto-UV tab restores its Runs table, baseline, measured results, candidate
+curves, tier progress and completed tier curves. The plot returns to the last
+passing candidate; failed and incomplete probes are omitted. The header
+shows **Resuming**, and the restored measurements are historical, not new live
+telemetry.
+
+The scan reuses completed measurements, skips blacklisted candidates, and
+long-verifies a recovery candidate at a previously passing lower clock outside
+the blacklist and one editable voltage bin above its measured voltage. This
+recovery voltage may exceed the original target; the added margin is one bin
+above the saved candidate. Power and memory settings stay unchanged. The
+**Resume verification** row represents a new measurement, not a previously
+verified combination. Its duration follows
+the active tier (Efficiency 1 minute, Balanced 3 minutes, Performance 5 minutes,
+or the configured override), using Q2RTX and CUDA. On success it completes that
+tier and continues remaining tiers; a failed resume verification stops further
+GPU work. No eligible recovery point means the scan stops with an explanation.
+Completed tier verifications are reused only while their saved profiles remain unchanged. Final verification
+that was interrupted must run again in full.
+
+Progress is saved atomically in `uv-result/auto-uv-scan-checkpoint.json`. A
+changed GPU, driver, base curve, scan settings, workload or algorithm starts a
+new scan while preserving the blacklist. Completed scans clear the checkpoint.
+Older runs without this checkpoint can still offer the existing saved-candidate
+recovery, but their text logs cannot reconstruct a complete resumable scan.
 
 ## Clearing scan history
 
