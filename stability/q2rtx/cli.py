@@ -72,8 +72,8 @@ def parse_q2rtx_stability_args(argv: list[str] | None = None) -> argparse.Namesp
         type=int,
         default=None,
         help=(
-            "Q2RTX render width; default auto "
-            f"(<=8 GiB VRAM: 2560, >8 GiB/unknown: {DEFAULT_WIDTH})"
+            "Q2RTX render width; default auto by GPU model "
+            f"(supported high-end desktop GPUs: {DEFAULT_WIDTH}, all others: 1920)"
         ),
     )
     parser.add_argument(
@@ -81,8 +81,8 @@ def parse_q2rtx_stability_args(argv: list[str] | None = None) -> argparse.Namesp
         type=int,
         default=None,
         help=(
-            "Q2RTX render height; default auto "
-            f"(<=8 GiB VRAM: 1440, >8 GiB/unknown: {DEFAULT_HEIGHT})"
+            "Q2RTX render height; default auto by GPU model "
+            f"(supported high-end desktop GPUs: {DEFAULT_HEIGHT}, all others: 1080)"
         ),
     )
     parser.add_argument(

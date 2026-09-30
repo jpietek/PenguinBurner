@@ -99,7 +99,7 @@ def test_build_stability_config_repairs_partial_managed_install(
             height=1440,
             reason="test",
             auto_selected=False,
-            vram_total_bytes=None,
+            gpu_name="",
         ),
     )
 

@@ -61,8 +61,12 @@ verification keeps the selected curve, memory offset, and power limit intact.
 A failed final check can retry the next safer tested curve.
 
 The managed [headless Q2RTX benchmark](https://github.com/jpietek/Q2RTX-headless)
-needs no display server. Resolution is 2560×1440 for GPUs with at most 8 GiB of
-VRAM, otherwise 3840×2160, including when VRAM is unavailable.
+needs no display server. Automatic resolution is 3840×2160 (4K) on desktop
+RTX 4080, 4080 Super, 4090, 5070 Ti, 5080, and 5090. Every other GPU uses
+1920×1080, including RTX 3080/3090, laptop variants, unrecognized models, and
+unavailable GPU identification. Selection uses the GPU model, not VRAM size.
+This keeps the heavier instability workload on the supported high-end cards
+without letting 4K establish an unnecessarily low scan baseline on other GPUs.
 
 For a manual CLI comparison, select `auto`, `1080p`, `1440p`, or `4k` with
 `--auto-uv-q2rtx-resolution`. For example:
