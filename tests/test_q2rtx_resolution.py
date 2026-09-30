@@ -28,8 +28,12 @@ def _patch_gpu(monkeypatch, name: str) -> None:
     " GeForce RTX 5070Ti ",
     "nvidia geforce rtx 4080super",
     "RTX 5080",
+    "NVIDIA GeForce RTX 4090 Laptop GPU",
+    "NVIDIA GeForce RTX 5090 Laptop GPU",
+    " GeForce RTX 4090 Laptop ",
+    "nvidia geforce rtx 5090 laptop gpu",
 ])
-def test_auto_resolution_uses_4k_only_for_supported_desktop_models(monkeypatch, name) -> None:
+def test_auto_resolution_uses_4k_only_for_supported_models(monkeypatch, name) -> None:
     # Only identity is supplied: resolution no longer reads VRAM capacity.
     _patch_gpu(monkeypatch, name)
 
@@ -54,10 +58,11 @@ def test_auto_resolution_uses_4k_only_for_supported_desktop_models(monkeypatch, 
     "NVIDIA GeForce RTX 5060 Ti",
     "NVIDIA GeForce RTX 5070",
     "NVIDIA GeForce RTX 4080 Laptop GPU",
-    "NVIDIA GeForce RTX 4090 Laptop GPU",
     "NVIDIA GeForce RTX 5070 Ti Laptop GPU",
     "NVIDIA GeForce RTX 5080 Laptop GPU",
-    "NVIDIA GeForce RTX 5090 Laptop GPU",
+    "NVIDIA GeForce RTX 5090 Ti Laptop GPU",
+    "NVIDIA GeForce RTX 4090 Laptop GPU Engineering Sample",
+    "NVIDIA GeForce RTX 5090 Laptop GPU Max-Q",
     "NVIDIA GeForce RTX 5080 Max-Q",
     "NVIDIA RTX A6000",
     "NVIDIA RTX PRO 6000 Blackwell",
@@ -182,6 +187,10 @@ def test_auto_uv_cli_resolution_reaches_workload_and_final_config(
 
 @pytest.mark.parametrize("name, expected", [
     ("NVIDIA GeForce RTX 5070 Ti", (3840, 2160)),
+    ("NVIDIA GeForce RTX 4090 Laptop GPU", (3840, 2160)),
+    ("NVIDIA GeForce RTX 5090 Laptop GPU", (3840, 2160)),
+    ("NVIDIA GeForce RTX 5080 Laptop GPU", (1920, 1080)),
+    ("NVIDIA GeForce RTX 5070 Ti Laptop GPU", (1920, 1080)),
     ("NVIDIA GeForce RTX 3080", (1920, 1080)),
     ("unknown", (1920, 1080)),
 ])

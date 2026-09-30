@@ -113,7 +113,8 @@ def parse_arguments(argv):
         help=(
             "Q2RTX resolution for the complete Auto-UV scan and final verification. "
             "Default: auto (4K on desktop RTX 4080/Super, 4090, 5070 Ti, "
-            "5080 and 5090; 1080p on all others, including unknown GPUs). "
+            "5080 and 5090, plus RTX 4090/5090 Laptop; "
+            "1080p on all others, including unknown GPUs). "
             "Use 1080p to compare a lighter rendering workload. CUDA is unchanged."
         ),
     )
