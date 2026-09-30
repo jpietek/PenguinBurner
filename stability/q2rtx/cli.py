@@ -73,7 +73,8 @@ def parse_q2rtx_stability_args(argv: list[str] | None = None) -> argparse.Namesp
         default=None,
         help=(
             "Q2RTX render width; default auto by GPU model "
-            f"(supported high-end desktop GPUs: {DEFAULT_WIDTH}, all others: 1920)"
+            f"(listed desktop GPUs and RTX 4090/5090 Laptop: {DEFAULT_WIDTH}, "
+            "all others: 1920)"
         ),
     )
     parser.add_argument(
@@ -82,7 +83,8 @@ def parse_q2rtx_stability_args(argv: list[str] | None = None) -> argparse.Namesp
         default=None,
         help=(
             "Q2RTX render height; default auto by GPU model "
-            f"(supported high-end desktop GPUs: {DEFAULT_HEIGHT}, all others: 1080)"
+            f"(listed desktop GPUs and RTX 4090/5090 Laptop: {DEFAULT_HEIGHT}, "
+            "all others: 1080)"
         ),
     )
     parser.add_argument(

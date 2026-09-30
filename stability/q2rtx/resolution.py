@@ -57,12 +57,13 @@ def resolve_q2rtx_render_resolution(
         gpu_name = DaemonGpuClient(int(gpu_index)).capabilities().identity.name
     except Exception:  # noqa: BLE001
         gpu_name = ""
-    # Only explicitly supported desktop models use the heavier 4K workload.
-    # Full matching excludes laptop variants and unknown model suffixes;
+    # Only listed desktop models and the 4090/5090 Laptop use the 4K workload.
+    # Full matching excludes other laptop variants and unknown model suffixes;
     # memory capacity alone does not establish ray-tracing capability.
     use_4k = re.fullmatch(
         r"(?:NVIDIA\s+)?(?:GEFORCE\s+)?RTX\s*"
-        r"(?:4080(?:\s*SUPER)?|4090|5070\s*TI|5080|5090)",
+        r"(?:4080(?:\s*SUPER)?|5070\s*TI|5080|"
+        r"(?:4090|5090)(?:\s+LAPTOP(?:\s+GPU)?)?)",
         gpu_name.strip(),
         flags=re.IGNORECASE,
     ) is not None
