@@ -1126,24 +1126,6 @@ def run_adaptive_tier_scans(
                         log=log,
                     )
                 )
-                if tier_mode == AUTO_UV_MODE_BALANCED:
-                    balanced_donation = BalancedDescentDonation(
-                        candidate=tier_candidate,
-                        tail_rise_bins=int(tier_final_tail),
-                        probe=tier_probe,
-                        history=tier_history,
-                        descent_tail_rise_bins=adaptive_tier_descent_tail_rise_bins(
-                            AUTO_UV_MODE_BALANCED
-                        ),
-                        memory_offset_mhz=tier_memory_offset_mhz,
-                        power_limit_w=positive_int(gpu.power_limit_w),
-                        baseline_voltage_mv=int(
-                            tier_baseline_candidate.voltage_mv
-                        ),
-                        baseline_target_mhz=int(
-                            tier_baseline_candidate.target_mhz
-                        ),
-                    )
         except (RuntimeError, OSError) as tier_error:
             if not record_tier_failure(
                 tier_mode=str(tier_mode),
@@ -1244,6 +1226,32 @@ def run_adaptive_tier_scans(
             ):
                 break
             continue
+        if tier_mode == AUTO_UV_MODE_BALANCED:
+            # Final selection may reclaim clocks, and its soak may fall back
+            # to a safer curve. Donate the actual verified endpoint and its
+            # complete tested plan, never the preliminary descent candidate.
+            verified_probe = tier_scan_result.probes[-1] if tier_scan_result.probes else None
+            if (
+                verified_probe is not None
+                and verified_probe.tested_plan is not None
+                and verified_probe.candidate_voltage_mv == tier_scan_result.final_voltage_mv
+                and verified_probe.lock_clock_mhz == tier_scan_result.lock_clock_mhz
+            ):
+                balanced_donation = BalancedDescentDonation(
+                    candidate=VfCurveCandidate(
+                        "balanced-verified", verified_probe.candidate_voltage_mv,
+                        verified_probe.lock_clock_mhz,
+                        [dict(point) for point in verified_probe.tested_plan],
+                    ),
+                    tail_rise_bins=int(tier_selection.tail_rise_bins),
+                    probe=verified_probe,
+                    history=[*tier_history, verified_probe],
+                    descent_tail_rise_bins=int(tier_tail_rise_bins),
+                    memory_offset_mhz=tier_memory_offset_mhz,
+                    power_limit_w=positive_int(gpu.power_limit_w),
+                    baseline_voltage_mv=int(tier_baseline_candidate.voltage_mv),
+                    baseline_target_mhz=int(tier_baseline_candidate.target_mhz),
+                )
         emit_auto_uv_event(
             event_callback,
             "tier_completed",
@@ -1547,7 +1555,7 @@ def adaptive_tier_descent_tail_rise_bins(tier_mode: str) -> int:
 
 @dataclass(frozen=True)
 class BalancedDescentDonation:
-    """The balanced tier's completed descent, offered to the performance tier.
+    """Balanced's verified endpoint and descent, offered to Performance.
 
     Captured with the inputs that made the descent what it was (tail bins and
     the live memory offset) so performance can check the ladder it would run

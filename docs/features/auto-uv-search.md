@@ -14,7 +14,9 @@ All tiers starts with Efficiency's baseline. Balanced and Performance can
 share a baseline when power limit, memory offset, and tail settings match.
 For example, a 300 W / 360 W / 360 W run needs baseline pairs at 300 W and 360 W.
 Performance reuses Balanced's descent only when the remaining baseline and
-measured-clock checks also pass.
+measured-clock checks also pass. It starts from Balanced's final verified
+curve, including any clock reclaim or safer fallback selected during final
+verification, and keeps the passed descent points for recovery.
 
 ## Voltage and clock search
 
@@ -28,6 +30,12 @@ including candidates before any clock climb. It compares unrounded values;
 equal FPS/W favors higher measured clock, then lower power. Its table clock
 is an upper search limit. Balanced uses the performance-and-efficiency
 selection policy; Performance adds the Auto-OC ladder.
+
+If the proven Performance starting voltage exceeds its default table target,
+Auto-OC can still increase clocks at that same voltage up to the existing
+Performance clock target. An explicit voltage target keeps its requested
+bound. Balanced and Performance retain their shared power budget and can
+still converge if no higher stable measured clock is found.
 
 Efficiency and Balanced can reclaim clock at the already-proven voltage on a
 power-limited baseline. Custom lower clocks are tested after voltage descent,

@@ -1,14 +1,18 @@
 from __future__ import annotations
 
-from contextlib import nullcontext
 import inspect
 import json
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
 import pytest
+from auto_uv_test_data import base_curve
 
+from auto_uv import main_loop as undervolt_main_loop
+from auto_uv import performance_uv_loop
+from auto_uv.curve.vf_curve_flattening import build_flattened_plan
 from auto_uv.domain.types import (
     AutoUvCriticalProbeError,
     AutoUvError,
@@ -19,20 +23,15 @@ from auto_uv.domain.types import (
     StableRunDecision,
     VfCurveCandidate,
 )
-from auto_uv.run import baseline_probe
-from auto_uv.run import crash_recovery
-from auto_uv import main_loop as undervolt_main_loop
-from auto_uv import performance_uv_loop
 from auto_uv.final_verification.main_loop import (
     run_final_verification_and_save as real_run_final_verification_and_save,
 )
+from auto_uv.run import baseline_probe, crash_recovery
 from auto_uv.run.voltage_sweep_state import (
     LowerVoltageSweepResult,
     VoltageProbeOutcome,
     VoltageSweepState,
 )
-from auto_uv_test_data import base_curve
-from auto_uv.curve.vf_curve_flattening import build_flattened_plan
 
 
 def _summary(voltage_mv: int, clock_mhz: int) -> AutoUvProbeSummary:
@@ -70,13 +69,21 @@ def _assert_final_verification_kwargs_match_real_signature(kwargs: dict) -> None
     assert unexpected == set()
 
 
+def _verified_result(voltage_mv, clock_mhz, plan):
+    probe = _summary(voltage_mv, clock_mhz)
+    probe.tested_plan = list(plan)
+    return SimpleNamespace(
+        final_voltage_mv=voltage_mv, lock_clock_mhz=clock_mhz, probes=[probe],
+    )
+
+
 def test_discovery_probe_runner_uses_live_voltage_reader_keyword(monkeypatch) -> None:
     captured = {}
 
     class FakeGpu:
         reader = object()
         live_voltage_reader = object()
-        runtime_default_plan = []
+        runtime_default_plan: ClassVar[list] = []
         power_limit_w = 390
         baseline_power_limit_w = 360
 
@@ -127,7 +134,7 @@ def test_discovery_probe_logs_selected_gpu_light_load_diagnostic(monkeypatch) ->
     class FakeGpu:
         reader = object()
         live_voltage_reader = object()
-        runtime_default_plan = []
+        runtime_default_plan: ClassVar[list] = []
         power_limit_w = 110
 
     class FakeRunner:
@@ -235,7 +242,7 @@ def test_auto_uv_final_choice_runs_before_final_verification(monkeypatch) -> Non
         runtime_default_plan = curve
         power_limit_w = 320
         clock_ceiling = None
-        translated_gpu_policy = {}
+        translated_gpu_policy: ClassVar[dict] = {}
 
         def start_clock_ceiling(self, _target) -> None:
             return None
@@ -427,7 +434,7 @@ def test_final_verification_automatically_retries_safer_tested_curve(
         runtime_default_plan = curve
         power_limit_w = 320
         clock_ceiling = None
-        translated_gpu_policy = {}
+        translated_gpu_policy: ClassVar[dict] = {}
 
         def start_clock_ceiling(self, _target) -> None:
             return None
@@ -615,7 +622,7 @@ def test_performance_auto_oc_runs_before_final_choice(monkeypatch) -> None:
         runtime_default_plan = curve
         power_limit_w = 320
         clock_ceiling = None
-        translated_gpu_policy = {"gpu_name": "NVIDIA GeForce RTX 4090"}
+        translated_gpu_policy: ClassVar[dict] = {"gpu_name": "NVIDIA GeForce RTX 4090"}
 
         def start_clock_ceiling(self, _target) -> None:
             return None
@@ -876,7 +883,7 @@ def test_previous_crash_resume_starts_auto_oc_from_next_saved_voltage(
         runtime_default_plan = curve
         power_limit_w = 320
         clock_ceiling = None
-        translated_gpu_policy = {"gpu_name": "NVIDIA GeForce RTX 4090"}
+        translated_gpu_policy: ClassVar[dict] = {"gpu_name": "NVIDIA GeForce RTX 4090"}
 
         def start_clock_ceiling(self, _target) -> None:
             return None
@@ -1105,7 +1112,7 @@ def test_auto_uv_user_stop_offers_stable_history_for_final_choice(monkeypatch) -
         runtime_default_plan = curve
         power_limit_w = 320
         clock_ceiling = None
-        translated_gpu_policy = {}
+        translated_gpu_policy: ClassVar[dict] = {}
 
         def start_clock_ceiling(self, _target) -> None:
             return None
@@ -2056,7 +2063,7 @@ def _orchestration_fake_gpu(curve):
         runtime_default_plan = curve
         power_limit_w = 320
         clock_ceiling = None
-        translated_gpu_policy = {}
+        translated_gpu_policy: ClassVar[dict] = {}
 
         def start_clock_ceiling(self, _target) -> None:
             return None
@@ -2512,11 +2519,11 @@ def test_adaptive_tier_power_limit_scales_from_the_balanced_anchor() -> None:
 
 
 def test_adaptive_tier_order_and_descent_tails() -> None:
+    from auto_uv.domain.user_options import AUTO_UV_DEFAULTS
     from auto_uv.main_loop import (
         ADAPTIVE_TIER_ORDER,
         adaptive_tier_descent_tail_rise_bins,
     )
-    from auto_uv.domain.user_options import AUTO_UV_DEFAULTS
 
     # Efficiency first: it descends deepest (most fragile), so it soaks the
     # full final duration while shallower tiers get the graduated confirm.
@@ -2539,7 +2546,7 @@ def test_adaptive_tier_order_and_descent_tails() -> None:
 
 
 def test_adaptive_tier_progress_events_are_chronological(monkeypatch) -> None:
-    import auto_uv.main_loop as main_loop
+    from auto_uv import main_loop
 
     events = []
     tier_index = {
@@ -2584,10 +2591,8 @@ def test_adaptive_tier_progress_events_are_chronological(monkeypatch) -> None:
         )
 
     def fake_finish(**kwargs):
-        return SimpleNamespace(
-            final_voltage_mv=int(kwargs["selection"].voltage_mv),
-            lock_clock_mhz=int(kwargs["selection"].lock_clock_mhz),
-        )
+        selection = kwargs["selection"]
+        return _verified_result(selection.voltage_mv, selection.lock_clock_mhz, selection.plan)
 
     monkeypatch.setattr(main_loop, "run_adaptive_tier_descent", fake_descent)
     monkeypatch.setattr(main_loop, "select_final_scan_candidate", fake_selection)
@@ -2788,7 +2793,7 @@ def test_performance_can_reuse_balanced_descent_gate() -> None:
 
 def _adaptive_scan_kwargs(*, events, descent_calls, runtime_options=None):
     """Shared fixture for run_adaptive_tier_scans reuse tests."""
-    import auto_uv.main_loop as main_loop
+    from auto_uv import main_loop
 
     tier_index = {"efficiency": 0, "balanced": 1, "performance": 2}
 
@@ -2806,10 +2811,8 @@ def _adaptive_scan_kwargs(*, events, descent_calls, runtime_options=None):
         return candidate, 4, probe, [object()]
 
     def fake_finish(**kwargs):
-        return SimpleNamespace(
-            final_voltage_mv=int(kwargs["selection"].voltage_mv),
-            lock_clock_mhz=int(kwargs["selection"].lock_clock_mhz),
-        )
+        selection = kwargs["selection"]
+        return _verified_result(selection.voltage_mv, selection.lock_clock_mhz, selection.plan)
 
     return main_loop, fake_descent, dict(
         base_curve=[],
@@ -2890,7 +2893,8 @@ def test_adaptive_performance_reuses_balanced_descent(monkeypatch) -> None:
     assert performance["stable_voltage_mv"] == balanced["stable_voltage_mv"] == 910
     assert performance["stable_lock_clock_mhz"] == 2520
     assert performance["run_performance_auto_oc"] is True
-    assert performance["stable_history"] == balanced["stable_history"]
+    assert performance["stable_history"][:-1] == balanced["stable_history"]
+    assert performance["stable_history"][-1] is performance["stable_probe"]
     assert performance["stable_history"] is not balanced["stable_history"]
 
 
@@ -2932,6 +2936,115 @@ def test_adaptive_performance_descends_after_balanced_verification_failure(
     assert not [event for event, _ in events if event == "tier_descent_reused"]
     skipped = [payload for event, payload in events if event == "tier_skipped"]
     assert [payload["tier"] for payload in skipped] == ["balanced"]
+
+
+@pytest.mark.parametrize("verified_clock", [1890, 1860])
+def test_performance_reuses_final_verified_balanced_curve(monkeypatch, verified_clock):
+    """Donate the reclaimed curve, or the safer curve that passed a final retry."""
+    events, descents = [], []
+    main, fake_descent, kwargs = _adaptive_scan_kwargs(events=events, descent_calls=descents)
+    kwargs["gpu"].clamp_power_limit_w = int
+    selections = {}
+    verified_probe = _summary(937, verified_clock)
+    verified_probe.tested_plan = [{
+        "voltage_mv": 937, "base_mhz": 1800, "target_mhz": verified_clock,
+    }]
+
+    def select(**options):
+        tier = options["auto_uv_mode_override"]
+        selections[tier] = options
+        return SimpleNamespace(
+            plan=verified_probe.tested_plan if tier == "balanced" else options["stable_plan"],
+            voltage_mv=937 if tier == "balanced" else options["stable_voltage_mv"],
+            lock_clock_mhz=1890 if tier == "balanced" else options["stable_lock_clock_mhz"],
+            probe=options["stable_probe"],
+            tail_rise_bins=options["tail_rise_bins"],
+        )
+
+    def finish(**options):
+        selection = options["selection"]
+        if options["final_auto_uv_mode"] == "balanced":
+            return SimpleNamespace(final_voltage_mv=937, lock_clock_mhz=verified_clock,
+                                   probes=[verified_probe])
+        return SimpleNamespace(final_voltage_mv=selection.voltage_mv,
+                               lock_clock_mhz=selection.lock_clock_mhz)
+
+    def descend(curve, *, tier_mode, **options):
+        candidate, tail, probe, history = fake_descent(curve, tier_mode=tier_mode, **options)
+        if tier_mode == "balanced":
+            candidate = VfCurveCandidate("balanced", 937, 1878, [])
+            probe = _summary(937, 1878)
+        return candidate, tail, probe, history
+
+    monkeypatch.setattr(main, "run_adaptive_tier_descent", descend)
+    monkeypatch.setattr(main, "select_final_scan_candidate", select)
+    kwargs["finish_with_final_verification"] = finish
+    main.run_adaptive_tier_scans(**kwargs)
+
+    assert descents == ["efficiency", "balanced"]
+    performance = selections["performance"]
+    assert performance["stable_voltage_mv"] == 937
+    assert performance["stable_lock_clock_mhz"] == verified_clock
+    assert performance["stable_plan"] == verified_probe.tested_plan
+    assert performance["stable_probe"] is verified_probe
+    assert performance["stable_history"][-1] is verified_probe
+    assert performance["stable_history"] is not selections["balanced"]["stable_history"]
+    assert performance["run_performance_auto_oc"] is True
+    assert kwargs["gpu"].power_limit_w == 360
+
+
+@pytest.mark.parametrize("performance_passes", [True, False])
+def test_3080_shared_descent_reclaims_then_climbs_with_the_same_cap(monkeypatch, performance_passes):
+    events, descents, tried = [], [], []
+    main, _, kwargs = _adaptive_scan_kwargs(events=events, descent_calls=descents)
+    gpu = kwargs["gpu"]
+    gpu.power_limit_w = 380
+    gpu.clamp_power_limit_w = int
+    gpu.clock_ceiling = None
+    gpu.translated_gpu_policy["gpu_name"] = "NVIDIA GeForce RTX 3080"
+    curve = base_curve(800, 1000, 1, 1500, 15)
+    kwargs["base_curve"] = curve
+    kwargs["discovery_summary"] = _summary(1000, 1900)
+    kwargs["discovery_summary"].avg_power_w = 380.0
+
+    def descent(_curve, *, tier_mode, **_options):
+        descents.append(tier_mode)
+        voltage, clock = (868, 1815) if tier_mode == "efficiency" else (937, 1878)
+        probe = _summary(voltage, clock)
+        probe.tested_plan = build_flattened_plan(
+            curve, candidate_voltage_mv=voltage, lock_clock_mhz=clock,
+        )
+        return VfCurveCandidate(tier_mode, voltage, clock, probe.tested_plan), 2, probe, [probe]
+
+    class Runner:
+        power_limit_w = 380
+
+        def probe_candidate(self, candidate, **_options):
+            tried.append((candidate.voltage_mv, candidate.target_mhz, gpu.power_limit_w))
+            probe = _summary(candidate.voltage_mv, candidate.target_mhz)
+            probe.tested_plan = candidate.flattened_plan
+            passed = candidate.target_mhz <= 1890 or performance_passes
+            return VoltageProbeOutcome(
+                decision=StableRunDecision(
+                    passed, FailureKind.NONE if passed else FailureKind.FPS_REGRESSION,
+                    FailureSeverity.PASS if passed else FailureSeverity.RECOVERABLE,
+                    "stable" if passed else "FPS regression",
+                ),
+                raw_probe=probe,
+            )
+
+    monkeypatch.setattr(main, "run_adaptive_tier_descent", descent)
+    kwargs["configure_tier_probe_runner"] = Runner
+    main.run_adaptive_tier_scans(**kwargs)
+
+    assert descents == ["efficiency", "balanced"]
+    reused = [payload for event, payload in events if event == "tier_descent_reused"]
+    assert [(p["voltage_mv"], p["target_mhz"]) for p in reused] == [(937, 1890)]
+    completed = [payload for event, payload in events if event == "tier_completed"]
+    assert completed[1]["target_mhz"] == 1890
+    assert completed[2]["target_mhz"] == (1930 if performance_passes else 1890)
+    assert any(clock > 1890 for _, clock, _ in tried)
+    assert all(voltage == 937 and cap == 380 for voltage, _, cap in tried)
 
 
 @pytest.mark.parametrize("stage", ["baseline", "descent", "selection", "final"])
@@ -3210,10 +3323,8 @@ def test_rtx_5090_tier_cap_is_constant_across_every_phase(monkeypatch) -> None:
     def fake_finish(**finish_kwargs):
         tier = finish_kwargs["final_profile_tier"]
         phases.append((tier, "final-verification", int(gpu.power_limit_w)))
-        return SimpleNamespace(
-            final_voltage_mv=int(finish_kwargs["selection"].voltage_mv),
-            lock_clock_mhz=int(finish_kwargs["selection"].lock_clock_mhz),
-        )
+        selection = finish_kwargs["selection"]
+        return _verified_result(selection.voltage_mv, selection.lock_clock_mhz, selection.plan)
 
     kwargs["prepare_tier_baseline"] = prepare_tier_baseline
     kwargs["finish_with_final_verification"] = fake_finish
@@ -3680,9 +3791,8 @@ def test_full_scan_reuses_only_matching_measured_baselines(
 
     def finish(**kwargs):
         finals[kwargs["generated_profile_tier"]] = kwargs
-        return SimpleNamespace(
-            final_voltage_mv=kwargs["stable_voltage_mv"],
-            lock_clock_mhz=kwargs["stable_lock_clock_mhz"],
+        return _verified_result(
+            kwargs["stable_voltage_mv"], kwargs["stable_lock_clock_mhz"], kwargs["stable_plan"],
         )
 
     monkeypatch.setattr(main, "consume_crash_cache", lambda **_k: [])
@@ -3847,7 +3957,7 @@ def test_apply_adaptive_tier_memory_offset_records_readback_and_survives_errors(
 def test_adaptive_tiers_keep_power_requests(
     monkeypatch,
 ) -> None:
-    import auto_uv.main_loop as main_loop
+    from auto_uv import main_loop
 
     descent_tiers = []
     tier_power_requests = []
@@ -3870,10 +3980,8 @@ def test_adaptive_tiers_keep_power_requests(
 
     def fake_finish(**kwargs):
         tier_power_requests.append(gpu.requested_power_limit_w)
-        return SimpleNamespace(
-            final_voltage_mv=int(kwargs["selection"].voltage_mv),
-            lock_clock_mhz=int(kwargs["selection"].lock_clock_mhz),
-        )
+        selection = kwargs["selection"]
+        return _verified_result(selection.voltage_mv, selection.lock_clock_mhz, selection.plan)
 
     monkeypatch.setattr(main_loop, "run_adaptive_tier_descent", fake_descent)
     monkeypatch.setattr(main_loop, "select_final_scan_candidate", fake_selection)
@@ -3975,6 +4083,7 @@ def test_performance_failure_returns_and_keeps_both_completed_profiles(monkeypat
     monkeypatch.setattr(main, "select_final_scan_candidate", lambda **options: SimpleNamespace(
         plan=options["stable_plan"], voltage_mv=options["stable_voltage_mv"],
         lock_clock_mhz=options["stable_lock_clock_mhz"],
+        tail_rise_bins=options["tail_rise_bins"],
     ))
 
     def finish(**options):
@@ -3987,7 +4096,7 @@ def test_performance_failure_returns_and_keeps_both_completed_profiles(monkeypat
             "lock_clock_mhz": selection.lock_clock_mhz,
             "generated_profile_tier": tier, "final_verified": True,
         }))
-        return SimpleNamespace(final_voltage_mv=selection.voltage_mv, lock_clock_mhz=selection.lock_clock_mhz)
+        return _verified_result(selection.voltage_mv, selection.lock_clock_mhz, selection.plan)
 
     kwargs["finish_with_final_verification"] = finish
     result = main.run_adaptive_tier_scans(**kwargs)

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
 from contextlib import nullcontext
+from pathlib import Path
 
 import pytest
+from auto_uv_test_data import base_curve, rtx_5080_20260524_high_oc_base_curve
 
 import auto_uv.auto_oc.search as auto_oc_search
 from auto_uv.auto_oc.ladder import AutoOcStep, build_auto_oc_ladder
@@ -18,7 +19,6 @@ from auto_uv.domain.types import (
     VfCurveCandidate,
 )
 from auto_uv.run.voltage_sweep_state import VoltageProbeOutcome
-from auto_uv_test_data import base_curve, rtx_5080_20260524_high_oc_base_curve
 
 
 def _probe(
@@ -150,6 +150,51 @@ def test_auto_oc_ladder_can_reclaim_clock_at_fixed_voltage() -> None:
         (900, 2625),
         (900, 2700),
     ]
+
+
+@pytest.mark.parametrize("voltage, clock", [(956, 1920), (937, 1890)])
+def test_performance_climbs_above_3080_balanced_point_at_proven_voltage(voltage, clock):
+    curve = base_curve(800, 1000, 1, 1500, 15)
+    start = VfCurveCandidate("balanced", voltage, clock, curve)
+    tried = []
+
+    class Runner:
+        power_limit_w = 380
+
+        def probe_candidate(self, candidate, **_kwargs):
+            tried.append(candidate)
+            return _passed_outcome(_probe(candidate.voltage_mv, candidate.target_mhz))
+
+    result = run_auto_oc_candidate_search(
+        base_curve=curve, start_candidate=start, start_probe=_probe(voltage, clock),
+        runner=Runner(), gpu_name="NVIDIA GeForce RTX 3080", clock_ceiling=None,
+        probe_history=[], log=lambda _: None,
+    )
+
+    assert tried
+    assert all(candidate.voltage_mv == voltage for candidate in tried)
+    assert all(clock < candidate.target_mhz <= 1930 for candidate in tried)
+    assert result.selected_candidate.target_mhz == 1930
+    assert result.endpoint.voltage_mv == voltage
+
+
+def test_performance_keeps_explicit_voltage_limit_below_start():
+    curve = base_curve(800, 1000, 1, 1500, 15)
+    start = VfCurveCandidate("balanced", 956, 1920, curve)
+
+    class Runner:
+        def probe_candidate(self, *_args, **_kwargs):
+            pytest.fail("an explicit voltage limit must not be raised")
+
+    result = run_auto_oc_candidate_search(
+        base_curve=curve, start_candidate=start, start_probe=_probe(956, 1920),
+        runner=Runner(), gpu_name="NVIDIA GeForce RTX 3080", clock_ceiling=None,
+        probe_history=[], log=lambda _: None, target_voltage_mv=900,
+    )
+
+    assert result.selected_candidate is start
+    assert result.endpoint.voltage_mv == 900
+    assert not result.attempts
 
 
 def test_auto_oc_probe_key_uses_q2rtx_clock_before_fps() -> None:
@@ -730,6 +775,7 @@ def test_restart_skips_crashed_endpoint_before_hardware_and_verifies_lower_clock
     tmp_path, monkeypatch
 ):
     import json
+
     from auto_uv.persistence import interrupted_probe_crash_cache as crash_cache
     from auto_uv.persistence import unsafe_voltage_blacklist_file as blacklist
 
