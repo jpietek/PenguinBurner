@@ -67,14 +67,29 @@ the active tier (Efficiency 1 minute, Balanced 3 minutes, Performance 5 minutes,
 or the configured override), using Q2RTX and CUDA. On success it completes that
 tier and continues remaining tiers; a failed resume verification stops further
 GPU work. No eligible recovery point means the scan stops with an explanation.
-Completed tier verifications are reused only while their saved profiles remain unchanged. Final verification
-that was interrupted must run again in full.
+Completed tier verifications are reused only while their saved profiles remain
+unchanged. A missing cached probe can require new measurements, but it does not
+erase completed tiers: a verified Efficiency tier is skipped before its setup
+or sweep when Balanced is unfinished. Final verification that was interrupted
+must run again in full.
 
 Progress is saved atomically in `uv-result/auto-uv-scan-checkpoint.json`. A
 changed GPU, driver, base curve, scan settings, workload or algorithm starts a
-new scan while preserving the blacklist. Completed scans clear the checkpoint.
+new scan while preserving the blacklist. The log names the changed input groups
+(GPU, driver, base curve, policy, options, settings, workload or algorithm) and
+reports changed profiles or malformed checkpoint data. Older checkpoints without
+input fingerprints can only report a general identity mismatch. Before replacing
+an unusable checkpoint, Auto-UV keeps its original bytes beside it as
+`auto-uv-scan-checkpoint.json.rejected-<unique-id>.bak` and logs that path. A read
+or backup failure stops the scan without replacing the original. Completed scans
+clear the active checkpoint.
 Older runs without this checkpoint can still offer the existing saved-candidate
-recovery, but their text logs cannot reconstruct a complete resumable scan.
+recovery, but their text logs cannot reconstruct a complete resumable scan. A
+rejected checkpoint cannot bypass compatibility checks through this older path.
+Legacy recovery uses the interrupted tier's verification duration when the tier
+is recorded, honors duration overrides, and retains compatible tested curves
+from the failed run for final-verification fallback. Incompatible or blacklisted
+curves are excluded; fallback still stops if the GPU or daemon is unusable.
 
 ## Clearing scan history
 

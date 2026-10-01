@@ -16,7 +16,10 @@ from auto_uv.persistence.interrupted_probe_crash_cache import (
 from auto_uv.persistence.unsafe_voltage_blacklist_file import (
     load_unsafe_voltage_blacklist,
 )
-from auto_uv.persistence.unsafe_voltage_cache import adaptive_scan_payload
+from auto_uv.persistence.unsafe_voltage_cache import (
+    adaptive_scan_payload,
+    unsafe_voltage_block_reason,
+)
 from auto_uv.probes.event_payload import probe_summary_event_payload
 from auto_uv.scan_mode.auto_uv_mode import (
     AUTO_UV_MODE_ADAPTIVE,
@@ -497,7 +500,49 @@ def probe_summary_from_candidate_record(record: dict) -> AutoUvProbeSummary | No
         hw_power_brake_samples=int(record.get("hw_power_brake_samples") or 0),
         fps_stddev=_float_or_none(record.get("fps_stddev")),
         fps_variance_pct=_float_or_none(record.get("fps_variance_pct")),
+        tested_plan=candidate_plan_from_record(record) or None,
     )
+
+
+def recovery_probe_history(
+    records: list[dict], *, selected_record: dict, profile_tier: str,
+) -> list[AutoUvProbeSummary]:
+    """Restore tested fallback curves from the already selected failed-run block."""
+    regime_fields = (
+        "configured_power_limit_w", "tail_rise_bins",
+        "base_candidate_voltage_mv", "base_lock_clock_mhz", "base_avg_core_clock_mhz",
+    )
+    selected_plan = candidate_plan_from_record(selected_record)
+    if not selected_plan:
+        return []
+    base_points = [
+        (p.get("index"), p.get("voltage_mv"), p.get("base_mhz")) for p in selected_plan
+    ]
+    unsafe = load_unsafe_voltage_blacklist()
+    history: list[AutoUvProbeSummary] = []
+    for record in records:
+        if any(record.get(field) != selected_record.get(field) for field in regime_fields):
+            continue
+        if generated_profile_tier(record) != generated_profile_tier(selected_record):
+            continue
+        try:
+            plan = candidate_plan_from_record(record)
+            if not plan or [
+                (p.get("index"), p.get("voltage_mv"), p.get("base_mhz")) for p in plan
+            ] != base_points:
+                continue
+            probe = probe_summary_from_candidate_record(record)
+        except (ValueError, TypeError, KeyError):
+            continue
+        if probe is None or unsafe_voltage_block_reason(
+            unsafe,
+            candidate_voltage_mv=probe.candidate_voltage_mv,
+            lock_clock_mhz=probe.lock_clock_mhz,
+            profile_tier=profile_tier,
+        ):
+            continue
+        append_unique_probe_summary(history, probe)
+    return history
 
 
 def base_probe_summary_from_candidate_record(record: dict) -> AutoUvProbeSummary | None:

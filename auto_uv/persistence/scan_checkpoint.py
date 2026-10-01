@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Callable
 from dataclasses import asdict, fields, is_dataclass
 from pathlib import Path
 from typing import Any, TypeVar
+from uuid import uuid4
 
 from auto_uv.domain.events import AutoUvEventCallback
 from auto_uv.domain.types import (
@@ -104,7 +106,10 @@ def _decode(value: Any) -> Any:
             return Path(value["path"])
         if value.get("type") in _RESULT_TYPES:
             cls = _RESULT_TYPES[value["type"]]
-            return cls(**{key: _decode(item) for key, item in value["fields"].items()})
+            result_fields = value["fields"]
+            if not isinstance(result_fields, dict):
+                raise ValueError(f"invalid fields for {value['type']}")
+            return cls(**{key: _decode(item) for key, item in result_fields.items()})
         return {key: _decode(item) for key, item in value.items()}
     return value
 
@@ -129,6 +134,9 @@ class ScanCheckpoint:
         self.callback = callback
         self.log = log
         self.identity = checkpoint_key(identity)
+        self.identity_components = {
+            key: checkpoint_key(value) for key, value in identity.items()
+        }
         self.records: dict[str, Any] = {}
         self.events: list[dict] = []
         self.pending: list[dict] = []
@@ -140,44 +148,88 @@ class ScanCheckpoint:
         self.recovery_tier = ""
         self.resuming = False
         self.replaying = False
+        self.rejection_reason: str | None = None
         try:
-            payload = json.loads(self.path.read_text())
-            if not isinstance(payload, dict):
-                raise TypeError("invalid checkpoint")
-            if (
-                payload.get("format_version") == _FORMAT_VERSION
-                and payload.get("identity") == self.identity
-                and payload.get("profiles") == _profile_receipts()
-            ):
-                records = _decode(payload["records"])
-                events = payload["events"]
-                if not isinstance(records, dict) or not isinstance(events, list):
-                    raise TypeError("invalid checkpoint")
-                if not all(
-                    isinstance(e, dict)
-                    and e.get("event") in _UI_EVENTS
-                    and isinstance(e.get("payload"), dict)
-                    for e in events
-                ):
-                    raise ValueError("invalid checkpoint events")
-                passed = _decode(payload["passed"])
-                if not isinstance(passed, list) or not all(
-                    isinstance(item, dict)
-                    and isinstance(item.get("candidate"), VfCurveCandidate)
-                    and isinstance(item.get("probe"), AutoUvProbeSummary)
-                    and isinstance(item.get("tier"), str)
-                    for item in passed
-                ):
-                    raise ValueError("invalid passed candidates")
-                self.passed = passed
-                self.records, self.events = records, events
-                self.profiles = payload["profiles"]
-                self.resuming = self.replaying = bool(records)
-        except (OSError, ValueError, TypeError, KeyError):
-            pass
+            current_profiles = _profile_receipts()
+        except OSError as exc:
+            raise AutoUvCriticalProbeError(f"Cannot check saved profiles for resume: {exc}") from exc
+        try:
+            saved_bytes = self.path.read_bytes()
+        except FileNotFoundError:
+            self.log("Auto-UV: no saved scan checkpoint; starting a new scan.")
+        except OSError as exc:
+            raise AutoUvCriticalProbeError(f"Cannot read Auto-UV resume checkpoint: {exc}") from exc
+        else:
+            try:
+                self._restore(json.loads(saved_bytes), current_profiles)
+            except (ValueError, TypeError, KeyError) as exc:
+                self.rejection_reason = str(exc) or type(exc).__name__
+                backup = self._archive_rejected(saved_bytes)
+                self.log(
+                    f"Auto-UV: checkpoint rejected: {self.rejection_reason}. "
+                    f"Preserved at {backup}; starting a new scan without saved-candidate recovery."
+                )
         if not self.resuming:
-            self.profiles = _profile_receipts()
+            self.profiles = current_profiles
         self._save()
+
+    def _restore(self, payload: Any, current_profiles: dict[str, str]) -> None:
+        if not isinstance(payload, dict):
+            raise TypeError("invalid checkpoint object")
+        if payload.get("format_version") != _FORMAT_VERSION:
+            raise ValueError(f"unsupported format version {payload.get('format_version')!r}")
+        if payload.get("identity") != self.identity:
+            components = payload.get("identity_components")
+            if isinstance(components, dict):
+                changed = sorted(
+                    key for key in set(components) | set(self.identity_components)
+                    if components.get(key) != self.identity_components.get(key)
+                )
+                detail = ", ".join(changed) or "identity hash"
+            else:
+                detail = "older checkpoint has no component fingerprints"
+            raise ValueError(f"scan inputs changed: {detail}")
+        if payload.get("profiles") != current_profiles:
+            raise ValueError("saved profiles changed, were added, or were removed")
+        records = _decode(payload["records"])
+        events = payload["events"]
+        if not isinstance(records, dict) or not isinstance(events, list):
+            raise TypeError("invalid checkpoint records or events")
+        if not all(
+            isinstance(e, dict)
+            and e.get("event") in _UI_EVENTS
+            and isinstance(e.get("payload"), dict)
+            for e in events
+        ):
+            raise ValueError("invalid checkpoint events")
+        passed = _decode(payload["passed"])
+        if not isinstance(passed, list) or not all(
+            isinstance(item, dict)
+            and isinstance(item.get("candidate"), VfCurveCandidate)
+            and isinstance(item.get("probe"), AutoUvProbeSummary)
+            and isinstance(item.get("tier"), str)
+            for item in passed
+        ):
+            raise ValueError("invalid passed candidates")
+        self.passed = passed
+        self.records, self.events = records, events
+        self.profiles = current_profiles
+        self.resuming = self.replaying = bool(records)
+        if not self.resuming:
+            self.log("Auto-UV: saved checkpoint has no completed measurements; starting a new scan.")
+
+    def _archive_rejected(self, saved_bytes: bytes) -> Path:
+        backup = self.path.with_name(f"{self.path.name}.rejected-{uuid4().hex}.bak")
+        try:
+            with backup.open("xb") as handle:
+                handle.write(saved_bytes)
+                handle.flush()
+                os.fsync(handle.fileno())
+        except OSError as exc:
+            raise AutoUvCriticalProbeError(
+                f"Cannot preserve rejected checkpoint; original left untouched: {exc}"
+            ) from exc
+        return backup
 
     def prepare_recovery(
         self, base_curve: list[dict], unsafe: list[dict], interrupted: dict | None
@@ -214,7 +266,8 @@ class ScanCheckpoint:
         return self.recovery if self.recovery_tier == tier else None
 
     def completed_tier(self, tier: str) -> AutoUvVoltageScanResult | None:
-        result = self.lookup({"completed_tier": tier})
+        # Completed profiles remain valid when a probe cache miss ends replay.
+        result = self.records.get(checkpoint_key({"completed_tier": tier}))
         if not isinstance(result, AutoUvVoltageScanResult):
             return None
         if unsafe_voltage_block_reason(
@@ -226,7 +279,7 @@ class ScanCheckpoint:
             raise AutoUvCriticalProbeError(
                 f"Cannot reuse completed {tier} tier: its point is now blacklisted"
             )
-        return result
+        return _decode(_encode(result))
 
     def history_for(self, tier: str) -> list[AutoUvProbeSummary]:
         unsafe = load_unsafe_voltage_blacklist()
@@ -296,6 +349,8 @@ class ScanCheckpoint:
         cached = self.lookup(key)
         if cached is not None:
             return cached
+        if self.replaying:
+            self.log("Auto-UV: saved probe unavailable; completed tiers remain reusable.")
         self.continue_live()
         result = run()
         self.record(key, result)
@@ -325,6 +380,7 @@ class ScanCheckpoint:
                 {
                     "format_version": _FORMAT_VERSION,
                     "identity": self.identity,
+                    "identity_components": self.identity_components,
                     "records": _encode(self.records),
                     "events": self.events,
                     "profiles": self.profiles,
