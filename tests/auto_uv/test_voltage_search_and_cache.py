@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from auto_uv.run.lower_voltage_probe_target import base_curve_target_for_lower_voltage
-from auto_uv.run.lower_voltage_search import (
-    filter_effective_voltage_candidates,
-    select_next_lower_voltage,
-)
+from auto_uv_test_data import base_curve
+
+from auto_uv.base_uv_loop import build_next_lower_voltage_candidate
+from auto_uv.domain.scan_settings import AutoUvScanSettings
 from auto_uv.persistence.unsafe_voltage_cache import (
     cache_profile_tier,
     controlled_failure_reason,
@@ -16,7 +15,11 @@ from auto_uv.persistence.unsafe_voltage_cache import (
     unsafe_min_search_voltage,
     unsafe_voltage_block_reason,
 )
-from auto_uv_test_data import base_curve
+from auto_uv.run.lower_voltage_search import (
+    filter_effective_voltage_candidates,
+    select_next_lower_voltage,
+)
+from auto_uv.run.voltage_sweep_state import VoltageSweepState
 
 
 def test_lower_voltage_search_keeps_final_low_bin_testable() -> None:
@@ -37,27 +40,20 @@ def test_lower_voltage_search_keeps_final_low_bin_testable() -> None:
     assert filtered[-1] == 900
 
 
-def test_lower_voltage_probe_target_follows_base_curve_until_measurement_exists() -> None:
+def test_lower_voltage_probe_holds_target_without_a_measurement() -> None:
     curve = base_curve(800, 1025, 25, 2000, 30)
+    candidate = build_next_lower_voltage_candidate(
+        curve,
+        settings=AutoUvScanSettings(start_voltage_mv=1000, min_search_voltage_mv=900),
+        state=VoltageSweepState(
+            stable_voltage_mv=1000,
+            stable_target_mhz=2240,
+            next_voltage_mv=900,
+        ),
+    )
 
-    assert (
-        base_curve_target_for_lower_voltage(
-            curve,
-            candidate_voltage_mv=900,
-            stable_target_mhz=2240,
-            stable_measured_target_mhz=None,
-        )
-        == 2120
-    )
-    assert (
-        base_curve_target_for_lower_voltage(
-            curve,
-            candidate_voltage_mv=900,
-            stable_target_mhz=2240,
-            stable_measured_target_mhz=2190,
-        )
-        == 2190
-    )
+    assert candidate.voltage_mv == 900
+    assert candidate.target_mhz == 2240
 
 
 def test_unsafe_cache_blocks_only_the_recorded_clock_band_when_clock_aware() -> None:
