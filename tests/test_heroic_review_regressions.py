@@ -19,8 +19,9 @@ from integrations.heroic import config_store, process
 from integrations.heroic.library_source import HeroicLibrarySource
 from integrations.heroic.manager import HeroicIntegrationManager
 from integrations.heroic.paths import heroic_installation
-from integrations.launchers import host_process, installation
+from integrations.launchers import host_process, installation, wrapped_sessions
 from integrations.launchers.game_settings import GameSettingsError
+from integrations.launchers.wrapped_sessions import LauncherSessions
 from integrations.launchers.wrapper_manager import WrapperManager
 from overlay.wrapper_tokens import GAME_KEY_ENV
 
@@ -148,7 +149,7 @@ class HeroicSessionRegressions(unittest.TestCase):
             with patch.object(sys, "argv", ["probe", tmp, GAME_KEY_ENV]), \
                  patch.object(Path, "read_bytes", side_effect=PermissionError), \
                  redirect_stdout(output):
-                exec(process._SESSION_PROBE, {})
+                exec((process._EXTERNAL_PROBE + wrapped_sessions._SESSION_PROBE), {})
             self.assertEqual(json.loads(output.getvalue()), {"sessions": [], "external": [], "unreadable": [41]})
 
     def test_daemon_watches_recover_inaccessible_sessions_without_reviving_exits(self):
@@ -160,8 +161,8 @@ class HeroicSessionRegressions(unittest.TestCase):
             {"pid": 43, "app_id": "lutris:27"},
             {"pid": 44, "app_id": "heroic:ExitedDuringGrace"},
         ]}}
-        with patch.object(process, "run_on_host", return_value=probe), \
-             patch.object(process, "daemon_status", return_value=watches):
+        with patch.object(wrapped_sessions, "run_on_host", return_value=probe), \
+             patch.object(wrapped_sessions, "daemon_status", return_value=watches):
             sessions = process.probe_heroic_sessions(known_pids=(41,))
             assert sessions is not None
             self.assertEqual(sessions.wrapped, {
@@ -181,9 +182,9 @@ class HeroicSessionRegressions(unittest.TestCase):
             answer([(41, "heroic:Turkey")]),
             answer(unreadable=[999]),  # unrelated denied process cannot hide exit
         ]
-        with patch.object(process, "run_on_host", side_effect=results), \
-             patch.object(process, "daemon_status", side_effect=RuntimeError("unavailable")), \
-             patch("integrations.heroic.library_source.stop_heroic_game") as stop:
+        with patch.object(wrapped_sessions, "run_on_host", side_effect=results), \
+             patch.object(wrapped_sessions, "daemon_status", side_effect=RuntimeError("unavailable")), \
+             patch("integrations.launchers.library_source.stop_wrapped_session") as stop:
             self.assertEqual(source.running_game_ids(), frozenset({"Turkey"}))
             self.assertIsNone(source.running_game_ids())
             self.assertFalse(source.stop("Turkey")[0])
@@ -195,8 +196,8 @@ class HeroicSessionRegressions(unittest.TestCase):
         probe = subprocess.CompletedProcess([], 0, json.dumps({
             "sessions": [], "unreadable": [41],
         }))
-        with patch.object(process, "run_on_host", return_value=probe), \
-             patch.object(process, "daemon_status", return_value={}):
+        with patch.object(wrapped_sessions, "run_on_host", return_value=probe), \
+             patch.object(wrapped_sessions, "daemon_status", return_value={}):
             self.assertIsNone(process.probe_heroic_sessions(known_pids=(41,)))
 
     def test_probe_reads_exec_environment_and_excludes_descendants(self):
@@ -218,9 +219,9 @@ class HeroicSessionRegressions(unittest.TestCase):
                 (directory / "stat").write_text(f"{pid} (sleep) S 1 0 0")
             (proc / "46").mkdir()  # process disappeared during the scan
             def run_probe(command, **kwargs):
-                command[-2] = str(proc)
+                command[-3] = str(proc)
                 return subprocess.run(command, capture_output=True, text=True, check=False)
-            with patch.object(process, "run_on_host", side_effect=run_probe):
+            with patch.object(wrapped_sessions, "run_on_host", side_effect=run_probe):
                 sessions = process.probe_heroic_sessions()
                 assert sessions is not None
                 running = sessions.wrapped
@@ -230,11 +231,11 @@ class HeroicSessionRegressions(unittest.TestCase):
     def test_probe_failure_is_unknown_not_no_sessions(self):
         for result in (None, subprocess.CompletedProcess([], 1, ""),
                        subprocess.CompletedProcess([], 0, "invalid JSON")):
-            with self.subTest(result=result), patch.object(process, "run_on_host", return_value=result):
+            with self.subTest(result=result), patch.object(wrapped_sessions, "run_on_host", return_value=result):
                 self.assertIsNone(process.probe_heroic_sessions())
 
     def test_flatpak_probe_uses_host_python_and_host_proc(self):
-        with patch.object(process, "running_in_flatpak", return_value=True), \
+        with patch.object(wrapped_sessions, "running_in_flatpak", return_value=True), \
              patch.object(host_process, "running_in_flatpak", return_value=True), \
              patch.object(host_process.shutil, "which", return_value="/usr/bin/flatpak-spawn"), \
              patch.dict(os.environ, {"PENGUIN_BURNER_HOST_PYTHON": "/host/python3"}), \
@@ -246,7 +247,7 @@ class HeroicSessionRegressions(unittest.TestCase):
             self.assertEqual(sessions.wrapped, {})
         command = run.call_args.args[0]
         self.assertEqual(command[:5], ["/usr/bin/flatpak-spawn", "--host", "--directory=/tmp", "/host/python3", "-c"])
-        self.assertEqual(command[-2:], ["/proc", GAME_KEY_ENV])
+        self.assertEqual(command[-3:], ["/proc", GAME_KEY_ENV, ""])
 
     @unittest.skipUnless(sys.platform == "linux", "requires Linux /proc")
     def test_real_wrapper_exec_is_detected_and_stopped_without_a_profile(self):
@@ -266,13 +267,13 @@ launcher.main()
         try:
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
-                if child.pid in (process.probe_heroic_sessions() or process.HeroicSessions()).wrapped.get("ReviewProbe", ()):
+                if child.pid in (process.probe_heroic_sessions() or LauncherSessions()).wrapped.get("ReviewProbe", ()):
                     break
                 time.sleep(0.05)
             else:
                 self.fail("session was not detected after exec")
             self.assertNotIn(b"--pb-game-id", Path(f"/proc/{child.pid}/cmdline").read_bytes())
-            self.assertTrue(process.stop_heroic_game(child.pid, "ReviewProbe"))
+            self.assertTrue(wrapped_sessions.stop_wrapped_session(child.pid, "heroic:ReviewProbe"))
             child.wait(timeout=5)
             sessions = process.probe_heroic_sessions()
             assert sessions is not None

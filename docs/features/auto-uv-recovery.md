@@ -48,10 +48,48 @@ force a higher clock.
 An abrupt power loss or forced kill can leave the same marker. The record
 means the probe ended abruptly; it does not prove GPU instability.
 
-When compatible checkpoints exist for the requested tier, the GUI offers a
-recovery candidate before repeating discovery. Resuming skips completed voltage
-work and proceeds to remaining clock tuning and final verification.
-**Start From Scratch** repeats the scan while retaining unsafe-point history.
+Click **Start Auto Undervolt** again with the same GPU and scan settings to
+resume an unfinished scan. Opening the app never starts or resumes GPU work.
+The Auto-UV tab restores its Runs table, baseline, measured results, candidate
+curves, tier progress and completed tier curves. The plot returns to the last
+passing candidate; failed and incomplete probes are omitted. The header
+shows **Resuming**, and the restored measurements are historical, not new live
+telemetry.
+
+The scan reuses completed measurements, skips blacklisted candidates, and
+long-verifies a recovery candidate at a previously passing lower clock outside
+the blacklist and one editable voltage bin above its measured voltage. This
+recovery voltage may exceed the original target; the added margin is one bin
+above the saved candidate. Power and memory settings stay unchanged. The
+**Resume verification** row represents a new measurement, not a previously
+verified combination. Its duration follows
+the active tier (Efficiency 1 minute, Balanced 3 minutes, Performance 5 minutes,
+or the configured override), using Q2RTX and CUDA. On success it completes that
+tier and continues remaining tiers; a failed resume verification stops further
+GPU work. No eligible recovery point means the scan stops with an explanation.
+Completed tier verifications are reused only while their saved profiles remain
+unchanged. A missing cached probe can require new measurements, but it does not
+erase completed tiers: a verified Efficiency tier is skipped before its setup
+or sweep when Balanced is unfinished. Final verification that was interrupted
+must run again in full.
+
+Progress is saved atomically in `uv-result/auto-uv-scan-checkpoint.json`. A
+changed GPU, driver, base curve, scan settings, workload or algorithm starts a
+new scan while preserving the blacklist. The log names the changed input groups
+(GPU, driver, base curve, policy, options, settings, workload or algorithm) and
+reports changed profiles or malformed checkpoint data. Older checkpoints without
+input fingerprints can only report a general identity mismatch. Before replacing
+an unusable checkpoint, Auto-UV keeps its original bytes beside it as
+`auto-uv-scan-checkpoint.json.rejected-<unique-id>.bak` and logs that path. A read
+or backup failure stops the scan without replacing the original. Completed scans
+clear the active checkpoint.
+Older runs without this checkpoint can still offer the existing saved-candidate
+recovery, but their text logs cannot reconstruct a complete resumable scan. A
+rejected checkpoint cannot bypass compatibility checks through this older path.
+Legacy recovery uses the interrupted tier's verification duration when the tier
+is recorded, honors duration overrides, and retains compatible tested curves
+from the failed run for final-verification fallback. Incompatible or blacklisted
+curves are excluded; fallback still stops if the GPU or daemon is unusable.
 
 ## Clearing scan history
 

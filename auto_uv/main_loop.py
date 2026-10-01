@@ -49,6 +49,7 @@ from auto_uv.persistence.auto_uv_persisted_json_files import (
     auto_uv_stop_request_aborts_final_choice,
     clear_auto_uv_stop_request,
 )
+from auto_uv.persistence.scan_checkpoint import ScanCheckpoint, scan_checkpoint_identity
 from auto_uv.persistence.unsafe_voltage_blacklist_file import (
     load_unsafe_voltage_blacklist,
 )
@@ -81,11 +82,13 @@ from auto_uv.run.crash_recovery import (
     consume_crash_cache,
     crash_recovery_decision,
     crash_recovery_entry_from_cache,
+    crash_recovery_entry_profile_tier,
     final_choice_request_recovery_records,
     next_safer_recovery_candidate_id,
     probe_summary_from_candidate_record,
     recovery_candidate_records_for_failed_run,
     recovery_initial_target_voltage_mv,
+    recovery_probe_history,
     replay_recovered_resume_probe_rows,
 )
 from auto_uv.run.scan_runtime_settings import (
@@ -168,6 +171,7 @@ def run_voltage_frequency_undervolt_main_loop(
         runtime_options=runtime_options,
         log=log,
     )
+    checkpoint = None
     try:
         settings = read_scan_runtime_settings(
             runtime_options,
@@ -192,6 +196,14 @@ def run_voltage_frequency_undervolt_main_loop(
         cleanup_managed_q2rtx_processes(q2rtx_config, log=log)
         base_curve = list(gpu.runtime_default_plan)
         validate_base_vf_curve(base_curve)
+        if str(getattr(gpu, "gpu_identity", {}).get("uuid") or ""):
+            checkpoint = ScanCheckpoint(
+                identity=scan_checkpoint_identity(gpu, runtime_options, q2rtx_config, settings),
+                callback=event_callback, log=log,
+            )
+            checkpoint.prepare_recovery(base_curve, unsafe_entries, crash_recovery_entry)
+            checkpoint.restore_ui()
+            event_callback = checkpoint.event
         emit_auto_uv_event(
             event_callback,
             "base_curve",
@@ -210,10 +222,24 @@ def run_voltage_frequency_undervolt_main_loop(
             offset_mhz=int(applied_memory_offset_mt_s) // 2,
         )
         pending_recovery_selection = None
-        if bool(runtime_options.get("auto_uv_require_final_choice")) and isinstance(
-            crash_recovery_entry,
-            dict,
+        recovery_candidates: list[dict] = []
+        recovery_profile_tier = run_profile_tier
+        if (
+            (checkpoint is None or (
+                not checkpoint.resuming and checkpoint.rejection_reason is None
+            ))
+            and bool(runtime_options.get("auto_uv_require_final_choice"))
+            and isinstance(crash_recovery_entry, dict)
         ):
+            if settings.auto_uv_mode == AUTO_UV_MODE_ADAPTIVE:
+                recovery_profile_tier = (
+                    crash_recovery_entry_profile_tier(crash_recovery_entry)
+                    or run_profile_tier
+                )
+                if recovery_profile_tier:
+                    final_verification_duration_s = resolve_final_verification_duration_s(
+                        runtime_options, auto_uv_mode=recovery_profile_tier,
+                    )
             recovery_candidates = recovery_candidate_records_for_failed_run(
                 read_verified_candidates(),
                 crash_recovery_entry=crash_recovery_entry,
@@ -333,6 +359,8 @@ def run_voltage_frequency_undervolt_main_loop(
                 tail_rise_bins=int(tail_rise_bins),
                 log=log,
                 event_callback=event_callback,
+                recovery_candidate_records=recovery_candidates,
+                recovery_profile_tier=recovery_profile_tier,
             )
         if settings.auto_uv_mode == AUTO_UV_MODE_ADAPTIVE:
             # The initial measurements ARE Efficiency's baseline. Establish
@@ -363,6 +391,7 @@ def run_voltage_frequency_undervolt_main_loop(
             short_probe_base_duration_s=int(settings.short_probe_base_duration_s),
             log=log,
             event_callback=event_callback,
+            checkpoint=checkpoint,
             marker_details=auto_uv_run_marker_details(
                 runtime_options,
                 settings,
@@ -403,6 +432,7 @@ def run_voltage_frequency_undervolt_main_loop(
             short_probe_base_duration_s=int(settings.short_probe_base_duration_s),
             log=log,
             event_callback=event_callback,
+            checkpoint=checkpoint,
             marker_details=auto_uv_run_marker_details(
                 runtime_options,
                 settings,
@@ -536,6 +566,8 @@ def run_voltage_frequency_undervolt_main_loop(
             final_baseline_candidate: VfCurveCandidate | None = None,
             final_measured_baseline_clock_mhz: float | None = None,
         ):
+            if checkpoint:
+                checkpoint.continue_live()
             apply_pending_power_limit(gpu, log=log)
             selected_stable_history = (
                 final_stable_history
@@ -557,7 +589,7 @@ def run_voltage_frequency_undervolt_main_loop(
                 if final_measured_baseline_clock_mhz is not None
                 else float(baseline_target.measured_clock_mhz)
             )
-            return run_final_verification_with_fallbacks(
+            result = run_final_verification_with_fallbacks(
                 selection=selection,
                 probe_voltage_candidate=probe_voltage_candidate,
                 build_voltage_scan_result=build_voltage_scan_result,
@@ -582,6 +614,12 @@ def run_voltage_frequency_undervolt_main_loop(
                 ),
                 event_callback=event_callback,
             )
+            if checkpoint:
+                if final_profile_tier:
+                    checkpoint.record({"completed_tier": final_profile_tier}, result, profiles=True)
+                if selection.auto_oc_metadata.get("resume_recovery"):
+                    checkpoint.recovery = None
+            return result
 
         user_stop_final_choice = False
         adaptive_tier_phase = False
@@ -775,7 +813,7 @@ def run_voltage_frequency_undervolt_main_loop(
                     baseline_cache[policy_key] = (tier_mode, prepared)
                     return prepared
 
-                return run_adaptive_tier_scans(
+                result = run_adaptive_tier_scans(
                     base_curve=base_curve,
                     gpu=gpu,
                     configure_tier_probe_runner=configure_tier_probe_runner,
@@ -790,28 +828,35 @@ def run_voltage_frequency_undervolt_main_loop(
                     baseline_target=baseline_target,
                     unsafe_entries=unsafe_entries,
                     prepare_tier_baseline=prepare_tier_baseline,
+                    checkpoint=checkpoint,
                     finish_with_final_verification=finish_with_final_verification,
                     event_callback=event_callback,
                     log=log,
                 )
-            loop_result = run_preset_uv_loop(
-                base_curve,
-                settings=base_loop_settings,
-                initial_stable_candidate=stable_candidate,
-                io=loop_io,
-                unsafe_entries=unsafe_entries,
-                initial_stable_outcome=initial_stable_outcome,
-                log=log,
-            )
-            log_lower_voltage_sweep_events(log, loop_result.events)
-            stable_candidate = loop_result.stable_candidate
-            selected_probe = (
-                loop_result.stable_outcome.raw_probe
-                if loop_result.stable_outcome is not None
-                else None
-            )
-            if selected_probe is not None:
-                stable_probe = selected_probe
+                return checkpoint.finish(result, adaptive=True) if checkpoint else result
+            recovery = checkpoint.recovery_for(settings.auto_uv_mode) if checkpoint else None
+            if recovery is not None:
+                stable_candidate = recovery
+                stable_probe = None
+            else:
+                loop_result = run_preset_uv_loop(
+                    base_curve,
+                    settings=base_loop_settings,
+                    initial_stable_candidate=stable_candidate,
+                    io=loop_io,
+                    unsafe_entries=unsafe_entries,
+                    initial_stable_outcome=initial_stable_outcome,
+                    log=log,
+                )
+                log_lower_voltage_sweep_events(log, loop_result.events)
+                stable_candidate = loop_result.stable_candidate
+                selected_probe = (
+                    loop_result.stable_outcome.raw_probe
+                    if loop_result.stable_outcome is not None
+                    else None
+                )
+                if selected_probe is not None:
+                    stable_probe = selected_probe
         except KeyboardInterrupt:
             if adaptive_tier_phase:
                 # A stop during the per-tier dialogs/finals aborts cleanly;
@@ -863,7 +908,12 @@ def run_voltage_frequency_undervolt_main_loop(
             ),
         )
 
-        return finish_with_final_verification(selection=final_selection)
+        result = finish_with_final_verification(selection=final_selection)
+        return checkpoint.finish(result) if checkpoint else result
+    except AutoUvFinalChoiceDiscarded:
+        if checkpoint:
+            checkpoint.discard()
+        raise
     finally:
         cleanup_managed_q2rtx_processes(q2rtx_config, log=log)
         try:
@@ -926,6 +976,7 @@ def run_adaptive_tier_scans(
     prepare_tier_baseline: (
         Callable[..., AdaptiveTierBaseline] | None
     ) = None,
+    checkpoint: ScanCheckpoint | None = None,
 ) -> AutoUvVoltageScanResult:
     """One scan, three profiles: run the proven per-tier descent for each tier.
 
@@ -996,6 +1047,12 @@ def run_adaptive_tier_scans(
             "total": len(ADAPTIVE_TIER_ORDER),
             "next_tier": next_tier,
         }
+        completed_tier = checkpoint.completed_tier(tier_mode) if checkpoint else None
+        if completed_tier is not None:
+            if primary_scan_result is None:
+                primary_scan_result = completed_tier
+            log_phase(log, "auto-uv", f"adaptive {tier_mode} already verified; reusing completed tier")
+            continue
         emit_auto_uv_event(event_callback, "tier_started", **tier_event_details)
         try:
             apply_adaptive_tier_memory_offset(
@@ -1287,6 +1344,11 @@ def run_adaptive_tier_descent(
     tier's verified/passed probes land in the returned ``tier_history`` (kept
     per tier so one tier's candidates never pollute another's final choice).
     """
+    checkpoint = getattr(runner, "checkpoint", None)
+    recovery = checkpoint.recovery_for(tier_mode) if checkpoint else None
+    if recovery is not None and checkpoint is not None:
+        history = checkpoint.history_for(tier_mode)
+        return recovery, int(recovery.metadata.get("tail_rise_bins", 0)), None, history
     tier_descent_tail = adaptive_tier_descent_tail_rise_bins(tier_mode)
     tier_settings = replace(
         base_loop_settings,
@@ -1712,6 +1774,19 @@ def select_final_scan_candidate(
     # Adaptive scans select per tier: the tier name overrides the scan-wide
     # mode so the OC pass and the choice dialog see the active tier.
     selection_mode = str(auto_uv_mode_override or settings.auto_uv_mode)
+    checkpoint = getattr(runner, "checkpoint", None)
+    recovery = checkpoint.recovery_for(selection_mode) if checkpoint else None
+    if recovery is not None and checkpoint is not None:
+        stable_history[:] = checkpoint.history_for(selection_mode)
+        for saved_probe in stable_history:
+            append_unique_probe_summary(probe_history, saved_probe)
+        return FinalScanCandidate(
+            plan=recovery.flattened_plan, voltage_mv=recovery.voltage_mv,
+            lock_clock_mhz=recovery.target_mhz, probe=None,
+            verification_duration_s=final_verification_duration_s,
+            auto_oc_metadata=recovery.metadata,
+            tail_rise_bins=int(recovery.metadata.get("tail_rise_bins", 0)),
+        )
     final_plan = stable_plan
     final_voltage_mv = int(stable_voltage_mv)
     final_lock_clock_mhz = int(stable_lock_clock_mhz)
@@ -1890,6 +1965,8 @@ def select_final_scan_candidate(
         unsafe, candidate_voltage_mv=final_voltage_mv,
         lock_clock_mhz=final_lock_clock_mhz, profile_tier=selection_mode,
     ):
+        if checkpoint:
+            checkpoint.continue_live()
         (
             final_plan,
             final_voltage_mv,
@@ -1917,7 +1994,7 @@ def select_final_scan_candidate(
         if selected_stable_probe is not None:
             final_probe = selected_stable_probe
 
-    return FinalScanCandidate(
+    selection = FinalScanCandidate(
         plan=final_plan,
         voltage_mv=int(final_voltage_mv),
         lock_clock_mhz=int(final_lock_clock_mhz),
@@ -1926,6 +2003,7 @@ def select_final_scan_candidate(
         auto_oc_metadata=dict(final_auto_oc_metadata or {}),
         tail_rise_bins=int(tail_rise_bins),
     )
+    return selection
 
 
 def run_final_verification_with_fallbacks(
@@ -1955,6 +2033,10 @@ def run_final_verification_with_fallbacks(
                 generated_profile_tier=generated_profile_tier, **verification,
             )
         except AutoUvError as exc:
+            if selection.auto_oc_metadata.get("resume_recovery"):
+                raise AutoUvCriticalProbeError(
+                    f"Resume verification failed; stop before further GPU work: {exc}"
+                ) from exc
             if not final_verification_failure_can_offer_retry(exc):
                 raise
             failed_candidates.add((selection.voltage_mv, selection.lock_clock_mhz))
@@ -2072,6 +2154,8 @@ def run_recovered_previous_crash_selection(
     tail_rise_bins: int,
     log: Callable[[str], None],
     event_callback: AutoUvEventCallback | None,
+    recovery_candidate_records: list[dict],
+    recovery_profile_tier: str,
 ) -> AutoUvVoltageScanResult:
     (
         recovery_plan,
@@ -2082,6 +2166,10 @@ def run_recovered_previous_crash_selection(
         recovery_tail_rise_bins,
         recovery_record,
     ) = pending_recovery_selection
+    # Resolving an interrupted Adaptive tier must not start an extra Auto-OC climb.
+    run_performance_auto_oc = settings.auto_uv_mode == AUTO_UV_MODE_PERFORMANCE
+    if settings.auto_uv_mode == AUTO_UV_MODE_ADAPTIVE and recovery_profile_tier:
+        settings = replace(settings, auto_uv_mode=recovery_profile_tier)
     final_verification_duration_s = int(selected_final_duration_s)
     stable_candidate = VfCurveCandidate(
         label="previous-crash-resume",
@@ -2121,7 +2209,7 @@ def run_recovered_previous_crash_selection(
     baseline_target = SimpleNamespace(
         measured_clock_mhz=float(baseline_clock_mhz or baseline_lock_clock_mhz)
     )
-    recovered_profile_tier = auto_uv_run_profile_tier(
+    recovered_profile_tier = recovery_profile_tier or auto_uv_run_profile_tier(
         runtime_options,
         settings,
         tail_rise_bins=int(recovery_tail_rise_bins),
@@ -2169,8 +2257,14 @@ def run_recovered_previous_crash_selection(
     probe_history: list[AutoUvProbeSummary] = []
     append_unique_probe_summary(probe_history, discovery_summary)
     append_unique_probe_summary(probe_history, stable_probe)
-    stable_history: list[AutoUvProbeSummary] = []
+    stable_history = recovery_probe_history(
+        recovery_candidate_records,
+        selected_record=recovery_record,
+        profile_tier=recovered_profile_tier,
+    )
     append_unique_probe_summary(stable_history, stable_probe)
+    for probe in stable_history:
+        append_unique_probe_summary(probe_history, probe)
     final_tail_rise_bins = int(recovery_tail_rise_bins)
     log_phase(
         log,
@@ -2207,7 +2301,7 @@ def run_recovered_previous_crash_selection(
         baseline_candidate=baseline_candidate,
         final_verification_duration_s=int(final_verification_duration_s),
         event_callback=event_callback,
-        run_performance_auto_oc=settings.auto_uv_mode == AUTO_UV_MODE_PERFORMANCE,
+        run_performance_auto_oc=run_performance_auto_oc,
         request_reason="sweep-complete",
     )
 
@@ -2230,11 +2324,7 @@ def run_recovered_previous_crash_selection(
         gpu_identity=getattr(gpu, "gpu_identity", {}),
         runtime_default_plan=gpu.runtime_default_plan,
         auto_uv_mode=str(settings.auto_uv_mode),
-        generated_profile_tier=auto_uv_run_profile_tier(
-            runtime_options,
-            settings,
-            tail_rise_bins=int(final_tail_rise_bins),
-        ),
+        generated_profile_tier=recovered_profile_tier,
         event_callback=event_callback,
     )
 

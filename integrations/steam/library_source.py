@@ -130,7 +130,7 @@ class SteamLibrarySource(LiveOverlaySource):
             last_played=int(row.game.last_played or 0),
             installed_at=int(row.game.last_updated or 0),
             playtime_hours=float(self._playtime.get(row.game.app_id, 0.0)),
-            art_path=row.game.icon_path,
+            art_path=row.game.art_path,
             ready=bool(row.game.ready),
             wrapped=bool(injection_state(row.launch_options).wrapped),
             enabled=bool(row.setting.enabled),

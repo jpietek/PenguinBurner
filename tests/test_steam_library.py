@@ -2,6 +2,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from integrations.steam.library import (
+    game_art_path,
     game_icon_path,
     installed_steam_games,
 )
@@ -156,3 +157,25 @@ def test_icon_missing_yields_none(tmp_path: Path) -> None:
     root = _steam_home(tmp_path)
     assert game_icon_path("10", steam_root=root) is None
     assert game_icon_path("10", steam_root=None) is None
+
+
+def test_row_art_prefers_the_portrait_cover_and_its_2x_copy(tmp_path: Path) -> None:
+    root = _steam_home(tmp_path)
+    cache = root / "appcache" / "librarycache" / "10"
+    (cache / "hash").mkdir(parents=True)
+    (cache / "aaaa.jpg").write_bytes(b"x" * 500)  # the 32px client icon
+    (cache / "hash" / "library_600x900.jpg").write_bytes(b"x" * 40000)
+    assert game_art_path("10", steam_root=root).name == "library_600x900.jpg"
+    (cache / "library_600x900_2x.jpg").write_bytes(b"x" * 90000)
+    assert game_art_path("10", steam_root=root).name == "library_600x900_2x.jpg"
+
+
+def test_row_art_falls_back_to_the_icon_without_a_cover(tmp_path: Path) -> None:
+    root = _steam_home(tmp_path)
+    cache = root / "appcache" / "librarycache"
+    cache.mkdir(parents=True)
+    (cache / "10_icon.jpg").write_bytes(b"x" * 500)
+    assert game_art_path("10", steam_root=root).name == "10_icon.jpg"
+    (cache / "10_library_600x900.jpg").write_bytes(b"x" * 40000)
+    assert game_art_path("10", steam_root=root).name == "10_library_600x900.jpg"
+    assert game_art_path("10", steam_root=None) is None

@@ -1,4 +1,4 @@
-"""Library adapter shared by Lutris and Heroic.
+"""Library adapter shared by config-file launchers.
 
 Subclasses supply launcher labels, renderer support and process control.
 Steam keeps its own adapter for accounts, live apply and client write locking."""
@@ -18,6 +18,7 @@ from .library import (
     library_bulk_actions,
 )
 from .live_overlay import LiveOverlaySource
+from .wrapped_sessions import LauncherSessions, stop_wrapped_session
 from .wrapper_manager import LauncherGameRow, WrapperManager
 
 
@@ -34,6 +35,8 @@ class WrapperLibrarySource(LiveOverlaySource):
     #: Flatpak the probe is a flatpak-spawn round-trip, which is also why it
     #: cannot live in the constructor the window builds tabs with.
     can_launch = False
+    _running_pids: tuple[int, ...] = ()
+    _external_games: frozenset[str] = frozenset()
 
     #: The launcher's wrapper command field.
     command_field_key = "command"
@@ -185,4 +188,64 @@ class WrapperLibrarySource(LiveOverlaySource):
             detail=row,
             overlay_supported=supported,
             overlay_unsupported_reason=reason,
+            executable=str(getattr(game, "executable", "") or ""),
         )
+
+    def launch(self, game_id: str) -> tuple[bool, str]:
+        """Validate the library entry, then let its launcher start the game."""
+        if not self.can_launch:
+            return False, f"FAILED to launch ({self.display_name} is not installed or could not be found)"
+        row = self.manager.row(game_id)
+        if row is None:
+            return False, f"FAILED to launch (no such game in the {self.display_name} library)"
+        if self._launch_game(row):
+            return True, f"launching via {self.display_name}…"
+        return False, f"FAILED to launch ({self.display_name} would not start the game)"
+
+    def _launch_game(self, row: LauncherGameRow) -> bool:
+        raise NotImplementedError
+
+    def probe_sessions(self, *, known_pids: tuple[int, ...] = ()) -> LauncherSessions | None:
+        raise NotImplementedError
+
+    def stop(self, game_id: str) -> tuple[bool, str]:
+        """Signal the wrapped game's surviving session members."""
+        running = self._running_sessions()
+        if running is None:
+            return False, "FAILED to stop (could not tell what is running)"
+        pids = running.wrapped.get(str(game_id), ())
+        if not pids:
+            return False, "FAILED to stop (no running session for this game)"
+        # Handoffs can leave several identified successors. Stop every wrapped
+        # member, never an external launcher process or detached PB helper.
+        stopped = [stop_wrapped_session(pid, f"{self.launcher_id}:{game_id}") for pid in pids]
+        if all(stopped):
+            return True, "stopping…"
+        return False, "FAILED to stop (the wrapper would not take the signal)"
+
+    def running_game_ids(self) -> frozenset[str] | None:
+        """Which of this launcher's games are running, or None if unknowable.
+
+        The launcher's own children remain observable without our wrapper.
+        They are kept separate from the wrapper sessions Stop can control.
+        """
+        running = self._running_sessions()
+        return None if running is None else frozenset(running.wrapped) | frozenset(running.external)
+
+    def external_game_ids(self) -> frozenset[str]:
+        """Observed games that must be closed in the launcher, from the latest poll."""
+        return self._external_games
+
+    def observed_processes(self) -> dict[str, tuple[int, ...]] | None:
+        sessions = self._running_sessions()
+        return None if sessions is None else sessions.external
+
+    def _running_sessions(self) -> LauncherSessions | None:
+        running = self.probe_sessions(known_pids=self._running_pids)
+        if running is not None:
+            self._running_pids = tuple(
+                pid for group in (running.wrapped, running.external)
+                for pids in group.values() for pid in pids
+            )
+            self._external_games = frozenset(running.external) - frozenset(running.wrapped)
+        return running

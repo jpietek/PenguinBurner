@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from integrations.launchers.wrapper_command import inject_wrapper, remove_wrapper
 from overlay.wrapper_tokens import game_key, split_game_key
 
@@ -45,13 +47,35 @@ def test_a_command_carries_no_identity_flag_without_a_launcher() -> None:
     result = inject_wrapper("game-performance", overlay=False, launcher_id="", game_id="27")
 
     assert "--pb-game-id" not in result
-    assert result == "PENGUIN_BURNER --pb-overlay=0 game-performance"
+    assert result == "game-performance PENGUIN_BURNER --pb-overlay=0"
 
 
-def test_injection_puts_the_wrapper_in_front_of_the_users_own_command() -> None:
-    """Our tokens run first; whatever the user had stays next to the game."""
+def test_injection_puts_the_wrapper_innermost_after_the_users_own_command() -> None:
+    """The user's prefix runs first; our wrapper sits next to the game."""
     assert _inject("game-performance") == (
-        "PENGUIN_BURNER --pb-overlay=1 --pb-game-id=lutris:27 game-performance"
+        "game-performance PENGUIN_BURNER --pb-overlay=1 --pb-game-id=lutris:27"
+    )
+
+
+@pytest.mark.parametrize("launcher_id", ["lutris", "heroic", "faugus"])
+def test_gamescope_stays_outside_the_wrapper(launcher_id: str) -> None:
+    """Same placement as Steam's ``gamescope -- %command%``: gamescope is a
+    Vulkan process too, and must not inherit our layer env."""
+    user = "PROTON_ENABLE_WAYLAND=0 gamescope -W 3840 -H 2160 -f --"
+
+    injected = _inject(user, launcher_id=launcher_id)
+
+    assert injected == (
+        f"{user} PENGUIN_BURNER --pb-overlay=1 --pb-game-id={launcher_id}:27"
+    )
+    assert _inject(injected, launcher_id=launcher_id) == injected
+
+
+def test_injection_moves_a_legacy_outermost_wrapper_innermost() -> None:
+    legacy = "PENGUIN_BURNER --pb-overlay=1 --pb-game-id=lutris:27 gamescope -f --"
+
+    assert _inject(legacy) == (
+        "gamescope -f -- PENGUIN_BURNER --pb-overlay=1 --pb-game-id=lutris:27"
     )
 
 
@@ -71,7 +95,7 @@ def test_injection_is_idempotent() -> None:
 def test_injection_normalizes_a_hand_added_wrapper() -> None:
     """A user who added the bare wrapper themselves gets the flags it needs."""
     assert _inject("game-performance PENGUIN_BURNER", overlay=False) == (
-        "PENGUIN_BURNER --pb-overlay=0 --pb-game-id=lutris:27 game-performance"
+        "game-performance PENGUIN_BURNER --pb-overlay=0 --pb-game-id=lutris:27"
     )
 
 
@@ -109,3 +133,16 @@ def test_removal_still_understands_the_flag_earlier_versions_wrote() -> None:
     legacy = "PENGUIN_BURNER --pb-overlay=1 --pb-lutris-id=27 gamemoderun"
 
     assert remove_wrapper(legacy) == "gamemoderun"
+
+
+def test_leading_assignments_keep_quoting_and_stay_ahead_of_the_wrapper():
+    """Faugus hoists every NAME=value word into the environment; ours lands
+    after them, so their quoting is never rewritten."""
+    original = 'A="two words" B=\'a=b\' C=escaped\\ space'
+    injected = inject_wrapper(original, overlay=False, launcher_id="faugus", game_id="27")
+    assert injected == original + " PENGUIN_BURNER --pb-overlay=0 --pb-game-id=faugus:27"
+    assert remove_wrapper(injected) == original
+    assert inject_wrapper(injected, overlay=False, launcher_id="faugus", game_id="27") == injected
+    # Commands the earlier outermost adapter wrote move on the next change.
+    broken = "PENGUIN_BURNER --pb-overlay=1 --pb-game-id=faugus:27 " + original
+    assert inject_wrapper(broken, overlay=False, launcher_id="faugus", game_id="27") == injected
