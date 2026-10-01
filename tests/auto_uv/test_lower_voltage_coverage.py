@@ -11,6 +11,22 @@ test_voltage_search_and_cache.py (io + base_curve/probe_summary builders).
 
 from __future__ import annotations
 
+from auto_uv_test_data import (
+    base_curve,
+    probe_summary,
+    rtx_5080_20260524_high_oc_base_curve,
+)
+
+from auto_uv.base_uv_loop import (
+    BaseUvLoopIO,
+    SweepSelection,
+    build_next_lower_voltage_candidate,
+    decide_passed_probe,
+    float_or_none,
+    run_base_uv_loop,
+    state_for_selected_candidate,
+    voltage_drop_from_start_pct,
+)
 from auto_uv.domain.scan_settings import AutoUvScanSettings
 from auto_uv.domain.types import (
     FailureKind,
@@ -26,23 +42,7 @@ from auto_uv.run.lower_voltage_search import (
     select_aggressive_voltage_bins,
     select_next_lower_voltage,
 )
-from auto_uv.base_uv_loop import (
-    SweepSelection,
-    BaseUvLoopIO,
-    build_next_lower_voltage_candidate,
-    decide_passed_probe,
-    float_or_none,
-    run_base_uv_loop,
-    state_for_selected_candidate,
-    voltage_drop_from_start_pct,
-)
 from auto_uv.run.voltage_sweep_state import VoltageProbeOutcome, VoltageSweepState
-from auto_uv_test_data import (
-    base_curve,
-    probe_summary,
-    rtx_5080_20260524_high_oc_base_curve,
-)
-
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -124,7 +124,6 @@ def test_lower_voltage_candidate_holds_requested_target_and_tail() -> None:
         state=VoltageSweepState(
             stable_voltage_mv=1000,
             stable_target_mhz=2730,
-            stable_measured_target_mhz=2730,
             next_voltage_mv=860,
         ),
     )
@@ -262,8 +261,7 @@ def test_float_or_none_handles_none_and_bad_values() -> None:
     assert float_or_none(7) == 7.0
 
 
-def test_state_for_selected_candidate_uses_candidate_target_without_outcome() -> None:
-    # lines 362-369 with outcome None -> falls back to candidate.target_mhz
+def test_state_for_selected_candidate_uses_requested_target() -> None:
     state = VoltageSweepState(
         stable_voltage_mv=1000,
         stable_target_mhz=2160,
@@ -272,10 +270,9 @@ def test_state_for_selected_candidate_uses_candidate_target_without_outcome() ->
     candidate = VfCurveCandidate(
         label="x", voltage_mv=925, target_mhz=2100, flattened_plan=[]
     )
-    new_state = state_for_selected_candidate(state, candidate=candidate, outcome=None)
+    new_state = state_for_selected_candidate(state, candidate=candidate)
     assert new_state.stable_voltage_mv == 925
     assert new_state.stable_target_mhz == 2100
-    assert new_state.stable_measured_target_mhz == 2100
     assert new_state.next_voltage_mv is None
 
 

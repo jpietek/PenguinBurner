@@ -2528,9 +2528,8 @@ def test_adaptive_tier_order_and_descent_tails() -> None:
     # Efficiency first: it descends deepest (most fragile), so it soaks the
     # full final duration while shallower tiers get the graduated confirm.
     assert ADAPTIVE_TIER_ORDER == ("efficiency", "balanced", "performance")
-    # Each tier descends WITH its own tail — the tail compounds through the
-    # measured-clock ratchet, so it cannot be decorated on after a tail-less
-    # descent. Every tier carries two bins by default.
+    # Each tier tests its full tail during descent so the saved boost headroom
+    # has been probed. Every tier carries two bins by default.
     assert adaptive_tier_descent_tail_rise_bins("efficiency") == int(
         AUTO_UV_DEFAULTS.tail_rise_bins
     )
@@ -2761,7 +2760,7 @@ def test_performance_can_reuse_balanced_descent_gate() -> None:
         performance_memory_offset_mhz=3000,
         **gate_kwargs,
     )
-    # A diverging tail shape holds different clocks through the ratchet.
+    # A diverging tail shape changes the tested boost headroom.
     assert not performance_can_reuse_balanced_descent(
         donation(descent_tail=performance_tail + 2, memory_offset_mhz=0),
         performance_memory_offset_mhz=0,
