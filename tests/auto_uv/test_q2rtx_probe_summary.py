@@ -387,7 +387,7 @@ def test_loaded_perf_cap_reason_rejects_sparse_power_evidence() -> None:
     ]
 
     # One reason-bearing sample must not classify an otherwise reason-less,
-    # far-below-cap window as power-saturated for ratchet/reclaim consumers.
+    # far-below-cap window as power-saturated for clock reclaim.
     assert (
         summarize_loaded_perf_cap_reason(
             loaded_samples,

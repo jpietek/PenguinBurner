@@ -929,10 +929,10 @@ def run_adaptive_tier_scans(
 ) -> AutoUvVoltageScanResult:
     """One scan, three profiles: run the proven per-tier descent for each tier.
 
-    A single tail-less sweep cannot reproduce the per-tier held clocks — the
-    rising tail compounds through the measured-clock ratchet, so each tier
-    must descend with its OWN tail (efficiency +2 to the floor,
-    balanced +2 to the FPS/W wall, performance +2 then the Auto-OC climb).
+    Each tier tests its configured rising tail while holding the requested
+    clock through descent (efficiency +2 to the floor, balanced +2 to the
+    FPS/W wall, performance +2 then the Auto-OC climb). Measured boost does
+    not raise the next voltage candidate's requested clock.
     Stock and flattened baselines are shared when power, memory and tail
     settings match. Because Balanced
     and Performance descend with the same tail, Performance can reuse the
@@ -1534,10 +1534,10 @@ ADAPTIVE_TIER_ORDER = (
 def adaptive_tier_descent_tail_rise_bins(tier_mode: str) -> int:
     """The rising tail each tier descends WITH.
 
-    Efficiency keeps two rising bins through both voltage passes. Balanced and performance
-    descend with their full tail the whole way — the tail is what holds the
-    measured clock up through the ratchet, so it must be applied on descent,
-    not decorated on afterward."""
+    Each tier includes its full boost headroom in every stability probe.
+    Measured tail boost does not change the requested descent clock, and the
+    saved curve retains the tail that was tested.
+    """
     if tier_mode == AUTO_UV_MODE_BALANCED:
         return int(AUTO_UV_DEFAULTS.balanced_tail_rise_bins)
     if tier_mode == AUTO_UV_MODE_PERFORMANCE:

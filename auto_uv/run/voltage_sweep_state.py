@@ -16,7 +16,6 @@ class VoltageSweepState:
     stable_voltage_mv: int
     stable_target_mhz: int
     next_voltage_mv: int | None
-    stable_measured_target_mhz: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -18,10 +18,12 @@ measured-clock checks also pass.
 
 ## Voltage and clock search
 
-Voltage descends through a finite set of editable bins. Passing probes keep
-the requested clock even when the measured clock falls under a power limit;
-that shortfall is not repeatedly subtracted from the next target. Higher
-measured clocks can raise the target.
+Voltage descends through a finite set of editable bins while keeping the
+previous passing candidate's requested clock. Higher or lower measured clocks
+do not change the next target: rising-tail boost is not added again at each
+step, and a power-limited shortfall is not repeatedly subtracted. The configured
+rising tail and its clock headroom are preserved. Measured clocks remain available
+for evaluation; clock increases are tested separately at a fixed voltage.
 
 Efficiency selects the highest measured FPS/W among passing candidates,
 including candidates before any clock climb. It compares unrounded values;
