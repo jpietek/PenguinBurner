@@ -54,6 +54,12 @@ builder separately uses `CIBW_CONTAINER_ENGINE`. Flatpak publication also tests
 fresh installation and upgrading the previous signed snapshot before uploading
 the new snapshot.
 
+The Arch checks cover the native Rust package and a fresh CachyOS rustup
+installation. When Cargo is a rustup proxy, the AUR recipe installs the selected
+toolchain as the build user (`RUSTUP_TOOLCHAIN`, defaulting to `stable`) without
+replacing an existing global default. Both paths require the daemon inside the
+wheel as well as the package's `usr/libexec/penguin-burnerd` binary.
+
 ## Unattended signing
 
 The runner checks configured PyPI credentials, GitHub/COPR access, AUR SSH,
