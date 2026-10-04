@@ -1269,26 +1269,48 @@ def test_migrate_to_daemon_service_refuses_unparsed_enabled_legacy_unit(
     assert not daemon_unit.exists()
 
 
-def test_stop_existing_runtime_does_not_disable_persistent_service(monkeypatch) -> None:
+@pytest.mark.parametrize("runtime_mode", ["stock", "fixed", "adaptive"])
+def test_stop_existing_runtime_does_not_disable_persistent_service(monkeypatch, runtime_mode) -> None:
     calls = []
     logs = []
 
-    def fake_run(args, **_kwargs):
-        calls.append(list(args))
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr(runtime_service, "SYSTEMCTL", "/bin/systemctl")
-    monkeypatch.setattr(runtime_service, "systemd_is_available", lambda: True)
-    monkeypatch.setattr(runtime_service.os, "geteuid", lambda: 0)
-    monkeypatch.setattr(runtime_service.subprocess, "run", fake_run)
+    monkeypatch.setattr(runtime_service, "daemon_status", lambda **_: {
+        "active_job": {"type": "runtime_profile", "runtime_mode": runtime_mode, "returncode": None}
+    })
+    monkeypatch.setattr(runtime_service, "stop_runtime_profile", lambda **kw: calls.append(kw))
+    monkeypatch.setattr(runtime_service.os, "geteuid", lambda: 1000)
+    monkeypatch.setattr(runtime_service.subprocess, "run", lambda *_a, **_kw: pytest.fail("must use socket"))
 
     runtime_service.stop_existing_penguin_burner_runtime(log=logs.append)
 
-    assert ["/bin/systemctl", "stop", "PenguinBurner.service"] in calls
-    assert ["/bin/systemctl", "disable", "--now", "PenguinBurner.service"] not in calls
-    assert ["/bin/systemctl", "stop", "penguin-burnerd.service"] not in calls
-    assert ["/bin/systemctl", "disable", "--now", "penguin-burnerd.service"] not in calls
+    assert calls == [{"socket_path": runtime_service.DEFAULT_DAEMON_SOCKET, "timeout_s": 25.0}]
     assert any("before foreground Auto-UV scan" in message for message in logs)
+
+
+@pytest.mark.parametrize("job_type, own_child", [
+    ("auto_uv_scan", True), ("auto_uv_scan", False), ("profile_verification", False),
+])
+def test_scan_handoff_preserves_own_daemon_child_and_refuses_other_work(monkeypatch, job_type, own_child):
+    monkeypatch.setattr(runtime_service, "daemon_status", lambda **_: {
+        "active_job": {"type": job_type, "pid": os.getpid() if own_child else -1, "returncode": None}
+    })
+    monkeypatch.setattr(runtime_service, "stop_runtime_profile", lambda **_: pytest.fail("must not clear session"))
+    if own_child:
+        runtime_service.stop_existing_penguin_burner_runtime(log=lambda _: None)
+    else:
+        with pytest.raises(RuntimeError, match="another scan or profile verification"):
+            runtime_service.stop_existing_penguin_burner_runtime(log=lambda _: None)
+
+
+def test_scan_handoff_propagates_wedged_profile_failure(monkeypatch):
+    monkeypatch.setattr(runtime_service, "daemon_status", lambda **_: {
+        "active_job": {"type": "runtime_profile", "returncode": None}
+    })
+    def fail(**_):
+        raise RuntimeError("runtime profile engine did not stop")
+    monkeypatch.setattr(runtime_service, "stop_runtime_profile", fail)
+    with pytest.raises(RuntimeError, match="engine did not stop"):
+        runtime_service.stop_existing_penguin_burner_runtime(log=lambda _: None)
 
 
 def test_daemonize_starts_daemon_service_and_runtime_profile(tmp_path, monkeypatch) -> None:

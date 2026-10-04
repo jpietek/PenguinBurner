@@ -151,16 +151,25 @@ def test_unreadable_checkpoint_stops_without_replacing_it(monkeypatch, tmp_path)
     assert read_bytes(path) == b"original checkpoint"
 
 
+@pytest.mark.parametrize("base_shift", [0, 15])
 def test_probe_cache_miss_keeps_completed_efficiency_and_skips_its_setup(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, base_shift
 ):
     path = tmp_path / "checkpoint.json"
-    identity = {"options": {"auto_uv_mode": "adaptive"}}
+    identity = {
+        "options": {"auto_uv_mode": "adaptive"},
+        "base_curve": [{
+            "index": 0, "voltage_mv": 862, "base_mhz": 1800,
+            "target_mhz": 1800, "current_offset_mhz": 0,
+            "new_offset_mhz": 0, "preserve_base": False,
+        }],
+    }
     checkpoint = ScanCheckpoint(
         identity=identity, callback=None, log=lambda _: None, path=path
     )
     completed = AutoUvVoltageScanResult(True, 862, 1800, "verified", None, [])
     checkpoint.record({"completed_tier": "efficiency"}, completed, profiles=True)
+    identity["base_curve"][0].update(base_mhz=1800 + base_shift, target_mhz=1800 + base_shift)
     messages = []
     resumed = ScanCheckpoint(
         identity=identity, callback=None, log=messages.append, path=path
@@ -170,7 +179,10 @@ def test_probe_cache_miss_keeps_completed_efficiency_and_skips_its_setup(
         == "new measurement"
     )
     assert not resumed.replaying
-    assert any("completed tiers remain reusable" in message for message in messages)
+    assert any(
+        ("retaining completed tiers" if base_shift else "completed tiers remain reusable") in message
+        for message in messages
+    )
     setups, events = [], []
 
     def setup(_gpu, *, tier_mode, **_kw):

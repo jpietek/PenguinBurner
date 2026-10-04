@@ -333,6 +333,28 @@ def test_status_idle_shape(make_daemon):
 # --- runtime profile: start / stop / state file ------------------------------
 
 
+def test_foreground_scan_stops_stock_engine_and_keeps_boot_spec(make_daemon, monkeypatch, tmp_path):
+    from runtime.daemon_client import set_boot_runtime_spec
+    from runtime.support import runtime_service
+
+    boot_path = tmp_path / "boot-runtime.json"
+    handle = make_daemon(extra_env={"PENGUIN_BURNERD_TEST_BOOT_STATE_FILE": str(boot_path)})
+    spec = _runtime_spec()
+    set_boot_runtime_spec(spec, socket_path=handle.socket_path)
+    apply_runtime_spec(spec, socket_path=handle.socket_path)
+    before = daemon_request("boot_runtime_spec", socket_path=handle.socket_path)
+    boot_bytes = boot_path.read_bytes()
+    assert daemon_status(socket_path=handle.socket_path)["state"] == "runtime_profile_running"
+    monkeypatch.setattr(runtime_service, "DEFAULT_DAEMON_SOCKET", handle.socket_path)
+
+    runtime_service.stop_existing_penguin_burner_runtime(log=lambda _: None)
+
+    assert handle.proc.poll() is None  # The service remains available for scan RPCs.
+    assert daemon_status(socket_path=handle.socket_path)["state"] == "idle"
+    assert daemon_request("boot_runtime_spec", socket_path=handle.socket_path) == before
+    assert boot_path.read_bytes() == boot_bytes
+
+
 def test_apply_runtime_spec_tracks_process_and_state_file(make_daemon):
     daemon = make_daemon()
     spec = _runtime_spec()

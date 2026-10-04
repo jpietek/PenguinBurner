@@ -10,7 +10,7 @@ import hashlib
 import json
 import os
 from collections.abc import Callable
-from dataclasses import asdict, fields, is_dataclass
+from dataclasses import asdict, fields, is_dataclass, replace
 from pathlib import Path
 from typing import Any, TypeVar
 from uuid import uuid4
@@ -32,6 +32,7 @@ from stability.q2rtx.models import (
 )
 
 from .auto_uv_persisted_json_files import auto_uv_user_config_dir, safe_json_write
+from .checkpoint_curve import compatible_stock_curves, rebase_measured_plan
 from .unsafe_voltage_blacklist_file import load_unsafe_voltage_blacklist
 from .unsafe_voltage_cache import unsafe_voltage_block_reason
 
@@ -137,6 +138,8 @@ class ScanCheckpoint:
         self.identity_components = {
             key: checkpoint_key(value) for key, value in identity.items()
         }
+        self.base_curve = identity.get("base_curve")
+        self.base_curve_rebased = False
         self.records: dict[str, Any] = {}
         self.events: list[dict] = []
         self.pending: list[dict] = []
@@ -178,6 +181,7 @@ class ScanCheckpoint:
             raise TypeError("invalid checkpoint object")
         if payload.get("format_version") != _FORMAT_VERSION:
             raise ValueError(f"unsupported format version {payload.get('format_version')!r}")
+        rebase = False
         if payload.get("identity") != self.identity:
             components = payload.get("identity_components")
             if isinstance(components, dict):
@@ -186,9 +190,15 @@ class ScanCheckpoint:
                     if components.get(key) != self.identity_components.get(key)
                 )
                 detail = ", ".join(changed) or "identity hash"
+                rebase = (
+                    changed == ["base_curve"]
+                    and checkpoint_key(payload.get("base_curve")) == components.get("base_curve")
+                    and compatible_stock_curves(payload.get("base_curve"), self.base_curve)
+                )
             else:
                 detail = "older checkpoint has no component fingerprints"
-            raise ValueError(f"scan inputs changed: {detail}")
+            if not rebase:
+                raise ValueError(f"scan inputs changed: {detail}")
         if payload.get("profiles") != current_profiles:
             raise ValueError("saved profiles changed, were added, or were removed")
         records = _decode(payload["records"])
@@ -211,10 +221,38 @@ class ScanCheckpoint:
             for item in passed
         ):
             raise ValueError("invalid passed candidates")
+        if rebase:
+            assert isinstance(self.base_curve, list)  # Validated by compatible_stock_curves.
+            # Old probe hashes include the old base and offsets. Keep completed
+            # tiers, but remeasure baselines rather than replay stale stock data.
+            records = {
+                key: value for key, value in records.items()
+                if key in {
+                    checkpoint_key({"completed_tier": tier})
+                    for tier in ("efficiency", "balanced", "performance")
+                }
+            }
+            for item in passed:
+                item["candidate"] = replace(
+                    item["candidate"],
+                    flattened_plan=rebase_measured_plan(
+                        item["candidate"].flattened_plan, self.base_curve
+                    ),
+                )
+                probe = item["probe"]
+                if probe.tested_plan is not None:
+                    probe.tested_plan = rebase_measured_plan(probe.tested_plan, self.base_curve)
+            self.log(
+                "Auto-UV: stock base clocks shifted by at most one 15MHz bin; "
+                "retaining completed tiers and absolute candidate targets, "
+                "remeasuring baselines before resume verification."
+            )
         self.passed = passed
         self.records, self.events = records, events
         self.profiles = current_profiles
-        self.resuming = self.replaying = bool(records)
+        self.base_curve_rebased = rebase
+        self.resuming = bool(records or passed)
+        self.replaying = self.resuming and not rebase
         if not self.resuming:
             self.log("Auto-UV: saved checkpoint has no completed measurements; starting a new scan.")
 
@@ -381,6 +419,7 @@ class ScanCheckpoint:
                     "format_version": _FORMAT_VERSION,
                     "identity": self.identity,
                     "identity_components": self.identity_components,
+                    "base_curve": self.base_curve,
                     "records": _encode(self.records),
                     "events": self.events,
                     "profiles": self.profiles,

@@ -97,6 +97,7 @@ def candidate(curve, voltage=850, clock=2745):
 
 
 @pytest.mark.parametrize("failure_kind", ["hard-reset", "device-lost"])
+@pytest.mark.parametrize("base_shift", [0, 15])
 @pytest.mark.parametrize(
     "mode, override, duration",
     [
@@ -108,7 +109,7 @@ def candidate(curve, voltage=850, clock=2745):
     ],
 )
 def test_failure_then_scan_click_restores_table_plot_and_long_verifies_safer_point(
-    monkeypatch, qapp, tmp_path, failure_kind, mode, override, duration
+    monkeypatch, qapp, tmp_path, failure_kind, mode, override, duration, base_shift
 ):
     """Run real orchestration/persistence/Qt twice; substitute only hardware and the search schedule."""
     from auto_uv import main_loop as main
@@ -118,6 +119,8 @@ def test_failure_then_scan_click_restores_table_plot_and_long_verifies_safer_poi
     from ui.window import MainWindow
 
     curve = rtx_5080_20260524_high_oc_base_curve()
+    for point in curve:
+        point.update(current_offset_mhz=0, preserve_base=False)
     calls, finals, restored, workloads = [], [], [], []
     options = {
         "auto_uv_mode": mode,
@@ -219,14 +222,18 @@ def test_failure_then_scan_click_restores_table_plot_and_long_verifies_safer_poi
         assert kw["auto_oc_metadata"]["resume_recovery"] is True
         # Observe the restored GUI BEFORE final verification starts.
         win = windows[-1]
-        assert (
-            win.runs_table.widget.rowCount() == 5
-        )  # discovery, baseline, 900, 875, 850/2745
-        clocks = [win.runs_table.widget.item(i, 2).text() for i in range(5)]
+        # Historical passing rows remain; changed stock clocks require two new baselines.
+        assert win.runs_table.widget.rowCount() == (7 if base_shift else 5)
+        clocks = [win.runs_table.widget.item(i, 2).text() for i in range(win.runs_table.widget.rowCount())]
         assert "2800" not in clocks and "2775" not in clocks and "2760" not in clocks
-        assert win.vf_plot._last_candidate_curve_id == "850mv-2745mhz"
-        voltages, clocks = win.vf_plot.candidate_curve.getData()
-        assert clocks[list(voltages).index(850)] == 2745
+        if not base_shift:
+            assert win.vf_plot._last_candidate_curve_id == "850mv-2745mhz"
+            voltages, clocks = win.vf_plot.candidate_curve.getData()
+            assert clocks[list(voltages).index(850)] == 2745
+        else:
+            for point in kw["stable_plan"]:
+                base = next(p for p in curve if p["index"] == point["index"])
+                assert point["new_offset_mhz"] == point["target_mhz"] - base["base_mhz"]
         win.window.show()
         qapp.processEvents()
         win.window.grab().save(str(tmp_path / "restored-scan.png"))
@@ -305,16 +312,16 @@ def test_failure_then_scan_click_restores_table_plot_and_long_verifies_safer_poi
             first.start_scan()
         assert scan_checkpoint_path().is_file()
         before_retry = list(calls)
+        curve[16]["base_mhz"] += base_shift
+        curve[16]["target_mhz"] += base_shift
+        expected_calls = [*before_retry, *(before_retry[:2] if base_shift else []), (860, 2745)]
         second = MainWindow(modules)
         windows.append(second)
         second.scan_controller = Controller()
         assert calls == before_retry and not finals
         assert second.runs_table.widget.rowCount() == 0
         second.start_scan()  # The explicit click is the only resume trigger.
-        assert calls == [
-            *before_retry,
-            (860, 2745),
-        ]  # Only the adjusted long verification runs.
+        assert calls == expected_calls  # No voltage sweep repeats.
         assert workloads[-1].duration_s == duration - round(duration * 0.25)
         assert "--duration-seconds" in workloads[-1].companion_command
         assert str(round(duration * 0.25)) in workloads[-1].companion_command
@@ -333,7 +340,7 @@ def test_failure_then_scan_click_restores_table_plot_and_long_verifies_safer_poi
             # and its checkpoint. Another click must not repeat that long check.
             second.start_scan()
             assert len(finals) == 1
-            assert calls == [*before_retry, (860, 2745)]
+            assert calls == expected_calls
             assert second.auto_uv_tier_progress.state("efficiency") == "complete"
             assert second.vf_plot.comparison_curves
             volts, clocks = second.vf_plot.comparison_curves[0].getData()

@@ -137,6 +137,9 @@ penguin-burner-cli --restore-stock
 This asks the running root daemon to clear core/memory offsets, release locked
 clocks, restore the factory V/F curve and default power limit, and makes stock
 the boot state. Saved profiles are kept and can be re-applied later.
+You can then start a GUI or CLI Auto-UV scan normally: scan startup releases
+the active stock runtime profile without disabling the service or changing
+the stock boot setting.
 
 If a boot profile ever makes the desktop unusable before you can run that
 command, boot once into systemd rescue mode (hold the boot menu, select the
