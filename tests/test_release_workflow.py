@@ -107,6 +107,9 @@ if [[ "$1" == scripts/release_pypi.py ]]; then
     exit 3
 fi
 [[ "$*" == "-m twine upload --non-interactive "* ]]
+# Pinning the URL makes twine 7 ignore the [pypi] section it takes the token
+# from, and the runner disables the keyring, so the upload has no credential.
+[[ "$*" != *--repository-url* ]]
 echo pypi >> "$RELEASE_TRACE"
 touch "$RELEASE_STATE/pypi"
 """,

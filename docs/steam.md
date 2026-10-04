@@ -12,7 +12,8 @@ Live settings and Proton selection refuse to connect to a different running
 Steam installation. Close the other client before using these controls.
 
 Use [Game Library](features/game-library.md) to set a GPU profile, Adaptive FPS
-target, and overlay for each Steam game alongside your Lutris library.
+target, and overlay for each Steam game alongside your Lutris and Heroic
+libraries.
 
 ## Setup
 

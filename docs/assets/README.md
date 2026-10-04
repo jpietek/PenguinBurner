@@ -7,7 +7,8 @@ sample data:
 python scripts/render-auto-uv-qt-demo.py
 ```
 
-To show the installed Steam and Lutris library instead, use the read-only live
+To show the installed Steam, Lutris and Heroic library instead, use the
+read-only live
 library option and select a game visible on the capture host:
 
 ```bash
@@ -25,7 +26,12 @@ Capture Game Library from the current Qt widget and installed games:
 
 ```bash
 python scripts/render-game-library.py --select Shelter
+python scripts/render-game-library.py --select "The First Tree" \
+  --output docs/assets/game-library-heroic.png
 ```
+
+The first is the shared library shot used by the README and the Game Library
+guide; the second shows a Heroic game's own settings for the Heroic guide.
 
 Run from the repository root with PySide6 installed. The script uses an offscreen
 window and defaults to the first Lutris game when `--select` is omitted. It reads

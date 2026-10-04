@@ -45,7 +45,7 @@ GPU_UNDERVOLTING_PURPOSE_TEXT = (
     "error or risk introducing avoidable system instability. One scan saves "
     "three verified tiers — Efficiency, Balanced, and Performance — that "
     "the adaptive runtime switches between while you play, per game, across "
-    "your Steam and Lutris library."
+    "your Steam, Lutris and Heroic library."
 )
 
 

@@ -1,6 +1,6 @@
 Name:           penguin-burner
-Version:        0.8.0
-Release:        1%{?dist}
+Version:        0.8.2
+Release:        2%{?dist}
 Summary:        Automatic NVIDIA GPU undervolting, overclocking, and per-game tuning
 
 %global debug_package %{nil}
@@ -29,6 +29,24 @@ BuildRequires:  gcc-c++
 BuildRequires:  mingw64-gcc-c++
 BuildRequires:  mingw64-winpthreads-static
 BuildRequires:  vulkan-headers
+# The 32-bit companion Vulkan layer: only an i386 layer can be loaded into a
+# 32-bit game's Vulkan instance, and setup.py builds it best effort, so without
+# these the RPM silently ships 64-bit only. libatomic(x86-32) is needed on
+# gcc 16 (Fedora 44+), where the link otherwise fails on libatomic.so.1 -- for
+# both arches, since each is a separate package and the loader needs its own.
+#
+# Both arches are named explicitly. Asking only for the (x86-32) provides lets
+# dnf satisfy gcc-c++'s own libstdc++-devel dependency with the i686 package
+# alone, which takes /usr/include/c++/*/x86_64-redhat-linux with it and breaks
+# the *64-bit* layer on bits/c++config.h -- the failure that made this
+# best-effort in the first place.
+BuildRequires:  glibc-devel(x86-64)
+BuildRequires:  libstdc++-devel(x86-64)
+BuildRequires:  libatomic(x86-64)
+BuildRequires:  glibc-devel(x86-32)
+BuildRequires:  libstdc++-devel(x86-32)
+BuildRequires:  libgcc(x86-32)
+BuildRequires:  libatomic(x86-32)
 BuildRequires:  desktop-file-utils
 # Root daemon (penguin-burnerd) is compiled from the bundled Rust crate.
 BuildRequires:  cargo
@@ -52,9 +70,9 @@ stock loaded clock at 272 W instead of 341 W.
 
  * Adaptive undervolting switches between the saved tiers while you play to
    hold your frame-rate target, and eases off on frame caps and idle desktops.
- * The Game Library brings Steam and Lutris games into one list, each with its
-   own GPU profile, adaptive FPS target, and overlay setting, applied at launch
-   and restored on exit.
+ * The Game Library brings Steam, Lutris and Heroic games into one list, each
+   with its own GPU profile, adaptive FPS target, and overlay setting, applied
+   at launch and restored on exit.
  * The in-game Vulkan overlay shows base FPS, frame-generation FPS, PC latency,
    clocks, power, temperatures, and the active tier.
  * Manual V/F and fan curve editors, an automatic silent fan curve, MSI
@@ -75,6 +93,7 @@ Fusion.
 
 %build
 export PENGUIN_BURNER_REQUIRE_NATIVE_LAYER=1
+export PENGUIN_BURNER_REQUIRE_NATIVE_LAYER32=1
 export PENGUIN_BURNER_REQUIRE_NVAPI_SHIM=1
 %pyproject_wheel
 
@@ -121,6 +140,20 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/io.github.jpietek.Pen
 %{_datadir}/penguin-burner/penguin_burner.sh
 
 %changelog
+* Tue Sep 22 2026 PenguinBurner contributors <noreply@github.com> - 0.8.2-2
+- Ship the 32-bit overlay Vulkan layer so the overlay reaches 32-bit games.
+
+* Mon Sep 21 2026 PenguinBurner contributors <noreply@github.com> - 0.8.2-1
+- Ship the 32-bit overlay layer in the published wheel so 32-bit games get
+  the overlay.
+
+* Mon Sep 21 2026 PenguinBurner contributors <noreply@github.com> - 0.8.1-1
+- Add the Heroic Games Launcher integration, on par with Steam and Lutris.
+- Add a per-game Wine/Proton compatibility picker and live mode, target and
+  overlay changes for a running wrapped game.
+- Track launcher sessions from events instead of polling, and steady Adaptive
+  against alt-tab frame-time spikes.
+
 * Sun Sep 06 2026 PenguinBurner contributors <noreply@github.com> - 0.8.0-1
 - Add Auto-UV recovery, smooth curves, per-tier targets and clearer profile metrics.
 - Unify the Game Library and improve adaptive switching under frame-rate caps.

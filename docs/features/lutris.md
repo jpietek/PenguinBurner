@@ -11,7 +11,8 @@ Flatpak Lutris uses `~/.var/app/net.lutris.Lutris/data/lutris/pga.db`, with
 configuration under that app's `config/lutris` directory when present, otherwise
 its data directory. Its compatibility picker queries Lutris inside that sandbox.
 
-[Game Library](game-library.md) lists installed Lutris games beside Steam.
+[Game Library](game-library.md) lists installed Lutris games beside Steam and
+Heroic.
 Enable **Wrap this game**, select a mode, and use **Play** or launch from Lutris.
 Wrapping and compatibility-tool changes take effect on the next launch.
 Profile modes, Adaptive targets and overlay visibility also apply live to an

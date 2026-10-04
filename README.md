@@ -17,11 +17,11 @@
   <a href="https://pepy.tech/project/penguin-burner"><img alt="PyPI downloads" src="https://img.shields.io/pepy/dt/penguin-burner?style=flat-square&logo=pypi&logoColor=white&label=PyPI%20downloads"></a>
 </p>
 
-![PenguinBurner Auto-UV scan, verified profiles, unified Steam and Lutris Game Library, and in-game overlay](docs/assets/auto-uv-full-scan-demo.gif)
+![PenguinBurner Auto-UV scan, verified profiles, unified Steam, Lutris and Heroic Game Library, and in-game overlay](docs/assets/auto-uv-full-scan-demo.gif)
 
 PenguinBurner is an open-source NVIDIA GPU tuning app for Linux with
 automatic undervolting, overclocking and adaptive per-game profiles for
-**Steam and Lutris** in one [Game Library](#game-library).
+**Steam, Lutris and Heroic** in one [Game Library](#game-library).
 
 **One scan. Three verified GPU profiles.**
 
@@ -73,7 +73,8 @@ The GUI, CLI, and scans then use that service without further password prompts.
    **Restore defaults** returns the GPU to stock. See [profile management](docs/features/profile-management.md)
    for multi-GPU settings and other actions.
 5. For per-game tuning — including **Adaptive**, which switches tiers as your
-   frame rate changes — use **Game Library** to configure Steam and Lutris games.
+   frame rate changes — use **Game Library** to configure Steam, Lutris and
+   Heroic games.
 
 ## Automatic Undervolting & Overclocking
 
@@ -114,23 +115,24 @@ recognizes frame caps and idle periods so it can reduce power use.
 
 ## Game Library
 
-Bring your **Steam and Lutris games together in one library**, with background
+Bring your **Steam, Lutris and Heroic games together in one library**, with background
 discovery, launcher badges, and sorting by launcher, name, recently played or
 most played. Pick **Adaptive**, a fixed tier or **Stock** for each game;
 PenguinBurner applies it at launch and restores your standing profile on exit.
 
-![Game Library showing Steam and Lutris games, with a Lutris game's Adaptive settings and overlay controls](docs/assets/game-library.png)
+![Game Library showing Steam, Lutris and Heroic games, with a Lutris game's Adaptive settings and overlay controls](docs/assets/game-library.png)
 
 Enable **Wrap this game**, then choose its GPU profile, Adaptive FPS target,
-and overlay settings. Existing launch options and Lutris command prefixes are
-preserved. Use **Play / Stop** to control a game or **All games** for bulk edits.
+and overlay settings. Existing launch options, Lutris command prefixes and
+Heroic wrapper rows are preserved. Use **Play / Stop** to control a game or
+**All games** for bulk edits.
 
 [Game Library guide](docs/features/game-library.md) · [Steam setup](docs/steam.md)
-· [Lutris setup](docs/features/lutris.md)
+· [Lutris setup](docs/features/lutris.md) · [Heroic setup](docs/features/heroic.md)
 
-Thanks to [@Ernold11](https://github.com/Ernold11) for the shared Game Library and
-adaptive tuning improvements. **Which launcher should come next — Heroic?**
-[Tell us in Discussions](https://github.com/jpietek/PenguinBurner/discussions).
+Thanks to [@Ernold11](https://github.com/Ernold11) for the shared Game Library,
+the Heroic integration and adaptive tuning improvements. **Which launcher
+should come next?** [Tell us in Discussions](https://github.com/jpietek/PenguinBurner/discussions).
 
 ## PenguinBurner vs LACT (NVIDIA)
 
@@ -151,7 +153,7 @@ and adaptive switching. NVIDIA-only comparison, to the best of our knowledge:
 | Manual V/F curve editor | ✅ | ✅ |
 | Fan curve control | ✅ auto silent curve + editor | ✅ custom curves |
 | Power limit | ✅ Auto-UV + saved profiles | ✅ |
-| Steam & Lutris game libraries | ✅ shared library with background discovery | ❌ |
+| Steam, Lutris & Heroic game libraries | ✅ shared library with background discovery | ❌ |
 | Per-game tuning profiles | ✅ per-game mode, adaptive FPS target, live launch | ❌ |
 | Runtime profile switching | ✅ by present-frame FPS pacing | ✅ by running process / gamemode |
 | MSI Afterburner import | ✅ | ❌ |

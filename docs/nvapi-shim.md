@@ -20,8 +20,8 @@ marker FIFO the bridge drains, so nothing downstream changed.
 
 To catch markers that arrive through wine's debug output, the wrapper redirects
 the game's stderr (fd 2) into the marker FIFO. That would otherwise hide the
-whole Proton/wine log from whatever started the game — Lutris, Steam, or a
-terminal — for as long as `PENGUIN_BURNER` is in the launch command.
+whole Proton/wine log from whatever started the game — Lutris, Steam, Heroic,
+or a terminal — for as long as `PENGUIN_BURNER` is in the launch command.
 
 The drainer is spawned *before* that redirect, so its own stderr is still the
 launcher's. It forwards every line it drains that is **not** a PenguinBurner

@@ -1027,8 +1027,8 @@ def test_desktop_launchers_are_english_only_and_consistent() -> None:
         assert "Name=PenguinBurner" in text
         assert "GenericName=NVIDIA GPU Tuning Tool" in text
         assert "Automatic NVIDIA GPU undervolting and overclocking" in text
-        assert "adaptive per-game profiles for Steam and Lutris" in text
-        assert "Steam;Lutris;" in text
+        assert "adaptive per-game profiles for Steam, Lutris and Heroic" in text
+        assert "Steam;Lutris;Heroic;" in text
     # A native install and a Flatpak install must show the same app name.
     def entry_lines(text: str, field: str) -> list[str]:
         return [line for line in text.splitlines() if line.startswith(f"{field}=")]
@@ -1059,10 +1059,10 @@ def test_pypi_summary_matches_readme_positioning() -> None:
         "Automatic NVIDIA GPU undervolting, overclocking, and per-game tuning"
     )
     assert "three verified tiers" in summary
-    assert "Steam and Lutris" in summary
+    assert "Steam, Lutris and Heroic" in summary
     assert "PC latency" in summary
-    assert "Steam and Lutris" in readme
-    assert {"overclocking", "adaptive", "steam", "lutris", "overlay"} <= keywords
+    assert "Steam, Lutris and Heroic" in readme
+    assert {"overclocking", "adaptive", "steam", "lutris", "heroic", "overlay"} <= keywords
 
 
 def test_native_package_descriptions_cover_readme_headline_features() -> None:
@@ -1097,7 +1097,7 @@ def test_native_package_descriptions_cover_readme_headline_features() -> None:
             "Efficiency, Balanced, and Performance", "Efficiency, Balanced and Performance"
         )
         assert "Adaptive undervolting" in prose
-        assert "Steam and Lutris games into one list" in prose
+        assert "Steam, Lutris and Heroic games into one list" in prose
         assert "frame-generation FPS" in prose
         assert "PC latency" in prose
         assert "MSI Afterburner profile import" in prose

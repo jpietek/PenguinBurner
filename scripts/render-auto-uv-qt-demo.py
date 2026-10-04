@@ -916,8 +916,13 @@ def render(
                 window.header.set_candidate(
                     "Game Library · Adaptive target · overlay · one-click Play"
                 )
+                # Named from what the panel actually discovered, so the
+                # caption cannot fall behind the launchers PenguinBurner reads.
+                launchers = " + ".join(
+                    str(source.display_name) for source in panel._sources
+                )
                 library_status = (
-                    f"Steam + Lutris — {selected_live_game} selected from the "
+                    f"{launchers} — {selected_live_game} selected from the "
                     "real host library."
                     if live_game_library
                     else "Steam integration — fixed demo snapshot."
@@ -982,7 +987,7 @@ def main() -> int:
     parser.add_argument(
         "--live-game-library",
         action="store_true",
-        help="Read installed Steam and Lutris games for the Game Library segment.",
+        help="Read the installed launcher libraries for the Game Library segment.",
     )
     parser.add_argument(
         "--select-game",

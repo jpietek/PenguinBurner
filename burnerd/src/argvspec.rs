@@ -8,6 +8,7 @@ use serde_json::Value;
 pub const AUTO_UV_OPTION_FLAGS: &[(&str, &str)] = &[
     ("gpu_index", "--gpu-index"),
     ("auto_uv_mode", "--auto-uv-mode"),
+    ("auto_uv_q2rtx_resolution", "--auto-uv-q2rtx-resolution"),
     ("auto_uv_min_voltage_mv", "--auto-uv-min-voltage-mv"),
     ("auto_uv_memory_offset_mhz", "--auto-uv-memory-offset-mhz"),
     ("auto_uv_power_limit_w", "--auto-uv-power-limit-w"),
@@ -283,6 +284,15 @@ mod tests {
         let options = json!({"auto_uv_mode": "eco", "gpu_index": 2});
         let args = auto_uv_option_args(&options).unwrap();
         assert_eq!(args, vec!["--gpu-index", "2", "--auto-uv-mode", "eco"]);
+    }
+
+    #[test]
+    fn scan_command_forwards_manual_resolution() {
+        let options = json!({"gpu_index": 3, "auto_uv_q2rtx_resolution": "1080p"});
+        assert_eq!(
+            auto_uv_option_args(&options).unwrap(),
+            vec!["--gpu-index", "3", "--auto-uv-q2rtx-resolution", "1080p"]
+        );
     }
 
     #[test]

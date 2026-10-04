@@ -100,3 +100,44 @@ def test_negative_resolution_is_rejected() -> None:
             requested_width=-1,
             requested_height=1080,
         )
+
+
+@pytest.mark.parametrize("preset, expected", [
+    ("1080p", (1920, 1080)),
+    ("1440p", (2560, 1440)),
+    ("4k", (3840, 2160)),
+    ("auto", (3840, 2160)),
+])
+def test_auto_uv_cli_resolution_reaches_workload_and_final_config(
+    monkeypatch, tmp_path, preset, expected,
+) -> None:
+    from cli.arguments import parse_arguments
+    from cli.effective_runtime_options import build_effective_auto_uv_runtime_options
+    from stability.q2rtx.config import build_stability_config
+    from stability.q2rtx.long_stability_config import build_long_stability_test_config
+
+    _patch_memory(monkeypatch, _memory(24 * 1024**3))
+    args = parse_arguments([
+        "--auto-uv-voltage-scan", "--auto-uv-q2rtx-resolution", preset,
+    ])
+    options = build_effective_auto_uv_runtime_options(args)
+    assert options["auto_uv_q2rtx_resolution"] == preset
+    config = build_stability_config(
+        args, gpu_index=0, config_path=tmp_path / "config.toml",
+        auto_install_q2rtx=False,
+    )
+    assert (config.width, config.height) == expected
+    final = build_long_stability_test_config(config, total_duration_s=60)
+    assert (final.width, final.height) == expected
+
+
+def test_auto_uv_cli_resolution_default_and_invalid_value() -> None:
+    from cli.arguments import parse_arguments
+    from cli.effective_runtime_options import build_effective_auto_uv_runtime_options
+
+    args = parse_arguments(["--auto-uv-voltage-scan"])
+    assert args.auto_uv_q2rtx_resolution is None
+    assert "auto_uv_q2rtx_resolution" not in build_effective_auto_uv_runtime_options(args)
+    with pytest.raises(SystemExit) as exc:
+        parse_arguments(["--auto-uv-q2rtx-resolution", "invalid"])
+    assert exc.value.code == 2

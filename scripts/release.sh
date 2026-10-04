@@ -129,8 +129,14 @@ publish_pypi() {
     python3 scripts/release_pypi.py "$version" dist/python || status=$?
     case "$status" in
         0) return ;;
+        # Name the repository only. Twine 7 stops reading the [pypi] section of
+        # the Twine config once --repository-url pins the URL, and this runner
+        # disables the keyring, so pinning it left no credential to find at all.
+        # The named repository resolves to the same upload.pypi.org/legacy URL,
+        # and release_pypi.py re-checks the published hashes against pypi.org
+        # below, which is what actually proves where the artifacts landed.
         3) python3 -m twine upload --non-interactive --skip-existing \
-            --repository pypi --repository-url https://upload.pypi.org/legacy/ dist/python/* ;;
+            --repository pypi dist/python/* ;;
         *) return "$status" ;;
     esac
     for _attempt in {1..12}; do

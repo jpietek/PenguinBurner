@@ -2,11 +2,11 @@
 Type=Application
 Name=PenguinBurner
 GenericName=NVIDIA GPU Tuning Tool
-Comment=Automatic NVIDIA GPU undervolting and overclocking, with three verified tiers, adaptive per-game profiles for Steam and Lutris, and an in-game overlay
+Comment=Automatic NVIDIA GPU undervolting and overclocking, with three verified tiers, adaptive per-game profiles for Steam, Lutris and Heroic, and an in-game overlay
 Exec=penguin-burner
 Icon=penguin-burner
 Terminal=false
 Categories=Settings;HardwareSettings;Qt;
-Keywords=Penguin;Burner;Penguin Burner;PenguinBurner;penguin-burner;pburn;Nvidia;NVIDIA;GPU;Tuning;Undervolt;Undervolting;Overclock;Overclocking;Adaptive;Overlay;Auto-UV;Q2RTX;CUDA;Steam;Lutris;
+Keywords=Penguin;Burner;Penguin Burner;PenguinBurner;penguin-burner;pburn;Nvidia;NVIDIA;GPU;Tuning;Undervolt;Undervolting;Overclock;Overclocking;Adaptive;Overlay;Auto-UV;Q2RTX;CUDA;Steam;Lutris;Heroic;
 StartupNotify=true
 StartupWMClass=io.github.jpietek.PenguinBurner

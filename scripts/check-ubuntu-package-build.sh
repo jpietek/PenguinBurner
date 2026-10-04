@@ -105,7 +105,8 @@ EOF
         dpkg-deb -c "$deb" > /tmp/package-contents.txt
         for artifact in usr/libexec/penguin-burnerd \
             "overlay/nvapi_shim/nvapi64.dll" \
-            "overlay/native_layer/libVkLayer_penguinburner_latency.so"; do
+            "overlay/native_layer/libVkLayer_penguinburner_latency.so" \
+            "overlay/native_layer/libVkLayer_penguinburner_latency_i386.so"; do
             if ! grep -q "$artifact" /tmp/package-contents.txt; then
                 echo "package is missing $artifact" >&2
                 exit 1

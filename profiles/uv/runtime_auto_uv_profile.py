@@ -114,6 +114,7 @@ def load_auto_uv_final_curve(profile_selector="", *, allow_unverified: bool = Fa
         "candidate_voltage_mv": int(candidate_voltage_mv),
         "memory_offset_mhz": memory_offset_mhz,
         "power_limit_w": power_limit_w,
+        "q2rtx_resolution": payload.get("q2rtx_resolution"),
         # Scan-measured load power (profile vs stock baseline): the runtime
         # spec forwards these so the daemon can account energy saved.
         "avg_power_w": payload.get("avg_power_w"),

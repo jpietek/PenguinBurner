@@ -119,6 +119,11 @@ run_container() {
     image="${CONTAINER_IMAGE:-$(scenario_image "$scenario")}"
     bootstrap="$(scenario_bootstrap "$scenario")"
 
+    # The manifest takes the 32-bit layer from dist/, and the SDK cannot build
+    # one. /src is mounted read-only below, so it has to exist before the
+    # container starts.
+    ensure_native_layer_i386
+
     echo "==> flatpak install smoke ($scenario scenario, $image)"
     "$engine" run --rm --privileged --security-opt label=disable \
         --network "$CONTAINER_NETWORK" \
@@ -131,6 +136,14 @@ run_container() {
             $CONTAINER_SYSTEM_BUS_SNIPPET
             /src/scripts/check-flatpak-install-smoke.sh --host
         "
+}
+
+ensure_native_layer_i386() {
+    local layer_dir="$ROOT/dist/native-layer-i386"
+    if [[ -f "$layer_dir/libVkLayer_penguinburner_latency_i386.so" ]]; then
+        return
+    fi
+    "$ROOT/scripts/build-native-layer-i386.sh" "$layer_dir"
 }
 
 flatpak_ref_exists() {

@@ -18,6 +18,10 @@ flatpak install -y flathub \
     org.freedesktop.Sdk.Extension.mingw-w64//25.08 \
     org.freedesktop.Sdk.Extension.rust-stable//25.08
 
+# The manifest takes the 32-bit layer from this directory; the SDK cannot
+# build one itself.
+"$(dirname "${BASH_SOURCE[0]}")/build-native-layer-i386.sh"
+
 flatpak-builder \
     --user \
     --force-clean \

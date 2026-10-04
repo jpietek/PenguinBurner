@@ -190,6 +190,7 @@ def test_final_verified_profile_contains_fan_payload_and_memory_offset(
         voltage_mv=935,
         probe=_summary(clock_mhz=2830),
         final_verification_probe=_summary(clock_mhz=2888),
+        q2rtx_resolution="1080p",
         base_probe=_summary(voltage_mv=1025, clock_mhz=2754),
         fan_curve_payload={"fan": {"curve": [[45.0, 0.0], [90.0, 100.0]]}},
         memory_offset_mhz=500,
@@ -206,6 +207,7 @@ def test_final_verified_profile_contains_fan_payload_and_memory_offset(
     payload = json.loads(profile_path.read_text(encoding="utf-8"))
 
     assert profile_path.parent == tmp_path / "auto-uv-profiles"
+    assert payload["q2rtx_resolution"] == "1080p"
     assert payload["final_verified"] is True
     assert payload["memory_offset_mhz"] == 500
     assert payload["power_limit_w"] == 360

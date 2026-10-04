@@ -9,6 +9,8 @@ If you launch directly from Heroic after editing settings in PenguinBurner,
 fully exit and reopen Heroic first. Overlay visibility also updates live in an
 already wrapped game.
 
+![Game Library with a Heroic game's settings](../assets/game-library-heroic.png)
+
 **Compatibility tool** selects an available Wine or Proton build for the next
 launch, for both native and Flatpak Heroic. **Heroic default** restores the global
 choice. Install more builds through Heroic's Wine Manager, then **Rescan** here.

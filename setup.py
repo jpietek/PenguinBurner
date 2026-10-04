@@ -147,6 +147,8 @@ class build_py(_build_py):
         if _env_flag_disabled("PENGUIN_BURNER_BUILD_NATIVE_LAYER32"):
             return
         require = _env_flag_enabled("PENGUIN_BURNER_REQUIRE_NATIVE_LAYER32")
+        if self._copy_prebuilt_native_layer32(output_dir, require=require):
+            return
         build_root = Path(self.build_lib).parent / "penguinburner-latency-layer-i386"
         if build_root.exists():
             shutil.rmtree(build_root)
@@ -188,6 +190,39 @@ class build_py(_build_py):
                 )
                 return
             shutil.copy2(source, output_dir / output_name)
+
+    def _copy_prebuilt_native_layer32(self, output_dir: Path, *, require: bool) -> bool:
+        """Take the layer from PENGUIN_BURNER_NATIVE_LAYER32_PREBUILT instead.
+
+        For a build whose own toolchain cannot produce 32-bit objects at all.
+        The Flatpak SDK is the case: its gcc has no multilib and no 32-bit
+        libgcc exists in the SDK or in Sdk.Compat.i386, so -m32 compiles and
+        never links. scripts/build-native-layer-i386.sh prepares the pair
+        outside the sandbox and this copies it in.
+
+        Returns True when the directory was consulted -- including when it was
+        unusable, since a caller that named one has already said its own
+        toolchain cannot stand in.
+        """
+        prebuilt = os.environ.get("PENGUIN_BURNER_NATIVE_LAYER32_PREBUILT", "").strip()
+        if not prebuilt:
+            return False
+        source_dir = Path(prebuilt)
+        missing = [
+            name
+            for name in (NATIVE_LAYER_LIBRARY_I386, NATIVE_LAYER_MANIFEST_I386)
+            if not (source_dir / name).is_file()
+        ]
+        if missing:
+            self._native_layer32_unavailable(
+                f"prebuilt 32-bit layer directory {source_dir} is missing "
+                f"{', '.join(missing)}",
+                require=require,
+            )
+            return True
+        for name in (NATIVE_LAYER_LIBRARY_I386, NATIVE_LAYER_MANIFEST_I386):
+            shutil.copy2(source_dir / name, output_dir / name)
+        return True
 
     def _native_layer32_unavailable(self, message: str, *, require: bool) -> None:
         if require:

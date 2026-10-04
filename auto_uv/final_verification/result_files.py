@@ -103,6 +103,7 @@ def write_final_verified_profile(
     auto_uv_mode: str = "",
     generated_profile_tier: str = "",
     gpu_identity: dict | None = None,
+    q2rtx_resolution: str | None = None,
 ) -> Path:
     # The plan is archived EXACTLY as final verification proved it. The old
     # save-time "verified envelope" raised below-lock bins to the best clock
@@ -135,6 +136,8 @@ def write_final_verified_profile(
         payload["auto_uv_mode"] = str(auto_uv_mode).strip()
     if str(generated_profile_tier or "").strip():
         payload["generated_profile_tier"] = str(generated_profile_tier).strip()
+    if q2rtx_resolution is not None:
+        payload["q2rtx_resolution"] = q2rtx_resolution
     normalized_identity = normalized_gpu_identity(gpu_identity or {})
     if str(normalized_identity.get("uuid") or "").strip():
         payload["gpu_identity"] = normalized_identity

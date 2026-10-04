@@ -24,12 +24,19 @@ PENGUIN_BURNER_REQUIRE_NATIVE_LAYER=1 \
 # The Rust root daemon (burnerd/ -> runtime/daemon_bin/penguin-burnerd) is built
 # by REQUIRE_DAEMON: AlmaLinux 8's cargo is too old for edition 2021, so install
 # a pinned stable via rustup into /opt/rust and put it on PATH for the build.
+# REQUIRE_NATIVE_LAYER32 does the same for the 32-bit companion layer, which a
+# 32-bit game's i386 winevulkan is the only thing that can load. It is best
+# effort in setup.py, so without the flag a toolchain gap ships a wheel whose
+# overlay silently never appears in those games -- 0.8.1 went out that way.
+# The i686 runtime is three base packages plus the *toolset's* own 32-bit
+# libstdc++: manylinux compiles with gcc-toolset-14, whose libstdc++_nonshared.a
+# is x86_64-only, so -m32 fails at link without gcc-toolset-14-libstdc++-devel.i686.
 PENGUIN_BURNER_REQUIRE_NATIVE_LAYER=1 \
 CIBW_ARCHS_LINUX=x86_64 \
 CIBW_BUILD=cp312-manylinux_x86_64 \
-CIBW_ENVIRONMENT="PENGUIN_BURNER_REQUIRE_NATIVE_LAYER=1 PENGUIN_BURNER_REQUIRE_NVAPI_SHIM=1 PENGUIN_BURNER_REQUIRE_DAEMON=1 CARGO_HOME=/opt/rust/cargo RUSTUP_HOME=/opt/rust/rustup PATH=/opt/rust/cargo/bin:\$PATH" \
+CIBW_ENVIRONMENT="PENGUIN_BURNER_REQUIRE_NATIVE_LAYER=1 PENGUIN_BURNER_REQUIRE_NATIVE_LAYER32=1 PENGUIN_BURNER_REQUIRE_NVAPI_SHIM=1 PENGUIN_BURNER_REQUIRE_DAEMON=1 CARGO_HOME=/opt/rust/cargo RUSTUP_HOME=/opt/rust/rustup PATH=/opt/rust/cargo/bin:\$PATH" \
 CIBW_MANYLINUX_X86_64_IMAGE=manylinux_2_28 \
-CIBW_BEFORE_ALL_LINUX=$'if command -v dnf >/dev/null 2>&1; then\n  dnf install -y epel-release\n  dnf install -y vulkan-headers mingw64-gcc-c++ mingw64-winpthreads-static\nelse\n  yum install -y epel-release\n  yum install -y vulkan-headers mingw64-gcc-c++ mingw64-winpthreads-static\nfi\nexport RUSTUP_HOME=/opt/rust/rustup CARGO_HOME=/opt/rust/cargo\ncurl --proto \'=https\' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.82.0 --no-modify-path' \
+CIBW_BEFORE_ALL_LINUX=$'if command -v dnf >/dev/null 2>&1; then\n  dnf install -y epel-release\n  dnf install -y vulkan-headers mingw64-gcc-c++ mingw64-winpthreads-static glibc-devel.i686 libstdc++-devel.i686 libgcc.i686 gcc-toolset-14-libstdc++-devel.i686\nelse\n  yum install -y epel-release\n  yum install -y vulkan-headers mingw64-gcc-c++ mingw64-winpthreads-static glibc-devel.i686 libstdc++-devel.i686 libgcc.i686 gcc-toolset-14-libstdc++-devel.i686\nfi\nexport RUSTUP_HOME=/opt/rust/rustup CARGO_HOME=/opt/rust/cargo\ncurl --proto \'=https\' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.82.0 --no-modify-path' \
     python3 -m cibuildwheel --platform linux --output-dir "$outdir"
 python3 -m twine check "$outdir"/*
 
@@ -64,6 +71,13 @@ for wheel in wheels:
                 "overlay/native_layer/libVkLayer_penguinburner_latency.so",
                 b"\x7fELF",
             ),
+            # Only an i386 layer can be loaded into a 32-bit game's Vulkan
+            # instance, and setup.py builds it best effort -- so the wheel is
+            # where "did it actually ship" has to be answered.
+            "32-bit Vulkan layer": (
+                "overlay/native_layer/libVkLayer_penguinburner_latency_i386.so",
+                b"\x7fELF",
+            ),
             "NVAPI shim": ("overlay/nvapi_shim/nvapi64.dll", b"MZ"),
             "burnerd": ("runtime/daemon_bin/penguin-burnerd", b"\x7fELF"),
         }
@@ -72,6 +86,6 @@ for wheel in wheels:
             if len(matches) != 1 or not archive.read(matches[0]).startswith(magic):
                 raise SystemExit(f"error: {wheel.name} has no valid {label} payload")
     print(
-        f"verified {wheel.name}: wrapper, Vulkan layer, NVAPI shim, and burnerd"
+        f"verified {wheel.name}: wrapper, 64/32-bit Vulkan layers, NVAPI shim, and burnerd"
     )
 PY

@@ -60,6 +60,10 @@ def build_effective_auto_uv_runtime_options(args) -> dict:
         if value is not None:
             runtime_options[key] = transform(value)
 
+    resolution = getattr(args, "auto_uv_q2rtx_resolution", None)
+    if resolution is not None:
+        runtime_options["auto_uv_q2rtx_resolution"] = str(resolution)
+
     if getattr(args, "auto_uv_mode", None) is not None:
         requested_auto_uv_mode = str(args.auto_uv_mode).strip().lower()
         runtime_options["auto_uv_requested_mode"] = requested_auto_uv_mode

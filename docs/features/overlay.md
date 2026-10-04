@@ -11,7 +11,8 @@ while you play.
 
 In [Game Library](game-library.md), enable **Wrap this game** and **Overlay**.
 Use the Overlay tab to choose fields and appearance. For manual launch options,
-see [Steam](../steam.md#manual-launch-options) or [Lutris](lutris.md).
+see [Steam](../steam.md#manual-launch-options), [Lutris](lutris.md) or
+[Heroic](heroic.md).
 
 Top-level controls:
 

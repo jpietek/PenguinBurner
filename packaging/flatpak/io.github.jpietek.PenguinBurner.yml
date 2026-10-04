@@ -72,6 +72,14 @@ modules:
         - --share=network
       env:
         PENGUIN_BURNER_REQUIRE_NATIVE_LAYER: "1"
+        # The SDK cannot build 32-bit objects: its gcc has no multilib and no
+        # 32-bit libgcc exists in the SDK or Sdk.Compat.i386, so -m32 compiles
+        # and never links, and flathub has no i386 runtime to build in. The
+        # layer is prepared outside the sandbox by
+        # scripts/build-native-layer-i386.sh, which the build driver runs
+        # first; REQUIRE keeps a missing one from shipping silently.
+        PENGUIN_BURNER_NATIVE_LAYER32_PREBUILT: /run/build/penguin-burner/dist/native-layer-i386
+        PENGUIN_BURNER_REQUIRE_NATIVE_LAYER32: "1"
         # Fail the build loudly if the shim DLL cannot be produced -- a silent
         # skip ships the in-game latency feature hollow (release-plan B2).
         PENGUIN_BURNER_REQUIRE_NVAPI_SHIM: "1"

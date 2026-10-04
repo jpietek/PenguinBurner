@@ -4,7 +4,7 @@ Manage **Steam, Lutris, Heroic and Faugus Launcher** games in one list. Choose a
 FPS target, and overlay settings for each game, then launch it here or through
 its usual launcher.
 
-![Steam and Lutris games in Game Library](../assets/game-library.png)
+![Steam, Lutris and Heroic games in Game Library](../assets/game-library.png)
 
 ## Setup
 

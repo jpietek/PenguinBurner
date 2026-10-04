@@ -6,6 +6,13 @@ from drivers.nvidia.daemon_gpu import DaemonGpuClient
 
 from .constants import DEFAULT_HEIGHT, DEFAULT_WIDTH
 
+Q2RTX_SCAN_RESOLUTIONS: dict[str, tuple[int | None, int | None]] = {
+    "auto": (None, None),
+    "1080p": (1920, 1080),
+    "1440p": (2560, 1440),
+    "4k": (3840, 2160),
+}
+
 LOW_VRAM_WIDTH = 2560
 LOW_VRAM_HEIGHT = 1440
 AUTO_RESOLUTION_MAX_1440P_BYTES = 8 * 1024**3

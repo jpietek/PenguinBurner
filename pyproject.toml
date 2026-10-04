@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "penguin-burner"
-version = "0.8.0"
-description = "Automatic NVIDIA GPU undervolting, overclocking, and per-game tuning for Linux: one Auto-UV scan saves three verified tiers, adaptive switching by frame rate, a Steam and Lutris game library, and an in-game overlay with PC latency"
+version = "0.8.2"
+description = "Automatic NVIDIA GPU undervolting, overclocking, and per-game tuning for Linux: one Auto-UV scan saves three verified tiers, adaptive switching by frame rate, a Steam, Lutris and Heroic game library, and an in-game overlay with PC latency"
 requires-python = ">=3.11"
 dynamic = ["readme"]
 license = { file = "LICENSE" }
@@ -21,6 +21,7 @@ keywords = [
   "gpu",
   "steam",
   "lutris",
+  "heroic",
   "overlay",
   "q2rtx",
 ]

@@ -94,7 +94,13 @@ for scenario in "${scenarios[@]}"; do
             # Use the databases just verified instead of fetching them again.
             upgrade=-Su
         fi
+        # [multilib] is off in the stock image, and the PKGBUILD needs the
+        # lib32 toolchain from it for the 32-bit overlay layer.
+        grep -q "^\[multilib\]" /etc/pacman.conf ||
+            printf "\n[multilib]\nInclude = /etc/pacman.d/mirrorlist\n" >> /etc/pacman.conf
         pacman "$upgrade" --noconfirm >/dev/null
+        # makepkg runs with -d, so makedepends are installed here rather than
+        # by it: the lib32 pair must be listed or the 32-bit layer cannot link.
         # Exercise both cargo providers explicitly. A fresh rustup proxy has
         # no per-user toolchain; the PKGBUILD must handle that for makepkg.
         cargo_provider=rust
@@ -103,7 +109,7 @@ for scenario in "${scenarios[@]}"; do
         fi
         pacman -S --noconfirm --needed base-devel "$cargo_provider" cmake python-build \
             python-installer python-setuptools python-wheel \
-            vulkan-headers >/dev/null
+            vulkan-headers lib32-gcc-libs lib32-glibc >/dev/null
         if [[ "$SCENARIO" == cachyos-shelly ]]; then
             pacman -S --noconfirm --needed llvm-mingw >/dev/null
             rm -f /usr/bin/x86_64-linux-gnu-gcc
@@ -133,7 +139,8 @@ for scenario in "${scenarios[@]}"; do
         for artifact in usr/libexec/penguin-burnerd \
             "runtime/daemon_bin/penguin-burnerd" \
             "overlay/nvapi_shim/nvapi64.dll" \
-            "overlay/native_layer/libVkLayer_penguinburner_latency.so"; do
+            "overlay/native_layer/libVkLayer_penguinburner_latency.so" \
+            "overlay/native_layer/libVkLayer_penguinburner_latency_i386.so"; do
             if ! grep -q "$artifact" /tmp/package-contents.txt; then
                 echo "package is missing $artifact" >&2
                 exit 1

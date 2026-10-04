@@ -25,6 +25,8 @@ _MANIFEST_TEMPLATE = (
     _ROOT / "overlay" / "native" / "latency_layer" / "VkLayer_PENGUINBURNER_latency.json.in"
 )
 _SETUP = _ROOT / "setup.py"
+_WHEEL_BUILD = _ROOT / "scripts" / "build-python-dist.sh"
+_PUBLISH_WORKFLOW = _ROOT / ".github" / "workflows" / "publish-python-package.yml"
 
 
 def test_the_two_variants_are_distinct_files_in_one_directory() -> None:
@@ -103,3 +105,38 @@ def test_a_built_32bit_manifest_agrees_with_the_64bit_one() -> None:
     for name, elf_class in ((NATIVE_LAYER_LIBRARY, 2), (NATIVE_LAYER_LIBRARY_I386, 1)):
         with (layer_dir / name).open("rb") as library:
             assert library.read(5) == b"\x7fELF" + bytes([elf_class])
+
+
+def test_the_released_wheel_is_built_with_a_32bit_toolchain_and_requires_it() -> None:
+    """0.8.1 shipped 64-bit only, and nothing failed.
+
+    setup.py builds the companion best effort, so a manylinux image without a
+    32-bit runtime just warns. Both recipes that produce the published wheel
+    must therefore install the i686 toolchain *and* set the REQUIRE flag, or a
+    toolchain gap silently ships a wheel whose overlay never appears in a
+    32-bit game. manylinux compiles with gcc-toolset-14, whose
+    libstdc++_nonshared.a is x86_64-only, so the toolset's own 32-bit
+    libstdc++ is needed on top of the base i686 packages.
+    """
+    required_packages = (
+        "glibc-devel.i686",
+        "libstdc++-devel.i686",
+        "libgcc.i686",
+        "gcc-toolset-14-libstdc++-devel.i686",
+    )
+    for recipe in (_WHEEL_BUILD, _PUBLISH_WORKFLOW):
+        text = recipe.read_text(encoding="utf-8")
+        assert "PENGUIN_BURNER_REQUIRE_NATIVE_LAYER32=1" in text, recipe.name
+        for package in required_packages:
+            assert package in text, f"{recipe.name} is missing {package}"
+
+
+def test_the_wheel_check_proves_the_32bit_layer_actually_shipped() -> None:
+    """The REQUIRE flag guards the build; this guards the artifact.
+
+    A wheel that reaches PyPI without the i386 library is the failure that
+    matters, so the payload check that already covers the 64-bit layer, the
+    NVAPI shim and burnerd has to cover this one too.
+    """
+    text = _WHEEL_BUILD.read_text(encoding="utf-8")
+    assert NATIVE_LAYER_LIBRARY_I386 in text

@@ -50,7 +50,7 @@ From a clean checkout with the release tag available and a signing key in your
 local GPG keyring:
 
 ```bash
-scripts/publish-ppa.sh 0.8.0
+scripts/publish-ppa.sh 0.8.2
 ```
 
 That one command builds and validates the Resolute source package, uploads it

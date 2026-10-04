@@ -15,6 +15,7 @@ from .install import (
 from .long_stability_config import long_stability_workload_durations
 from .models import Q2RTXStabilityConfig, StabilityTestError
 from .resolution import (
+    Q2RTX_SCAN_RESOLUTIONS,
     format_q2rtx_resolution_choice,
     resolve_q2rtx_render_resolution,
 )
@@ -116,10 +117,15 @@ def build_stability_config(
             "Dependencies are ready",
             source=str(q2rtx_dir),
         )
+    resolution_preset = str(getattr(args, "auto_uv_q2rtx_resolution", None) or "auto")
+    try:
+        width, height = Q2RTX_SCAN_RESOLUTIONS[resolution_preset]
+    except KeyError as exc:
+        raise ValueError(f"Unknown Q2RTX scan resolution: {resolution_preset}") from exc
     resolution = resolve_q2rtx_render_resolution(
         gpu_index=int(gpu_index),
-        requested_width=None,
-        requested_height=None,
+        requested_width=width,
+        requested_height=height,
     )
     print(
         f"{progress_context}: Q2RTX render resolution "
