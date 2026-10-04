@@ -41,7 +41,9 @@ class UvTierTarget:
 
 # Performance targets retain the ~1% reduction from the borrowed reference
 # table (two 15 MHz clock bins on the RTX 5080). The two-bin default tail adds
-# 30 MHz nominal headroom above these anchors; targets remain unchanged.
+# 30 MHz nominal headroom above these anchors. Selected RTX 30-series
+# Efficiency/Balanced targets include another fixed 5 or 10 MHz reduction;
+# all table clocks use 5 MHz increments.
 _UV_LIMIT_TARGETS: tuple[dict[str, object], ...] = (
     {
         "family": "RTX 5090",
@@ -171,7 +173,7 @@ _UV_LIMIT_TARGETS: tuple[dict[str, object], ...] = (
     {
         "family": "RTX 3090",
         "patterns": ("3090",),
-        "efficiency": (800, 1700),
+        "efficiency": (800, 1690),
         "balanced": (875, 1830),
         "performance": (900, 1880),
         "efficiency_power_limit_pct": 80,
@@ -196,7 +198,7 @@ _UV_LIMIT_TARGETS: tuple[dict[str, object], ...] = (
         "family": "RTX 3080",
         "patterns": ("3080",),
         "efficiency": (800, 1750),
-        "balanced": (875, 1890),
+        "balanced": (875, 1885),
         "performance": (900, 1930),
         "efficiency_power_limit_pct": 80,
     },
@@ -227,9 +229,9 @@ _UV_LIMIT_TARGETS: tuple[dict[str, object], ...] = (
     {
         "family": "RTX 3060",
         "patterns": ("3060",),
-        "efficiency": (800, 1750),
-        "balanced": (850, 1840),
-        "performance": (900, 1880),
+        "efficiency": (800, 1555),
+        "balanced": (850, 1680),
+        "performance": (900, 1780),
         "efficiency_power_limit_pct": 80,
     },
 )

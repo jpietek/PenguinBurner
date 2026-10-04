@@ -32,6 +32,7 @@ def test_clock_target_ranges_contain_all_gpu_defaults() -> None:
             target = uv_limit_profile_target_for_gpu(entry["family"], tier)
             assert bounds is not None and target is not None
             assert bounds[0] <= target.clock_mhz <= bounds[1], (entry["family"], tier)
+            assert target.clock_mhz % 5 == 0, (entry["family"], tier)
 
 
 def test_clock_target_range_requires_known_gpu_and_tier() -> None:
@@ -114,16 +115,17 @@ def test_rtx_5090_power_limit_percentages_and_575w_tier_caps() -> None:
     } == {"efficiency": 430, "balanced": 575, "performance": 575}
 
 
-def test_power_limit_pct_ampere_efficiency_takes_fixed_reduction() -> None:
+@pytest.mark.parametrize("gpu_name", ["NVIDIA GeForce RTX 3080", "NVIDIA GeForce RTX 3060"])
+def test_power_limit_pct_ampere_efficiency_takes_fixed_reduction(gpu_name) -> None:
     # 80% stored - 12% reduction = 70.4; balanced keeps the stock budget.
     assert uv_limit_power_limit_pct_for_gpu(
-        "NVIDIA GeForce RTX 3080", profile_id="efficiency"
+        gpu_name, profile_id="efficiency"
     ) == pytest.approx(70.4)
     assert uv_limit_power_limit_pct_for_gpu(
-        "NVIDIA GeForce RTX 3080", profile_id="balanced"
+        gpu_name, profile_id="balanced"
     ) == pytest.approx(100.0)
     assert uv_limit_power_limit_pct_for_gpu(
-        "NVIDIA GeForce RTX 3080", profile_id="performance"
+        gpu_name, profile_id="performance"
     ) == pytest.approx(100.0)
 
 
@@ -175,6 +177,61 @@ def test_3080_uses_ampere_table_values() -> None:
     assert floor.clock_mhz == 1750
     assert ceiling.voltage_mv == 900
     assert ceiling.clock_mhz == 1930
+
+
+@pytest.mark.parametrize(
+    ("profile", "expected", "ti_expected"),
+    [
+        ("efficiency", (800, 1555), (800, 1750)),
+        ("balanced", (850, 1680), (875, 1875)),
+        # Both Performance targets retain 20 MHz below the reference presets.
+        ("performance", (900, 1780), (925, 1915)),
+    ],
+)
+def test_3060_refreshed_targets_keep_ti_separate(profile, expected, ti_expected) -> None:
+    target = uv_limit_profile_target_for_gpu("NVIDIA GeForce RTX 3060", profile)
+    ti_target = uv_limit_profile_target_for_gpu("NVIDIA GeForce RTX 3060 Ti", profile)
+
+    assert target is not None and ti_target is not None
+    assert target.gpu_family == "RTX 3060"
+    assert (target.voltage_mv, target.clock_mhz) == expected
+    assert ti_target.gpu_family == "RTX 3060 Ti"
+    assert (ti_target.voltage_mv, ti_target.clock_mhz) == ti_expected
+
+
+@pytest.mark.parametrize(
+    ("gpu_name", "reference_clocks", "reference_voltages"),
+    [
+        ("RTX 3090 Ti", (1700, 1830, 1950), (825, 875, 925)),
+        ("RTX 3090", (1700, 1830, 1900), (800, 875, 900)),
+        ("RTX 3080 Ti", (1710, 1870, 1920), (800, 875, 900)),
+        ("RTX 3080 12GB", (1700, 1860, 1920), (800, 875, 900)),
+        ("RTX 3080", (1750, 1890, 1950), (800, 875, 900)),
+        ("RTX 3070 Ti", (1770, 1905, 1950), (825, 875, 900)),
+        ("RTX 3070", (1700, 1900, 1950), (775, 875, 925)),
+        ("RTX 3060 Ti", (1750, 1875, 1935), (800, 875, 925)),
+        ("RTX 3060", (1560, 1680, 1800), (800, 850, 900)),
+    ],
+)
+def test_ampere_reference_margins(gpu_name, reference_clocks, reference_voltages) -> None:
+    margins = []
+    for profile, clock, voltage in zip(
+        ("efficiency", "balanced", "performance"), reference_clocks, reference_voltages,
+        strict=True,
+    ):
+        target = uv_limit_profile_target_for_gpu(gpu_name, profile)
+        assert target is not None
+        assert target.gpu_family == gpu_name
+        assert target.voltage_mv == voltage
+        margins.append(clock - target.clock_mhz)
+
+    expected_small_margins = {
+        "RTX 3090": [10, 0],
+        "RTX 3080": [0, 5],
+        "RTX 3060": [5, 0],
+    }
+    assert margins[:2] == expected_small_margins.get(gpu_name, [0, 0])
+    assert margins[2] == 20
 
 
 def test_3080_12gb_matches_before_base_3080() -> None:

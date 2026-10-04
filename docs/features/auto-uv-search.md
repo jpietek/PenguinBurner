@@ -33,6 +33,14 @@ equal FPS/W favors higher measured clock, then lower power. Its table clock
 is an upper search limit. Balanced uses the performance-and-efficiency
 selection policy; Performance adds the Auto-OC ladder.
 
+All reference target clocks use 5 MHz increments. Selected RTX 30-series
+Efficiency/Balanced targets include small fixed reductions, and Performance
+retains its roughly 1% reduction. RTX 3080 10GB uses 800 mV / 1750 MHz,
+875 mV / 1885 MHz, and 900 mV / 1930 MHz. RTX 3060 uses 800 mV / 1555 MHz,
+850 mV / 1680 MHz, and 900 mV / 1780 MHz. These guide the search; the measured
+baseline and stability checks determine the saved result. A 5 MHz target
+change does not necessarily change the clock bin held by the GPU.
+
 If the proven Performance starting voltage exceeds its default table target,
 Auto-OC can still increase clocks at that same voltage up to the existing
 Performance clock target. An explicit voltage target keeps its requested

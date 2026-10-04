@@ -3022,7 +3022,7 @@ def test_3080_shared_descent_reclaims_then_climbs_with_the_same_cap(monkeypatch,
             tried.append((candidate.voltage_mv, candidate.target_mhz, gpu.power_limit_w))
             probe = _summary(candidate.voltage_mv, candidate.target_mhz)
             probe.tested_plan = candidate.flattened_plan
-            passed = candidate.target_mhz <= 1890 or performance_passes
+            passed = candidate.target_mhz <= 1885 or performance_passes
             return VoltageProbeOutcome(
                 decision=StableRunDecision(
                     passed, FailureKind.NONE if passed else FailureKind.FPS_REGRESSION,
@@ -3038,11 +3038,11 @@ def test_3080_shared_descent_reclaims_then_climbs_with_the_same_cap(monkeypatch,
 
     assert descents == ["efficiency", "balanced"]
     reused = [payload for event, payload in events if event == "tier_descent_reused"]
-    assert [(p["voltage_mv"], p["target_mhz"]) for p in reused] == [(937, 1890)]
+    assert [(p["voltage_mv"], p["target_mhz"]) for p in reused] == [(937, 1885)]
     completed = [payload for event, payload in events if event == "tier_completed"]
-    assert completed[1]["target_mhz"] == 1890
-    assert completed[2]["target_mhz"] == (1930 if performance_passes else 1890)
-    assert any(clock > 1890 for _, clock, _ in tried)
+    assert completed[1]["target_mhz"] == 1885
+    assert completed[2]["target_mhz"] == (1930 if performance_passes else 1885)
+    assert any(clock > 1885 for _, clock, _ in tried)
     assert all(voltage == 937 and cap == 380 for voltage, _, cap in tried)
 
 
