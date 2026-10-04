@@ -41,7 +41,8 @@ class InstalledSteamGame:
     steamapps_dir: Path
     state_flags: int
     last_played: int
-    icon_path: Path | None
+    #: Portrait library cover when Steam has cached one, else its 32px icon.
+    art_path: Path | None
     # Explicit per-game override from config.vdf. Empty means "Steam default",
     # not "native Linux".
     compat_tool: str
@@ -157,9 +158,31 @@ def _game_from_manifest(
         state_flags=state_flags,
         last_played=last_played,
         last_updated=last_updated,
-        icon_path=game_icon_path(app_id, steam_root=steam_root),
+        art_path=game_art_path(app_id, steam_root=steam_root),
         compat_tool=compat_tools.get(app_id, ""),
     )
+
+
+def game_art_path(app_id: str, *, steam_root: Path | None) -> Path | None:
+    """The best cached art for a library row: the portrait cover, else the icon.
+
+    Steam caches the 600x900 library capsule (sometimes a 2x variant, sometimes
+    in a hashed subdirectory) next to the 32x32 client icon; the icon alone is
+    a smear at the row's size on a HiDPI screen.
+    """
+    if steam_root is None:
+        return None
+    cache_dir = steam_root / "appcache" / "librarycache"
+    legacy = cache_dir / f"{app_id}_library_600x900.jpg"
+    covers: list[Path] = [legacy] if legacy.is_file() else []
+    try:
+        covers += [path for path in (cache_dir / app_id).rglob("library_600x900*.jpg") if path.is_file()]
+    except OSError:
+        pass
+    if covers:
+        # The 2x file first, then the shallowest (Steam's current copy).
+        return min(covers, key=lambda path: ("_2x" not in path.stem, len(path.parts)))
+    return game_icon_path(app_id, steam_root=steam_root)
 
 
 def game_icon_path(app_id: str, *, steam_root: Path | None) -> Path | None:

@@ -42,6 +42,7 @@ from ui.features.tuning.gpu_selection import (
     gpu_choices_with_fallback,
     persist_runtime_gpu_index,
 )
+from ui.features.tuning.scan_resume import restore_scan_presentation
 from ui.features.tuning.verify import stop_request_path as verify_stop_request_path
 
 from . import theme
@@ -477,6 +478,8 @@ class MainWindow(ProfileActionsMixin):
         event = str(payload.get("event", ""))
         if event == "auto_uv_start":
             self.header.set_stage("Scanning")
+        elif event == "scan_resumed":
+            restore_scan_presentation(self, payload)
         elif event == "dependency_progress":
             self._handle_dependency_progress(payload)
         elif event == "probe_start":

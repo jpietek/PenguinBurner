@@ -49,6 +49,8 @@ def candidate_id_from_payload(payload: dict) -> str:
 
 def stage_title(value) -> str:
     raw = str(value or "").strip().lower()
+    if raw == "resume-verify":
+        return "Resume verification"
     if raw in {"base-baseline", "stock-baseline"}:
         return "Baseline"
     text = raw.replace("_", "-").replace("-", " ").strip()

@@ -29,6 +29,7 @@ from auto_uv.domain.types import (
     FailureSeverity,
     VfCurveCandidate,
 )
+from auto_uv.persistence.scan_checkpoint import ScanCheckpoint
 from auto_uv.persistence.unsafe_voltage_blacklist_file import (
     load_unsafe_voltage_blacklist,
 )
@@ -74,6 +75,7 @@ def run_discovery_probe(
     log: Callable[[str], None],
     event_callback: AutoUvEventCallback | None,
     marker_details: dict | None = None,
+    checkpoint: ScanCheckpoint | None = None,
 ) -> tuple[AutoUvProbeSummary, object]:
     point = max(editable_base_vf_points(base_curve), key=lambda item: item.target_mhz)
     reference_power_limit_w = baseline_load_reference_power_limit_w(gpu)
@@ -100,6 +102,7 @@ def run_discovery_probe(
         short_probe_base_duration_s=int(short_probe_base_duration_s),
         log=log,
         marker_details=marker_details,
+        checkpoint=checkpoint,
         event_callback=event_callback,
     )
     return run_discovery_probe_with_runner(

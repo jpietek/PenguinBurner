@@ -1,6 +1,6 @@
 # Game Library
 
-Manage **Steam, Lutris and Heroic** games in one list. Choose a GPU profile, Adaptive
+Manage **Steam, Lutris, Heroic and Faugus Launcher** games in one list. Choose a GPU profile, Adaptive
 FPS target, and overlay settings for each game, then launch it here or through
 its usual launcher.
 
@@ -14,8 +14,8 @@ its usual launcher.
 4. Use **Play** to start the game; **Stop** appears while it runs.
 
 Steam may require a one-time library scan or restart before edits are available.
-See [Steam setup](../steam.md), [Lutris setup](lutris.md) or
-[Heroic setup](heroic.md).
+See [Steam setup](../steam.md), [Lutris setup](lutris.md),
+[Heroic setup](heroic.md) or [Faugus setup](faugus.md).
 Discovery reads the library; wrapping a game changes its launch command.
 
 ## Per-game settings
@@ -27,8 +27,8 @@ Discovery reads the library; wrapping a game changes its launch command.
 | Auto-UV mode | Switch tiers with Adaptive, pin one tier, or use stock settings. |
 | Per-game target | Override the system-wide Adaptive FPS target; off follows that target. |
 | Overlay | Show the in-game HUD. Adaptive keeps required timing markers active when the HUD is hidden. |
-| Command | View or edit the launch command, Lutris prefix, or Heroic wrapper row. |
-| Compatibility tool | Choose the Wine/Proton version for a Windows game in Steam, Heroic, or native Lutris. Changes take effect on the next launch. |
+| Command | View or edit the launch command, Lutris prefix, Heroic wrapper row, or Faugus launch arguments. |
+| Compatibility tool | Choose the Wine/Proton version for a Windows game in Steam, Heroic, Lutris, or Faugus. Changes take effect on the next launch. |
 
 The compatibility picker uses the launcher's available tools. **Heroic default**
 and **Lutris default** remove the per-game override and restore inherited settings.
@@ -45,6 +45,7 @@ visible inside its sandbox. A missing tool remains visible as the saved selectio
 but cannot be newly selected.
 
 Existing launch options, command prefixes and wrapper rows are preserved.
+Lutris and Faugus changes apply on the next launch.
 Adaptive FPS targets update live for running wrapped Steam, Lutris, and Heroic
 games, including switching back to the system-wide target. Tier changes still
 wait for sustained frame-time headroom. Heroic's Play action refreshes saved
@@ -95,16 +96,22 @@ current session snapshot. Launchers without complete notifications also receive
 periodic recovery scans; a missed scan never proves that a game failed or that
 PenguinBurner was absent.
 
-**Starting…** means the launch was requested but a game session has not yet been
-confirmed. **Retry launch…** asks before attempting another instance. A detected
-external session shows **Running — PBurn unconfirmed** and disables Play. Missing
-wrapper or GPU-profile evidence is a neutral status, not a failure warning.
-Wrapper registration confirms the launch wrapper, not that the HUD has rendered.
+The game has one button: **Play**, **Starting…** while the launch is pending,
+and **Stop** once the game session is confirmed. **Starting…** stays until the
+outcome holds for a few seconds, so a launcher client handing the launch
+between processes does not flip the button. If nothing confirms the launch for
+two minutes, or its status becomes unknown, the button returns to **Play** and
+asks before attempting a possible second instance. A game running outside the
+wrapper shows **Running**, greyed out: it is observed, but Stop cannot reach
+it. Missing
+wrapper or GPU-profile evidence is a neutral status shown in the button's
+tooltip, not a failure warning. Wrapper registration confirms the launch
+wrapper, not that the HUD has rendered.
 
 If launch preparation fails before a request is sent, **Play** becomes available
 again and other games remain launchable. A refused retry does not clear an earlier
-launch whose status is still unknown. Errors after possible dispatch continue to
-require **Retry launch…** confirmation.
+launch whose status is still unknown. Errors after possible dispatch make
+**Play** ask for confirmation before launching again.
 
 If the daemon disconnects, the last known session is retained until recovery.
 Reconnection only restores observation: it does not apply a skipped GPU profile

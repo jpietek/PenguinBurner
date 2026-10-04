@@ -46,7 +46,8 @@ def parse_arguments(argv):
         help=(
             "Discover a stable fixed-clock undervolt from the live/default "
             "NVIDIA V/F curve, step the lock voltage down through real editable "
-            "VF bins, and verify candidates with Q2RTX plus CUDA load"
+            "VF bins, and verify candidates with Q2RTX plus CUDA load. "
+            "Resume an unfinished scan automatically when the GPU and settings match"
         ),
     )
     auto_uv_group.add_argument(

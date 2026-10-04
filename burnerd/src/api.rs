@@ -380,7 +380,7 @@ pub fn handle_request(sup: &Mutex<Supervisor>, payload: &Value) -> Result<Method
             if !gpu_rpc::is_read_method(name) && supervisor::profile_engine_running(sup) {
                 return Err(format!(
                     "{name} refused: a runtime profile is active; stop it \
-                     (or reset to stock) before raw GPU writes"
+                     before raw GPU writes (stock runtime profiles also hold control)"
                 ));
             }
             gpu_rpc::handle(name, object).map(MethodResult::Value)

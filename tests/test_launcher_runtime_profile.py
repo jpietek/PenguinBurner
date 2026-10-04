@@ -44,7 +44,7 @@ def live_adaptive(monkeypatch):
     return status, calls
 
 
-@pytest.mark.parametrize("launcher", ["heroic", "lutris"])
+@pytest.mark.parametrize("launcher", ["heroic", "lutris", "faugus"])
 @pytest.mark.parametrize("target", [90.0, None])
 def test_live_target_reuses_owner_and_resolves_saved_target(live_adaptive, launcher, target):
     status, calls = live_adaptive
@@ -275,7 +275,7 @@ def test_the_daemon_id_is_the_namespaced_game_key(tmp_path, monkeypatch) -> None
     assert seen == {"app_id": "lutris:27", "watch_pid": 99}
 
 
-@pytest.mark.parametrize("launcher", ["heroic", "lutris"])
+@pytest.mark.parametrize("launcher", ["heroic", "lutris", "faugus"])
 @pytest.mark.parametrize("mode", ["performance", "adaptive", "stock"])
 def test_live_mode_switches_and_verifies_the_same_game(live_adaptive, monkeypatch, launcher, mode):
     from runtime import daemon_client
@@ -348,3 +348,29 @@ def test_live_mode_never_applies_outside_its_active_profile(live_adaptive, monke
     assert calls == []
     if result is not None:
         assert "verified" not in result.message
+
+
+@pytest.mark.parametrize("mode", ["adaptive", "performance", "stock"])
+def test_faugus_saved_profile_reaches_daemon(tmp_path, monkeypatch, mode):
+    from integrations.faugus.settings import FAUGUS_GAME_SETTINGS_STORE
+    from runtime import daemon_client
+
+    _one_gpu(monkeypatch)
+    _profiles(monkeypatch)
+    path = tmp_path / "faugus.json"
+    setting = LauncherGameSetting(enabled=True, mode=mode, target_fps=90)
+    FAUGUS_GAME_SETTINGS_STORE.store("27", setting, path=path)
+    calls = []
+    monkeypatch.setattr(
+        daemon_client, "start_game_runtime_profile",
+        lambda argv, **kwargs: calls.append((argv, kwargs)) or {"started": True},
+    )
+    assert game_setting("faugus:27", settings_path=path) == setting
+    assert apply_game_key_profile("faugus:27", settings_path=path, watch_pid=1234)
+    argv, kwargs = calls[0]
+    assert kwargs == {"watch_pid": 1234, "app_id": "faugus:27", "timeout_s": 45.0}
+    assert ("--adaptive-auto-uv" in argv) == (mode == "adaptive")
+    if mode == "adaptive":
+        assert argv[argv.index("--adaptive-target-fps") + 1] == "90"
+    else:
+        assert argv[:2] == ["--auto-uv-profile", STOCK_PROFILE_SELECTOR if mode == "stock" else "perf-1"]

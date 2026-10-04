@@ -3145,6 +3145,12 @@ fn deep_sleep_fine_grained_falls_back_to_fd_scan_when_nvml_query_fails() {
 
 #[test]
 fn launcher_session_events_do_not_require_a_gpu_profile() {
+    for launcher in ["heroic", "faugus"] {
+        check_launcher_session_events(launcher);
+    }
+}
+
+fn check_launcher_session_events(launcher: &str) {
     let daemon = Daemon::start(&[]);
     let mut stream = daemon.connect();
     stream
@@ -3158,7 +3164,7 @@ fn launcher_session_events_do_not_require_a_gpu_profile() {
 import json, socket, sys
 s = socket.socket(socket.AF_UNIX)
 s.connect(sys.argv[1])
-s.sendall(b'{"method":"register_launcher_session","app_id":"heroic:event-test","session_id":"independent"}\n')
+s.sendall(json.dumps(dict(method="register_launcher_session", app_id=sys.argv[2] + ":event-test", session_id="independent")).encode() + b"\n")
 r = json.loads(s.makefile().readline())
 assert r['ok'], r
 print('registered', flush=True)
@@ -3167,7 +3173,7 @@ s = socket.socket(socket.AF_UNIX)
 s.connect(sys.argv[1])
 s.sendall(b'{"method":"update_launcher_session","session_id":"independent","phase":"failed","profile":"unconfirmed"}\n')
 assert json.loads(s.makefile().readline())['ok']
-"#]).arg(&daemon.socket).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+"#]).arg(&daemon.socket).arg(launcher).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
     let mut child_out = BufReader::new(child.stdout.take().unwrap());
     assert_eq!(read_line(&mut child_out).unwrap().trim(), "registered");
     let registered: Value = serde_json::from_str(&read_line(&mut reader).unwrap()).unwrap();
@@ -3246,6 +3252,12 @@ fn launcher_session_recovers_without_replaying_gpu_writes() {
 
 #[test]
 fn launcher_session_follows_exec_child_handoff() {
+    for launcher in ["steam", "faugus"] {
+        check_launcher_handoff(launcher);
+    }
+}
+
+fn check_launcher_handoff(launcher: &str) {
     let daemon = Daemon::start(&[]);
     let mut stream = daemon.connect();
     stream
@@ -3264,16 +3276,17 @@ def request(**payload):
     s.connect(sys.argv[1])
     s.sendall(json.dumps(payload).encode() + b'\n')
     assert json.loads(s.makefile().readline())['ok']
-request(method='register_launcher_session', app_id='steam:handoff', session_id=identity)
-request(method='start_game_runtime_profile', spec=json.loads(sys.argv[2]), watch_pid=os.getpid(), app_id='steam:handoff')
+request(method='register_launcher_session', app_id=sys.argv[3] + ':handoff', session_id=identity)
+request(method='start_game_runtime_profile', spec=json.loads(sys.argv[2]), watch_pid=os.getpid(), app_id=sys.argv[3] + ':handoff')
 request(method='update_launcher_session', session_id=identity, phase='running', profile='applied')
-env = dict(os.environ, PENGUIN_BURNER_SESSION_ID=identity, PENGUIN_BURNER_GAME_KEY='steam:handoff')
+env = dict(os.environ, PENGUIN_BURNER_SESSION_ID=identity, PENGUIN_BURNER_GAME_KEY=sys.argv[3] + ':handoff')
 child = subprocess.Popen([sys.executable, '-c', 'import sys; sys.stdin.readline()'], env=env)
 print(child.pid, flush=True)
 "#,
         ])
         .arg(&daemon.socket)
         .arg(test_runtime_spec().to_string())
+        .arg(launcher)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -3341,4 +3354,120 @@ fn launcher_session_duplicate_and_regressive_updates_are_idempotent() {
     let failed = daemon.request(r#"{"method":"launcher_sessions"}"#);
     assert_eq!(daemon.request(r#"{"method":"update_launcher_session","session_id":"ordered","phase":"running","profile":"applied"}"#)["ok"], true);
     assert_eq!(daemon.request(r#"{"method":"launcher_sessions"}"#), failed);
+}
+
+#[test]
+fn faugus_external_session_verifies_identity_and_reports_exit() {
+    let daemon = Daemon::start(&[]);
+    let mut game = Command::new("/usr/bin/python3")
+        .args([
+            "-c",
+            "import sys; print('ready', flush=True); sys.stdin.readline()",
+        ])
+        .env("FAUGUSID", "external-test")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut output = BufReader::new(game.stdout.take().unwrap());
+    assert_eq!(read_line(&mut output).unwrap().trim(), "ready");
+    let observe = |app_id: &str| {
+        daemon.request(
+            &serde_json::json!({
+                "method": "observe_launcher_session", "pid": game.id(), "app_id": app_id,
+            })
+            .to_string(),
+        )
+    };
+    assert_eq!(observe("faugus:other")["ok"], false);
+    assert_eq!(observe("faugus:")["ok"], false);
+    assert_eq!(observe("faugus:external-test")["ok"], true);
+    let snapshot = daemon.request(r#"{"method":"launcher_sessions"}"#);
+    let session = snapshot["result"]["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|session| session["pid"] == game.id())
+        .unwrap();
+    assert_eq!(session["app_id"], "faugus:external-test");
+    assert_eq!(session["wrapped"], false);
+    assert_eq!(session["profile"], "unconfirmed");
+    drop(game.stdin.take());
+    assert!(game.wait().unwrap().success());
+    for _ in 0..100 {
+        let snapshot = daemon.request(r#"{"method":"launcher_sessions"}"#);
+        if snapshot["result"]["ended"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| {
+                entry["session"]["pid"] == game.id() && entry["session"]["phase"] == "exited"
+            })
+        {
+            assert_eq!(
+                daemon.request(r#"{"method":"status"}"#)["result"]["active_job"],
+                Value::Null
+            );
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("Faugus exit was not reported");
+}
+
+#[test]
+fn faugus_store_handoff_reclassifies_only_the_matching_executable() {
+    use std::os::unix::process::CommandExt;
+    let daemon = Daemon::start(&[]);
+    let prefix = tempfile::tempdir().unwrap();
+    std::fs::create_dir(prefix.path().join("dosdevices")).unwrap();
+    std::fs::create_dir(prefix.path().join("drive_c")).unwrap();
+    std::os::unix::fs::symlink("../drive_c", prefix.path().join("dosdevices/c:")).unwrap();
+    let executable = prefix.path().join("drive_c/NFS.exe");
+    std::fs::write(&executable, "").unwrap();
+    let mut game = Command::new("/usr/bin/python3")
+        .arg0(r"C:\NFS.exe")
+        .args([
+            "-c",
+            "import sys; print('ready', flush=True); sys.stdin.readline()",
+        ])
+        .env("FAUGUSID", "ea-app")
+        .env("WINEPREFIX", prefix.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    assert_eq!(
+        read_line(&mut BufReader::new(game.stdout.take().unwrap()))
+            .unwrap()
+            .trim(),
+        "ready"
+    );
+    let observe = |app_id: &str, path: &std::path::Path| {
+        daemon.request(
+            &serde_json::json!({
+                "method": "observe_launcher_session", "pid": game.id(),
+                "app_id": app_id, "executable": path,
+            })
+            .to_string(),
+        )
+    };
+    assert_eq!(observe("faugus:ea-app", &executable)["ok"], true);
+    assert_eq!(
+        observe("faugus:nfs", &prefix.path().join("elsewhere/NFS.exe"))["ok"],
+        false
+    );
+    assert_eq!(observe("faugus:nfs", &executable)["ok"], true);
+    let snapshot = daemon.request(r#"{"method":"launcher_sessions"}"#);
+    let session = snapshot["result"]["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["pid"] == game.id())
+        .unwrap();
+    assert_eq!(session["app_id"], "faugus:nfs");
+    assert_eq!(session["wrapped"], false);
+    assert_eq!(session["profile"], "unconfirmed");
+    drop(game.stdin.take());
+    assert!(game.wait().unwrap().success());
 }

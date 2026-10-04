@@ -1435,31 +1435,20 @@ def clear_existing_penguin_burner_unit_for_install(*, log):
 
 
 def stop_existing_penguin_burner_runtime(*, log):
-    if not systemd_is_available():
-        return
-    if os.geteuid() != 0:
-        return
-    unit_name = f"{LEGACY_PENGUIN_BURNER_UNIT_NAME}.service"
-    result = subprocess.run(
-        [SYSTEMCTL, "stop", unit_name],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        env=stable_subprocess_env(),
-        check=False,
-    )
-    if result.returncode == 0:
-        log(f"Stopped existing {unit_name} before foreground Auto-UV scan.")
-    subprocess.run(
-        [SYSTEMCTL, "reset-failed", unit_name],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        env=stable_subprocess_env(),
-        check=False,
-    )
+    """Release profile control before CLI scan writes, keeping the boot intent."""
+    status = daemon_status(socket_path=DEFAULT_DAEMON_SOCKET)
+    job = status.get("active_job") or {}
+    if job.get("type") in {"auto_uv_scan", "profile_verification"} and job.get("returncode") is None:
+        if job.get("type") == "auto_uv_scan" and job.get("pid") == os.getpid():
+            # The GUI's daemon-owned child already has exclusive control.
+            # Stopping here would erase the session profile restored on exit.
+            return
+        raise RuntimeError("Cannot start Auto-UV: another scan or profile verification is running")
+    if job.get("type") == "runtime_profile":
+        # Works for stock too, including a stock profile restored after boot.
+        # A failed/wedged stop is fatal before fans or V/F checks write anything.
+        stop_runtime_profile(socket_path=DEFAULT_DAEMON_SOCKET, timeout_s=25.0)
+        log("Stopped runtime profile before foreground Auto-UV scan; boot settings were kept.")
 
 
 def daemonize_with_systemd(program_file, argv, *, journal_hours, log):
