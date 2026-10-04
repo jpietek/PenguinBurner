@@ -73,9 +73,15 @@ erase completed tiers: a verified Efficiency tier is skipped before its setup
 or sweep when Balanced is unfinished. Final verification that was interrupted
 must run again in full.
 
-Progress is saved atomically in `uv-result/auto-uv-scan-checkpoint.json`. A
-changed GPU, driver, base curve, scan settings, workload or algorithm starts a
-new scan while preserving the blacklist. The log names the changed input groups
+Progress is saved atomically in `uv-result/auto-uv-scan-checkpoint.json`.
+After reboot, stock base clocks may shift by one 15 MHz bin. With the same
+voltage grid, zero stock offsets, GPU, driver and scan settings, Auto-UV accepts
+this small change, keeps completed tiers and rebuilds saved candidate offsets
+to preserve their absolute clock targets. Baselines are measured again; the
+unfinished tier still requires resume verification. A larger curve change or
+changed GPU, driver, scan settings, workload or algorithm starts a new scan
+while preserving the blacklist. Older checkpoints without the full stock curve
+snapshot require an exact curve match. The log names the changed input groups
 (GPU, driver, base curve, policy, options, settings, workload or algorithm) and
 reports changed profiles or malformed checkpoint data. Older checkpoints without
 input fingerprints can only report a general identity mismatch. Before replacing
@@ -90,6 +96,12 @@ Legacy recovery uses the interrupted tier's verification duration when the tier
 is recorded, honors duration overrides, and retains compatible tested curves
 from the failed run for final-verification fallback. Incompatible or blacklisted
 curves are excluded; fallback still stops if the GPU or daemon is unusable.
+
+After `--restore-stock`, you can start a CLI scan normally, including after a
+reboot. Scan startup stops the daemon's active runtime profile before changing
+fans or checking V/F controls. The daemon service, saved profiles and stock boot
+setting are kept. If the profile cannot stop, the scan stops before GPU writes.
+GUI scans retain the daemon's existing handoff and session-profile restoration.
 
 ## Clearing scan history
 

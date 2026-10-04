@@ -416,6 +416,42 @@ def test_main_command_routing_accepts_parsed_auto_uv_scan_args_without_legacy_fl
     assert calls["foreground"]
 
 
+@pytest.mark.parametrize("stop_fails", [False, True])
+def test_cli_scan_hands_off_stock_before_any_gpu_writes(monkeypatch, stop_fails):
+    from runtime.support import runtime_service
+
+    order = []
+    monkeypatch.setattr(runtime_service, "daemon_status", lambda **_: {
+        "active_job": {"type": "runtime_profile", "runtime_mode": "stock", "returncode": None}
+    })
+
+    def stop(**_):
+        order.append("stop-stock")
+        if stop_fails:
+            raise RuntimeError("runtime profile engine did not stop")
+
+    monkeypatch.setattr(runtime_service, "stop_runtime_profile", stop)
+    deps, _calls = _deps(
+        stop_existing_penguin_burner_runtime=runtime_service.stop_existing_penguin_burner_runtime,
+        release_fans_to_hardware_auto=lambda *_a, **_kw: order.append("release-fans"),
+        run_auto_uv_foreground_command=lambda *_a, **_kw: order.append("scan-precheck"),
+    )
+
+    def run():
+        return route_main_command(
+            args=_args(auto_uv_voltage_scan=True), argv=["--auto-uv-voltage-scan"],
+            explicit_cli_args=True, interactive=False, dependencies=deps,
+        )
+
+    if stop_fails:
+        with pytest.raises(RuntimeError, match="engine did not stop"):
+            run()
+        assert order == ["stop-stock"]
+    else:
+        assert run().handled
+        assert order == ["stop-stock", "release-fans", "scan-precheck"]
+
+
 def test_main_command_routing_interactive_text_scan_enables_final_choice():
     deps, calls = _deps(
         build_effective_auto_uv_runtime_options=lambda args: {
