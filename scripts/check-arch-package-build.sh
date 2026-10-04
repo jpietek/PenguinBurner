@@ -14,6 +14,7 @@
 #                   gcc x86_64-linux-gnu-gcc symlink absent, as on hosts whose
 #                   gcc predates 16.2.1+r23 while rustc already defaults to
 #                   that triple-prefixed linker name.
+#                   Rust is provided by rustup with no builder toolchain yet.
 
 set -euo pipefail
 
@@ -94,7 +95,13 @@ for scenario in "${scenarios[@]}"; do
             upgrade=-Su
         fi
         pacman "$upgrade" --noconfirm >/dev/null
-        pacman -S --noconfirm --needed base-devel cargo cmake python-build \
+        # Exercise both cargo providers explicitly. A fresh rustup proxy has
+        # no per-user toolchain; the PKGBUILD must handle that for makepkg.
+        cargo_provider=rust
+        if [[ "$SCENARIO" == cachyos-shelly ]]; then
+            cargo_provider=rustup
+        fi
+        pacman -S --noconfirm --needed base-devel "$cargo_provider" cmake python-build \
             python-installer python-setuptools python-wheel \
             vulkan-headers >/dev/null
         if [[ "$SCENARIO" == cachyos-shelly ]]; then
@@ -124,6 +131,7 @@ for scenario in "${scenarios[@]}"; do
         pkg="$(ls /home/builder/penguin-burner-[0-9]*.pkg.tar.zst)"
         tar -tf "$pkg" > /tmp/package-contents.txt
         for artifact in usr/libexec/penguin-burnerd \
+            "runtime/daemon_bin/penguin-burnerd" \
             "overlay/nvapi_shim/nvapi64.dll" \
             "overlay/native_layer/libVkLayer_penguinburner_latency.so"; do
             if ! grep -q "$artifact" /tmp/package-contents.txt; then
