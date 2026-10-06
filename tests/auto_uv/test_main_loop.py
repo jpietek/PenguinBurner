@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from typing import Any, ClassVar, cast
 
 import pytest
-from auto_uv_test_data import base_curve
+from auto_uv_test_data import base_curve, rtx_5080_20260524_high_oc_base_curve
 
 from auto_uv import main_loop as undervolt_main_loop
 from auto_uv import performance_uv_loop
@@ -3044,6 +3044,82 @@ def test_3080_shared_descent_reclaims_then_climbs_with_the_same_cap(monkeypatch,
     assert completed[2]["target_mhz"] == (1930 if performance_passes else 1885)
     assert any(clock > 1885 for _, clock, _ in tried)
     assert all(voltage == 937 and cap == 380 for voltage, _, cap in tried)
+
+
+@pytest.mark.parametrize("gpu_name, voltage, clock, target, cap", [
+    ("NVIDIA GeForce RTX 5070 Ti", 850, 2730, 2920, 300),
+    ("NVIDIA GeForce RTX 5080", 860, 2790, 2950, 360),
+])
+@pytest.mark.parametrize("obstacle", ["none", "cached", "retry"])
+def test_adaptive_performance_reaches_target_from_verified_balanced(
+    monkeypatch, obstacle, gpu_name, voltage, clock, target, cap,
+):
+    from auto_uv.auto_oc import search
+
+    events, descents, tried = [], [], []
+    main, _, kwargs = _adaptive_scan_kwargs(events=events, descent_calls=descents)
+    gpu = kwargs["gpu"]
+    gpu.power_limit_w = cap
+    gpu.clamp_power_limit_w = int
+    gpu.clock_ceiling = None
+    gpu.translated_gpu_policy["gpu_name"] = gpu_name
+    curve = rtx_5080_20260524_high_oc_base_curve()
+    kwargs["base_curve"] = curve
+    verified = {}
+    unsafe = ([{
+        "candidate_voltage_mv": 915, "lock_clock_mhz": clock + 45,
+        "reason": "benchmark-crash",
+    }] if obstacle == "cached" else [])
+    monkeypatch.setattr(search, "load_unsafe_voltage_blacklist", lambda: unsafe)
+
+    def descent(_curve, *, tier_mode, **_options):
+        descents.append(tier_mode)
+        tier_clock = 2475 if tier_mode == "efficiency" else clock
+        probe = _summary(voltage, tier_clock)
+        probe.tested_plan = build_flattened_plan(
+            curve, candidate_voltage_mv=voltage, lock_clock_mhz=tier_clock,
+        )
+        return VfCurveCandidate(tier_mode, voltage, tier_clock, probe.tested_plan), 2, probe, [probe]
+
+    class Runner:
+        power_limit_w = cap
+
+        def probe_candidate(self, candidate, **_options):
+            point = (candidate.voltage_mv, candidate.target_mhz)
+            assert point not in tried
+            assert not search.unsafe_voltage_block_reason(
+                unsafe, candidate_voltage_mv=point[0], lock_clock_mhz=point[1],
+                profile_tier="performance",
+            )
+            tried.append(point)
+            probe = _summary(*point)
+            probe.tested_plan = candidate.flattened_plan
+            passed = obstacle != "retry" or candidate.voltage_mv >= 925
+            return VoltageProbeOutcome(decision=StableRunDecision(
+                passed, FailureKind.NONE if passed else FailureKind.FPS_REGRESSION,
+                FailureSeverity.PASS if passed else FailureSeverity.RECOVERABLE,
+                "stable" if passed else "FPS regression",
+            ), raw_probe=probe)
+
+    def finish(**options):
+        selection = options["selection"]
+        verified[options["final_auto_uv_mode"]] = selection
+        return _verified_result(selection.voltage_mv, selection.lock_clock_mhz, selection.plan)
+
+    monkeypatch.setattr(main, "run_adaptive_tier_descent", descent)
+    kwargs["configure_tier_probe_runner"] = Runner
+    kwargs["finish_with_final_verification"] = finish
+    main.run_adaptive_tier_scans(**kwargs)
+
+    assert descents == ["efficiency", "balanced"]
+    reused = [payload for event, payload in events if event == "tier_descent_reused"]
+    assert [(p["voltage_mv"], p["target_mhz"]) for p in reused] == [(voltage, clock)]
+    assert [verified[tier].lock_clock_mhz for tier in main.ADAPTIVE_TIER_ORDER] == [2475, clock, target]
+    performance = verified["performance"]
+    assert performance.voltage_mv == 925
+    assert performance.plan == performance.probe.tested_plan
+    assert tried[-1] == (925, target)
+    assert gpu.power_limit_w == cap
 
 
 @pytest.mark.parametrize("stage", ["baseline", "descent", "selection", "final"])

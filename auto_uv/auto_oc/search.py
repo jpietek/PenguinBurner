@@ -155,7 +155,7 @@ def run_auto_oc_candidate_search(
     attempts: list[AutoOcAttempt] = []
     passed_candidates = [(start_candidate, start_probe)]
     failed_voltage_floor_mv: int | None = None
-    consumed_voltage_floor_mv: int | None = None
+    retry_voltage_floor_mv: int | None = None
     power_wall_reached = False
 
     def probe_step(step: AutoOcStep, *, action: str) -> tuple[VfCurveCandidate, VoltageProbeOutcome]:
@@ -291,17 +291,17 @@ def run_auto_oc_candidate_search(
 
     stop_requested = False
     for step in ladder:
-        if (
-            consumed_voltage_floor_mv is not None
-            and int(step.voltage_mv) <= int(consumed_voltage_floor_mv)
+        # A successful voltage retry proves this clock at the higher voltage;
+        # it does not exhaust that voltage's remaining clock headroom. Carry
+        # it forward instead of dropping every remaining rung when a retry
+        # reaches the voltage cap early (including a reused Balanced start).
+        if retry_voltage_floor_mv is not None:
+            step = replace(step, voltage_mv=max(step.voltage_mv, retry_voltage_floor_mv))
+        if any(
+            attempt.candidate.voltage_mv == step.voltage_mv
+            and attempt.candidate.target_mhz == step.target_mhz
+            for attempt in attempts
         ):
-            log_phase(
-                log,
-                "auto-oc",
-                "skip consumed-voltage-rung "
-                f"{int(step.voltage_mv)}mV@{int(step.target_mhz)}MHz "
-                f"consumed-voltage={int(consumed_voltage_floor_mv)}mV",
-            )
             continue
         if (
             failed_voltage_floor_mv is not None
@@ -318,7 +318,10 @@ def run_auto_oc_candidate_search(
         candidate, outcome = probe_step(step, action="try")
         if outcome.decision.failure_kind is FailureKind.USER_STOP:
             break
-        if outcome.decision.severity is FailureSeverity.UNSAFE:
+        if (
+            outcome.decision.severity is FailureSeverity.UNSAFE
+            and outcome.decision.failure_kind is not FailureKind.CACHED_UNSAFE
+        ):
             backoff_after_unsafe(step, outcome)
             break
         passed = record_outcome(candidate, step, outcome)
@@ -342,11 +345,6 @@ def run_auto_oc_candidate_search(
             failed_voltage_mv=int(candidate.voltage_mv),
             endpoint_voltage_mv=int(endpoint.voltage_mv),
         ):
-            if (
-                consumed_voltage_floor_mv is not None
-                and int(retry_voltage_mv) <= int(consumed_voltage_floor_mv)
-            ):
-                continue
             retry_step = AutoOcStep(
                 index=int(step.index),
                 voltage_mv=int(retry_voltage_mv),
@@ -360,14 +358,19 @@ def run_auto_oc_candidate_search(
             if retry_outcome.decision.failure_kind is FailureKind.USER_STOP:
                 stop_requested = True
                 break
+            # Cached bands are checked before any hardware call. Look for an
+            # allowed higher voltage at this same clock; a new unsafe probe
+            # still ends the climb and uses the tested backoff path.
+            if retry_outcome.decision.failure_kind is FailureKind.CACHED_UNSAFE:
+                continue
             if retry_outcome.decision.severity is FailureSeverity.UNSAFE:
                 backoff_after_unsafe(retry_step, retry_outcome)
                 stop_requested = True
                 break
             retry_passed = record_outcome(retry_candidate, retry_step, retry_outcome)
             if retry_passed:
-                consumed_voltage_floor_mv = max(
-                    int(consumed_voltage_floor_mv or 0),
+                retry_voltage_floor_mv = max(
+                    int(retry_voltage_floor_mv or 0),
                     int(retry_candidate.voltage_mv),
                 )
                 break
@@ -375,7 +378,11 @@ def run_auto_oc_candidate_search(
                 int(failed_voltage_floor_mv or 0),
                 int(retry_candidate.voltage_mv),
             )
-        if stop_requested:
+        else:
+            if outcome.decision.failure_kind is FailureKind.CACHED_UNSAFE:
+                backoff_after_unsafe(step, outcome)
+                stop_requested = True
+        if stop_requested or power_wall_reached:
             break
 
     # A later crash can blacklist neighbouring clocks that passed earlier.

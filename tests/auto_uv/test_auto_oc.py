@@ -311,6 +311,48 @@ def test_auto_oc_search_climbs_voltage_and_clock_to_target() -> None:
     )
 
 
+@pytest.mark.parametrize("obstacle", ["cached", "retry"])
+def test_5070_ti_climbs_after_reaching_voltage_cap_early(monkeypatch, obstacle):
+    """A low-voltage obstacle must not strand Performance at 2745 MHz."""
+    curve = base_curve(850, 950, 5, 2400, 15)
+    start = VfCurveCandidate("balanced-verified", 850, 2730, curve)
+    unsafe = ([{
+        "candidate_voltage_mv": 915, "lock_clock_mhz": 2775,
+        "reason": "benchmark-crash",
+    }] if obstacle == "cached" else [])
+    monkeypatch.setattr(auto_oc_search, "load_unsafe_voltage_blacklist", lambda: unsafe)
+    tried = []
+
+    class Runner:
+        power_limit_w = 300
+
+        def probe_candidate(self, candidate, **_kwargs):
+            point = (candidate.voltage_mv, candidate.target_mhz)
+            assert point not in tried
+            assert not auto_oc_search.unsafe_voltage_block_reason(
+                unsafe, candidate_voltage_mv=point[0], lock_clock_mhz=point[1],
+                profile_tier="performance",
+            )
+            tried.append(point)
+            probe = _probe(*point)
+            if obstacle == "retry" and candidate.voltage_mv < 925:
+                return _failed_outcome(probe)
+            return _passed_outcome(probe)
+
+    result = run_auto_oc_candidate_search(
+        base_curve=curve, start_candidate=start, start_probe=_probe(850, 2730),
+        runner=Runner(), gpu_name="NVIDIA GeForce RTX 5070 Ti", clock_ceiling=None,
+        probe_history=[], log=lambda _: None, tail_rise_bins=2,
+    )
+
+    assert tried[-1] == (925, 2920)
+    assert len(tried) <= 24  # Ten clock rungs plus the bounded voltage retries.
+    assert all(v <= 925 and c <= 2920 for v, c in tried)
+    cap_index = next(i for i, (v, _) in enumerate(tried) if v == 925)
+    assert all(v == 925 for v, _ in tried[cap_index:])
+    assert (result.selected_candidate.voltage_mv, result.selected_candidate.target_mhz) == (925, 2920)
+
+
 def test_auto_oc_search_reclaims_clock_at_fixed_voltage_with_capped_history() -> None:
     curve = base_curve(850, 950, 5, 2400, 15)
     start = VfCurveCandidate("balanced-winner", 900, 2400, curve)
@@ -566,13 +608,46 @@ def test_auto_oc_search_skips_more_mhz_until_failed_clock_is_stable(monkeypatch)
         measured_baseline_clock_mhz=2735,
     )
 
-    assert tried == [(875, 2820), (885, 2820), (890, 2880)]
+    assert tried == [
+        (875, 2820), (885, 2820), (885, 2835), (885, 2865), (890, 2880),
+    ]
     assert (result.selected_candidate.voltage_mv, result.selected_candidate.target_mhz) == (
         890,
         2880,
     )
     assert (875, 2835) not in tried
-    assert (885, 2865) not in tried
+
+
+@pytest.mark.parametrize("obstacle", ["cached", "retry"])
+def test_auto_oc_voltage_retry_stops_at_measured_power_wall(monkeypatch, obstacle):
+    curve = base_curve(850, 950, 5, 2400, 15)
+    start = VfCurveCandidate("balanced-verified", 850, 2730, curve)
+    monkeypatch.setattr(auto_oc_search, "load_unsafe_voltage_blacklist", lambda: [{
+        "candidate_voltage_mv": 900, "lock_clock_mhz": 2745,
+        "reason": "benchmark-crash",
+    }] if obstacle == "cached" else [])
+    tried = []
+
+    class Runner:
+        power_limit_w = 300
+
+        def probe_candidate(self, candidate, **_kwargs):
+            tried.append((candidate.voltage_mv, candidate.target_mhz))
+            probe = _probe(candidate.voltage_mv, candidate.target_mhz, q2rtx_clock_mhz=2700)
+            if candidate.voltage_mv <= 900:
+                return _failed_outcome(probe)
+            probe.avg_power_w = 299.0
+            return _passed_outcome(probe)
+
+    result = run_auto_oc_candidate_search(
+        base_curve=curve, start_candidate=start, start_probe=_probe(850, 2730),
+        runner=Runner(), gpu_name="NVIDIA GeForce RTX 5070 Ti", clock_ceiling=None,
+        probe_history=[], log=lambda _: None,
+    )
+
+    assert tried[-1] == (905, 2745)
+    assert all(clock == 2745 for _, clock in tried)
+    assert result.selected_candidate is start
 
 
 @pytest.mark.parametrize(

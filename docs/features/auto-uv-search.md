@@ -47,6 +47,14 @@ Performance clock target. An explicit voltage target keeps its requested
 bound. Balanced and Performance retain their shared power budget and can
 still converge if no higher stable measured clock is found.
 
+A cached unsafe voltage/clock band is skipped before touching the GPU. Auto-OC
+can test the same clock at a higher editable voltage outside that band, within
+the voltage target. After a successful voltage retry, remaining clock steps
+continue from at least that voltage, even if the retry already reached the
+voltage target. Reusing Balanced therefore does not cap Performance at an early
+clock step. A new unsafe probe or a measured power wall still ends the climb;
+reaching the configured clock target depends on the actual probe results.
+
 Efficiency and Balanced can reclaim clock at the already-proven voltage on a
 power-limited baseline. Custom lower clocks are tested after voltage descent,
 at its stable voltage. Searches have bounded steps and retain passing
