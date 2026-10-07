@@ -387,10 +387,19 @@ def test_recovery_requires_both_margins_and_an_actual_voltage_bin():
         recovery_candidate(
             curve, passed, tier="balanced", unsafe=[], failed_clock_mhz=2800
         )
-    with pytest.raises(AutoUvError, match="no passed candidate"):
-        recovery_candidate(
-            curve, passed, tier="efficiency", unsafe=[], failed_clock_mhz=2745
-        )
+    # A failure at the same requested clock is the normal end of a fixed-clock
+    # descent: the pass one voltage bin above it is the safe source.
+    same_clock = recovery_candidate(
+        curve, passed, tier="efficiency", unsafe=[], failed_clock_mhz=2745,
+        failed_voltage_mv=845,
+    )
+    assert (same_clock.voltage_mv, same_clock.target_mhz) == (860, 2745)
+    for failed_voltage_mv in (None, 850, 860):
+        with pytest.raises(AutoUvError, match="no passed candidate"):
+            recovery_candidate(
+                curve, passed, tier="efficiency", unsafe=[], failed_clock_mhz=2745,
+                failed_voltage_mv=failed_voltage_mv,
+            )
 
 
 def test_resume_verification_failure_never_falls_back_to_an_unadjusted_point(

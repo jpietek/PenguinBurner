@@ -66,6 +66,7 @@ from auto_uv.probes.voltage_probe import probe_voltage_candidate
 from auto_uv.run.baseline_probe import (
     baseline_load_reference_power_limit_w,
     build_loaded_baseline_candidate,
+    log_loaded_baseline_clock_cap,
     probe_loaded_baseline_with_backoff,
     require_probe_summary,
     retarget_clock_ceiling_for_candidate,
@@ -115,6 +116,7 @@ from auto_uv.scan_mode.efficiency_fps_per_w_policy import (
 )
 from auto_uv.scan_mode.target_overrides import (
     custom_tier_target,
+    tier_lock_clock_cap_mhz,
     tier_target_overrides,
 )
 from auto_uv.scan_mode.uv_limits import (
@@ -405,12 +407,27 @@ def run_voltage_frequency_undervolt_main_loop(
                 f"{getattr(discovery_result, 'reason', 'unknown')}"
             )
 
+        baseline_tier = run_profile_tier or (
+            AUTO_UV_MODE_EFFICIENCY
+            if settings.auto_uv_mode == AUTO_UV_MODE_ADAPTIVE
+            else str(settings.auto_uv_mode)
+        )
+        baseline_clock_cap_mhz = tier_lock_clock_cap_mhz(
+            runtime_options,
+            gpu_name=gpu.translated_gpu_policy.get("gpu_name"),
+            tier=baseline_tier,
+        )
         baseline_candidate, baseline_target = build_loaded_baseline_candidate(
             base_curve,
             discovery_summary=discovery_summary,
             discovery_result=discovery_result,
             power_limit_w=baseline_load_reference_power_limit_w(gpu),
             tail_rise_bins=int(tail_rise_bins),
+            max_clock_mhz=baseline_clock_cap_mhz,
+        )
+        log_loaded_baseline_clock_cap(
+            log, tier=baseline_tier, candidate=baseline_candidate,
+            target=baseline_target, max_clock_mhz=baseline_clock_cap_mhz,
         )
         gpu.start_clock_ceiling(
             build_flatten_target_for_plan(
@@ -747,6 +764,11 @@ def run_voltage_frequency_undervolt_main_loop(
                             "the Q2RTX probe: "
                             f"{getattr(tier_discovery_result, 'reason', 'unknown')}"
                         )
+                    tier_clock_cap_mhz = tier_lock_clock_cap_mhz(
+                        runtime_options,
+                        gpu_name=gpu.translated_gpu_policy.get("gpu_name"),
+                        tier=str(tier_mode),
+                    )
                     tier_baseline_candidate, tier_baseline_target = (
                         build_loaded_baseline_candidate(
                             base_curve,
@@ -754,7 +776,12 @@ def run_voltage_frequency_undervolt_main_loop(
                             discovery_result=tier_discovery_result,
                             power_limit_w=positive_int(gpu.power_limit_w),
                             tail_rise_bins=int(tier_tail_rise_bins),
+                            max_clock_mhz=tier_clock_cap_mhz,
                         )
+                    )
+                    log_loaded_baseline_clock_cap(
+                        log, tier=str(tier_mode), candidate=tier_baseline_candidate,
+                        target=tier_baseline_target, max_clock_mhz=tier_clock_cap_mhz,
                     )
                     retarget_clock_ceiling_for_candidate(
                         gpu.clock_ceiling,
@@ -1923,8 +1950,12 @@ def select_final_scan_candidate(
             probe_history=probe_history,
             log=log,
             tail_rise_bins=int(tail_rise_bins),
-            target_voltage_mv=target_overrides.voltage_mv,
-            target_clock_mhz=target_overrides.clock_mhz,
+            # custom_target is None here, so any present override equals the
+            # table default. The GUI sends those defaults for every tier; they
+            # must not become a hard voltage bound that blocks the climb at the
+            # proven Balanced voltage.
+            target_voltage_mv=None,
+            target_clock_mhz=None,
             measured_baseline_clock_mhz=float(measured_baseline_clock_mhz),
         )
 

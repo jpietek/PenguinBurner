@@ -83,3 +83,26 @@ def custom_tier_target(
             clock_mhz=overrides.clock_mhz or default.clock_mhz,
         )
     return overrides
+
+
+def tier_lock_clock_cap_mhz(
+    runtime_options: dict,
+    *,
+    gpu_name: object | None,
+    tier: str,
+) -> int | None:
+    """Highest requested clock a tier's loaded baseline may lock to.
+
+    The table clock is each tier's upper search limit. When the stock curve
+    loads above it under the tier's power budget, the descent must start at
+    the table clock instead of the boosted stock clock; otherwise a card that
+    is not power-bound (RTX 3080 at 380 W loads at ~1920 MHz against an
+    1885 MHz Balanced target) never searches the tier it was asked for. An
+    edited clock target replaces the table clock as that limit.
+    """
+    overrides = tier_target_overrides(runtime_options, gpu_name=gpu_name, tier=tier)
+    custom = custom_tier_target(overrides, gpu_name=gpu_name, tier=tier)
+    if custom is not None and custom.clock_mhz is not None:
+        return int(custom.clock_mhz)
+    default = uv_limit_profile_target_for_gpu(gpu_name, tier)
+    return int(default.clock_mhz) if default is not None else None

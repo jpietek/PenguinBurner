@@ -2942,9 +2942,9 @@ def test_scan_tuning_dialog_returns_power_limit_from_slider(monkeypatch) -> None
     assert "auto_uv_max_clock_drop_pct" not in options
     assert "auto_uv_memory_offset_mhz" not in options
     assert "auto_uv_tail_rise_bins" not in options
-    assert options["auto_uv_efficiency_target_voltage_mv"] == 850
-    assert options["auto_uv_balanced_target_voltage_mv"] == 900
-    assert options["auto_uv_performance_target_voltage_mv"] == 925
+    # Unedited table defaults (850/900/925 mV on the 5080) stay automatic:
+    # sent as explicit targets they became hard Auto-OC bounds (issue #109).
+    assert not any("_target_" in key for key in options)
 
 
 def test_scan_tuning_memory_offset_is_mhz_with_mt_s_shown_and_doubled(
@@ -3226,8 +3226,15 @@ def test_tier_target_controls_validate_ranges_and_auto(monkeypatch, gpu_name, ha
                                        QtWidgets=QtWidgets, parent=None, gpu_index=0)
     assert options is not None
     if gpu_name.startswith("NVIDIA"):
-        for tier, (low, _, voltage) in expected.items():
-            assert options[f"auto_uv_{tier}_target_clock_mhz"] == low
-            assert options[f"auto_uv_{tier}_target_voltage_mv"] == voltage
+        # The clock boxes were edited down to their minimum; the voltage boxes
+        # still hold the table default, which is not an override. Balanced and
+        # Performance minimums equal their table clocks, so those stay automatic.
+        defaults = {"efficiency": 2800, "balanced": 2800, "performance": 2950}
+        for tier, (low, _, _voltage) in expected.items():
+            if low != defaults[tier]:
+                assert options[f"auto_uv_{tier}_target_clock_mhz"] == low
+            else:
+                assert f"auto_uv_{tier}_target_clock_mhz" not in options
+            assert f"auto_uv_{tier}_target_voltage_mv" not in options
     else:
         assert not any("target_" in key for key in options)

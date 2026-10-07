@@ -90,6 +90,8 @@ clock targets use the tested clock climb toward the configured targets.
 
 GPUs without table entries show **Auto**. Custom ranges use driver-reported
 clocks and editable voltage bins where available; missing ranges remain Auto.
+A box left at its table default is also automatic: the scan receives only
+edited targets, so the defaults never act as hard bounds on the search.
 No other GPU's preset is substituted. Fixed-power laptop GPUs use the stock
 limit with the power control disabled.
 

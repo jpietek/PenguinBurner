@@ -302,6 +302,60 @@ def test_select_scan_tuning_mirrors_balanced_and_performance_memory(
     }
 
 
+def test_select_scan_tuning_sends_only_edited_tier_targets(qt, monkeypatch) -> None:
+    """Unedited table defaults stay automatic (issue #109).
+
+    The dialog used to send every tier's default voltage/clock as an explicit
+    target. The scan treated that as a hard Performance voltage bound, so a
+    GUI full scan on an RTX 3080 could not climb at the proven Balanced
+    voltage while the same scan from the CLI could."""
+    qtcore, qtgui, qtwidgets, _pg = qt
+    monkeypatch.setattr(
+        scan_tuning_dialog, "memory_offset_mhz_range", lambda **_kwargs: (0, 4000)
+    )
+    from ui.features.tuning.gpu_selection import GpuChoice
+
+    monkeypatch.setattr(
+        scan_tuning_dialog, "gpu_choices_with_fallback",
+        lambda **_: ([GpuChoice(index=0, name="NVIDIA GeForce RTX 3080")], 0),
+    )
+    # With the daemon up, the live curve enables the voltage boxes.
+    monkeypatch.setattr(
+        scan_tuning_dialog, "auto_uv_voltage_floor_range_mv", lambda **_: (700, 1100)
+    )
+
+    class NoDaemon:  # The table lookup must use the enumerated name, not this host.
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def __getattr__(self, _name):
+            raise RuntimeError("no daemon in tests")
+
+    monkeypatch.setattr(scan_tuning_dialog, "DaemonGpuClient", NoDaemon)
+    edits = {"performanceVoltageSpin": 925}
+
+    def accept_after_edits(self):
+        for spin in self.findChildren(qtwidgets.QSpinBox):
+            if spin.objectName() in edits:
+                spin.setValue(edits[spin.objectName()])
+        return qtwidgets.QDialog.Accepted
+
+    monkeypatch.setattr(qtwidgets.QDialog, "exec", accept_after_edits)
+    options = scan_tuning_dialog.select_scan_tuning(
+        QtCore=qtcore, QtGui=qtgui, QtWidgets=qtwidgets, parent=None, gpu_index=0
+    )
+    assert options is not None and options["auto_uv_mode"] == "adaptive"
+    targets = {key: value for key, value in options.items() if "_target_" in key}
+    assert targets == {"auto_uv_performance_target_voltage_mv": 925}
+
+    edits.clear()
+    options = scan_tuning_dialog.select_scan_tuning(
+        QtCore=qtcore, QtGui=qtgui, QtWidgets=qtwidgets, parent=None, gpu_index=0
+    )
+    assert options is not None
+    assert not [key for key in options if "_target_" in key]
+
+
 def test_energy_savings_formatting_uptime_and_units() -> None:
     assert about_dialog.format_total_runtime(9) == "9s"
     assert about_dialog.format_total_runtime(75) == "1m 15s"

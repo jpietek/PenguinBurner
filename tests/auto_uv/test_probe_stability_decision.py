@@ -259,6 +259,10 @@ def test_classify_cuda_kernel_failure_is_unsafe() -> None:
         ("cuda-bruteforce-failed exit=1", [], ["cuCtxSynchronize failed: an illegal memory access was encountered"]),
         ("cuda-bruteforce-failed exit=-11", [], []),
         ("cuda-bruteforce-failed exit=-6", [], []),
+        # The workload's own codes: redundant-copy mismatch / GPU fault (3), hang (4).
+        ("cuda-bruteforce-failed exit=3", [], ["cuda-bruteforce: UNSTABLE redundant verification mismatch int.x=3 stage=50% launch=12"]),
+        ("cuda-bruteforce-failed exit=3", [], []),
+        ("cuda-bruteforce-failed exit=4", [], []),
     ],
 )
 def test_workload_instability_is_unsafe_and_keeps_failure_log(reason, fatal_matches, output):

@@ -17,13 +17,27 @@ def recovery_candidate(
     tier: str,
     unsafe: list[dict],
     failed_clock_mhz: int | None,
+    failed_voltage_mv: int | None = None,
 ) -> VfCurveCandidate:
+    """Pick the last passed point below the failure, then step one voltage bin up.
+
+    A descent holds one requested clock while voltage falls, so the crashed
+    probe shares its clock with every earlier pass of that tier. A pass at the
+    failed clock is still a safe source when its voltage was higher than the
+    one that failed; only a higher clock, or an equal-or-lower voltage at the
+    same clock, is outside the margin.
+    """
     for item in reversed(passed):
         if item["tier"] != tier:
             continue
         candidate = item["candidate"]
-        if failed_clock_mhz is not None and candidate.target_mhz >= failed_clock_mhz:
-            continue
+        if failed_clock_mhz is not None:
+            if candidate.target_mhz > failed_clock_mhz:
+                continue
+            if candidate.target_mhz == failed_clock_mhz and (
+                failed_voltage_mv is None or candidate.voltage_mv <= failed_voltage_mv
+            ):
+                continue
         if unsafe_voltage_block_reason(
             unsafe,
             candidate_voltage_mv=candidate.voltage_mv,

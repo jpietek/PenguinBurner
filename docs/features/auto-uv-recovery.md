@@ -18,9 +18,15 @@ scan. Recovery depends on what failed:
 | No usable candidate remains | End that tier without inventing a result. |
 
 Workload crashes, device loss, NVIDIA Xids, and CUDA computation errors reject
-the candidate. Recovery can continue only while the GPU, daemon, and
+the candidate. The CUDA workload is built to fail softly: every launch runs
+twice and the two copies are compared element for element on the GPU, the
+load ramps through partial occupancy before full current, a GPU fault under
+load counts as instability, and a host watchdog ends a stalled run while the
+card still answers. A wrong result or a fault blacklists the candidate without
+a reboot. Recovery can continue only while the GPU, daemon, and
 measurements remain usable. Verification cannot guarantee stability in every
-game or prevent a system freeze.
+game or prevent a system freeze: a card whose edge is a bus drop can still
+take the host down.
 
 ## Stopping deliberately
 
@@ -57,10 +63,13 @@ shows **Resuming**, and the restored measurements are historical, not new live
 telemetry.
 
 The scan reuses completed measurements, skips blacklisted candidates, and
-long-verifies a recovery candidate at a previously passing lower clock outside
-the blacklist and one editable voltage bin above its measured voltage. This
-recovery voltage may exceed the original target; the added margin is one bin
-above the saved candidate. Power and memory settings stay unchanged. The
+long-verifies a recovery candidate one editable voltage bin above the last
+passing candidate outside the blacklist. The source candidate must not sit
+above the failed clock, and at the failed clock it must have passed at a
+higher voltage than the one that failed: a descent holds one requested clock
+while voltage falls, so the crashed probe shares its clock with every earlier
+pass of that tier. This recovery voltage may exceed the original target; the
+added margin is one bin above the saved candidate. Power and memory settings stay unchanged. The
 **Resume verification** row represents a new measurement, not a previously
 verified combination. Its duration follows
 the active tier (Efficiency 1 minute, Balanced 3 minutes, Performance 5 minutes,

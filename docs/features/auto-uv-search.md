@@ -27,11 +27,20 @@ step, and a power-limited shortfall is not repeatedly subtracted. The configured
 rising tail and its clock headroom are preserved. Measured clocks remain available
 for evaluation; clock increases are tested separately at a fixed voltage.
 
+Each tier's table clock is the upper limit of its search. When the stock
+curve loads above that clock under the tier's power budget (an RTX 3080 at
+380 W runs about 1920 MHz against an 1885 MHz Balanced target), the loaded
+baseline locks at the highest 15 MHz step at or below the table clock and the
+voltage descent runs there; the measured stock clock stays the comparison
+reference. A power-bound baseline below the table clock is left where the
+card runs and can climb later. An edited clock target replaces the table clock
+as this limit.
+
 Efficiency selects the highest measured FPS/W among passing candidates,
 including candidates before any clock climb. It compares unrounded values;
-equal FPS/W favors higher measured clock, then lower power. Its table clock
-is an upper search limit. Balanced uses the performance-and-efficiency
-selection policy; Performance adds the Auto-OC ladder.
+equal FPS/W favors higher measured clock, then lower power. Balanced uses the
+performance-and-efficiency selection policy; Performance adds the Auto-OC
+ladder.
 
 All reference target clocks use 5 MHz increments. Selected RTX 30-series
 Efficiency/Balanced targets include small fixed reductions, and Performance
@@ -43,8 +52,9 @@ change does not necessarily change the clock bin held by the GPU.
 
 If the proven Performance starting voltage exceeds its default table target,
 Auto-OC can still increase clocks at that same voltage up to the existing
-Performance clock target. An explicit voltage target keeps its requested
-bound. Balanced and Performance retain their shared power budget and can
+Performance clock target. An edited voltage target keeps its requested
+bound; the scan dialog sends only edited targets, so an unchanged table
+default never becomes that bound. Balanced and Performance retain their shared power budget and can
 still converge if no higher stable measured clock is found.
 
 A cached unsafe voltage/clock band is skipped before touching the GPU. Auto-OC
@@ -77,8 +87,11 @@ baseline, including its target label and curve.
 
 ## Verification
 
-Q2RTX and CUDA check stability, load, and FPS. There is no measured-clock-loss
-percentage cutoff. A deliberately lower custom clock uses its passing
+Q2RTX and CUDA check stability, load, and FPS. The CUDA companion runs an
+integer stress twice per launch and compares the copies on the GPU, ramping
+from an eighth of the grid to the full grid so a marginal voltage shows up as
+a wrong result before full current can hang the card. There is no
+measured-clock-loss percentage cutoff. A deliberately lower custom clock uses its passing
 lower-clock measurement for the final FPS check.
 
 Default final durations are 60 seconds for Efficiency, 180 for Balanced, and

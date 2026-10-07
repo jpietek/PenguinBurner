@@ -24,6 +24,7 @@ from auto_uv.domain.types import (
 )
 from auto_uv.run.scan_resume import completed_ui_events, recovery_candidate
 from auto_uv.scan_mode.auto_uv_mode import normalize_auto_uv_mode
+from auto_uv.shared.positive_int import positive_int
 from profiles.uv.profile_store import auto_uv_profiles_dir
 from stability.q2rtx.models import (
     Q2RTXBenchmarkSummary,
@@ -276,18 +277,20 @@ class ScanCheckpoint:
             return
         tier = self.current_tier
         completed = set()
-        failed_clock = None
+        failed_clock = failed_voltage = None
         for item in self.events:
             event, payload = item["event"], item["payload"]
             if event == "tier_started":
                 tier = str(payload["tier"])
-                failed_clock = None
+                failed_clock = failed_voltage = None
             elif event == "tier_completed":
                 completed.add(str(payload["tier"]))
             elif event == "probe_result" and payload.get("decision") == "fail":
                 failed_clock = int(payload["clock_mhz"])
+                failed_voltage = positive_int(payload.get("voltage_mv"))
         if interrupted:
             failed_clock = int(interrupted["lock_clock_mhz"])
+            failed_voltage = positive_int(interrupted.get("candidate_voltage_mv"))
         if tier not in completed and any(item["tier"] == tier for item in self.passed):
             self.recovery_tier = tier
             self.recovery = recovery_candidate(
@@ -296,6 +299,7 @@ class ScanCheckpoint:
                 tier=tier,
                 unsafe=unsafe,
                 failed_clock_mhz=failed_clock,
+                failed_voltage_mv=failed_voltage,
             )
         self.events = completed_ui_events(self.events, unsafe, self.mode)
         self._save()

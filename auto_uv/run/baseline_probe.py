@@ -6,6 +6,7 @@ from typing import Any, cast
 
 from auto_uv.curve.base_load_flatten_target import (
     choose_base_load_flatten_target,
+    choose_sustained_curve_clock,
     selected_nvidia_light_load_diagnostic,
 )
 from auto_uv.curve.base_load_voltage import derive_loaded_voltage_band
@@ -196,6 +197,7 @@ def build_loaded_baseline_candidate(
     discovery_result: object,
     power_limit_w: int | None,
     tail_rise_bins: int = 0,
+    max_clock_mhz: int | None = None,
 ) -> tuple[VfCurveCandidate, BaseLoadTarget]:
     target = choose_base_load_flatten_target(
         base_curve,
@@ -203,6 +205,7 @@ def build_loaded_baseline_candidate(
         power_limit_w=power_limit_w,
         fallback_clock_mhz=discovery_summary.avg_core_clock_mhz,
     )
+    target = cap_loaded_baseline_target(base_curve, target, max_clock_mhz=max_clock_mhz)
     voltage_band = derive_loaded_voltage_band(
         list(getattr(discovery_result, "telemetry_samples", []) or []),
         power_limit_w=power_limit_w,
@@ -230,6 +233,44 @@ def build_loaded_baseline_candidate(
             flattened_plan=plan,
         ),
         target,
+    )
+
+
+def cap_loaded_baseline_target(
+    base_curve: list[dict],
+    target: BaseLoadTarget,
+    *,
+    max_clock_mhz: int | None,
+) -> BaseLoadTarget:
+    """Hold the lock clock at or below the tier's clock limit.
+
+    The measured loaded clock is kept as the reference the probes compare
+    against; only the requested lock moves down to the highest base-curve
+    step at or below the limit.
+    """
+    if max_clock_mhz is None or int(target.target_clock_mhz) <= int(max_clock_mhz):
+        return target
+    capped = choose_sustained_curve_clock(base_curve, float(max_clock_mhz))
+    return replace(target, target_clock_mhz=int(min(capped, target.target_clock_mhz)))
+
+
+def log_loaded_baseline_clock_cap(
+    log: Callable[[str], None],
+    *,
+    tier: str,
+    candidate: VfCurveCandidate,
+    target: object,
+    max_clock_mhz: int | None,
+) -> None:
+    measured = getattr(target, "measured_clock_mhz", None)
+    if max_clock_mhz is None or measured is None or float(measured) <= float(max_clock_mhz):
+        return
+    log_phase(
+        log,
+        "baseline",
+        f"{tier} stock curve loaded at {float(measured):.0f}MHz "
+        f"above the {int(max_clock_mhz)}MHz clock target; "
+        f"locking the descent at {int(candidate.target_mhz)}MHz",
     )
 
 
