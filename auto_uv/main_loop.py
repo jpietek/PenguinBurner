@@ -1079,6 +1079,19 @@ def run_adaptive_tier_scans(
             if primary_scan_result is None:
                 primary_scan_result = completed_tier
             log_phase(log, "auto-uv", f"adaptive {tier_mode} already verified; reusing completed tier")
+            if tier_mode == AUTO_UV_MODE_BALANCED:
+                balanced_donation = balanced_donation_from_completed_tier(
+                    completed_tier,
+                    memory_offset_mhz=resolve_adaptive_tier_memory_offset_mhz(
+                        runtime_options,
+                        tier_mode=str(tier_mode),
+                        fallback_offset_mhz=scan_open_memory_offset_mhz,
+                        limit_mhz=memory_offset_limit_mhz,
+                    ),
+                    power_limit_w=adaptive_tier_requested_power_limit_w(
+                        gpu, tier_mode=str(tier_mode), runtime_options=runtime_options,
+                    ),
+                )
             continue
         emit_auto_uv_event(event_callback, "tier_started", **tier_event_details)
         try:
@@ -1544,6 +1557,88 @@ def scan_wide_memory_offset_mhz(runtime_options: dict) -> int:
     )
 
 
+def resolve_adaptive_tier_memory_offset_mhz(
+    runtime_options: dict,
+    *,
+    tier_mode: str,
+    fallback_offset_mhz: int,
+    limit_mhz: int,
+) -> int:
+    """The memory offset a tier asks for: its own option, else the scan-open one."""
+    raw = adaptive_tier_option(
+        runtime_options,
+        tier_mode=tier_mode,
+        option="memory_offset_mhz",
+    )
+    requested = int(fallback_offset_mhz) if raw is None else int(cast(Any, raw))
+    return max(0, min(requested, int(limit_mhz)))
+
+
+def adaptive_tier_requested_power_limit_w(
+    gpu,
+    *,
+    tier_mode: str,
+    runtime_options: dict,
+) -> int | None:
+    """The board-power cap a tier would request, without touching the GPU."""
+    proxy = SimpleNamespace(
+        translated_gpu_policy=gpu.translated_gpu_policy,
+        baseline_power_limit_w=getattr(gpu, "baseline_power_limit_w", None),
+        power_limit_w=gpu.power_limit_w,
+        clamp_power_limit_w=gpu.clamp_power_limit_w,
+        requested_power_limit_w=None,
+    )
+    request_adaptive_tier_power_limit(
+        proxy, tier_mode=tier_mode, runtime_options=runtime_options
+    )
+    return positive_int(proxy.requested_power_limit_w)
+
+
+def balanced_donation_from_completed_tier(
+    completed: AutoUvVoltageScanResult,
+    *,
+    memory_offset_mhz: int,
+    power_limit_w: int | None,
+) -> BalancedDescentDonation | None:
+    """Rebuild Balanced's donation from a checkpointed, verified Balanced tier.
+
+    A resumed scan has no in-memory descent, but the checkpoint carries the
+    verified endpoint with its complete tested plan. Performance must start
+    from that point exactly as it would in an unbroken run; otherwise the
+    restart re-descends the ladder Balanced already proved and, after a climb
+    crash, climbs again from a higher voltage (issue #109).
+    """
+    verified = next(
+        (
+            probe for probe in reversed(completed.probes)
+            if probe.tested_plan is not None
+            and probe.candidate_voltage_mv == completed.final_voltage_mv
+            and probe.lock_clock_mhz == completed.lock_clock_mhz
+        ),
+        None,
+    )
+    if verified is None or verified.tested_plan is None:
+        return None
+    plan = [dict(point) for point in verified.tested_plan]
+    lock = int(completed.lock_clock_mhz)
+    tail_rise_bins = len({
+        int(point["target_mhz"]) for point in plan if int(point["target_mhz"]) > lock
+    })
+    return BalancedDescentDonation(
+        candidate=VfCurveCandidate(
+            "balanced-verified", int(completed.final_voltage_mv), lock, plan,
+        ),
+        tail_rise_bins=tail_rise_bins,
+        probe=verified,
+        history=[verified],
+        descent_tail_rise_bins=adaptive_tier_descent_tail_rise_bins(AUTO_UV_MODE_BALANCED),
+        memory_offset_mhz=int(memory_offset_mhz),
+        power_limit_w=positive_int(power_limit_w),
+        baseline_voltage_mv=None,
+        baseline_target_mhz=None,
+    )
+
+
 def apply_adaptive_tier_memory_offset(
     gpu,
     *,
@@ -1569,16 +1664,18 @@ def apply_adaptive_tier_memory_offset(
         tier_mode=tier_mode,
         option="memory_offset_mhz",
     )
-    if raw is None:
-        target_mhz = max(0, min(int(fallback_offset_mhz), int(limit_mhz)))
-    else:
-        target_mhz = max(0, min(int(cast(Any, raw)), int(limit_mhz)))
-        if target_mhz != int(cast(Any, raw)):
-            log(
-                f"Auto-UV memory offset ({tier_mode}): requested "
-                f"{int(cast(Any, raw))} MHz clamped to {target_mhz} MHz "
-                f"(limit {int(limit_mhz)} MHz)"
-            )
+    target_mhz = resolve_adaptive_tier_memory_offset_mhz(
+        runtime_options,
+        tier_mode=tier_mode,
+        fallback_offset_mhz=fallback_offset_mhz,
+        limit_mhz=limit_mhz,
+    )
+    if raw is not None and target_mhz != int(cast(Any, raw)):
+        log(
+            f"Auto-UV memory offset ({tier_mode}): requested "
+            f"{int(cast(Any, raw))} MHz clamped to {target_mhz} MHz "
+            f"(limit {int(limit_mhz)} MHz)"
+        )
     current_mhz = int(gpu.translated_gpu_policy.get("mem_clk_vf_offset_mhz") or 0)
     applied_mhz = target_mhz
     if target_mhz != current_mhz:
@@ -1657,8 +1754,10 @@ class BalancedDescentDonation:
     descent_tail_rise_bins: int
     memory_offset_mhz: int
     power_limit_w: int | None
-    baseline_voltage_mv: int
-    baseline_target_mhz: int
+    # None when rebuilt from a checkpoint: the balanced baseline is not
+    # recorded there, and the scan identity already proves the same regime.
+    baseline_voltage_mv: int | None
+    baseline_target_mhz: int | None
 
 
 def performance_can_reuse_balanced_descent(
@@ -1705,7 +1804,14 @@ def performance_can_reuse_balanced_descent(
             f"from balanced {_format_power_limit_w(donation.power_limit_w)}",
         )
         return False
-    if (
+    if donation.baseline_voltage_mv is None or donation.baseline_target_mhz is None:
+        log_phase(
+            log,
+            "auto-uv",
+            "adaptive performance adopting the checkpointed balanced endpoint; "
+            "its baseline was not recorded, the matching scan identity stands in",
+        )
+    elif (
         abs(
             int(performance_baseline_voltage_mv)
             - int(donation.baseline_voltage_mv)

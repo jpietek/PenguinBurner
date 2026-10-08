@@ -61,7 +61,8 @@ def test_stock_drift_does_not_relax_other_curve_constraints(change):
     curve = stock_curve()
     changed = shifted_curve(curve)
     if change == "two_bins":
-        changed[0].update(base_mhz=1635, target_mhz=1635)
+        # Beyond the drift tolerance (not merely more than one bin).
+        changed[0].update(base_mhz=1605 + 90, target_mhz=1605 + 90)
     elif change == "fractional_bin":
         changed[0].update(base_mhz=1606, target_mhz=1606)
     elif change in {"voltage", "index", "offset", "target", "preserve"}:

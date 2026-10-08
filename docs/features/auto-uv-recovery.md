@@ -69,7 +69,13 @@ above the failed clock, and at the failed clock it must have passed at a
 higher voltage than the one that failed: a descent holds one requested clock
 while voltage falls, so the crashed probe shares its clock with every earlier
 pass of that tier. This recovery voltage may exceed the original target; the
-added margin is one bin above the saved candidate. Power and memory settings stay unchanged. The
+added margin is one bin above the saved candidate. When every passing
+candidate of the interrupted tier lies inside the blacklisted band, as after
+a crash during a clock climb, that tier runs again from its own start instead
+of stopping the resume: Performance reuses the verified Balanced point and its
+climb skips the cached band before touching the GPU. A resumed scan rebuilds
+that Balanced hand-off from the checkpoint's verified curve, so Performance
+never re-descends a ladder Balanced already proved. Power and memory settings stay unchanged. The
 **Resume verification** row represents a new measurement, not a previously
 verified combination. Its duration follows
 the active tier (Efficiency 1 minute, Balanced 3 minutes, Performance 5 minutes,
@@ -83,10 +89,11 @@ or sweep when Balanced is unfinished. Final verification that was interrupted
 must run again in full.
 
 Progress is saved atomically in `uv-result/auto-uv-scan-checkpoint.json`.
-After reboot, stock base clocks may shift by one 15 MHz bin. With the same
-voltage grid, zero stock offsets, GPU, driver and scan settings, Auto-UV accepts
-this small change, keeps completed tiers and rebuilds saved candidate offsets
-to preserve their absolute clock targets. Baselines are measured again; the
+After a reboot the stock V/F readback moves with temperature; an RTX 3080
+came back 30 to 60 MHz lower across most of its curve. With the same voltage
+grid, zero stock offsets, GPU, driver and scan settings, Auto-UV accepts
+whole-bin drift of up to 75 MHz per point, keeps completed tiers and rebuilds
+saved candidate offsets to preserve their absolute clock targets. Baselines are measured again; the
 unfinished tier still requires resume verification. A larger curve change or
 changed GPU, driver, scan settings, workload or algorithm starts a new scan
 while preserving the blacklist. Older checkpoints without the full stock curve

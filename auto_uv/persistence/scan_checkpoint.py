@@ -18,6 +18,7 @@ from uuid import uuid4
 from auto_uv.domain.events import AutoUvEventCallback
 from auto_uv.domain.types import (
     AutoUvCriticalProbeError,
+    AutoUvError,
     AutoUvProbeSummary,
     AutoUvVoltageScanResult,
     VfCurveCandidate,
@@ -33,7 +34,11 @@ from stability.q2rtx.models import (
 )
 
 from .auto_uv_persisted_json_files import auto_uv_user_config_dir, safe_json_write
-from .checkpoint_curve import compatible_stock_curves, rebase_measured_plan
+from .checkpoint_curve import (
+    compatible_stock_curves,
+    rebase_measured_plan,
+    stock_curve_drift_mhz,
+)
 from .unsafe_voltage_blacklist_file import load_unsafe_voltage_blacklist
 from .unsafe_voltage_cache import unsafe_voltage_block_reason
 
@@ -244,9 +249,10 @@ class ScanCheckpoint:
                 if probe.tested_plan is not None:
                     probe.tested_plan = rebase_measured_plan(probe.tested_plan, self.base_curve)
             self.log(
-                "Auto-UV: stock base clocks shifted by at most one 15MHz bin; "
-                "retaining completed tiers and absolute candidate targets, "
-                "remeasuring baselines before resume verification."
+                "Auto-UV: stock base clocks shifted by up to "
+                f"{stock_curve_drift_mhz(payload.get('base_curve'), self.base_curve)}MHz "
+                "(same voltage grid); retaining completed tiers and absolute "
+                "candidate targets, remeasuring baselines before resume verification."
             )
         self.passed = passed
         self.records, self.events = records, events
@@ -292,15 +298,29 @@ class ScanCheckpoint:
             failed_clock = int(interrupted["lock_clock_mhz"])
             failed_voltage = positive_int(interrupted.get("candidate_voltage_mv"))
         if tier not in completed and any(item["tier"] == tier for item in self.passed):
-            self.recovery_tier = tier
-            self.recovery = recovery_candidate(
-                base_curve,
-                self.passed,
-                tier=tier,
-                unsafe=unsafe,
-                failed_clock_mhz=failed_clock,
-                failed_voltage_mv=failed_voltage,
-            )
+            try:
+                self.recovery = recovery_candidate(
+                    base_curve,
+                    self.passed,
+                    tier=tier,
+                    unsafe=unsafe,
+                    failed_clock_mhz=failed_clock,
+                    failed_voltage_mv=failed_voltage,
+                )
+                self.recovery_tier = tier
+            except AutoUvError:
+                # A crash during a clock climb (Performance Auto-OC, the
+                # Efficiency/Balanced reclaim) blacklists the rungs that passed
+                # just below it. Nothing in that tier is left to verify, so the
+                # tier simply runs again from its own start: Performance reuses
+                # the verified Balanced point and the climb skips the cached
+                # band before touching the GPU. Aborting the whole resume here
+                # cost the tester a reboot's worth of progress (issue #109).
+                self.log(
+                    f"Auto-UV: every passed {tier} candidate lies inside the cached "
+                    f"unsafe band; {tier} restarts from its baseline with that band "
+                    "skipped. Completed tiers are kept."
+                )
         self.events = completed_ui_events(self.events, unsafe, self.mode)
         self._save()
 

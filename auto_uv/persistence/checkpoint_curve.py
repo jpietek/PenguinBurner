@@ -2,9 +2,34 @@
 
 from __future__ import annotations
 
+# NVIDIA's stock V/F readback moves with temperature. After a crash and reboot
+# an RTX 3080 came back 30 to 60 MHz lower across most of its curve (issue
+# #109, three times), which is normal for the card, not a different card. The
+# saved candidates keep their absolute clocks, baselines are remeasured, and
+# the resume verification re-tests the point, so drift up to this bound only
+# changes offsets. Anything beyond it still starts a new scan.
+STOCK_DRIFT_TOLERANCE_MHZ = 75
+STOCK_CLOCK_STEP_MHZ = 15
+
+
+def stock_curve_drift_mhz(saved: object, current: object) -> int:
+    """Largest absolute per-point stock clock change between two snapshots."""
+    if not isinstance(saved, list) or not isinstance(current, list):
+        return 0
+    try:
+        return max(
+            (
+                abs(int(after["base_mhz"]) - int(before["base_mhz"]))
+                for before, after in zip(saved, current, strict=True)
+            ),
+            default=0,
+        )
+    except (KeyError, TypeError, ValueError):
+        return 0
+
 
 def compatible_stock_curves(saved: object, current: object) -> bool:
-    """Allow one 15 MHz stock bin of drift; retain every other curve constraint."""
+    """Allow whole-bin stock clock drift within the tolerance on the same grid."""
     if not isinstance(saved, list) or not isinstance(current, list):
         return False
     if not saved or len(saved) != len(current):
@@ -18,7 +43,8 @@ def compatible_stock_curves(saved: object, current: object) -> bool:
                     or int(point["new_offset_mhz"]) != 0
                 ):
                     return False
-            if int(after["base_mhz"]) - int(before["base_mhz"]) not in {-15, 0, 15}:
+            drift = int(after["base_mhz"]) - int(before["base_mhz"])
+            if drift % STOCK_CLOCK_STEP_MHZ or abs(drift) > STOCK_DRIFT_TOLERANCE_MHZ:
                 return False
             if {
                 key: value

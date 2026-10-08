@@ -45,10 +45,12 @@ def _summary(voltage_mv: int, clock_mhz: int, plan: list[dict]) -> AutoUvProbeSu
 
 
 def _candidate(curve, voltage_mv, clock_mhz):
+    # The tester's scans ran with the default two-bin rising tail.
     return build_flattened_voltage_probe_curve(
         curve,
         candidate_voltage_mv=voltage_mv,
         target_clock_mhz=clock_mhz,
+        tail_rise_bins=2,
         label=f"lower-voltage {voltage_mv}mV",
         metadata={"tail_rise_bins": 2},
     )
@@ -125,7 +127,7 @@ def test_first_restart_after_a_fixed_clock_descent_crash_resumes(
     )
     assert recovery.metadata["resume_recovery"] is True
     if drift:
-        assert any("shifted by at most one 15MHz bin" in m for m in messages)
+        assert any("shifted by up to 15MHz" in m for m in messages)
     for done in completed:
         assert done in {
             item["payload"]["tier"] for item in restarted.events
@@ -325,11 +327,11 @@ STOCK_LOAD = {268: (1830.0, 937.0), 380: (1924.4, 1062.0)}
 PROBE_POWER_W = {268: 252.0, 380: 315.0}
 
 
-def _probe_result(voltage_mv, lock_mhz, plan, *, measured_clock, measured_mv, power_w):
+def _probe_result(voltage_mv, lock_mhz, plan, *, measured_clock, measured_mv, power_w, fps=None):
     summary = _summary(voltage_mv, lock_mhz, plan)
     summary.avg_voltage_mv = summary.loaded_median_voltage_mv = measured_mv
     summary.avg_core_clock_mhz = summary.loaded_median_core_clock_mhz = measured_clock
-    summary.avg_fps = fps = 100.0 + measured_clock / 100.0
+    summary.avg_fps = fps = fps if fps is not None else 100.0 + measured_clock / 100.0
     summary.avg_power_w = power_w
     summary.efficiency_fps_per_w = fps / power_w
     summary.log_path = Path("/tmp/simulated-q2rtx.log")
@@ -408,9 +410,8 @@ def test_issue109_gui_full_scan_history_replays_into_three_profiles(monkeypatch)
     launches = [
         # (stock curve read at launch, tier that crashes, freeze voltage)
         (cold, "efficiency", 818),
-        (warm, "efficiency", 856),           # curve 60 MHz lower: checkpoint rejected
-        (_shift_one_bin(warm, from_mhz=1650), "balanced", 937),  # one-bin drift
-        (warm, None, None),                  # one-bin drift back; completes
+        (warm, "balanced", 937),             # curve up to 60 MHz lower: still resumes
+        (_shift_one_bin(warm, from_mhz=1650), None, None),  # one-bin drift; completes
     ]
     options = {"auto_uv_mode": "adaptive", **GUI_DEFAULT_TARGETS,
                **{f"auto_uv_{t}_memory_offset_mhz": 0 for t in ("efficiency", "balanced", "performance")}}
@@ -481,27 +482,28 @@ def test_issue109_gui_full_scan_history_replays_into_three_profiles(monkeypatch)
 
     # Launch 1: the first efficiency probe at or below 818 mV froze the card.
     froze_at(1, "efficiency", 818)
-    # Launch 2: the warm curve differs by up to 60 MHz, so the scan started over.
-    assert any("checkpoint rejected: scan inputs changed: base_curve" in m for m in logs[1])
-    froze_at(2, "efficiency", 856)
-    # Launch 3: resumed across the one-bin drift from the last pass above 856 mV,
-    # one voltage bin up, at the same descent clock, with no efficiency re-sweep.
-    assert any("shifted by at most one 15MHz bin" in m for m in logs[2]), logs[2][:40]
+    # Launch 2: the stock curve came back up to 60 MHz lower. That is normal
+    # drift for the card, so the checkpoint survives and Efficiency resumes one
+    # bin above its last pass instead of descending (and freezing) again.
+    assert any("shifted by up to 60MHz" in m for m in logs[1]), logs[1][:40]
+    assert not any("checkpoint rejected" in m for m in logs[1])
+    assert not any("Cannot resume" in m for m in logs[1])
+    eff_lock = launch_calls(1)[-1][3]
+    resume = next(c for c in launch_calls(2) if c[1] == "resume-verify")
+    assert (resume[2], resume[3]) == (min(passes(1, "efficiency")) + 6, eff_lock)
+    assert not [c for c in launch_calls(2) if c[1] == "efficiency-candidate"]
+    assert completed(2)["efficiency"] == (resume[2], eff_lock)
+    froze_at(2, "balanced", 937)
+    # Launch 3: resumed Balanced the same way across a one-bin drift, then
+    # Performance climbed.
+    assert any("shifted by up to 15MHz" in m for m in logs[2]), logs[2][:40]
     assert not any("Cannot resume" in m for m in logs[2])
-    eff_lock = launch_calls(2)[-1][3]
+    bal_lock = launch_calls(2)[-1][3]
     resume = next(c for c in launch_calls(3) if c[1] == "resume-verify")
-    assert (resume[2], resume[3]) == (min(passes(2, "efficiency")) + 6, eff_lock)
-    assert not [c for c in launch_calls(3) if c[1] == "efficiency-candidate"]
-    assert completed(3)["efficiency"] == (resume[2], eff_lock)
-    froze_at(3, "balanced", 937)
-    # Launch 4: resumed Balanced the same way, then Performance climbed.
-    assert not any("Cannot resume" in m for m in logs[3])
-    bal_lock = launch_calls(3)[-1][3]
-    resume = next(c for c in launch_calls(4) if c[1] == "resume-verify")
-    assert (resume[2], resume[3]) == (min(passes(3, "balanced")) + 7, bal_lock)
-    assert not [c for c in launch_calls(4) if c[1] == "balanced-candidate"]
-    final = {**completed(3), **completed(4)}  # Efficiency stays verified from launch 3.
-    assert set(completed(4)) == {"balanced", "performance"}
+    assert (resume[2], resume[3]) == (min(passes(2, "balanced")) + 7, bal_lock)
+    assert not [c for c in launch_calls(3) if c[1] == "balanced-candidate"]
+    final = {**completed(2), **completed(3)}  # Efficiency stays verified from launch 2.
+    assert set(completed(3)) == {"balanced", "performance"}
     assert set(final) == {"efficiency", "balanced", "performance"}
     assert final["balanced"] == (resume[2], bal_lock)
 
@@ -511,7 +513,7 @@ def test_issue109_gui_full_scan_history_replays_into_three_profiles(monkeypatch)
     assert all(c[4] == 380 for c in calls if c[1].startswith(("balanced", "performance")))
     # Performance reused the verified Balanced point and climbed at its voltage
     # even though the GUI sent the 900 mV table default.
-    climb = [c for c in launch_calls(4) if c[1] == "candidate"]  # Auto-OC rungs
+    climb = [c for c in launch_calls(3) if c[1] == "candidate"]  # Auto-OC rungs
     assert climb and all(c[2] == final["balanced"][0] for c in climb)
     assert [c[3] for c in climb] == [1890, 1905, 1920, 1930]
     assert final["performance"] == (final["balanced"][0], 1930)
@@ -519,8 +521,248 @@ def test_issue109_gui_full_scan_history_replays_into_three_profiles(monkeypatch)
 
     blacklist = {(e["candidate_voltage_mv"], e["lock_clock_mhz"]) for e in load_unsafe_voltage_blacklist()}
     assert blacklist == {
-        (launch_calls(n)[-1][2], launch_calls(n)[-1][3]) for n in (1, 2, 3)
+        (launch_calls(n)[-1][2], launch_calls(n)[-1][3]) for n in (1, 2)
     }
     assert {lock for _, lock in blacklist} == {1740, 1875}
     assert len(list(auto_uv_profiles_dir().glob("*.json"))) == 3
     assert not scan_checkpoint_path().exists()
+
+
+# ---------------------------------------------------------------------------
+# 2026-10-08 retest (d95f696): crash during the Performance clock climb.
+# ---------------------------------------------------------------------------
+
+from auto_uv.persistence.unsafe_voltage_blacklist_file import (  # noqa: E402
+    record_unsafe_voltage,
+)
+
+
+def _drift(curve: list[dict], *, mhz: int, from_mv: int = 0) -> list[dict]:
+    """Whole-curve stock drift as the tester's card shows after a reboot."""
+    return [
+        dict(point, base_mhz=point["base_mhz"] + mhz, target_mhz=point["target_mhz"] + mhz)
+        if point["voltage_mv"] >= from_mv and point["base_mhz"] > 225
+        else dict(point)
+        for point in curve
+    ]
+
+
+def _climb_crash_checkpoint(tmp_path, curve):
+    """The tester's checkpoint: two tiers done, two Performance rungs passed."""
+    identity = {"gpu": {"uuid": "GPU-3080"}, "base_curve": curve,
+                "options": {"auto_uv_mode": "adaptive"}}
+    path = tmp_path / "checkpoint.json"
+    saved = ScanCheckpoint(identity=identity, callback=None, log=lambda _: None, path=path)
+    for tier, voltage, lock in (("efficiency", 806, 1740), ("balanced", 937, 1875)):
+        saved.event("tier_started", {"tier": tier})
+        point = _candidate(curve, voltage, lock)
+        saved.note_pass(point, _summary(voltage, lock, point.flattened_plan))
+        saved.event("tier_completed", {"tier": tier, "voltage_mv": voltage, "target_mhz": lock})
+    saved.event("tier_started", {"tier": "performance"})
+    saved.event("tier_descent_reused", {"tier": "performance", "voltage_mv": 937, "target_mhz": 1875})
+    for rung in (1890, 1905):
+        point = _candidate(curve, 937, rung)
+        saved.event("probe_start", {"stage": "candidate", "voltage_mv": 937, "clock_mhz": rung})
+        saved.note_pass(point, _summary(937, rung, point.flattened_plan))
+        saved.event("probe_result", {"stage": "candidate", "voltage_mv": 937,
+                                     "clock_mhz": rung, "decision": "pass"})
+    return identity, path
+
+
+# The entry the failed 1920 MHz probe left behind (reason stability-probe-failed,
+# band = the lock and the two steps below it, at or below 937 mV).
+CLIMB_CRASH_BLACKLIST = {
+    "candidate_voltage_mv": 937, "lock_clock_mhz": 1920, "phase": "candidate",
+    "reason": "stability-probe-failed", "blocked_lock_clock_mhz": [1920, 1905, 1890],
+}
+
+
+@pytest.mark.parametrize("drift_mhz", [0, -15, -30, -45])
+def test_climb_crash_resume_restarts_performance_instead_of_aborting(tmp_path, drift_mhz):
+    curve = rtx_3080_issue109_stock_curve_warm()
+    identity, path = _climb_crash_checkpoint(tmp_path, curve)
+    live = _drift(curve, mhz=drift_mhz, from_mv=800) if drift_mhz else curve
+    identity["base_curve"] = live
+    messages: list[str] = []
+
+    restarted = ScanCheckpoint(identity=identity, callback=None, log=messages.append, path=path)
+    assert restarted.resuming, messages
+    restarted.prepare_recovery(live, [dict(CLIMB_CRASH_BLACKLIST)], None)
+
+    assert restarted.recovery_for("performance") is None
+    assert any("performance restarts from its baseline" in m for m in messages), messages
+    if drift_mhz:
+        assert any(f"shifted by up to {abs(drift_mhz)}MHz" in m for m in messages), messages
+    completed = {item["payload"]["tier"] for item in restarted.events
+                 if item["event"] == "tier_completed"}
+    assert completed == {"efficiency", "balanced"}
+
+
+def test_stock_drift_beyond_the_tolerance_still_starts_over(tmp_path):
+    curve = rtx_3080_issue109_stock_curve_warm()
+    identity, path = _climb_crash_checkpoint(tmp_path, curve)
+    identity["base_curve"] = _drift(curve, mhz=-90)
+    messages: list[str] = []
+    restarted = ScanCheckpoint(identity=identity, callback=None, log=messages.append, path=path)
+    assert not restarted.resuming
+    assert restarted.rejection_reason == "scan inputs changed: base_curve"
+
+
+def test_issue109_climb_crash_then_reboot_finishes_performance_on_the_balanced_point(monkeypatch):
+    """Launch 5 and 6 of the tester's history, end to end.
+
+    The climb crashed at 937 mV / 1920 MHz with 1890 and 1905 already passed.
+    The reboot brought the stock curve back 30 MHz lower. The restart must
+    resume, keep Efficiency and Balanced, re-run Performance from the verified
+    Balanced point with the blacklisted rungs skipped, and save all three.
+    """
+    warm = rtx_3080_issue109_stock_curve_warm()
+    state = {"launch": 0}
+    calls: list[tuple[int, str, int, int, int]] = []
+    logs: list[list[str]] = []
+    events: list[list[tuple[str, dict]]] = []
+    floors = {"efficiency-candidate": 806, "balanced-candidate": 937}
+
+    def probe(**kw):
+        stage, voltage, lock = kw["phase_label"], kw["candidate_voltage_mv"], kw["lock_clock_mhz"]
+        cap = int(kw["power_limit_w"])
+        calls.append((state["launch"], stage, voltage, lock, cap))
+        if stage == "discover":
+            clock, mv = STOCK_LOAD[cap]
+            return _probe_result(voltage, lock, kw["candidate_plan"],
+                                 measured_clock=clock, measured_mv=mv, power_w=PROBE_POWER_W[cap])
+        stock_mv = STOCK_LOAD[cap][1]
+        power_w = PROBE_POWER_W[cap] * (voltage / stock_mv) ** 2
+        if stage == "candidate" and lock >= 1920 and state["launch"] == 1:
+            # The card fell off the bus while the 1920 MHz curve was applied;
+            # the probe failed first and left this entry, then the host died.
+            record_unsafe_voltage(**CLIMB_CRASH_BLACKLIST)
+            raise SystemExit("simulated Xid 79 during the Performance climb")
+        if voltage < floors.get(stage, 0):
+            # Below the card's edge the probe loses a third of its FPS: a soft
+            # failure that ends the descent without a crash.
+            return _probe_result(voltage, lock, kw["candidate_plan"],
+                                 measured_clock=float(lock + 30), measured_mv=float(voltage + 6),
+                                 power_w=power_w, fps=60.0)
+        return _probe_result(voltage, lock, kw["candidate_plan"],
+                             measured_clock=float(lock + 30), measured_mv=float(voltage + 6),
+                             power_w=power_w)
+
+    monkeypatch.setattr(main, "cleanup_managed_q2rtx_processes", lambda *_a, **_k: None)
+    monkeypatch.setattr(runner_module, "probe_voltage_candidate", probe)
+    monkeypatch.setattr(main, "probe_voltage_candidate", probe)
+    monkeypatch.setattr(final_module, "apply_plan_and_refresh", lambda *_args: None)
+    options = {"auto_uv_mode": "adaptive", **GUI_DEFAULT_TARGETS}
+
+    for index, curve in enumerate((warm, _drift(warm, mhz=-30, from_mv=800)), start=1):
+        state["launch"] = index
+        monkeypatch.setattr(main, "open_live_gpu_vf_curve_applier", lambda c=curve, **_kw: Rtx3080(c))
+        logs.append([])
+        events.append([])
+        run = lambda: main.run_voltage_frequency_undervolt_main_loop(  # noqa: E731
+            gpu_index=0, runtime_options=dict(options), q2rtx_config=Q2RTXStabilityConfig(),
+            event_callback=lambda name, payload: events[-1].append((name, payload)),
+            log=logs[-1].append,
+        )
+        if index == 1:
+            with pytest.raises(SystemExit, match="Xid 79"):
+                run()
+        else:
+            run()
+
+    first = [c for c in calls if c[0] == 1]
+    second = [c for c in calls if c[0] == 2]
+    completed_1 = {p["tier"]: (p["voltage_mv"], p["target_mhz"]) for e, p in events[0] if e == "tier_completed"}
+    assert completed_1 == {"efficiency": (806, 1740), "balanced": (937, 1875)}
+    assert [c[3] for c in first if c[1] == "candidate"] == [1890, 1905, 1920]
+
+    assert any("shifted by up to 30MHz" in m for m in logs[1]), logs[1][:30]
+    assert any("performance restarts from its baseline" in m for m in logs[1]), logs[1][:30]
+    assert not any("Cannot resume" in m for m in logs[1])
+    assert not [c for c in second if c[1] in ("efficiency-candidate", "balanced-candidate", "resume-verify")]
+    # Performance started from the checkpointed Balanced point, did not
+    # descend again, and the climb never touched the blacklisted rungs.
+    reused = [p for e, p in events[1] if e == "tier_descent_reused"]
+    assert [(p["voltage_mv"], p["target_mhz"]) for p in reused] == [(937, 1875)]
+    assert not [c for c in second if c[1] == "performance-candidate"]
+    assert not [c for c in second if c[1] == "candidate"], logs[1][-30:]
+    completed_2 = {p["tier"]: (p["voltage_mv"], p["target_mhz"]) for e, p in events[1] if e == "tier_completed"}
+    assert completed_2 == {"performance": (937, 1875)}
+    assert [c for c in second if c[1] == "final-verify"][-1][2:4] == (937, 1875)
+    assert len(list(auto_uv_profiles_dir().glob("*.json"))) == 3
+    assert not scan_checkpoint_path().exists()
+
+
+# ---------------------------------------------------------------------------
+# Balanced donation rebuilt from a checkpoint on resume.
+# ---------------------------------------------------------------------------
+
+from auto_uv.domain.types import AutoUvVoltageScanResult  # noqa: E402
+
+
+def _completed_balanced(curve, *, verified_present=True):
+    """A checkpointed Balanced result whose probe list kept growing afterwards
+    (the tester's checkpoint carried Performance's climb probes in it)."""
+    verified = _candidate(curve, 937, 1875)
+    probes = [_summary(943, 1875, _candidate(curve, 943, 1875).flattened_plan)]
+    if verified_present:
+        probes.append(_summary(937, 1875, verified.flattened_plan))
+    probes += [_summary(937, rung, _candidate(curve, 937, rung).flattened_plan) for rung in (1890, 1905)]
+    return AutoUvVoltageScanResult(True, 937, 1875, "verified", None, probes)
+
+
+def test_balanced_donation_rebuilt_from_checkpoint_uses_the_verified_plan():
+    curve = rtx_3080_issue109_stock_curve_warm()
+    donation = main.balanced_donation_from_completed_tier(
+        _completed_balanced(curve), memory_offset_mhz=0, power_limit_w=380,
+    )
+    assert donation is not None
+    assert (donation.candidate.voltage_mv, donation.candidate.target_mhz) == (937, 1875)
+    assert donation.candidate.flattened_plan == _candidate(curve, 937, 1875).flattened_plan
+    assert donation.tail_rise_bins == 2 == donation.descent_tail_rise_bins
+    assert donation.probe is donation.history[0] and len(donation.history) == 1
+    assert donation.baseline_voltage_mv is None and donation.baseline_target_mhz is None
+    assert (donation.memory_offset_mhz, donation.power_limit_w) == (0, 380)
+    assert main.balanced_donation_from_completed_tier(
+        _completed_balanced(curve, verified_present=False), memory_offset_mhz=0, power_limit_w=380,
+    ) is None
+
+
+def test_reuse_gate_accepts_a_checkpointed_donation_without_a_baseline():
+    curve = rtx_3080_issue109_stock_curve_warm()
+    donation = main.balanced_donation_from_completed_tier(
+        _completed_balanced(curve), memory_offset_mhz=0, power_limit_w=380,
+    )
+    messages: list[str] = []
+    assert main.performance_can_reuse_balanced_descent(
+        donation, performance_memory_offset_mhz=0, performance_baseline_voltage_mv=1062,
+        performance_baseline_target_mhz=1875, performance_power_limit_w=380, log=messages.append,
+    )
+    assert any("adopting the checkpointed balanced endpoint" in m for m in messages)
+    # The other inputs still gate the reuse.
+    assert not main.performance_can_reuse_balanced_descent(
+        donation, performance_memory_offset_mhz=500, performance_baseline_voltage_mv=1062,
+        performance_baseline_target_mhz=1875, performance_power_limit_w=380, log=messages.append,
+    )
+    assert not main.performance_can_reuse_balanced_descent(
+        donation, performance_memory_offset_mhz=0, performance_baseline_voltage_mv=1062,
+        performance_baseline_target_mhz=1875, performance_power_limit_w=300, log=messages.append,
+    )
+
+
+def test_tier_power_limit_and_memory_offset_resolve_without_touching_the_gpu():
+    gpu = Rtx3080(rtx_3080_issue109_stock_curve_warm())
+    assert main.adaptive_tier_requested_power_limit_w(
+        gpu, tier_mode="balanced", runtime_options={"auto_uv_mode": "adaptive"},
+    ) == 380
+    assert main.adaptive_tier_requested_power_limit_w(
+        gpu, tier_mode="efficiency", runtime_options={"auto_uv_mode": "adaptive"},
+    ) == 268
+    assert gpu.requested_power_limit_w is None and gpu.power_limit_w == 380
+    assert main.resolve_adaptive_tier_memory_offset_mhz(
+        {"auto_uv_balanced_memory_offset_mhz": 1500}, tier_mode="balanced",
+        fallback_offset_mhz=0, limit_mhz=1000,
+    ) == 1000
+    assert main.resolve_adaptive_tier_memory_offset_mhz(
+        {}, tier_mode="balanced", fallback_offset_mhz=300, limit_mhz=1000,
+    ) == 300
