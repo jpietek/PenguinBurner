@@ -20,6 +20,12 @@ def probe_in_progress_path() -> Path:
 
 
 def unsafe_voltage_blacklist_path() -> Path:
+    # Outside uv-result/ on purpose: clearing resumable scan state for a fresh
+    # scan must not erase what the card has already proven unsafe.
+    return auto_uv_user_config_dir() / "auto-uv-unsafe-voltages.json"
+
+
+def legacy_unsafe_voltage_blacklist_path() -> Path:
     return auto_uv_user_config_dir() / "uv-result" / "auto-uv-unsafe-voltages.json"
 
 

@@ -43,7 +43,18 @@ clear the active-probe marker and do not blacklist the current point.
 
 Before each risky probe, Auto-UV saves its voltage and clock. If the process
 ends abruptly, the next scan records that region in
-`uv-result/auto-uv-unsafe-voltages.json`.
+`auto-uv-unsafe-voltages.json` in the user config directory. That file sits
+outside `uv-result/` on purpose: clearing resumable scan state for a fresh scan
+keeps what the card has already proven unsafe. A file left at the old
+`uv-result/` location by an earlier release is adopted on first use.
+
+Each recorded freeze (an abrupt exit, an NVIDIA Xid, or the CUDA workload's
+hang watchdog) is also one point on the card's stability edge. The edge runs
+parallel to the card's stock V/F curve, so one freeze predicts it at every
+other clock. Every later descent and climb in that scan, and in later scans,
+stays three voltage bins above the predicted edge; the final soak still
+decides what ships. Cards that fail softly never record a freeze and keep
+their full search.
 
 The blacklist blocks the failed voltage and lower voltages at the recorded
 clock band and above, including a small clock guard band. It is checked before

@@ -26,6 +26,7 @@ from auto_uv.persistence.unsafe_voltage_blacklist_file import (
     load_unsafe_voltage_blacklist,
 )
 from auto_uv.persistence.unsafe_voltage_cache import unsafe_voltage_block_reason
+from auto_uv.run.edge_margin import EdgeMargin
 from auto_uv.run.voltage_sweep_state import VoltageProbeOutcome
 from auto_uv.scan_mode.uv_limits import UvTierTarget, uv_limit_profile_target_for_gpu
 from auto_uv.shared.positive_int import positive_int
@@ -88,6 +89,7 @@ def run_auto_oc_candidate_search(
     measured_baseline_clock_mhz: float | None = None,
     target_profile_id: str = AUTO_OC_TARGET_PROFILE_ID,
     probe_stable_history: list[AutoUvProbeSummary] | None = None,
+    edge_margin: EdgeMargin | None = None,
 ) -> AutoOcSearchResult:
     endpoint = auto_oc_endpoint(
         gpu_name,
@@ -174,6 +176,13 @@ def run_auto_oc_candidate_search(
             lock_clock_mhz=int(candidate.target_mhz),
             profile_tier=target_profile_id,
         )
+        if not blocked and edge_margin is not None:
+            # Same handling as a cached band: no hardware call, and the
+            # climb may retry this clock at a higher voltage within its cap.
+            blocked = edge_margin.block_reason(
+                candidate_voltage_mv=int(candidate.voltage_mv),
+                lock_clock_mhz=int(candidate.target_mhz),
+            )
         if blocked:
             outcome = VoltageProbeOutcome(decision=StableRunDecision(
                 False, FailureKind.CACHED_UNSAFE, FailureSeverity.UNSAFE, blocked

@@ -92,6 +92,7 @@ from auto_uv.run.crash_recovery import (
     recovery_probe_history,
     replay_recovered_resume_probe_rows,
 )
+from auto_uv.run.edge_margin import EDGE_MARGIN_BINS, EdgeMargin
 from auto_uv.run.scan_runtime_settings import (
     adaptive_tier_option,
     read_scan_runtime_settings,
@@ -198,6 +199,11 @@ def run_voltage_frequency_undervolt_main_loop(
         cleanup_managed_q2rtx_processes(q2rtx_config, log=log)
         base_curve = list(gpu.runtime_default_plan)
         validate_base_vf_curve(base_curve)
+        # Freezes already on record bound how far every descent and climb in
+        # this scan may go; the soak still decides what ships.
+        edge_margin = EdgeMargin(unsafe_entries, base_curve)
+        if edge_margin.describe():
+            log_phase(log, "auto-uv", edge_margin.describe())
         if str(getattr(gpu, "gpu_identity", {}).get("uuid") or ""):
             checkpoint = ScanCheckpoint(
                 identity=scan_checkpoint_identity(gpu, runtime_options, q2rtx_config, settings),
@@ -843,6 +849,7 @@ def run_voltage_frequency_undervolt_main_loop(
                 result = run_adaptive_tier_scans(
                     base_curve=base_curve,
                     gpu=gpu,
+                    edge_margin=edge_margin,
                     configure_tier_probe_runner=configure_tier_probe_runner,
                     settings=settings,
                     runtime_options=runtime_options,
@@ -874,6 +881,7 @@ def run_voltage_frequency_undervolt_main_loop(
                     unsafe_entries=unsafe_entries,
                     initial_stable_outcome=initial_stable_outcome,
                     log=log,
+                    edge_margin=edge_margin,
                 )
                 log_lower_voltage_sweep_events(log, loop_result.events)
                 stable_candidate = loop_result.stable_candidate
@@ -911,6 +919,7 @@ def run_voltage_frequency_undervolt_main_loop(
             base_curve=base_curve,
             settings=settings,
             runtime_options=runtime_options,
+            edge_margin=edge_margin,
             stable_plan=stable_candidate.flattened_plan,
             stable_voltage_mv=int(stable_candidate.voltage_mv),
             stable_lock_clock_mhz=int(stable_candidate.target_mhz),
@@ -958,6 +967,7 @@ def run_preset_uv_loop(
     unsafe_entries: list[dict] | None,
     initial_stable_outcome: VoltageProbeOutcome | None,
     log: Callable[[str], None],
+    edge_margin: EdgeMargin | None = None,
 ) -> LowerVoltageSweepResult:
     if settings.auto_uv_mode == AUTO_UV_MODE_EFFICIENCY:
         log_user_stage(
@@ -979,6 +989,7 @@ def run_preset_uv_loop(
         io=io,
         unsafe_entries=unsafe_entries,
         initial_stable_outcome=initial_stable_outcome,
+        edge_margin=edge_margin,
     )
 
 
@@ -986,6 +997,7 @@ def run_adaptive_tier_scans(
     *,
     base_curve: list[dict],
     gpu,
+    edge_margin: EdgeMargin | None = None,
     configure_tier_probe_runner: Callable[[], AutoUvProbeRunner],
     settings,
     runtime_options: dict,
@@ -1026,6 +1038,11 @@ def run_adaptive_tier_scans(
     any_tier_discarded = False
     balanced_donation: BalancedDescentDonation | None = None
     accumulated_unsafe: list[dict] = list(unsafe_entries or [])
+    # A freeze recorded by an earlier tier of this scan bounds the later ones.
+    edge_margin = EdgeMargin(
+        accumulated_unsafe, base_curve,
+        margin_bins=edge_margin.margin_bins if edge_margin is not None else EDGE_MARGIN_BINS,
+    )
 
     def record_tier_failure(
         *,
@@ -1217,6 +1234,7 @@ def run_adaptive_tier_scans(
                         fallback_probe=tier_stable_probe,
                         discovery_summary=tier_discovery_summary,
                         accumulated_unsafe=accumulated_unsafe,
+                        edge_margin=edge_margin,
                         runner=tier_runner,
                         probe_history=probe_history,
                         gpu=gpu,
@@ -1246,6 +1264,7 @@ def run_adaptive_tier_scans(
                 base_curve=base_curve,
                 settings=settings,
                 runtime_options=runtime_options,
+                edge_margin=edge_margin,
                 stable_plan=tier_candidate.flattened_plan,
                 stable_voltage_mv=int(tier_candidate.voltage_mv),
                 stable_lock_clock_mhz=int(tier_candidate.target_mhz),
@@ -1385,6 +1404,7 @@ def run_adaptive_tier_descent(
     probe_history: list,
     gpu,
     log: Callable[[str], None],
+    edge_margin: EdgeMargin | None = None,
 ) -> tuple[VfCurveCandidate, int, AutoUvProbeSummary | None, list[AutoUvProbeSummary]]:
     """Run one tier's tailed descent under its shipped cap.
 
@@ -1468,6 +1488,7 @@ def run_adaptive_tier_descent(
         unsafe_entries=accumulated_unsafe,
         initial_stable_outcome=initial_stable_outcome,
         log=log,
+        edge_margin=edge_margin,
     )
     log_lower_voltage_sweep_events(log, loop_result.events)
     tier_candidate = loop_result.stable_candidate
@@ -1911,6 +1932,7 @@ def select_final_scan_candidate(
     run_power_bound_clock_reclaim: bool = False,
     request_reason: str,
     auto_uv_mode_override: str | None = None,
+    edge_margin: EdgeMargin | None = None,
 ) -> FinalScanCandidate:
     # Adaptive scans select per tier: the tier name overrides the scan-wide
     # mode so the OC pass and the choice dialog see the active tier.
@@ -1991,6 +2013,7 @@ def select_final_scan_candidate(
             overrides=custom_target,
             tail_rise_bins=tail_rise_bins,
             measured_baseline_clock_mhz=float(measured_baseline_clock_mhz),
+            edge_margin=edge_margin,
         )
         final_plan = result.selected_candidate.flattened_plan
         final_voltage_mv = result.selected_candidate.voltage_mv
@@ -2033,6 +2056,7 @@ def select_final_scan_candidate(
             log=log,
             tail_rise_bins=int(tail_rise_bins),
             measured_baseline_clock_mhz=float(measured_baseline_clock_mhz),
+            edge_margin=edge_margin,
         )
 
     if custom_target is None and bool(run_performance_auto_oc):
@@ -2063,6 +2087,7 @@ def select_final_scan_candidate(
             target_voltage_mv=None,
             target_clock_mhz=None,
             measured_baseline_clock_mhz=float(measured_baseline_clock_mhz),
+            edge_margin=edge_margin,
         )
 
     unsafe = load_unsafe_voltage_blacklist()

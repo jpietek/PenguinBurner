@@ -130,7 +130,8 @@ pburn-cli --daemonize --auto-uv-profile latest --silent-fan-curve
 Under the PenguinBurner user config directory:
 
 - `debug-logs/` — scan logs.
-- `uv-result/` — checkpoints, results, and unsafe-point history.
+- `uv-result/` — checkpoints and results.
+- `auto-uv-unsafe-voltages.json` — unsafe-point history; kept across scans.
 - `auto-uv-profiles/` — saved profiles shown in the GUI.
 
 If a scan cannot finish, read its latest log and follow the

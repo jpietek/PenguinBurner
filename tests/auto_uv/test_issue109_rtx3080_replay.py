@@ -511,13 +511,15 @@ def test_issue109_gui_full_scan_history_replays_into_three_profiles(monkeypatch)
     assert eff_lock == 1740 and bal_lock == 1875
     assert all(c[4] == 268 for c in calls if c[1].startswith("efficiency"))
     assert all(c[4] == 380 for c in calls if c[1].startswith(("balanced", "performance")))
-    # Performance reused the verified Balanced point and climbed at its voltage
-    # even though the GUI sent the 900 mV table default.
-    climb = [c for c in launch_calls(3) if c[1] == "candidate"]  # Auto-OC rungs
-    assert climb and all(c[2] == final["balanced"][0] for c in climb)
-    assert [c[3] for c in climb] == [1890, 1905, 1920, 1930]
-    assert final["performance"] == (final["balanced"][0], 1930)
-    assert final["performance"][1] > final["balanced"][1] > final["efficiency"][1]
+    # Two freezes are on record by now (Efficiency at 1740, Balanced at 1875),
+    # so the predicted edge keeps the Performance climb off every higher rung
+    # without touching the GPU; Performance ships the verified Balanced point.
+    assert [c for c in launch_calls(3) if c[1] == "candidate"] == []
+    assert any("predicted edge" in m for m in logs[2]), logs[2][-40:]
+    reused = [p for e, p in events[2] if e == "tier_descent_reused"]
+    assert [(p["voltage_mv"], p["target_mhz"]) for p in reused] == [final["balanced"]]
+    assert final["performance"] == final["balanced"]
+    assert final["balanced"][1] > final["efficiency"][1]
 
     blacklist = {(e["candidate_voltage_mv"], e["lock_clock_mhz"]) for e in load_unsafe_voltage_blacklist()}
     assert blacklist == {
@@ -766,3 +768,66 @@ def test_tier_power_limit_and_memory_offset_resolve_without_touching_the_gpu():
     assert main.resolve_adaptive_tier_memory_offset_mhz(
         {}, tier_mode="balanced", fallback_offset_mhz=300, limit_mhz=1000,
     ) == 300
+
+
+# ---------------------------------------------------------------------------
+# Edge margin: the recorded Efficiency freeze keeps the climb off 1920 MHz.
+# ---------------------------------------------------------------------------
+
+EFFICIENCY_SOAK_FREEZE = {  # 10-07 23:55: the 180 s soak at 800 mV / 1750 MHz froze the card
+    "candidate_voltage_mv": 800, "lock_clock_mhz": 1750, "phase": "final-verify",
+    "reason": "previous-run-abruptly-ended", "blocked_lock_clock_mhz": [1750, 1740, 1725],
+}
+
+
+def test_issue109_recorded_freeze_stops_the_performance_climb_before_the_crash(monkeypatch):
+    """The 10-08 launch with its own Efficiency freeze still on record.
+
+    Same scripted card as the climb-crash replay: 1920 MHz at 937 mV would
+    freeze it. With the 800 mV / 1750 MHz freeze recorded, the climb probes
+    1890 and 1905, skips 1920 on the predicted edge without touching the GPU,
+    and Performance soaks 1905. No reboot.
+    """
+    warm = rtx_3080_issue109_stock_curve_warm()
+    record_unsafe_voltage(**EFFICIENCY_SOAK_FREEZE)
+    calls: list[tuple[str, int, int, int]] = []
+    logs: list[str] = []
+    events: list[tuple[str, dict]] = []
+    floors = {"efficiency-candidate": 806, "balanced-candidate": 937}
+
+    def probe(**kw):
+        stage, voltage, lock = kw["phase_label"], kw["candidate_voltage_mv"], kw["lock_clock_mhz"]
+        cap = int(kw["power_limit_w"])
+        calls.append((stage, voltage, lock, cap))
+        if stage == "discover":
+            clock, mv = STOCK_LOAD[cap]
+            return _probe_result(voltage, lock, kw["candidate_plan"],
+                                 measured_clock=clock, measured_mv=mv, power_w=PROBE_POWER_W[cap])
+        if lock >= 1920 and voltage <= 937:
+            pytest.fail(f"the card freezes at {voltage}mV@{lock}MHz; the margin must keep probes off it")
+        stock_mv = STOCK_LOAD[cap][1]
+        power_w = PROBE_POWER_W[cap] * (voltage / stock_mv) ** 2
+        fps = 60.0 if voltage < floors.get(stage, 0) else None
+        return _probe_result(voltage, lock, kw["candidate_plan"], measured_clock=float(lock + 30),
+                             measured_mv=float(voltage + 6), power_w=power_w, fps=fps)
+
+    monkeypatch.setattr(main, "cleanup_managed_q2rtx_processes", lambda *_a, **_k: None)
+    monkeypatch.setattr(runner_module, "probe_voltage_candidate", probe)
+    monkeypatch.setattr(main, "probe_voltage_candidate", probe)
+    monkeypatch.setattr(final_module, "apply_plan_and_refresh", lambda *_args: None)
+    monkeypatch.setattr(main, "open_live_gpu_vf_curve_applier", lambda **_kw: Rtx3080(warm))
+    main.run_voltage_frequency_undervolt_main_loop(
+        gpu_index=0, runtime_options={"auto_uv_mode": "adaptive", **GUI_DEFAULT_TARGETS},
+        q2rtx_config=Q2RTXStabilityConfig(),
+        event_callback=lambda name, payload: events.append((name, payload)), log=logs.append,
+    )
+
+    assert any("edge margin: 1 freeze(s) on record (800mV@1750MHz)" in m for m in logs)
+    completed = {p["tier"]: (p["voltage_mv"], p["target_mhz"]) for e, p in events if e == "tier_completed"}
+    assert completed["efficiency"] == (806, 1740) and completed["balanced"] == (937, 1875)
+    climb = [c for c in calls if c[0] == "candidate"]
+    assert [c[2] for c in climb] == [1890, 1905]
+    assert any("predicted edge: 937mV@1920MHz" in m for m in logs), [m for m in logs if "auto-oc" in m]
+    assert completed["performance"] == (937, 1905)
+    assert len(list(auto_uv_profiles_dir().glob("*.json"))) == 3
+    assert not scan_checkpoint_path().exists()

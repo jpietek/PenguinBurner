@@ -9,14 +9,33 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from .auto_uv_persisted_json_files import safe_json_write, unsafe_voltage_blacklist_path
+from .auto_uv_persisted_json_files import (
+    legacy_unsafe_voltage_blacklist_path,
+    safe_json_write,
+    unsafe_voltage_blacklist_path,
+)
 from .unsafe_voltage_cache import unsafe_entry_blocks_future_search
 
 
 def load_unsafe_voltage_blacklist() -> list[dict]:
     path = unsafe_voltage_blacklist_path()
     if not path.is_file():
-        return []
+        legacy = legacy_unsafe_voltage_blacklist_path()
+        if not legacy.is_file():
+            return []
+        # Releases up to 0.8.3 kept the blacklist inside uv-result/. Adopt it
+        # once at the new location; the old file is left in place.
+        entries = _read_entries(legacy)
+        if entries:
+            try:
+                write_unsafe_voltage_entries(entries)
+            except OSError:
+                pass
+        return entries
+    return _read_entries(path)
+
+
+def _read_entries(path: Path) -> list[dict]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8", errors="replace"))
     except (json.JSONDecodeError, OSError):

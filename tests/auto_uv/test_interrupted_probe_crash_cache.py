@@ -193,3 +193,32 @@ def test_validation_rejects_non_probing_or_unrecognized_markers(state, phase) ->
     marker = {"state": state, "phase": phase,
               "candidate_voltage_mv": 970, "lock_clock_mhz": 2400}
     assert not crash_cache.interrupted_marker_crash_cache_validation(marker)["accepted"]
+
+
+def test_blacklist_lives_outside_uv_result_and_adopts_the_legacy_file(tmp_path, monkeypatch):
+    """Clearing uv-result/ for a fresh scan must keep the card's unsafe history."""
+    import json
+
+    from auto_uv.persistence import auto_uv_persisted_json_files as files
+    from auto_uv.persistence.unsafe_voltage_blacklist_file import (
+        load_unsafe_voltage_blacklist,
+        record_unsafe_voltage,
+    )
+
+    monkeypatch.setattr(files, "auto_uv_user_config_dir", lambda: tmp_path)
+    legacy = tmp_path / "uv-result" / "auto-uv-unsafe-voltages.json"
+    legacy.parent.mkdir()
+    legacy.write_text(json.dumps({"format_version": 1, "entries": [
+        {"candidate_voltage_mv": 937, "lock_clock_mhz": 1920, "reason": "previous-run-abruptly-ended"},
+    ]}))
+
+    entries = load_unsafe_voltage_blacklist()
+    assert [(e["candidate_voltage_mv"], e["lock_clock_mhz"]) for e in entries] == [(937, 1920)]
+    assert (tmp_path / "auto-uv-unsafe-voltages.json").is_file()
+    assert legacy.is_file()  # left in place
+
+    record_unsafe_voltage(candidate_voltage_mv=856, lock_clock_mhz=1815, reason="previous-run-abruptly-ended")
+    (tmp_path / "uv-result").rename(tmp_path / "uv-result.bak")  # the "fresh scan" step
+    assert {(e["candidate_voltage_mv"], e["lock_clock_mhz"]) for e in load_unsafe_voltage_blacklist()} == {
+        (937, 1920), (856, 1815),
+    }
