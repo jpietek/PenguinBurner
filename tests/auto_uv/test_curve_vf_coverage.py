@@ -7,7 +7,6 @@ from auto_uv_test_data import base_curve
 
 from auto_uv.curve.base_vf_curve_validation import validate_base_vf_curve
 from auto_uv.curve.base_vf_curve_voltage_bins import (
-    base_target_clock_at_voltage,
     higher_editable_voltage_bins,
     lock_voltage_for_target_clock,
     lower_editable_voltage_bins,
@@ -167,23 +166,6 @@ def test_lock_voltage_for_target_clock_returns_first_match() -> None:
 
     # target_mhz at 850mV (index 2) is 2060, first to reach 2050.
     assert lock_voltage_for_target_clock(curve, 2050) == 850
-
-
-def test_base_target_clock_at_voltage_matches_existing_bin() -> None:
-    curve = base_curve(800, 900, 25, 2000, 30)
-
-    assert base_target_clock_at_voltage(curve, voltage_mv=825, fallback_mhz=0) == 2030
-
-
-def test_base_target_clock_at_voltage_falls_back_when_missing() -> None:
-    curve = base_curve(800, 900, 25, 2000, 30)
-
-    assert (
-        base_target_clock_at_voltage(curve, voltage_mv=12345, fallback_mhz=1500) == 1500
-    )
-
-
-# --- measured_probe_lock_clock.py ---------------------------------------------
 
 
 def test_power_reason_can_trigger_clock_reclaim_without_proving_a_wall() -> None:

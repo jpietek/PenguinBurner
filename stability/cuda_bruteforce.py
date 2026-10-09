@@ -488,9 +488,7 @@ def _launch_kernel(
     seed0: int,
     seed1: int,
     grid_dim: int,
-    block_dim: int = BLOCK_THREADS,
 ) -> None:
-    del block_dim  # Every kernel uses BLOCK_THREADS.
     # The parameter objects must outlive the launch call.
     values = (
         ctypes.c_uint64(int(out_x.value)),

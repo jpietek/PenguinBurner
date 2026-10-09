@@ -102,7 +102,6 @@ class FailureKind(str, Enum):
     NONE = "none"
     FPS_REGRESSION = "fps-regression"
     LOAD_LOST = "load-lost"
-    TIMED_OUT = "timed-out"
     FATAL_OUTPUT = "fatal-output"
     CUDA_FAILED = "cuda-failed"
     Q2RTX_FAILED = "q2rtx-failed"

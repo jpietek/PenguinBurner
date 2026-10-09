@@ -6,7 +6,6 @@ from dataclasses import dataclass
 @dataclass(frozen=True, slots=True)
 class AutoUvDefaults:
     probe_duration_s: int = 10
-    shape_probe_duration_s: int = 10
     final_duration_s: int = 300
     # Per-tier final-verification soak: the deeper/more aggressive the tier,
     # the longer the confirmation. An explicit --auto-uv-final-verification-s
@@ -40,10 +39,7 @@ class AutoUvCurveTuning:
 
 @dataclass(frozen=True, slots=True)
 class AutoUvMetricTuning:
-    min_temp_normalized_fps_per_w_improvement_pct: float = 1.0
     min_efficiency_stop_voltage_drop_pct: float = 10.0
-    temperature_normalization_power_pct_per_c: float = 0.5
-    temperature_normalization_max_delta_c: float = 10.0
     loaded_sample_warmup_s: float = 5.0
     saturated_tail_power_pct: float = 90.0
     saturated_tail_core_clock_pct: float = 98.0
@@ -56,14 +52,11 @@ class AutoUvMetricTuning:
     loaded_sample_power_floor_pct: float = 75.0
     loaded_sample_gpu_util_pct: float = 60.0
     active_core_clock_percentile: float = 0.75
-    loaded_voltage_floor_percentile: float = 0.10
-    loaded_voltage_ceiling_percentile: float = 0.90
 
 
 @dataclass(frozen=True, slots=True)
 class AutoUvProbeTuning:
     tiered_cuda_duration_s: int = 5
-    timeout_multiplier: float = 2.0
     short_timeout_buffer_s: float = 15.0
     high_voltage_pct: float = 95.0
     medium_voltage_pct: float = 90.0
@@ -73,8 +66,6 @@ class AutoUvProbeTuning:
 class AutoUvStallTuning:
     load_lost_min_samples: int = 8
     load_lost_streak_samples: int = 3
-    timeout_min_s: float = 15.0
-    timeout_multiplier: float = 2.5
     selected_gpu_idle_min_s: float = 12.0
     selected_gpu_idle_min_samples: int = 8
     selected_gpu_idle_max_util_pct: float = 5.0

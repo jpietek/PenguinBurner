@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from auto_uv.domain.types import AutoUvError
 
-from .base_vf_curve import editable_base_vf_points, read_base_vf_points
+from .base_vf_curve import editable_base_vf_points
 
 
 def editable_voltage_bins(base_curve: list[dict]) -> list[int]:
@@ -60,15 +60,3 @@ def lock_voltage_for_target_clock(base_curve: list[dict], target_clock_mhz: int)
         if int(point.target_mhz) >= int(target_clock_mhz):
             return int(point.voltage_mv)
     raise AutoUvError(f"base V/F curve never reaches {int(target_clock_mhz)}MHz")
-
-
-def base_target_clock_at_voltage(
-    base_curve: list[dict],
-    *,
-    voltage_mv: int,
-    fallback_mhz: int,
-) -> int:
-    for point in read_base_vf_points(base_curve):
-        if int(point.voltage_mv) == int(voltage_mv):
-            return int(point.target_mhz)
-    return int(fallback_mhz)

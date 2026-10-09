@@ -66,7 +66,6 @@ from auto_uv.probes.voltage_probe import probe_voltage_candidate
 from auto_uv.run.baseline_probe import (
     baseline_load_reference_power_limit_w,
     build_loaded_baseline_candidate,
-    log_loaded_baseline_clock_cap,
     probe_loaded_baseline_with_backoff,
     require_probe_summary,
     retarget_clock_ceiling_for_candidate,
@@ -433,10 +432,8 @@ def run_voltage_frequency_undervolt_main_loop(
             power_limit_w=baseline_load_reference_power_limit_w(gpu),
             tail_rise_bins=int(tail_rise_bins),
             max_clock_mhz=baseline_clock_cap_mhz,
-        )
-        log_loaded_baseline_clock_cap(
-            log, tier=baseline_tier, candidate=baseline_candidate,
-            target=baseline_target, max_clock_mhz=baseline_clock_cap_mhz,
+            log=log,
+            tier=baseline_tier,
         )
         gpu.start_clock_ceiling(
             build_flatten_target_for_plan(
@@ -786,11 +783,9 @@ def run_voltage_frequency_undervolt_main_loop(
                             power_limit_w=positive_int(gpu.power_limit_w),
                             tail_rise_bins=int(tier_tail_rise_bins),
                             max_clock_mhz=tier_clock_cap_mhz,
+                            log=log,
+                            tier=str(tier_mode),
                         )
-                    )
-                    log_loaded_baseline_clock_cap(
-                        log, tier=str(tier_mode), candidate=tier_baseline_candidate,
-                        target=tier_baseline_target, max_clock_mhz=tier_clock_cap_mhz,
                     )
                     retarget_clock_ceiling_for_candidate(
                         gpu.clock_ceiling,
@@ -1507,28 +1502,81 @@ def run_adaptive_tier_descent(
     return tier_candidate, tier_final_tail, tier_probe, tier_history
 
 
+def _adaptive_tier_power_inputs(gpu, *, tier_mode: str, runtime_options: dict) -> dict:
+    """The same tier budget inputs at scan startup and during orchestration."""
+    gpu_name = gpu.translated_gpu_policy.get("gpu_name")
+    return {
+        "tier_mode": tier_mode,
+        "gpu_name": gpu_name,
+        "stock_power_limit_w": positive_int(getattr(gpu, "baseline_power_limit_w", None))
+        or positive_int(gpu.power_limit_w),
+        "scan_request_w": positive_int(runtime_options.get("auto_uv_power_limit_w")),
+        "balanced_pct": uv_limit_power_limit_pct_for_gpu(gpu_name, AUTO_UV_MODE_BALANCED),
+        "explicit_watts": positive_int(
+            adaptive_tier_option(runtime_options, tier_mode=tier_mode, option="power_limit_w")
+        ),
+    }
+
+
+def adaptive_tier_power_limit_request_w(
+    *,
+    tier_mode: str,
+    gpu_name: object | None,
+    stock_power_limit_w: int | None,
+    scan_request_w: int | None,
+    balanced_pct: float | None,
+    explicit_watts: int | None = None,
+) -> int | None:
+    """This tier's board-power cap before the GPU clamps it.
+
+    An explicit per-tier request (the scan dialog's per-profile power slider)
+    wins over the balanced-anchor scaling. A manual scan-wide request stays a
+    hard ceiling in BOTH branches: neither scaling nor a per-tier flag may
+    push a tier above what the user explicitly asked for scan-wide. A tier
+    without an explicit or table limit restores the scan-wide request or the
+    stock budget instead of inheriting the previous tier's cap.
+    """
+    if explicit_watts is not None:
+        watts = int(explicit_watts)
+        return min(watts, int(scan_request_w)) if scan_request_w is not None else watts
+    tier_watts = adaptive_tier_power_limit_w(
+        power_limit_pct=uv_limit_power_limit_pct_for_gpu(gpu_name, tier_mode),
+        baseline_power_limit_w=stock_power_limit_w,
+        scan_request_w=scan_request_w,
+        balanced_pct=balanced_pct,
+    )
+    if tier_watts is None:
+        tier_watts = scan_request_w or stock_power_limit_w
+    if tier_watts is None:
+        return None
+    if scan_request_w is not None:
+        tier_watts = min(int(tier_watts), int(scan_request_w))
+    return int(tier_watts)
+
+
 def request_adaptive_tier_power_limit(
     gpu,
     *,
     tier_mode: str,
     runtime_options: dict,
 ) -> None:
-    """Use the same tier budget at scan startup and during orchestration."""
+    """Request this tier's board-power cap for baseline through verification."""
     apply_adaptive_tier_power_limit(
-        gpu,
-        tier_mode=tier_mode,
-        stock_power_limit_w=positive_int(getattr(gpu, "baseline_power_limit_w", None))
-        or positive_int(gpu.power_limit_w),
-        scan_request_w=positive_int(runtime_options.get("auto_uv_power_limit_w")),
-        balanced_pct=uv_limit_power_limit_pct_for_gpu(
-            gpu.translated_gpu_policy.get("gpu_name"), AUTO_UV_MODE_BALANCED
-        ),
-        explicit_watts=positive_int(
-            adaptive_tier_option(
-                runtime_options, tier_mode=tier_mode, option="power_limit_w"
-            )
-        ),
+        gpu, **_adaptive_tier_power_inputs(gpu, tier_mode=tier_mode, runtime_options=runtime_options)
     )
+
+
+def adaptive_tier_requested_power_limit_w(
+    gpu,
+    *,
+    tier_mode: str,
+    runtime_options: dict,
+) -> int | None:
+    """The cap a tier would request, clamped, without touching the GPU."""
+    watts = adaptive_tier_power_limit_request_w(
+        **_adaptive_tier_power_inputs(gpu, tier_mode=tier_mode, runtime_options=runtime_options)
+    )
+    return positive_int(gpu.clamp_power_limit_w(int(watts))) if watts is not None else None
 
 
 def apply_adaptive_tier_power_limit(
@@ -1539,38 +1587,18 @@ def apply_adaptive_tier_power_limit(
     scan_request_w: int | None,
     balanced_pct: float | None,
     explicit_watts: int | None = None,
+    gpu_name: object | None = None,
 ) -> None:
-    """Request this tier's board-power cap for baseline through verification.
-
-    An explicit per-tier request (the scan dialog's per-profile power slider)
-    wins over the balanced-anchor scaling. A manual scan-wide request stays a
-    hard ceiling in BOTH branches: neither scaling nor a per-tier flag may
-    push a tier above what the user explicitly asked for scan-wide.
-    """
-    if explicit_watts is not None:
-        watts = int(explicit_watts)
-        if scan_request_w is not None:
-            watts = min(watts, int(scan_request_w))
-        gpu.requested_power_limit_w = gpu.clamp_power_limit_w(watts)
-        return
-    tier_watts = adaptive_tier_power_limit_w(
-        power_limit_pct=uv_limit_power_limit_pct_for_gpu(
-            gpu.translated_gpu_policy.get("gpu_name"), tier_mode
-        ),
-        baseline_power_limit_w=stock_power_limit_w,
+    watts = adaptive_tier_power_limit_request_w(
+        tier_mode=tier_mode,
+        gpu_name=gpu_name if gpu_name is not None else gpu.translated_gpu_policy.get("gpu_name"),
+        stock_power_limit_w=stock_power_limit_w,
         scan_request_w=scan_request_w,
         balanced_pct=balanced_pct,
+        explicit_watts=explicit_watts,
     )
-    if tier_watts is None:
-        # A tier without an explicit/table limit restores the scan-wide
-        # request or stock budget instead of inheriting the previous tier's
-        # cap.
-        tier_watts = scan_request_w or stock_power_limit_w
-    if tier_watts is None:
-        return
-    if scan_request_w is not None:
-        tier_watts = min(int(tier_watts), int(scan_request_w))
-    gpu.requested_power_limit_w = gpu.clamp_power_limit_w(int(tier_watts))
+    if watts is not None:
+        gpu.requested_power_limit_w = gpu.clamp_power_limit_w(int(watts))
 
 
 def scan_wide_memory_offset_mhz(runtime_options: dict) -> int:
@@ -1597,26 +1625,6 @@ def resolve_adaptive_tier_memory_offset_mhz(
     )
     requested = int(fallback_offset_mhz) if raw is None else int(cast(Any, raw))
     return max(0, min(requested, int(limit_mhz)))
-
-
-def adaptive_tier_requested_power_limit_w(
-    gpu,
-    *,
-    tier_mode: str,
-    runtime_options: dict,
-) -> int | None:
-    """The board-power cap a tier would request, without touching the GPU."""
-    proxy = SimpleNamespace(
-        translated_gpu_policy=gpu.translated_gpu_policy,
-        baseline_power_limit_w=getattr(gpu, "baseline_power_limit_w", None),
-        power_limit_w=gpu.power_limit_w,
-        clamp_power_limit_w=gpu.clamp_power_limit_w,
-        requested_power_limit_w=None,
-    )
-    request_adaptive_tier_power_limit(
-        proxy, tier_mode=tier_mode, runtime_options=runtime_options
-    )
-    return positive_int(proxy.requested_power_limit_w)
 
 
 def balanced_donation_from_completed_tier(
