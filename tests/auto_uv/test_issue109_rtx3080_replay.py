@@ -687,17 +687,18 @@ def test_issue109_climb_crash_then_reboot_finishes_performance_on_the_balanced_p
     assert not [c for c in second if c[1] in ("efficiency-candidate", "balanced-candidate", "resume-verify")]
     # Performance started from the checkpointed Balanced point and did not
     # descend again. The rungs below the freeze are bought back one bin
-    # above the band; the rung that froze the card, and everything above it,
-    # stays closed: one reboot per climb.
+    # above the band; the rung that froze the card is closed within three
+    # bins of the freeze voltage (943, 950, 956 never touch the GPU) and
+    # reopens four bins up, within the six bins of headroom.
     reused = [p for e, p in events[1] if e == "tier_descent_reused"]
     assert [(p["voltage_mv"], p["target_mhz"]) for p in reused] == [(937, 1875)]
     assert not [c for c in second if c[1] == "performance-candidate"]
     climb = [(c[2], c[3]) for c in second if c[1] == "candidate"]
-    assert climb == [(943, 1890), (943, 1905)], logs[1][-30:]
-    assert any("stays closed" in m and "1920MHz" in m for m in logs[1])
+    assert climb == [(943, 1890), (943, 1905), (962, 1920), (968, 1930)], logs[1][-30:]
+    assert any("stays closed up to 956mV" in m and "1920MHz" in m for m in logs[1])
     completed_2 = {p["tier"]: (p["voltage_mv"], p["target_mhz"]) for e, p in events[1] if e == "tier_completed"}
-    assert completed_2 == {"performance": (943, 1905)}
-    assert [c for c in second if c[1] == "final-verify"][-1][2:4] == (943, 1905)
+    assert completed_2 == {"performance": (968, 1930)}
+    assert [c for c in second if c[1] == "final-verify"][-1][2:4] == (968, 1930)
     assert len(list(auto_uv_profiles_dir().glob("*.json"))) == 3
     assert not scan_checkpoint_path().exists()
 

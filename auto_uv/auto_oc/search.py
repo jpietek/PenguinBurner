@@ -199,7 +199,9 @@ def run_auto_oc_candidate_search(
         if not blocked and (policy is None or not policy.retry_frozen_rungs):
             blocked = frozen_rung_block_reason(
                 load_unsafe_voltage_blacklist(),
+                base_curve,
                 start_voltage_mv=int(start_candidate.voltage_mv),
+                rung_voltage_mv=int(candidate.voltage_mv),
                 lock_clock_mhz=int(candidate.target_mhz),
             )
         if blocked:
@@ -573,17 +575,28 @@ def retarget_clock_ceiling(
     log_phase(log, "ceiling", clock_ceiling.describe())
 
 
+# A rung that froze the host stays closed for retries this close above the
+# freeze voltage; the band below a failure already covers the voltages at or
+# under it. Four or more bins higher is a different operating point and may
+# be tried (the issue 109 card held 950 after freezing at 937 at the same
+# clock; a 5080 climbing at 900 mV must not be stopped by a 865 mV freeze).
+FROZEN_RUNG_CLOSE_BINS = 3
+
+
 def frozen_rung_block_reason(
     unsafe_entries: list[dict],
+    base_curve: list[dict],
     *,
     start_voltage_mv: int,
+    rung_voltage_mv: int,
     lock_clock_mhz: int,
 ) -> str:
     """Close a climb rung, and every rung above it, once it froze the host.
 
     The hard blacklist band only covers voltages at or below the freeze, so
     a climb could retry the same rung one bin higher after every reboot. One
-    reboot per climb is the accepted price; the rung stays closed afterwards.
+    reboot per climb is the accepted price: within FROZEN_RUNG_CLOSE_BINS
+    above the freeze voltage the rung and everything above it stay closed.
     Freezes below the climb's starting voltage belong to the descents and do
     not count.
     """
@@ -596,11 +609,17 @@ def frozen_rung_block_reason(
             continue
         if int(frozen_voltage_mv) < int(start_voltage_mv):
             continue
-        if int(lock_clock_mhz) >= int(frozen_clock_mhz):
+        if int(lock_clock_mhz) < int(frozen_clock_mhz):
+            continue
+        closed_up_to_mv = voltage_bins_above(
+            base_curve, int(frozen_voltage_mv), FROZEN_RUNG_CLOSE_BINS
+        )
+        if int(rung_voltage_mv) <= int(closed_up_to_mv):
             return (
-                f"rung {int(lock_clock_mhz)}MHz stays closed: "
+                f"rung {int(lock_clock_mhz)}MHz stays closed up to {int(closed_up_to_mv)}mV: "
                 f"{int(frozen_voltage_mv)}mV@{int(frozen_clock_mhz)}MHz froze the card "
-                "and a climb retries no rung at or above a freeze"
+                "and a climb retries no rung at or above a freeze within "
+                f"{FROZEN_RUNG_CLOSE_BINS} bins of its voltage"
             )
     return ""
 

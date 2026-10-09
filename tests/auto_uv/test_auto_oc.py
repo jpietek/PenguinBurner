@@ -1007,3 +1007,30 @@ def test_crash_during_voltage_retry_stops_instead_of_retrying_failed_clock_again
     )
     assert tried == [(935, 2715), (940, 2715), (950, 2670)]
     assert result.selected_candidate.target_mhz == 2670
+
+
+def test_frozen_rung_closes_only_near_the_freeze_voltage():
+    """A 5080 climbing at 900 mV must not be stopped by a July freeze at 865 mV
+    (2026-10-09 host scan shipped 925 / 2895 instead of climbing on); the issue
+    109 card's 937 mV / 1920 MHz freeze still closes 943 to 956 at that clock."""
+    from auto_uv_test_data import base_curve, rtx_3080_issue109_stock_curve_warm
+
+    from auto_uv.auto_oc.search import frozen_rung_block_reason
+
+    five = base_curve(800, 1000, 5, 2000, 15)  # 5 mV bins like the 5080
+    freeze = [{"candidate_voltage_mv": 865, "lock_clock_mhz": 2898, "reason": "previous-run-abruptly-ended"}]
+    kw = dict(start_voltage_mv=860, lock_clock_mhz=2910)
+    assert frozen_rung_block_reason(freeze, five, rung_voltage_mv=870, **kw)
+    assert frozen_rung_block_reason(freeze, five, rung_voltage_mv=880, **kw)  # 3 bins above
+    assert frozen_rung_block_reason(freeze, five, rung_voltage_mv=885, **kw) == ""
+    assert frozen_rung_block_reason(freeze, five, rung_voltage_mv=900, **kw) == ""
+    # Below the frozen clock nothing is closed; freezes under the start voltage do not count.
+    assert frozen_rung_block_reason(freeze, five, rung_voltage_mv=870, start_voltage_mv=860, lock_clock_mhz=2895) == ""
+    assert frozen_rung_block_reason(freeze, five, rung_voltage_mv=870, start_voltage_mv=870, lock_clock_mhz=2910) == ""
+
+    warm = rtx_3080_issue109_stock_curve_warm()
+    climb = [{"candidate_voltage_mv": 937, "lock_clock_mhz": 1920, "reason": "stability-probe-failed",
+              "details": {"result_reason": "cuda-bruteforce-failed exit=4"}}]
+    for voltage in (943, 950, 956):
+        assert frozen_rung_block_reason(climb, warm, start_voltage_mv=937, rung_voltage_mv=voltage, lock_clock_mhz=1920)
+    assert frozen_rung_block_reason(climb, warm, start_voltage_mv=937, rung_voltage_mv=962, lock_clock_mhz=1920) == ""
