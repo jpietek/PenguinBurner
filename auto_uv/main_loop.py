@@ -884,6 +884,7 @@ def run_voltage_frequency_undervolt_main_loop(
                     edge_margin=edge_margin,
                 )
                 log_lower_voltage_sweep_events(log, loop_result.events)
+                drop_excluded_sweep_pass(stable_history, loop_result.excluded_candidate)
                 stable_candidate = loop_result.stable_candidate
                 selected_probe = (
                     loop_result.stable_outcome.raw_probe
@@ -1491,6 +1492,7 @@ def run_adaptive_tier_descent(
         edge_margin=edge_margin,
     )
     log_lower_voltage_sweep_events(log, loop_result.events)
+    drop_excluded_sweep_pass(tier_history, loop_result.excluded_candidate)
     tier_candidate = loop_result.stable_candidate
     tier_final_tail = int(
         tier_candidate.metadata.get("tail_rise_bins", tier_descent_tail)
@@ -1898,12 +1900,28 @@ def adaptive_tier_power_limit_w(
     return min(round(watts), int(baseline_power_limit_w))
 
 
+def drop_excluded_sweep_pass(
+    history: list[AutoUvProbeSummary], excluded: VfCurveCandidate | None
+) -> None:
+    """Remove a pass the sweep set aside so final selection cannot pick it."""
+    if excluded is None:
+        return
+    history[:] = [
+        probe
+        for probe in history
+        if not (
+            int(probe.candidate_voltage_mv or 0) == int(excluded.voltage_mv)
+            and int(probe.lock_clock_mhz or 0) == int(excluded.target_mhz)
+        )
+    ]
+
+
 def log_lower_voltage_sweep_events(
     log: Callable[[str], None],
     events: list[LowerVoltageSweepEvent],
 ) -> None:
     for event in events:
-        if event.name != "stop":
+        if event.name not in {"stop", "floor-caution"}:
             continue
         log_phase(log, "auto-uv", f"sweep-{event.name} {event.message}")
 

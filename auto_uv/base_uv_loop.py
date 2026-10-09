@@ -128,6 +128,8 @@ def run_base_uv_loop(
     )
     probe_history: list[VoltageProbeOutcome] = []
     events: list[LowerVoltageSweepEvent] = []
+    passes: list[tuple[VfCurveCandidate, VoltageProbeOutcome]] = []
+    ended_by_stop = False
 
     while state.next_voltage_mv is not None:
         # Check the next voltage and requested clock before any GPU operation.
@@ -149,6 +151,7 @@ def run_base_uv_loop(
             )
         if block_reason:
             events.append(LowerVoltageSweepEvent("stop", block_reason))
+            ended_by_stop = True
             break
 
         outcome = io.probe_candidate(candidate)
@@ -171,7 +174,9 @@ def run_base_uv_loop(
             latest_stable_candidate = step.latest_stable_candidate
             selected_result = step.selected_result
             state = step.state
+            passes.append((latest_stable_candidate, outcome))
             if step.should_stop:
+                ended_by_stop = True
                 break
             continue
 
@@ -183,7 +188,39 @@ def run_base_uv_loop(
                 f"Voltage sweep stopped after critical probe failure: {outcome.decision.reason}"
             )
         events.append(LowerVoltageSweepEvent("stop", outcome.decision.reason))
+        ended_by_stop = True
         break
+
+    excluded_candidate = None
+    if (
+        not ended_by_stop
+        and min_search_voltage_mv is not None
+        and len(passes) >= 2
+        and same_candidate_identity(selected_result.selected_candidate, passes[-1][0])
+    ):
+        # The sweep ran out of voltage bins with every probe passing: the
+        # card never showed its edge, and the only test left is the long
+        # soak at the deepest point. On a card whose edge is a bus drop that
+        # soak is where it freezes (issue 109: 800 mV passed 20 s, froze at
+        # 170 s of its soak). Keep the pass one step above the floor for
+        # verification instead; the floor pass stays recorded as verified.
+        floor_candidate, _ = passes[-1]
+        previous_candidate, previous_outcome = passes[-2]
+        selected_result = SweepSelection(
+            selected_candidate=previous_candidate,
+            selected_outcome=previous_outcome,
+        )
+        excluded_candidate = floor_candidate
+        events.append(
+            LowerVoltageSweepEvent(
+                "floor-caution",
+                f"reached the {int(min_search_voltage_mv)}mV floor with every "
+                "probe passing; the card never "
+                f"showed its edge, so {int(previous_candidate.voltage_mv)}mV@"
+                f"{int(previous_candidate.target_mhz)}MHz, one step above "
+                f"{int(floor_candidate.voltage_mv)}mV, goes to verification",
+            )
+        )
 
     if not same_candidate_identity(
         selected_result.selected_candidate,
@@ -199,6 +236,7 @@ def run_base_uv_loop(
         stable_outcome=selected_result.selected_outcome,
         probe_history=probe_history,
         events=events,
+        excluded_candidate=excluded_candidate,
     )
 
 

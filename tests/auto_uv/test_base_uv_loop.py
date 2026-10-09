@@ -139,7 +139,10 @@ def test_descent_does_not_compound_lower_measured_clocks(mode, tail) -> None:
     )
 
     assert probed == [(925, 2160, tail), (900, 2160, tail)]
-    assert result.stable_candidate.voltage_mv == 900
+    # Every probe passed down to the floor: floor caution keeps 925 and sets
+    # the floor pass aside (the clock contract below is what this test is for).
+    assert result.stable_candidate.voltage_mv == 925
+    assert result.excluded_candidate is not None and result.excluded_candidate.voltage_mv == 900
     assert result.stable_candidate.target_mhz == 2160
 
 
@@ -204,7 +207,8 @@ def test_lower_voltage_sweep_keeps_target_when_power_limiting_clears(cap_clears)
     )
 
     assert probed == [(925, 2160), (900, 2160)]
-    assert result.stable_candidate.voltage_mv == 900
+    assert result.stable_candidate.voltage_mv == 925  # floor caution; see above
+    assert result.excluded_candidate is not None and result.excluded_candidate.voltage_mv == 900
     assert result.stable_candidate.target_mhz == 2160
 
 
@@ -436,3 +440,82 @@ def test_critical_failure_marks_unsafe_and_aborts() -> None:
     assert len(probed) == 1
     assert unsafe == probed
     assert written == []
+
+
+def test_clean_floor_descent_keeps_the_pass_one_step_above_the_floor() -> None:
+    """Every probe passed down to the configured floor: the deepest point is set aside."""
+    curve = base_curve(900, 1025, 25, 2000, 40)
+    probed: list[int] = []
+
+    def probe(candidate: VfCurveCandidate) -> VoltageProbeOutcome:
+        probed.append(int(candidate.voltage_mv))
+        return _passed_outcome(candidate)
+
+    def run(floor_mv):
+        probed.clear()
+        return run_base_uv_loop(
+            curve,
+            settings=AutoUvScanSettings(
+                start_voltage_mv=1000, min_search_voltage_mv=floor_mv,
+                reference_actual_voltage_mv=1000.0,
+            ),
+            initial_stable_candidate=VfCurveCandidate(
+                label="baseline", voltage_mv=1000, target_mhz=2160, flattened_plan=curve,
+            ),
+            io=BaseUvLoopIO(
+                probe_candidate=probe,
+                write_verified_candidate=lambda _c, _o: None,
+                mark_unsafe_candidate=lambda _c, _o: None,
+            ),
+        )
+
+    result = run(900)
+    assert probed[-1] == 900 and len(probed) >= 2
+    assert result.stable_candidate.voltage_mv == probed[-2]
+    assert result.excluded_candidate is not None and result.excluded_candidate.voltage_mv == 900
+    assert result.state.stable_voltage_mv == probed[-2]
+    assert result.events[-1].name == "floor-caution"
+    assert "900mV floor" in result.events[-1].message
+    # Without a configured floor the curve bottom is a test fixture, not a
+    # product floor: the deepest pass is kept as before.
+    bottom = run(None)
+    assert bottom.stable_candidate.voltage_mv == 900 and bottom.excluded_candidate is None
+
+
+def test_descent_that_fails_or_has_a_single_pass_keeps_its_deepest_pass() -> None:
+    curve = base_curve(900, 1025, 25, 2000, 40)
+
+    def failing_below(limit_mv):
+        def probe(candidate: VfCurveCandidate) -> VoltageProbeOutcome:
+            if int(candidate.voltage_mv) < limit_mv:
+                return VoltageProbeOutcome(
+                    decision=StableRunDecision(
+                        False, FailureKind.FPS_REGRESSION, FailureSeverity.RECOVERABLE, "fps",
+                    )
+                )
+            return _passed_outcome(candidate)
+        return probe
+
+    def run(probe, floor_mv):
+        return run_base_uv_loop(
+            curve,
+            settings=AutoUvScanSettings(
+                start_voltage_mv=1000, min_search_voltage_mv=floor_mv,
+                reference_actual_voltage_mv=1000.0,
+            ),
+            initial_stable_candidate=VfCurveCandidate(
+                label="baseline", voltage_mv=1000, target_mhz=2160, flattened_plan=curve,
+            ),
+            io=BaseUvLoopIO(
+                probe_candidate=probe,
+                write_verified_candidate=lambda _c, _o: None,
+                mark_unsafe_candidate=lambda _c, _o: None,
+            ),
+        )
+
+    failed = run(failing_below(925), 900)  # the edge showed itself at 900
+    assert failed.excluded_candidate is None
+    assert failed.stable_candidate.voltage_mv == 925
+    single = run(lambda c: _passed_outcome(c), 975)  # one pass, nothing above it to keep
+    assert single.excluded_candidate is None
+    assert single.stable_candidate.voltage_mv == 975

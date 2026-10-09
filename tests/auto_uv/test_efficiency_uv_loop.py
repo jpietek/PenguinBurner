@@ -197,11 +197,17 @@ def test_efficiency_descends_once_to_floor_preserving_tested_tail_and_history(
         log=lambda _: None,
     )
 
-    assert result.stable_candidate.voltage_mv == final_floor
     voltages = [candidate.voltage_mv for candidate in probed]
+    # Every probe passed down to the floor, so floor caution keeps the pass
+    # one step above it for verification and sets the floor pass aside.
+    assert voltages[-1] == final_floor
+    assert result.stable_candidate.voltage_mv == voltages[-2]
+    assert result.excluded_candidate is not None
+    assert result.excluded_candidate.voltage_mv == final_floor
     assert voltages == sorted(set(voltages), reverse=True)
     assert len(result.probe_history) == len(probed)
-    assert written[-1][0] is result.stable_candidate
+    assert written[-1][0] is result.excluded_candidate
+    assert written[-2][0] is result.stable_candidate
     assert all(measured is outcome for _, measured in written)
     assert all(candidate.metadata["tail_rise_bins"] == tail_bins for candidate in probed)
     for candidate in probed:

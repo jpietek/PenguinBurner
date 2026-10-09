@@ -831,3 +831,51 @@ def test_issue109_recorded_freeze_stops_the_performance_climb_before_the_crash(m
     assert completed["performance"] == (937, 1905)
     assert len(list(auto_uv_profiles_dir().glob("*.json"))) == 3
     assert not scan_checkpoint_path().exists()
+
+
+# ---------------------------------------------------------------------------
+# Floor caution: the 10-07 Efficiency descent reached 800 mV with every probe
+# passing, and the 180 s soak at that floor froze the card.
+# ---------------------------------------------------------------------------
+
+def test_issue109_clean_floor_descent_soaks_one_step_above_the_floor(monkeypatch):
+    warm = rtx_3080_issue109_stock_curve_warm()
+    calls: list[tuple[str, int, int, int]] = []
+    logs: list[str] = []
+    events: list[tuple[str, dict]] = []
+
+    def probe(**kw):
+        stage, voltage, lock = kw["phase_label"], kw["candidate_voltage_mv"], kw["lock_clock_mhz"]
+        cap = int(kw["power_limit_w"])
+        calls.append((stage, voltage, lock, cap))
+        if stage == "discover":
+            clock, mv = STOCK_LOAD[cap]
+            return _probe_result(voltage, lock, kw["candidate_plan"],
+                                 measured_clock=clock, measured_mv=mv, power_w=PROBE_POWER_W[cap])
+        stock_mv = STOCK_LOAD[cap][1]
+        power_w = PROBE_POWER_W[cap] * (voltage / stock_mv) ** 2
+        # Efficiency passes every 20 s probe down to the 800 mV table floor,
+        # exactly as on 10-07; Balanced soft-stops below 937.
+        fps = 60.0 if stage == "balanced-candidate" and voltage < 937 else None
+        return _probe_result(voltage, lock, kw["candidate_plan"], measured_clock=float(lock + 30),
+                             measured_mv=float(voltage + 6), power_w=power_w, fps=fps)
+
+    monkeypatch.setattr(main, "cleanup_managed_q2rtx_processes", lambda *_a, **_k: None)
+    monkeypatch.setattr(runner_module, "probe_voltage_candidate", probe)
+    monkeypatch.setattr(main, "probe_voltage_candidate", probe)
+    monkeypatch.setattr(final_module, "apply_plan_and_refresh", lambda *_args: None)
+    monkeypatch.setattr(main, "open_live_gpu_vf_curve_applier", lambda **_kw: Rtx3080(warm))
+    main.run_voltage_frequency_undervolt_main_loop(
+        gpu_index=0, runtime_options={"auto_uv_mode": "adaptive", **GUI_DEFAULT_TARGETS},
+        q2rtx_config=Q2RTXStabilityConfig(),
+        event_callback=lambda name, payload: events.append((name, payload)), log=logs.append,
+    )
+
+    efficiency = [c for c in calls if c[0] == "efficiency-candidate"]
+    assert efficiency[-1][1] == 800  # the floor was probed and passed
+    assert any("sweep-floor-caution" in m and "800mV floor" in m for m in logs), logs[:60]
+    completed = {p["tier"]: (p["voltage_mv"], p["target_mhz"]) for e, p in events if e == "tier_completed"}
+    assert completed["efficiency"][0] == 806
+    # Nothing after the descent ran at the floor: no reclaim rung, no soak.
+    assert not [c for c in calls if c[0] in ("candidate", "final-verify") and c[1] == 800 and c[3] == 268]
+    assert completed["balanced"] == (937, 1875)

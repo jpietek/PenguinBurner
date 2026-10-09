@@ -36,6 +36,12 @@ reference. A power-bound baseline below the table clock is left where the
 card runs and can climb later. An edited clock target replaces the table clock
 as this limit.
 
+When a descent runs out of voltage bins with every probe passing, the card
+never showed its edge and the long soak would be the first real test of the
+deepest point. The sweep then keeps the pass one step above the floor for
+verification and sets the floor pass aside. A descent that ended on a failed
+or blocked probe is unaffected.
+
 Efficiency selects the highest measured FPS/W among passing candidates,
 including candidates before any clock climb. It compares unrounded values;
 equal FPS/W favors higher measured clock, then lower power. Balanced uses the

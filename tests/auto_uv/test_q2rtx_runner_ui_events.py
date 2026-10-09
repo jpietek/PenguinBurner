@@ -322,7 +322,9 @@ def test_5070_ti_sweep_reaches_auto_oc_after_initial_clock_shortfall(
     def workload(**kwargs):
         voltage = kwargs["candidate_voltage_mv"]
         target = kwargs["lock_clock_mhz"]
-        measured = 2603 if voltage > 925 else target
+        # The clock shortfall clears before the floor: it must also be gone at
+        # the pass floor caution keeps (one step above 925).
+        measured = 2603 if voltage > 940 else target
         probed.append((voltage, target))
         summary = _summary(voltage, measured, used_companion_load=True)
         summary.lock_clock_mhz = target
@@ -360,7 +362,10 @@ def test_5070_ti_sweep_reaches_auto_oc_after_initial_clock_shortfall(
         gpu=SimpleNamespace(clock_ceiling=None, power_limit_w=300), log=lambda _: None,
     )
 
-    assert candidate.voltage_mv == 925
+    # The sweep reached the 925 mV floor with every probe passing; floor
+    # caution hands the pass one step above it to the climb.
+    assert probed[-1][0] == 925
+    assert candidate.voltage_mv == probed[-2][0] > 925
     assert len(probed) > 4
     assert all(target == 2730 for _, target in probed)
     assert not accumulated_unsafe
