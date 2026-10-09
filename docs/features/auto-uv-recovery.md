@@ -52,8 +52,8 @@ Each recorded freeze (an abrupt exit, an NVIDIA Xid, or the CUDA workload's
 hang watchdog) is also one point on the card's stability edge. The edge runs
 parallel to the card's stock V/F curve, so one freeze predicts it at every
 other clock. Every later descent and climb in that scan, and in later scans,
-stays three voltage bins above the predicted edge; the final soak still
-decides what ships. Cards that fail softly never record a freeze and keep
+stays one to four voltage bins above the predicted edge, more the farther it
+is extrapolated; the final soak still decides what ships. Cards that fail softly never record a freeze and keep
 their full search.
 
 The blacklist blocks the failed voltage and lower voltages at the recorded

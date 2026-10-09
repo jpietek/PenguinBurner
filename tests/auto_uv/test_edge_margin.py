@@ -52,13 +52,16 @@ def test_efficiency_freeze_blocks_the_climb_rung_that_froze_the_card():
     assert "1 freeze(s) on record (800mV@1750MHz)" in margin.describe()
 
 
-def test_two_bins_would_not_have_caught_it_and_three_do():
+def test_two_bins_would_not_have_caught_it_and_three_or_more_do():
     curve = rtx_3080_issue109_stock_curve_warm()
     two = EdgeMargin([WARM_FREEZE], curve, margin_bins=2)
     three = EdgeMargin([WARM_FREEZE], curve, margin_bins=3)
     assert two.block_reason(candidate_voltage_mv=937, lock_clock_mhz=1920) == ""
     assert three.block_reason(candidate_voltage_mv=937, lock_clock_mhz=1920)
-    assert EDGE_MARGIN_BINS == 3
+    assert EDGE_MARGIN_BINS == 4
+    # The default needs four: with three, the Balanced descent predicted from
+    # the Efficiency freeze still froze two mV short in the whole-scan simulation.
+    assert _floor(EdgeMargin([WARM_FREEZE], curve), 1920) == 950  # 950 / 1920 passed a 5 min soak on 10-06
 
 
 def test_first_archive_freeze_predicts_the_balanced_freeze_one_bin_above_it():
@@ -109,14 +112,14 @@ def test_nearest_freeze_decides_the_floor_not_the_highest_prediction():
     assert _floor(margin, 1740) == 806
     assert margin.minimum_voltage_mv(1740)[1].lock_clock_mhz == 1750
     far_only = EdgeMargin([WATCHDOG_FREEZE], curve)
-    assert _floor(far_only, 1740) == 831  # what the max rule used to pick
+    assert _floor(far_only, 1740) == 837  # what the max rule used to pick (831 with the old 3-bin far margin)
     # Balanced at 1875 sits 45 MHz from the 1920 freeze: two bins, not three.
     assert _floor(margin, 1875) == 912
-    assert "1 to 3 bins above the edge the nearest one predicts" in margin.describe()
+    assert "1 to 4 bins above the edge the nearest one predicts" in margin.describe()
 
 
 def test_margin_bins_scale_with_extrapolation_distance():
     margin = EdgeMargin([WARM_FREEZE], rtx_3080_issue109_stock_curve_warm())
     assert margin.margin_bins_for(0) == 1 and margin.margin_bins_for(15) == 1
     assert margin.margin_bins_for(30) == 2 and margin.margin_bins_for(90) == 2
-    assert margin.margin_bins_for(105) == 3 and margin.margin_bins_for(-170) == 3
+    assert margin.margin_bins_for(105) == 4 and margin.margin_bins_for(-170) == 4

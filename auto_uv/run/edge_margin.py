@@ -25,10 +25,12 @@ from auto_uv.shared.positive_int import positive_int
 
 # The nearest recorded freeze (in requested clock) predicts the edge; the
 # margin above it grows with how far that prediction is extrapolated. On the
-# issue 109 card the far margin needed three bins (two would have allowed the
-# 937 mV / 1920 MHz climb rung that froze it), while at the freeze's own clock
-# one bin above it is the point the card went on to prove.
-EDGE_MARGIN_BINS = 3
+# issue 109 card the far margin needs four bins: two would have allowed the
+# 937 mV / 1920 MHz climb rung that froze it, and with three the Balanced
+# descent predicted from the Efficiency freeze still froze two mV short in
+# simulation. At the freeze's own clock one bin above it is the point the
+# card went on to prove.
+EDGE_MARGIN_BINS = 4
 EDGE_MARGIN_NEAR_BINS = 1
 EDGE_MARGIN_MID_BINS = 2
 EDGE_MARGIN_NEAR_MHZ = 15
