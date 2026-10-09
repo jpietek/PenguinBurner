@@ -24,6 +24,7 @@ def test_main_cli_help_includes_gui_auto_uv_scan_options(capsys):
     visible_gui_scan_flags = [
         "--auto-uv-voltage-scan",
         "--auto-uv-mode",
+        "--auto-uv-tuning-mode",
         "--gpu-index",
         "--auto-uv-min-voltage-mv",
         "--auto-uv-memory-offset-mhz",
@@ -211,3 +212,15 @@ def test_internal_profile_verification_flags_are_accepted_for_ui_command_path():
     assert args.auto_uv_profile == "latest"
     assert args.stability_seconds == 600
     assert args.stability_stop_request_file == "/tmp/verify.stop"
+
+
+def test_tuning_mode_flag_maps_to_the_runtime_option_only_when_given():
+    from cli.effective_runtime_options import build_effective_auto_uv_runtime_options
+
+    plain = parse_arguments(["--auto-uv-voltage-scan"])
+    assert plain.auto_uv_tuning_mode is None
+    assert "auto_uv_tuning_mode" not in build_effective_auto_uv_runtime_options(plain)
+    aggressive = parse_arguments(["--auto-uv-voltage-scan", "--auto-uv-tuning-mode", "aggressive"])
+    assert build_effective_auto_uv_runtime_options(aggressive)["auto_uv_tuning_mode"] == "aggressive"
+    with pytest.raises(SystemExit):
+        parse_arguments(["--auto-uv-voltage-scan", "--auto-uv-tuning-mode", "yolo"])

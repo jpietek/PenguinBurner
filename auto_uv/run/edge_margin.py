@@ -23,9 +23,16 @@ from auto_uv.domain.types import AutoUvError
 from auto_uv.persistence.unsafe_voltage_cache import unsafe_entry_reason_values
 from auto_uv.shared.positive_int import positive_int
 
-# Measured scatter of the edge offset on the RTX 3080 was about +/-1.5 bins;
-# two bins would have allowed the 937 mV / 1920 MHz climb rung that froze it.
+# The nearest recorded freeze (in requested clock) predicts the edge; the
+# margin above it grows with how far that prediction is extrapolated. On the
+# issue 109 card the far margin needed three bins (two would have allowed the
+# 937 mV / 1920 MHz climb rung that froze it), while at the freeze's own clock
+# one bin above it is the point the card went on to prove.
 EDGE_MARGIN_BINS = 3
+EDGE_MARGIN_NEAR_BINS = 1
+EDGE_MARGIN_MID_BINS = 2
+EDGE_MARGIN_NEAR_MHZ = 15
+EDGE_MARGIN_MID_MHZ = 90
 STOCK_CLOCK_STEP_MHZ = 15
 HARD_CRASH_REASON_PREFIXES = (
     "previous-run-abruptly-ended",
@@ -88,24 +95,37 @@ class EdgeMargin:
     def points(self) -> list[EdgePoint]:
         return edge_points(self.unsafe_entries, self.base_curve)
 
+    def margin_bins_for(self, clock_distance_mhz: int) -> int:
+        distance = abs(int(clock_distance_mhz))
+        if distance <= EDGE_MARGIN_NEAR_MHZ:
+            return min(EDGE_MARGIN_NEAR_BINS, self.margin_bins)
+        if distance <= EDGE_MARGIN_MID_MHZ:
+            return min(EDGE_MARGIN_MID_BINS, self.margin_bins)
+        return self.margin_bins
+
     def minimum_voltage_mv(self, lock_clock_mhz: int) -> tuple[int, EdgePoint] | None:
+        """The floor the nearest freeze implies at this clock, with its margin.
+
+        A far freeze extrapolated over a long clock range over- or
+        under-predicts by a bin or two; the nearest one is the better
+        estimate, so it alone decides (the issue 109 card lost four
+        Efficiency bins when a 1920 MHz freeze outvoted its own 1750 MHz one).
+        """
         try:
             stock_here_mv = lock_voltage_for_target_clock(self.base_curve, int(lock_clock_mhz))
         except AutoUvError:
             return None
+        points = self.points()
+        if not points:
+            return None
+        nearest = min(abs(int(lock_clock_mhz) - p.lock_clock_mhz) for p in points)
         best: tuple[int, EdgePoint] | None = None
-        for point in self.points():
+        for point in points:
+            distance = abs(int(lock_clock_mhz) - point.lock_clock_mhz)
+            if distance != nearest:
+                continue
             predicted_mv = point.voltage_mv + (stock_here_mv - point.stock_voltage_mv)
-            # At the freeze's own clock the prediction is the measurement
-            # itself and the exact blacklist band already applies; one bin
-            # above it is the same margin a resume uses. The wider margin
-            # covers the model's scatter when extrapolating to other clocks.
-            bins = (
-                min(1, self.margin_bins)
-                if abs(int(lock_clock_mhz) - point.lock_clock_mhz) <= STOCK_CLOCK_STEP_MHZ
-                else self.margin_bins
-            )
-            minimum_mv = self._bins_above(predicted_mv, bins)
+            minimum_mv = self._bins_above(predicted_mv, self.margin_bins_for(distance))
             if best is None or minimum_mv > best[0]:
                 best = (minimum_mv, point)
         return best
@@ -117,9 +137,10 @@ class EdgeMargin:
         minimum_mv, point = found
         if int(candidate_voltage_mv) >= int(minimum_mv):
             return ""
+        bins = self.margin_bins_for(int(lock_clock_mhz) - point.lock_clock_mhz)
         return (
             f"predicted edge: {int(candidate_voltage_mv)}mV@{int(lock_clock_mhz)}MHz "
-            f"is under the {int(minimum_mv)}mV floor ({self.margin_bins} bins above "
+            f"is under the {int(minimum_mv)}mV floor ({bins} bin(s) above "
             f"the edge the {point.voltage_mv}mV@{point.lock_clock_mhz}MHz freeze implies)"
         )
 
@@ -130,7 +151,8 @@ class EdgeMargin:
         listed = ", ".join(f"{p.voltage_mv}mV@{p.lock_clock_mhz}MHz" for p in points)
         return (
             f"edge margin: {len(points)} freeze(s) on record ({listed}); new probes "
-            f"stay {self.margin_bins} bins above the edge they predict"
+            f"stay {EDGE_MARGIN_NEAR_BINS} to {self.margin_bins} bins above the edge "
+            "the nearest one predicts"
         )
 
     def _bins_above(self, predicted_mv: int, bins: int) -> int:

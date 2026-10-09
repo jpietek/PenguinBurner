@@ -99,3 +99,24 @@ def test_margin_zero_is_the_prediction_itself_and_unknown_clocks_do_not_block():
     assert margin.block_reason(candidate_voltage_mv=800, lock_clock_mhz=1750) == ""
     assert margin.minimum_voltage_mv(9999) is None
     assert margin.block_reason(candidate_voltage_mv=500, lock_clock_mhz=9999) == ""
+
+
+def test_nearest_freeze_decides_the_floor_not_the_highest_prediction():
+    """10-08 rerun: the 1920 freeze predicted 831 at 1740 and outvoted the
+    1750 freeze's 806, the point the card had proven (3DMark, 20 loops)."""
+    curve = rtx_3080_issue109_stock_curve_warm()
+    margin = EdgeMargin([WARM_FREEZE, WATCHDOG_FREEZE], curve)
+    assert _floor(margin, 1740) == 806
+    assert margin.minimum_voltage_mv(1740)[1].lock_clock_mhz == 1750
+    far_only = EdgeMargin([WATCHDOG_FREEZE], curve)
+    assert _floor(far_only, 1740) == 831  # what the max rule used to pick
+    # Balanced at 1875 sits 45 MHz from the 1920 freeze: two bins, not three.
+    assert _floor(margin, 1875) == 912
+    assert "1 to 3 bins above the edge the nearest one predicts" in margin.describe()
+
+
+def test_margin_bins_scale_with_extrapolation_distance():
+    margin = EdgeMargin([WARM_FREEZE], rtx_3080_issue109_stock_curve_warm())
+    assert margin.margin_bins_for(0) == 1 and margin.margin_bins_for(15) == 1
+    assert margin.margin_bins_for(30) == 2 and margin.margin_bins_for(90) == 2
+    assert margin.margin_bins_for(105) == 3 and margin.margin_bins_for(-170) == 3

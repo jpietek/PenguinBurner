@@ -9,6 +9,7 @@ import argparse
 
 from auto_uv.domain.user_options import AUTO_UV_DEFAULTS
 from auto_uv.scan_mode.auto_uv_mode import ADAPTIVE_TIER_MODES, AUTO_UV_MODES
+from auto_uv.scan_mode.tuning_mode import AUTO_UV_TUNING_MODES
 from common.penguin_burner_paths import default_runtime_config_path
 from integrations.afterburner.policy import MAX_AFTERBURNER_MEM_OFFSET_MHZ
 from runtime.support.runtime_service import DEFAULT_JOURNAL_HOURS
@@ -116,6 +117,21 @@ def parse_arguments(argv):
             "5080 and 5090, plus RTX 4090/5090 Laptop; "
             "1080p on all others, including unknown GPUs). "
             "Use 1080p to compare a lighter rendering workload. CUDA is unchanged."
+        ),
+    )
+    auto_uv_group.add_argument(
+        "--auto-uv-tuning-mode",
+        choices=AUTO_UV_TUNING_MODES,
+        default=None,
+        metavar="MODE",
+        help=(
+            "How close to the card's stability edge the scan may go. careful "
+            "(default) keeps probes above the edge that recorded freezes predict, "
+            "soaks one step above a cleanly reached floor, lets Performance add "
+            "up to 4 voltage bins over Balanced and spends at most one reboot "
+            "per climb. aggressive drops the predictions and the floor caution, "
+            "allows 8 bins and retries rungs that froze; it can crash the GPU "
+            "repeatedly. Points that actually failed stay blacklisted in both."
         ),
     )
     auto_uv_group.add_argument(

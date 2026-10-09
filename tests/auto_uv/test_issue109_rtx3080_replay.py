@@ -511,15 +511,16 @@ def test_issue109_gui_full_scan_history_replays_into_three_profiles(monkeypatch)
     assert eff_lock == 1740 and bal_lock == 1875
     assert all(c[4] == 268 for c in calls if c[1].startswith("efficiency"))
     assert all(c[4] == 380 for c in calls if c[1].startswith(("balanced", "performance")))
-    # Two freezes are on record by now (Efficiency at 1740, Balanced at 1875),
-    # so the predicted edge keeps the Performance climb off every higher rung
-    # without touching the GPU; Performance ships the verified Balanced point.
-    assert [c for c in launch_calls(3) if c[1] == "candidate"] == []
-    assert any("predicted edge" in m for m in logs[2]), logs[2][-40:]
+    # Two freezes are on record (Efficiency at 1740, Balanced at 1875): the
+    # predicted edge closes every rung at the Balanced voltage, and the climb
+    # buys them back with up to four bins of extra voltage.
     reused = [p for e, p in events[2] if e == "tier_descent_reused"]
     assert [(p["voltage_mv"], p["target_mhz"]) for p in reused] == [final["balanced"]]
-    assert final["performance"] == final["balanced"]
-    assert final["balanced"][1] > final["efficiency"][1]
+    climb = [c for c in launch_calls(3) if c[1] == "candidate"]
+    assert climb and all(final["balanced"][0] < c[2] <= final["balanced"][0] + 25 for c in climb)
+    assert any("predicted edge" in m for m in logs[2]), logs[2][-40:]
+    assert final["performance"][1] > final["balanced"][1] > final["efficiency"][1]
+    assert final["balanced"][0] < final["performance"][0] <= final["balanced"][0] + 25
 
     blacklist = {(e["candidate_voltage_mv"], e["lock_clock_mhz"]) for e in load_unsafe_voltage_blacklist()}
     assert blacklist == {
@@ -576,6 +577,7 @@ def _climb_crash_checkpoint(tmp_path, curve):
 CLIMB_CRASH_BLACKLIST = {
     "candidate_voltage_mv": 937, "lock_clock_mhz": 1920, "phase": "candidate",
     "reason": "stability-probe-failed", "blocked_lock_clock_mhz": [1920, 1905, 1890],
+    "details": {"result_reason": "cuda-bruteforce-failed exit=4"},
 }
 
 
@@ -583,7 +585,7 @@ CLIMB_CRASH_BLACKLIST = {
 def test_climb_crash_resume_restarts_performance_instead_of_aborting(tmp_path, drift_mhz):
     curve = rtx_3080_issue109_stock_curve_warm()
     identity, path = _climb_crash_checkpoint(tmp_path, curve)
-    live = _drift(curve, mhz=drift_mhz, from_mv=800) if drift_mhz else curve
+    live = _drift(curve, mhz=drift_mhz) if drift_mhz else curve
     identity["base_curve"] = live
     messages: list[str] = []
 
@@ -656,7 +658,7 @@ def test_issue109_climb_crash_then_reboot_finishes_performance_on_the_balanced_p
     monkeypatch.setattr(final_module, "apply_plan_and_refresh", lambda *_args: None)
     options = {"auto_uv_mode": "adaptive", **GUI_DEFAULT_TARGETS}
 
-    for index, curve in enumerate((warm, _drift(warm, mhz=-30, from_mv=800)), start=1):
+    for index, curve in enumerate((warm, _drift(warm, mhz=-30)), start=1):
         state["launch"] = index
         monkeypatch.setattr(main, "open_live_gpu_vf_curve_applier", lambda c=curve, **_kw: Rtx3080(c))
         logs.append([])
@@ -682,15 +684,19 @@ def test_issue109_climb_crash_then_reboot_finishes_performance_on_the_balanced_p
     assert any("performance restarts from its baseline" in m for m in logs[1]), logs[1][:30]
     assert not any("Cannot resume" in m for m in logs[1])
     assert not [c for c in second if c[1] in ("efficiency-candidate", "balanced-candidate", "resume-verify")]
-    # Performance started from the checkpointed Balanced point, did not
-    # descend again, and the climb never touched the blacklisted rungs.
+    # Performance started from the checkpointed Balanced point and did not
+    # descend again. The rungs below the freeze are bought back one bin
+    # above the band; the rung that froze the card, and everything above it,
+    # stays closed: one reboot per climb.
     reused = [p for e, p in events[1] if e == "tier_descent_reused"]
     assert [(p["voltage_mv"], p["target_mhz"]) for p in reused] == [(937, 1875)]
     assert not [c for c in second if c[1] == "performance-candidate"]
-    assert not [c for c in second if c[1] == "candidate"], logs[1][-30:]
+    climb = [(c[2], c[3]) for c in second if c[1] == "candidate"]
+    assert climb == [(943, 1890), (943, 1905)], logs[1][-30:]
+    assert any("stays closed" in m and "1920MHz" in m for m in logs[1])
     completed_2 = {p["tier"]: (p["voltage_mv"], p["target_mhz"]) for e, p in events[1] if e == "tier_completed"}
-    assert completed_2 == {"performance": (937, 1875)}
-    assert [c for c in second if c[1] == "final-verify"][-1][2:4] == (937, 1875)
+    assert completed_2 == {"performance": (943, 1905)}
+    assert [c for c in second if c[1] == "final-verify"][-1][2:4] == (943, 1905)
     assert len(list(auto_uv_profiles_dir().glob("*.json"))) == 3
     assert not scan_checkpoint_path().exists()
 
@@ -825,10 +831,14 @@ def test_issue109_recorded_freeze_stops_the_performance_climb_before_the_crash(m
     assert any("edge margin: 1 freeze(s) on record (800mV@1750MHz)" in m for m in logs)
     completed = {p["tier"]: (p["voltage_mv"], p["target_mhz"]) for e, p in events if e == "tier_completed"}
     assert completed["efficiency"] == (806, 1740) and completed["balanced"] == (937, 1875)
-    climb = [c for c in calls if c[0] == "candidate"]
-    assert [c[2] for c in climb] == [1890, 1905]
+    climb = [(c[1], c[2]) for c in calls if c[0] == "candidate"]
+    # 1890 and 1905 at the Balanced voltage; 1920 closed there by the far
+    # prediction and retried one bin above its floor; 1930 likewise.
+    assert climb[:2] == [(937, 1890), (937, 1905)]
     assert any("predicted edge: 937mV@1920MHz" in m for m in logs), [m for m in logs if "auto-oc" in m]
-    assert completed["performance"] == (937, 1905)
+    assert all(v > 937 for v, lock in climb if lock >= 1920)
+    assert all(v <= 937 + 25 for v, _ in climb)
+    assert completed["performance"][1] >= 1920 and 937 < completed["performance"][0] <= 962
     assert len(list(auto_uv_profiles_dir().glob("*.json"))) == 3
     assert not scan_checkpoint_path().exists()
 
@@ -879,3 +889,74 @@ def test_issue109_clean_floor_descent_soaks_one_step_above_the_floor(monkeypatch
     # Nothing after the descent ran at the floor: no reclaim rung, no soak.
     assert not [c for c in calls if c[0] in ("candidate", "final-verify") and c[1] == 800 and c[3] == 268]
     assert completed["balanced"] == (937, 1875)
+
+
+# ---------------------------------------------------------------------------
+# Aggressive tuning: no predicted edge, no floor caution, frozen rungs retried.
+# ---------------------------------------------------------------------------
+
+def _run_scripted_scan(monkeypatch, *, runtime_options, freeze_at=None, floors=None, pass_all=False):
+    """One launch of the real main loop on the tester's card script."""
+    warm = rtx_3080_issue109_stock_curve_warm()
+    calls: list[tuple[str, int, int, int]] = []
+    logs: list[str] = []
+    events: list[tuple[str, dict]] = []
+    floors = dict(floors or {})
+
+    def probe(**kw):
+        stage, voltage, lock = kw["phase_label"], kw["candidate_voltage_mv"], kw["lock_clock_mhz"]
+        cap = int(kw["power_limit_w"])
+        calls.append((stage, voltage, lock, cap))
+        if stage == "discover":
+            clock, mv = STOCK_LOAD[cap]
+            return _probe_result(voltage, lock, kw["candidate_plan"],
+                                 measured_clock=clock, measured_mv=mv, power_w=PROBE_POWER_W[cap])
+        if freeze_at and lock >= freeze_at[1] and voltage <= freeze_at[0]:
+            pytest.fail(f"probed {voltage}mV@{lock}MHz, where the scripted card freezes")
+        stock_mv = STOCK_LOAD[cap][1]
+        power_w = PROBE_POWER_W[cap] * (voltage / stock_mv) ** 2
+        fps = None if pass_all else (60.0 if voltage < floors.get(stage, 0) else None)
+        return _probe_result(voltage, lock, kw["candidate_plan"], measured_clock=float(lock + 30),
+                             measured_mv=float(voltage + 6), power_w=power_w, fps=fps)
+
+    monkeypatch.setattr(main, "cleanup_managed_q2rtx_processes", lambda *_a, **_k: None)
+    monkeypatch.setattr(runner_module, "probe_voltage_candidate", probe)
+    monkeypatch.setattr(main, "probe_voltage_candidate", probe)
+    monkeypatch.setattr(final_module, "apply_plan_and_refresh", lambda *_args: None)
+    monkeypatch.setattr(main, "open_live_gpu_vf_curve_applier", lambda **_kw: Rtx3080(warm))
+    main.run_voltage_frequency_undervolt_main_loop(
+        gpu_index=0, runtime_options=dict(runtime_options), q2rtx_config=Q2RTXStabilityConfig(),
+        event_callback=lambda name, payload: events.append((name, payload)), log=logs.append,
+    )
+    completed = {p["tier"]: (p["voltage_mv"], p["target_mhz"]) for e, p in events if e == "tier_completed"}
+    return calls, logs, completed
+
+
+def test_aggressive_mode_ignores_the_predicted_edge_and_the_floor_caution(monkeypatch):
+    record_unsafe_voltage(**EFFICIENCY_SOAK_FREEZE)
+    options = {"auto_uv_mode": "adaptive", "auto_uv_tuning_mode": "aggressive"}
+    calls, logs, completed = _run_scripted_scan(
+        monkeypatch, runtime_options=options, floors={"balanced-candidate": 937},
+    )
+    assert any("tuning mode: aggressive; no predicted-edge margin, no floor caution" in m for m in logs)
+    assert not any("predicted edge" in m for m in logs)
+    # The descent reached the blacklist band's edge (806, one bin above the
+    # 800 mV freeze band) and soaked that point: no floor caution.
+    efficiency = [c for c in calls if c[0] == "efficiency-candidate"]
+    assert efficiency[-1][1] == 806 and completed["efficiency"][0] == 806
+    assert not any("sweep-floor-caution" in m for m in logs)
+    # The climb walked 1890, 1905, 1920 and 1930 at the Balanced voltage.
+    climb = [(c[1], c[2]) for c in calls if c[0] == "candidate"]
+    assert climb == [(937, 1890), (937, 1905), (937, 1920), (937, 1930)]
+    assert completed["performance"] == (937, 1930)
+
+
+def test_careful_mode_is_the_default_and_keeps_the_guards(monkeypatch):
+    record_unsafe_voltage(**EFFICIENCY_SOAK_FREEZE)
+    calls, logs, completed = _run_scripted_scan(
+        monkeypatch, runtime_options={"auto_uv_mode": "adaptive"},
+        floors={"balanced-candidate": 937}, freeze_at=(937, 1920),
+    )
+    assert any("tuning mode: careful" in m for m in logs)
+    assert any("predicted edge: 937mV@1920MHz" in m for m in logs)
+    assert completed["efficiency"][0] == 806

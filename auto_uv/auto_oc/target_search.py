@@ -28,7 +28,7 @@ from auto_uv.persistence.unsafe_voltage_blacklist_file import (
     load_unsafe_voltage_blacklist,
 )
 from auto_uv.persistence.unsafe_voltage_cache import unsafe_voltage_block_reason
-from auto_uv.run.edge_margin import EdgeMargin
+from auto_uv.run.tuning_policy import TuningPolicy
 from auto_uv.scan_mode.efficiency_fps_per_w_policy import (
     best_efficiency_candidate_index,
 )
@@ -50,7 +50,7 @@ def run_custom_tier_target_search(
     overrides: TierTargetOverrides,
     tail_rise_bins: int,
     measured_baseline_clock_mhz: float,
-    edge_margin: EdgeMargin | None = None,
+    policy: TuningPolicy | None = None,
 ) -> AutoOcSearchResult:
     endpoint = auto_oc_endpoint(
         gpu_name,
@@ -173,7 +173,7 @@ def run_custom_tier_target_search(
             measured_baseline_clock_mhz=measured_baseline_clock_mhz,
             target_profile_id=tier,
             probe_stable_history=stable_history,
-            edge_margin=edge_margin,
+            policy=policy,
         )
         for attempt in climbed.attempts:
             summary = attempt.outcome.raw_probe

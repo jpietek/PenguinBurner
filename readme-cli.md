@@ -81,6 +81,7 @@ and the risk of instability.
 Common scan controls, shown for every GUI preset:
 
 - `--gpu-index N`: select the NVIDIA GPU used for scan, verification, and runtime.
+- `--auto-uv-tuning-mode careful|aggressive`: how close to the card's stability edge the search may go (default `careful`); see the [tuning mode table](docs/features/auto-uv.md#tuning-mode).
 - `--auto-uv-memory-offset-mhz N`: memory clock V/F offset applied during the scan and saved with the final profile.
 - `--auto-uv-power-limit-w N`: power limit applied during the scan and saved with the final profile.
 

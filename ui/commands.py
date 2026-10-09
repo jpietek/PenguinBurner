@@ -248,6 +248,7 @@ def scan_command(auto_uv_options: Mapping[str, object] | None = None) -> list[st
     }
     option_keys = (
         "auto_uv_mode",
+        "auto_uv_tuning_mode",
         "auto_uv_min_voltage_mv",
         "auto_uv_memory_offset_mhz",
         "auto_uv_power_limit_w",

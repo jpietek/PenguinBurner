@@ -7,6 +7,10 @@ from auto_uv.scan_mode.auto_uv_mode import (
     adaptive_tier_option_key,
     normalize_auto_uv_mode,
 )
+from auto_uv.scan_mode.tuning_mode import (
+    AUTO_UV_TUNING_MODE_OPTION,
+    normalize_auto_uv_tuning_mode,
+)
 
 
 def _positive_or_none(coerce):
@@ -63,6 +67,9 @@ def build_effective_auto_uv_runtime_options(args) -> dict:
     resolution = getattr(args, "auto_uv_q2rtx_resolution", None)
     if resolution is not None:
         runtime_options["auto_uv_q2rtx_resolution"] = str(resolution)
+    tuning_mode = getattr(args, "auto_uv_tuning_mode", None)
+    if tuning_mode is not None:
+        runtime_options[AUTO_UV_TUNING_MODE_OPTION] = normalize_auto_uv_tuning_mode(tuning_mode)
 
     if getattr(args, "auto_uv_mode", None) is not None:
         requested_auto_uv_mode = str(args.auto_uv_mode).strip().lower()

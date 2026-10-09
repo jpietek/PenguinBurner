@@ -17,7 +17,7 @@ from auto_uv.persistence.unsafe_voltage_blacklist_file import (
 )
 from auto_uv.persistence.unsafe_voltage_cache import unsafe_voltage_block_reason
 from auto_uv.probes.runner import AutoUvProbeRunner
-from auto_uv.run.edge_margin import EdgeMargin
+from auto_uv.run.tuning_policy import TuningPolicy
 from auto_uv.scan_mode.auto_uv_mode import (
     AUTO_UV_MODE_BALANCED,
     AUTO_UV_MODE_EFFICIENCY,
@@ -47,7 +47,7 @@ def select_performance_auto_oc_candidate(
     target_voltage_mv: int | None = None,
     target_clock_mhz: int | None = None,
     measured_baseline_clock_mhz: float | None = None,
-    edge_margin: EdgeMargin | None = None,
+    policy: TuningPolicy | None = None,
 ) -> tuple[list[dict], int, int, AutoUvProbeSummary | None, dict]:
     if str(auto_uv_mode) != AUTO_UV_MODE_PERFORMANCE:
         return (
@@ -77,7 +77,7 @@ def select_performance_auto_oc_candidate(
         target_clock_mhz=target_clock_mhz,
         measured_baseline_clock_mhz=measured_baseline_clock_mhz,
         probe_stable_history=stable_history,
-        edge_margin=edge_margin,
+        policy=policy,
     )
     if stable_history is not None:
         for attempt in getattr(result, "attempts", ()) or ():
@@ -119,7 +119,7 @@ def select_power_bound_clock_reclaim_candidate(
     log: Callable[[str], None],
     tail_rise_bins: int = 0,
     measured_baseline_clock_mhz: float | None = None,
-    edge_margin: EdgeMargin | None = None,
+    policy: TuningPolicy | None = None,
 ) -> tuple[list[dict], int, int, AutoUvProbeSummary | None, dict]:
     """Raise clock at the proven voltage after a capped savings-tier descent."""
     mode = str(auto_uv_mode)
@@ -168,7 +168,7 @@ def select_power_bound_clock_reclaim_candidate(
         measured_baseline_clock_mhz=measured_baseline_clock_mhz,
         target_profile_id=mode,
         probe_stable_history=stable_history,
-        edge_margin=edge_margin,
+        policy=policy,
     )
     for attempt in getattr(result, "attempts", ()) or ():
         if attempt.outcome.decision.passed and attempt.outcome.raw_probe is not None:

@@ -356,6 +356,43 @@ def test_select_scan_tuning_sends_only_edited_tier_targets(qt, monkeypatch) -> N
     assert not [key for key in options if "_target_" in key]
 
 
+def test_select_scan_tuning_sends_the_tuning_mode_only_when_aggressive(qt, monkeypatch) -> None:
+    qtcore, qtgui, qtwidgets, _pg = qt
+    monkeypatch.setattr(
+        scan_tuning_dialog, "memory_offset_mhz_range", lambda **_kwargs: (0, 4000)
+    )
+    from ui.features.tuning.gpu_selection import GpuChoice
+
+    monkeypatch.setattr(
+        scan_tuning_dialog, "gpu_choices_with_fallback",
+        lambda **_: ([GpuChoice(index=0, name="NVIDIA GeForce RTX 3080")], 0),
+    )
+    chosen = {"mode": None}
+
+    def accept(self):
+        buttons = {
+            str(b.property("tuningMode")): b
+            for b in self.findChildren(qtwidgets.QPushButton)
+            if b.objectName() == "autoUvTuningButton"
+        }
+        assert set(buttons) == {"careful", "aggressive"}
+        assert buttons["careful"].isChecked()
+        if chosen["mode"]:
+            buttons[chosen["mode"]].setChecked(True)
+        return qtwidgets.QDialog.Accepted
+
+    monkeypatch.setattr(qtwidgets.QDialog, "exec", accept)
+    options = scan_tuning_dialog.select_scan_tuning(
+        QtCore=qtcore, QtGui=qtgui, QtWidgets=qtwidgets, parent=None, gpu_index=0
+    )
+    assert options is not None and "auto_uv_tuning_mode" not in options
+    chosen["mode"] = "aggressive"
+    options = scan_tuning_dialog.select_scan_tuning(
+        QtCore=qtcore, QtGui=qtgui, QtWidgets=qtwidgets, parent=None, gpu_index=0
+    )
+    assert options is not None and options["auto_uv_tuning_mode"] == "aggressive"
+
+
 def test_energy_savings_formatting_uptime_and_units() -> None:
     assert about_dialog.format_total_runtime(9) == "9s"
     assert about_dialog.format_total_runtime(75) == "1m 15s"

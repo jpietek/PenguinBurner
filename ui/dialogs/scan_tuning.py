@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 from auto_uv.scan_mode.auto_uv_mode import adaptive_tier_option_key
+from auto_uv.scan_mode.tuning_mode import (
+    AUTO_UV_TUNING_MODE_AGGRESSIVE,
+    AUTO_UV_TUNING_MODE_CAREFUL,
+    AUTO_UV_TUNING_MODE_OPTION,
+)
 from auto_uv.scan_mode.uv_limits import uv_limit_clock_target_range_for_gpu
 from drivers.nvidia.daemon_gpu import DaemonGpuClient
 from ui.features.tuning.gpu_selection import gpu_choices_with_fallback
@@ -176,6 +181,57 @@ def select_scan_tuning(
     scan_estimate_note.setObjectName("autoUvScanEstimate")
     scan_estimate_note.setWordWrap(True)
     scope_layout.addWidget(scan_estimate_note, 1)
+
+    # One scan-wide knob for how close to the card's edge the search may go.
+    tuning_group = QtWidgets.QGroupBox("Tuning")
+    tuning_group.setObjectName("autoUvTuningGroup")
+    tuning_layout = QtWidgets.QHBoxLayout(tuning_group)
+    tuning_layout.setContentsMargins(14, 18, 14, 12)
+    tuning_layout.setSpacing(10)
+    tuning_button_group = QtWidgets.QButtonGroup(dialog)
+    tuning_button_group.setExclusive(True)
+    tuning_buttons: dict = {}
+    careful_tooltip = (
+        "Keeps probes above the stability edge that earlier freezes predict, "
+        "soaks one step above a cleanly reached floor, lets Performance add up "
+        "to 4 voltage bins over Balanced and spends at most one reboot per "
+        "climb. Points that actually failed stay blacklisted."
+    )
+    aggressive_tooltip = (
+        "Explores past the predicted edge: no predicted-edge margin, no floor "
+        "caution, Performance may add 8 voltage bins and retries rungs that "
+        "froze. Finds the deepest curve the card holds, and can freeze the "
+        "GPU repeatedly on the way; each freeze needs a reboot. Points that "
+        "actually failed stay blacklisted."
+    )
+    for mode_id, label, tooltip in (
+        (AUTO_UV_TUNING_MODE_CAREFUL, "Careful", careful_tooltip),
+        (AUTO_UV_TUNING_MODE_AGGRESSIVE, "Aggressive", aggressive_tooltip),
+    ):
+        button = QtWidgets.QPushButton(label)
+        button.setObjectName("autoUvTuningButton")
+        button.setCheckable(True)
+        button.setProperty("tuningMode", mode_id)
+        button.setToolTip(wrapped_tooltip(tooltip))
+        button.setToolTipDuration(20000)
+        button.setAutoDefault(False)
+        button.setDefault(False)
+        tuning_button_group.addButton(button)
+        tuning_layout.addWidget(button, 1)
+        tuning_buttons[mode_id] = button
+    tuning_buttons[AUTO_UV_TUNING_MODE_CAREFUL].setChecked(True)
+    tuning_note = QtWidgets.QLabel(
+        "Aggressive may crash the GPU during the scan; the scan resumes after a reboot."
+    )
+    tuning_note.setObjectName("autoUvTuningNote")
+    tuning_note.setWordWrap(True)
+    tuning_layout.addWidget(tuning_note, 1)
+
+    def tuning_mode() -> str:
+        for mode_id, button in tuning_buttons.items():
+            if button.isChecked():
+                return mode_id
+        return AUTO_UV_TUNING_MODE_CAREFUL
 
     preset_group = QtWidgets.QGroupBox("Auto-UV preset")
     preset_group.setObjectName("autoUvPresetGroup")
@@ -692,6 +748,7 @@ def select_scan_tuning(
     layout.addWidget(purpose)
     layout.addWidget(gpu_group)
     layout.addWidget(scope_group)
+    layout.addWidget(tuning_group)
     layout.addWidget(preset_group)
     layout.addWidget(advanced_group)
     layout.addWidget(buttons)
@@ -705,6 +762,10 @@ def select_scan_tuning(
         "gpu_index": _selected_gpu_index(gpu_combo, selected_gpu_index),
         "auto_uv_mode": preset.auto_uv_mode,
     }
+    # The default stays implicit so an unchanged dialog sends what the CLI
+    # sends without the flag.
+    if tuning_mode() != AUTO_UV_TUNING_MODE_CAREFUL:
+        options[AUTO_UV_TUNING_MODE_OPTION] = tuning_mode()
     if preset.preset_id == AUTO_UV_PRESET_ADAPTIVE:
         for preset_id in _PRESET_ORDER:
             controls = tier_controls[preset_id]

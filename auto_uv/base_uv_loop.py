@@ -31,9 +31,9 @@ from auto_uv.persistence.unsafe_voltage_cache import (
     unsafe_min_search_voltage,
     unsafe_voltage_block_reason,
 )
-from auto_uv.run.edge_margin import EdgeMargin
 from auto_uv.run.lower_voltage_probe_target import lower_voltage_phase
 from auto_uv.run.lower_voltage_search import select_next_lower_voltage
+from auto_uv.run.tuning_policy import TuningPolicy
 from auto_uv.run.voltage_sweep_state import (
     LowerVoltageSweepEvent,
     LowerVoltageSweepResult,
@@ -96,7 +96,7 @@ def run_base_uv_loop(
     io: BaseUvLoopIO,
     unsafe_entries: list[dict] | None = None,
     initial_stable_outcome: VoltageProbeOutcome | None = None,
-    edge_margin: EdgeMargin | None = None,
+    policy: TuningPolicy | None = None,
 ) -> LowerVoltageSweepResult:
     validate_base_vf_curve(base_curve)
     unsafe_floor_mv, unsafe_min_search_mv = unsafe_min_search_voltage(
@@ -144,8 +144,8 @@ def run_base_uv_loop(
             lock_clock_mhz=int(candidate.target_mhz),
             profile_tier=settings.auto_uv_mode,
         )
-        if not block_reason and edge_margin is not None:
-            block_reason = edge_margin.block_reason(
+        if not block_reason and policy is not None and policy.edge_margin is not None:
+            block_reason = policy.edge_margin.block_reason(
                 candidate_voltage_mv=int(candidate.voltage_mv),
                 lock_clock_mhz=int(candidate.target_mhz),
             )
@@ -194,6 +194,7 @@ def run_base_uv_loop(
     excluded_candidate = None
     if (
         not ended_by_stop
+        and (policy is None or policy.floor_caution)
         and min_search_voltage_mv is not None
         and len(passes) >= 2
         and same_candidate_identity(selected_result.selected_candidate, passes[-1][0])

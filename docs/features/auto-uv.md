@@ -28,6 +28,23 @@ pburn-cli --auto-uv-voltage-scan --auto-uv-mode efficiency
 
 See the [CLI reference](../../readme-cli.md#auto-uv-scan) for per-tier overrides.
 
+### Tuning mode
+
+One scan-wide switch, **Careful** (default) or **Aggressive**, in the setup
+dialog and as `--auto-uv-tuning-mode careful|aggressive` on the CLI.
+
+| | Careful | Aggressive |
+| --- | --- | --- |
+| Probes near an edge that recorded freezes predict | kept above it (1 to 3 voltage bins, by distance) | no limit |
+| Descent that reaches its floor with every probe passing | soaks one step above the floor | soaks the floor |
+| Performance voltage above what Balanced proved | up to 4 bins | up to 8 bins |
+| A climb rung that froze the host | stays closed, one reboot per climb | retried higher after each reboot |
+| Points that actually failed | blacklisted | blacklisted |
+
+Careful suits cards whose failure mode is a hard freeze. Aggressive finds the
+deepest curve a card holds and can freeze it repeatedly on the way; the scan
+resumes after each reboot.
+
 ## What happens
 
 1. Apply and read back the tier's power limit and measure its baseline.

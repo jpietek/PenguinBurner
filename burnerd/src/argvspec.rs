@@ -9,6 +9,7 @@ pub const AUTO_UV_OPTION_FLAGS: &[(&str, &str)] = &[
     ("gpu_index", "--gpu-index"),
     ("auto_uv_mode", "--auto-uv-mode"),
     ("auto_uv_q2rtx_resolution", "--auto-uv-q2rtx-resolution"),
+    ("auto_uv_tuning_mode", "--auto-uv-tuning-mode"),
     ("auto_uv_min_voltage_mv", "--auto-uv-min-voltage-mv"),
     ("auto_uv_memory_offset_mhz", "--auto-uv-memory-offset-mhz"),
     ("auto_uv_power_limit_w", "--auto-uv-power-limit-w"),
@@ -292,6 +293,21 @@ mod tests {
         assert_eq!(
             auto_uv_option_args(&options).unwrap(),
             vec!["--gpu-index", "3", "--auto-uv-q2rtx-resolution", "1080p"]
+        );
+    }
+
+    #[test]
+    fn scan_command_forwards_tuning_mode_after_resolution() {
+        let options = json!({
+            "gpu_index": 0, "auto_uv_tuning_mode": "aggressive", "auto_uv_q2rtx_resolution": "auto"
+        });
+        assert_eq!(
+            auto_uv_option_args(&options).unwrap(),
+            vec![
+                "--gpu-index", "0",
+                "--auto-uv-q2rtx-resolution", "auto",
+                "--auto-uv-tuning-mode", "aggressive",
+            ]
         );
     }
 
