@@ -28,14 +28,14 @@ def test_careful_policy_keeps_every_guard_and_aggressive_drops_the_predictive_on
     curve = rtx_3080_issue109_stock_curve_warm()
     careful = TuningPolicy.build("careful", [FREEZE], curve)
     assert careful.edge_margin is not None and careful.floor_caution
-    assert careful.performance_voltage_headroom_bins == 4
+    assert careful.performance_voltage_headroom_bins == 6
     assert not careful.retry_frozen_rungs
     assert "tuning mode: careful" in careful.describe()
     assert "one reboot per climb at most" in careful.describe()
 
     aggressive = TuningPolicy.build("aggressive", [FREEZE], curve)
     assert aggressive.edge_margin is None and not aggressive.floor_caution
-    assert aggressive.performance_voltage_headroom_bins == 8
+    assert aggressive.performance_voltage_headroom_bins == 10
     assert aggressive.retry_frozen_rungs
     assert "no predicted-edge margin, no floor caution" in aggressive.describe()
     assert aggressive.with_entries([FREEZE]) is aggressive

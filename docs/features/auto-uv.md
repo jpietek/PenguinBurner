@@ -37,7 +37,7 @@ dialog and as `--auto-uv-tuning-mode careful|aggressive` on the CLI.
 | --- | --- | --- |
 | Probes near an edge that recorded freezes predict | kept above it (1 to 3 voltage bins, by distance) | no limit |
 | Descent that reaches its floor with every probe passing | soaks one step above the floor | soaks the floor |
-| Performance voltage above what Balanced proved | up to 4 bins | up to 8 bins |
+| Performance voltage above what Balanced proved | up to 6 bins (about 37 mV) | up to 10 bins |
 | A climb rung that froze the host | stays closed, one reboot per climb | retried higher after each reboot |
 | Points that actually failed | blacklisted | blacklisted |
 

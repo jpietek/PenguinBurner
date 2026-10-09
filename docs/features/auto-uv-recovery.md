@@ -58,7 +58,10 @@ their full search.
 
 The blacklist blocks the failed voltage and lower voltages at the recorded
 clock band and above, including a small clock guard band. It is checked before
-voltage probes, clock climbs, and final verification. A lower passing clock
+voltage probes, clock climbs, and final verification. A tier that already
+passed its soak is invalidated only by a later failure at the same or a lower
+clock and the same or a higher voltage; the guard band below a higher-clock
+failure does not reach back into a verified point. A lower passing clock
 may still be usable. Auto-UV never exceeds the configured voltage target to
 force a higher clock.
 

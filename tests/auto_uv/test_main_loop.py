@@ -3043,9 +3043,9 @@ def test_3080_shared_descent_reclaims_then_climbs_with_the_same_cap(monkeypatch,
     assert completed[1]["target_mhz"] == 1885
     assert completed[2]["target_mhz"] == (1930 if performance_passes else 1885)
     assert any(clock > 1885 for _, clock, _ in tried)
-    # Rungs that fail at the proven voltage are retried with up to four bins
+    # Rungs that fail at the proven voltage are retried with up to six bins
     # of extra voltage (careful tuning); the power cap never changes.
-    assert all(937 <= voltage <= 962 and cap == 380 for voltage, _, cap in tried)
+    assert all(937 <= voltage <= 975 and cap == 380 for voltage, _, cap in tried)
     assert tried[0][0] == 937
 
 

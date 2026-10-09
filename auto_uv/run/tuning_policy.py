@@ -19,8 +19,11 @@ from auto_uv.scan_mode.tuning_mode import (
 
 # Voltage bins (about 6 mV each) Performance may add above the Balanced-proven
 # voltage to climb past rungs the blacklist or the edge margin close at that
-# voltage. Four bins cover the issue 109 card (918 proven, climb open at 943).
-PERFORMANCE_VOLTAGE_HEADROOM_BINS = {"careful": 4, "aggressive": 8}
+# voltage. On the issue 109 card Balanced lands at 912 to 918 mV and the
+# 1920 MHz crash band closes everything at or below 937, so the climb needs
+# 943: six bins from 912. The tester's hand-tuned Performance sits 13 to
+# 38 mV above his Balanced point, the same range.
+PERFORMANCE_VOLTAGE_HEADROOM_BINS = {"careful": 6, "aggressive": 10}
 
 
 @dataclass(frozen=True, slots=True)

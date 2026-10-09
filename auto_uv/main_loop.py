@@ -211,7 +211,10 @@ def run_voltage_frequency_undervolt_main_loop(
                 identity=scan_checkpoint_identity(gpu, runtime_options, q2rtx_config, settings),
                 callback=event_callback, log=log,
             )
-            checkpoint.prepare_recovery(base_curve, unsafe_entries, crash_recovery_entry)
+            checkpoint.prepare_recovery(
+                base_curve, unsafe_entries, crash_recovery_entry,
+                recover_climbs=not policy.retry_frozen_rungs,
+            )
             checkpoint.restore_ui()
             event_callback = checkpoint.event
         emit_auto_uv_event(

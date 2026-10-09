@@ -500,6 +500,8 @@ def test_completed_tier_cannot_bypass_new_blacklist(tmp_path):
         AutoUvVoltageScanResult(True, 850, 2775, "verified", None, []),
         profiles=True,
     )
+    # A later failure at a higher clock, even with a band reaching down past
+    # the verified point, does not condemn what a soak already proved.
     record_unsafe_voltage(
         candidate_voltage_mv=850,
         lock_clock_mhz=2800,
@@ -509,7 +511,10 @@ def test_completed_tier_cannot_bypass_new_blacklist(tmp_path):
     resumed = ScanCheckpoint(
         identity=identity, callback=None, log=lambda _s: None, path=path
     )
-    with pytest.raises(AutoUvCriticalProbeError, match="now blacklisted"):
+    assert resumed.completed_tier("efficiency") is not None
+    # A failure at the same or a lower clock, at the same or a higher voltage, does.
+    record_unsafe_voltage(candidate_voltage_mv=850, lock_clock_mhz=2775, reason="device lost")
+    with pytest.raises(AutoUvCriticalProbeError, match="850mV@2775MHz failed since it was verified"):
         resumed.completed_tier("efficiency")
 
 

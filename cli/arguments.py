@@ -128,9 +128,9 @@ def parse_arguments(argv):
             "How close to the card's stability edge the scan may go. careful "
             "(default) keeps probes above the edge that recorded freezes predict, "
             "soaks one step above a cleanly reached floor, lets Performance add "
-            "up to 4 voltage bins over Balanced and spends at most one reboot "
+            "up to 6 voltage bins over Balanced and spends at most one reboot "
             "per climb. aggressive drops the predictions and the floor caution, "
-            "allows 8 bins and retries rungs that froze; it can crash the GPU "
+            "allows 10 bins and retries rungs that froze; it can crash the GPU "
             "repeatedly. Points that actually failed stay blacklisted in both."
         ),
     )

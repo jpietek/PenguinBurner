@@ -315,6 +315,7 @@ from auto_uv.persistence.unsafe_voltage_blacklist_file import (  # noqa: E402
     load_unsafe_voltage_blacklist,
 )
 from auto_uv.probes import runner as runner_module  # noqa: E402
+from auto_uv.probes.voltage_probe import unsafe_clock_bindings_from_plan  # noqa: E402
 from profiles.uv.profile_store import auto_uv_profiles_dir  # noqa: E402
 from stability.q2rtx.models import (  # noqa: E402
     Q2RTXBenchmarkSummary,
@@ -517,10 +518,10 @@ def test_issue109_gui_full_scan_history_replays_into_three_profiles(monkeypatch)
     reused = [p for e, p in events[2] if e == "tier_descent_reused"]
     assert [(p["voltage_mv"], p["target_mhz"]) for p in reused] == [final["balanced"]]
     climb = [c for c in launch_calls(3) if c[1] == "candidate"]
-    assert climb and all(final["balanced"][0] < c[2] <= final["balanced"][0] + 25 for c in climb)
+    assert climb and all(final["balanced"][0] < c[2] <= final["balanced"][0] + 38 for c in climb)
     assert any("predicted edge" in m for m in logs[2]), logs[2][-40:]
     assert final["performance"][1] > final["balanced"][1] > final["efficiency"][1]
-    assert final["balanced"][0] < final["performance"][0] <= final["balanced"][0] + 25
+    assert final["balanced"][0] < final["performance"][0] <= final["balanced"][0] + 38
 
     blacklist = {(e["candidate_voltage_mv"], e["lock_clock_mhz"]) for e in load_unsafe_voltage_blacklist()}
     assert blacklist == {
@@ -837,8 +838,8 @@ def test_issue109_recorded_freeze_stops_the_performance_climb_before_the_crash(m
     assert climb[:2] == [(937, 1890), (937, 1905)]
     assert any("predicted edge: 937mV@1920MHz" in m for m in logs), [m for m in logs if "auto-oc" in m]
     assert all(v > 937 for v, lock in climb if lock >= 1920)
-    assert all(v <= 937 + 25 for v, _ in climb)
-    assert completed["performance"][1] >= 1920 and 937 < completed["performance"][0] <= 962
+    assert all(v <= 937 + 38 for v, _ in climb)
+    assert completed["performance"][1] >= 1920 and 937 < completed["performance"][0] <= 975
     assert len(list(auto_uv_profiles_dir().glob("*.json"))) == 3
     assert not scan_checkpoint_path().exists()
 
@@ -960,3 +961,105 @@ def test_careful_mode_is_the_default_and_keeps_the_guards(monkeypatch):
     assert any("tuning mode: careful" in m for m in logs)
     assert any("predicted edge: 937mV@1920MHz" in m for m in logs)
     assert completed["efficiency"][0] == 806
+
+
+def test_balanced_at_912_still_leaves_performance_room_to_climb(monkeypatch):
+    """With both freezes on record the new margin lets Balanced reach 912.
+    Four bins of headroom would end at 937, inside the 1920 crash band;
+    six reach 943 and reopen 1890 and 1905. 1920 stays closed (it froze)."""
+    record_unsafe_voltage(**EFFICIENCY_SOAK_FREEZE)
+    record_unsafe_voltage(**CLIMB_CRASH_BLACKLIST)
+    calls, logs, completed = _run_scripted_scan(
+        monkeypatch, runtime_options={"auto_uv_mode": "adaptive"},
+        freeze_at=(937, 1920), pass_all=True,
+    )
+    assert completed["efficiency"] == (806, 1740)
+    assert completed["balanced"] == (912, 1875)
+    climb = [(c[1], c[2]) for c in calls if c[0] == "candidate"]
+    assert climb == [(943, 1890), (943, 1905)], logs[-25:]
+    assert completed["performance"] == (943, 1905)
+
+
+# ---------------------------------------------------------------------------
+# Whole-scan simulation of the tester's card, fresh, in both tuning modes.
+# ---------------------------------------------------------------------------
+
+def _rtx3080_edge_mv(lock_clock_mhz: int) -> int:
+    """Lowest voltage the tester's card holds at a requested clock.
+
+    Anchored on his history: 806 held and 800 froze at 1740-1750; 918 held
+    at 1875; 937 held at 1890 and 1905 and froze at 1920; 943 held at 1920.
+    Linear in between (about 0.78 mV per MHz), which matches the ~1.3 MHz/mV
+    slope of his hand-tuned curve.
+    """
+    return round(803 + (int(lock_clock_mhz) - 1740) * 0.78)
+
+
+def _simulate_fresh_card(monkeypatch, *, mode: str, max_launches: int = 14):
+    """Run launches until the scan completes; a probe below the edge freezes the host."""
+    warm = rtx_3080_issue109_stock_curve_warm()
+    calls: list[tuple[int, str, int, int]] = []
+    reboots: list[tuple[str, int, int]] = []
+    completed: dict[str, tuple[int, int]] = {}
+    launch = {"n": 0}
+
+    def probe(**kw):
+        stage, voltage, lock = kw["phase_label"], kw["candidate_voltage_mv"], kw["lock_clock_mhz"]
+        cap = int(kw["power_limit_w"])
+        calls.append((launch["n"], stage, voltage, lock))
+        if stage == "discover":
+            clock, mv = STOCK_LOAD[cap]
+            return _probe_result(voltage, lock, kw["candidate_plan"],
+                                 measured_clock=clock, measured_mv=mv, power_w=PROBE_POWER_W[cap])
+        if voltage < _rtx3080_edge_mv(lock):
+            reboots.append((stage, voltage, lock))
+            write_probe_in_progress_marker(
+                phase=stage, candidate_voltage_mv=voltage, lock_clock_mhz=lock,
+                details={"blocked_lock_clock_mhz": unsafe_clock_bindings_from_plan(
+                    kw["candidate_plan"], lock_clock_mhz=lock,
+                )},
+            )
+            raise SystemExit(f"Xid 79 at {voltage}mV@{lock}MHz during {stage}")
+        stock_mv = STOCK_LOAD[cap][1]
+        return _probe_result(voltage, lock, kw["candidate_plan"], measured_clock=float(lock + 30),
+                             measured_mv=float(voltage + 6),
+                             power_w=PROBE_POWER_W[cap] * (voltage / stock_mv) ** 2)
+
+    monkeypatch.setattr(main, "cleanup_managed_q2rtx_processes", lambda *_a, **_k: None)
+    monkeypatch.setattr(runner_module, "probe_voltage_candidate", probe)
+    monkeypatch.setattr(main, "probe_voltage_candidate", probe)
+    monkeypatch.setattr(final_module, "apply_plan_and_refresh", lambda *_args: None)
+    monkeypatch.setattr(main, "open_live_gpu_vf_curve_applier", lambda **_kw: Rtx3080(warm))
+    options = {"auto_uv_mode": "adaptive", "auto_uv_tuning_mode": mode}
+    for _ in range(max_launches):
+        launch["n"] += 1
+        events: list[tuple[str, dict]] = []
+        try:
+            main.run_voltage_frequency_undervolt_main_loop(
+                gpu_index=0, runtime_options=dict(options), q2rtx_config=Q2RTXStabilityConfig(),
+                event_callback=lambda name, payload, sink=events: sink.append((name, payload)),
+                log=lambda _m: None,
+            )
+        except SystemExit:
+            completed.update({p["tier"]: (p["voltage_mv"], p["target_mhz"]) for e, p in events if e == "tier_completed"})
+            continue
+        completed.update({p["tier"]: (p["voltage_mv"], p["target_mhz"]) for e, p in events if e == "tier_completed"})
+        break
+    else:
+        pytest.fail(f"scan did not finish in {max_launches} launches; reboots={reboots}")
+    return launch["n"], reboots, completed
+
+
+@pytest.mark.parametrize("mode", ["careful", "aggressive"])
+def test_issue109_fresh_card_full_scan_in_both_tuning_modes(monkeypatch, mode):
+    launches, reboots, completed = _simulate_fresh_card(monkeypatch, mode=mode)
+    print(f"\nSIM {mode}: launches={launches} reboots={len(reboots)} "
+          f"result={completed} reboot_points={[(s, v, c) for s, v, c in reboots]}")
+    assert set(completed) == {"efficiency", "balanced", "performance"}
+    for tier, (voltage, lock) in completed.items():
+        assert voltage >= _rtx3080_edge_mv(lock), (tier, voltage, lock)
+    assert completed["performance"][1] > completed["balanced"][1] > completed["efficiency"][1]
+    if mode == "careful":
+        assert len(reboots) <= 3
+        assert not any(stage == "candidate" for stage, _, _ in reboots)  # no climb reboot
+    assert len(list(auto_uv_profiles_dir().glob("*.json"))) == 3

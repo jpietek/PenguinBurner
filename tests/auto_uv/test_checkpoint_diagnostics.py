@@ -242,5 +242,30 @@ def test_completed_tier_still_checks_blacklist_after_replay_ends(tmp_path):
     record_unsafe_voltage(
         candidate_voltage_mv=850, lock_clock_mhz=1800, reason="device lost"
     )
-    with pytest.raises(AutoUvCriticalProbeError, match="now blacklisted"):
+    with pytest.raises(AutoUvCriticalProbeError, match="failed since it was verified"):
         checkpoint.completed_tier("efficiency")
+
+
+def test_a_climb_freeze_above_a_verified_balanced_point_does_not_condemn_it(tmp_path):
+    """Aggressive climb froze at 918 / 1890, whose band reaches down to 1860
+    at <=918 mV. The soaked Balanced point 918 / 1875 must stay reusable."""
+    from auto_uv.persistence.unsafe_voltage_blacklist_file import record_unsafe_voltage
+
+    path = tmp_path / "checkpoint.json"
+    checkpoint = ScanCheckpoint(
+        identity={"options": {"auto_uv_mode": "adaptive"}}, callback=None,
+        log=lambda _: None, path=path,
+    )
+    completed = AutoUvVoltageScanResult(True, 918, 1875, "verified", None, [])
+    checkpoint.record({"completed_tier": "balanced"}, completed, profiles=True)
+    record_unsafe_voltage(
+        candidate_voltage_mv=918, lock_clock_mhz=1890, reason="previous-run-abruptly-ended",
+        blocked_lock_clock_mhz=[1890, 1875, 1860],
+    )
+    assert checkpoint.completed_tier("balanced") == completed
+    # The same point, or a lower clock at the same voltage, does condemn it.
+    record_unsafe_voltage(
+        candidate_voltage_mv=925, lock_clock_mhz=1860, reason="previous-run-abruptly-ended",
+    )
+    with pytest.raises(AutoUvCriticalProbeError, match="925mV@1860MHz failed since it was verified"):
+        checkpoint.completed_tier("balanced")

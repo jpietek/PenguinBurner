@@ -277,8 +277,19 @@ class ScanCheckpoint:
         return backup
 
     def prepare_recovery(
-        self, base_curve: list[dict], unsafe: list[dict], interrupted: dict | None
+        self,
+        base_curve: list[dict],
+        unsafe: list[dict],
+        interrupted: dict | None,
+        *,
+        recover_climbs: bool = True,
     ) -> None:
+        """Pick the point the interrupted tier resumes at.
+
+        ``recover_climbs`` False (aggressive tuning) lets an interrupted
+        Performance tier climb again from the Balanced point with the new
+        band in place instead of soaking one bin above its last pass.
+        """
         if not self.resuming:
             return
         tier = self.current_tier
@@ -297,7 +308,11 @@ class ScanCheckpoint:
         if interrupted:
             failed_clock = int(interrupted["lock_clock_mhz"])
             failed_voltage = positive_int(interrupted.get("candidate_voltage_mv"))
-        if tier not in completed and any(item["tier"] == tier for item in self.passed):
+        if (
+            tier not in completed
+            and any(item["tier"] == tier for item in self.passed)
+            and (recover_climbs or tier != "performance")
+        ):
             try:
                 self.recovery = recovery_candidate(
                     base_curve,
@@ -332,14 +347,16 @@ class ScanCheckpoint:
         result = self.records.get(checkpoint_key({"completed_tier": tier}))
         if not isinstance(result, AutoUvVoltageScanResult):
             return None
-        if unsafe_voltage_block_reason(
+        condemned = freeze_condemning_verified_point(
             load_unsafe_voltage_blacklist(),
-            candidate_voltage_mv=result.final_voltage_mv,
+            voltage_mv=result.final_voltage_mv,
             lock_clock_mhz=result.lock_clock_mhz,
-            profile_tier=tier,
-        ):
+        )
+        if condemned is not None:
             raise AutoUvCriticalProbeError(
-                f"Cannot reuse completed {tier} tier: its point is now blacklisted"
+                f"Cannot reuse completed {tier} tier: "
+                f"{int(condemned.get('candidate_voltage_mv') or 0)}mV@"
+                f"{int(condemned.get('lock_clock_mhz') or 0)}MHz failed since it was verified"
             )
         return _decode(_encode(result))
 
@@ -452,6 +469,40 @@ class ScanCheckpoint:
             )
         except (OSError, ValueError, TypeError) as exc:
             raise AutoUvCriticalProbeError(f"Cannot save Auto-UV resume checkpoint: {exc}") from exc
+
+
+def freeze_condemning_verified_point(
+    unsafe_entries: list[dict],
+    *,
+    voltage_mv: int,
+    lock_clock_mhz: int,
+) -> dict | None:
+    """The failure, if any, that invalidates a point a soak already verified.
+
+    The blacklist band reaches a few clock steps below each failure to keep
+    exploration away from it; that reach must not retroactively condemn a
+    verified point. Only a failure at the same or a lower clock, at the same
+    or a higher voltage, says the verified point is bad (a Performance rung
+    freezing one step above the Balanced point does not).
+    """
+    for entry in unsafe_entries:
+        if not isinstance(entry, dict):
+            continue
+        failed_voltage = positive_int(entry.get("candidate_voltage_mv"))
+        failed_clock = positive_int(entry.get("lock_clock_mhz"))
+        if failed_voltage is None or failed_clock is None:
+            continue
+        if (
+            int(failed_clock) <= int(lock_clock_mhz)
+            and int(failed_voltage) >= int(voltage_mv)
+            and unsafe_voltage_block_reason(
+                [entry],
+                candidate_voltage_mv=int(voltage_mv),
+                lock_clock_mhz=int(lock_clock_mhz),
+            )
+        ):
+            return entry
+    return None
 
 
 def scan_checkpoint_identity(

@@ -194,12 +194,12 @@ def select_scan_tuning(
     careful_tooltip = (
         "Keeps probes above the stability edge that earlier freezes predict, "
         "soaks one step above a cleanly reached floor, lets Performance add up "
-        "to 4 voltage bins over Balanced and spends at most one reboot per "
+        "to 6 voltage bins over Balanced and spends at most one reboot per "
         "climb. Points that actually failed stay blacklisted."
     )
     aggressive_tooltip = (
         "Explores past the predicted edge: no predicted-edge margin, no floor "
-        "caution, Performance may add 8 voltage bins and retries rungs that "
+        "caution, Performance may add 10 voltage bins and retries rungs that "
         "froze. Finds the deepest curve the card holds, and can freeze the "
         "GPU repeatedly on the way; each freeze needs a reboot. Points that "
         "actually failed stay blacklisted."
