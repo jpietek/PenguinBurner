@@ -369,6 +369,11 @@ QPushButton#autoUvScopeButton:checked {{
     border-color: {theme.PRIMARY_BUTTON_BORDER};
     color: {theme.PRIMARY_BUTTON_TEXT};
 }}
+QPushButton#autoUvTuningButton:checked {{
+    background: {theme.PRIMARY_BUTTON_BG};
+    border-color: {theme.PRIMARY_BUTTON_BORDER};
+    color: {theme.PRIMARY_BUTTON_TEXT};
+}}
 QPushButton#autoUvPresetButton {{
     min-width: 108px;
     padding: 7px 12px;
