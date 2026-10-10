@@ -304,9 +304,12 @@ mod tests {
         assert_eq!(
             auto_uv_option_args(&options).unwrap(),
             vec![
-                "--gpu-index", "0",
-                "--auto-uv-q2rtx-resolution", "auto",
-                "--auto-uv-tuning-mode", "aggressive",
+                "--gpu-index",
+                "0",
+                "--auto-uv-q2rtx-resolution",
+                "auto",
+                "--auto-uv-tuning-mode",
+                "aggressive",
             ]
         );
     }
