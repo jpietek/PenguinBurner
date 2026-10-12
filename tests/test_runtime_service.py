@@ -1287,9 +1287,8 @@ def test_stop_existing_runtime_does_not_disable_persistent_service(monkeypatch, 
     assert any("before foreground Auto-UV scan" in message for message in logs)
 
 
-@pytest.mark.parametrize("job_type, own_child", [
-    ("auto_uv_scan", True), ("auto_uv_scan", False), ("profile_verification", False),
-])
+@pytest.mark.parametrize("job_type", ["auto_uv_scan", "profile_verification"])
+@pytest.mark.parametrize("own_child", [True, False])
 def test_scan_handoff_preserves_own_daemon_child_and_refuses_other_work(monkeypatch, job_type, own_child):
     monkeypatch.setattr(runtime_service, "daemon_status", lambda **_: {
         "active_job": {"type": job_type, "pid": os.getpid() if own_child else -1, "returncode": None}

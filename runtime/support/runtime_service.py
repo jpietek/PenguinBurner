@@ -1439,8 +1439,8 @@ def stop_existing_penguin_burner_runtime(*, log):
     status = daemon_status(socket_path=DEFAULT_DAEMON_SOCKET)
     job = status.get("active_job") or {}
     if job.get("type") in {"auto_uv_scan", "profile_verification"} and job.get("returncode") is None:
-        if job.get("type") == "auto_uv_scan" and job.get("pid") == os.getpid():
-            # The GUI's daemon-owned child already has exclusive control.
+        if job.get("pid") == os.getpid():
+            # The daemon-owned scan or verification child already has exclusive control.
             # Stopping here would erase the session profile restored on exit.
             return
         raise RuntimeError("Cannot start Auto-UV: another scan or profile verification is running")
