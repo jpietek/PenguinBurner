@@ -632,6 +632,7 @@ struct OverlayGpuState {
     std::string cpu_peak_thread_pct;
     std::string fan_pct;
     std::string temperature_c;
+    std::string hotspot_temperature_c;
     std::string uv_offset_mv;
     std::string vram_used_mb;
     std::string vram_total_mb;

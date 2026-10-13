@@ -38,6 +38,7 @@ LIVE = {
     "voltage_mv": "925",
     "power_w": "214",
     "temperature_c": "67",
+    "hotspot_temperature_c": "79",
     "fan_pct": "62",
     "gpu_util_pct": "97",
     "uv_offset_mv": "-75",
@@ -90,6 +91,27 @@ def test_the_second_gpu_row_continues_the_group_it_belongs_to() -> None:
     labels = [row["label"] for row in rows if row["kind"] == "value"]
 
     assert labels == ["gpu", ""]
+
+
+def test_hotspot_has_its_own_optional_row_independent_of_core_temperature() -> None:
+    rows = _rows(["temperature_c", "hotspot_temperature_c"])
+    assert [(row["label"], row["cells"][0]["text"]) for row in rows] == [
+        ("", "67 C"), ("hotspot", "79 C"),
+    ]
+    # The core-temperature colour thresholds do not describe hotspot limits.
+    assert rows[1]["cells"][0]["level"] == CELL_NORMAL
+    for missing in ("", "n/a"):
+        rows = _rows(
+            ["temperature_c", "hotspot_temperature_c"],
+            {"hotspot_temperature_c": missing},
+        )
+        assert len(rows) == 1
+        assert rows[0]["cells"][0]["text"] == "67 C"
+    rows = _rows(["hotspot_temperature_c"])
+    assert rows == [{
+        "kind": "value", "label": "hotspot",
+        "cells": [{"text": "79 C", "level": CELL_NORMAL}],
+    }]
 
 
 def test_the_footer_collapses_the_device_fields_into_one_quiet_line() -> None:
@@ -153,7 +175,7 @@ def test_the_layer_builds_the_same_rows(
     tmp_path: Path,
 ) -> None:
     items = ("base_fps", "latency_ms", "profile", "clock_mhz", "temperature_c",
-             "uv_offset_mv")
+             "hotspot_temperature_c", "uv_offset_mv")
     config_path = tmp_path / "overlay.toml"
     config_path.write_text(
         'version = 1\nenabled = true\nlayout = "hud"\nitems = ['

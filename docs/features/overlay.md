@@ -250,6 +250,19 @@ daemon round trip and no state file:
 Enabling **GPU name** widens the whole readout: columns line up across every
 row, so the longest cell sets the first column's width for all of them.
 
+## GPU hotspot temperature
+
+In the Overlay tab's **GPU** section, enable **Hotspot C** to show the hottest
+GPU sensor separately from **Temp C**. The **HUD** layout gives it a `hotspot`
+row with a value such as `79 C`; **Table** shows `HOT 79 C` beside the core
+temperature. Both the desktop preview and the running overlay follow the saved
+toggle. It is off by default; the **Everything** detail preset includes it.
+
+Support depends on the NVIDIA GPU and driver. Unsupported or temporarily
+unavailable readings are hidden, including in the preview when live telemetry
+is present. The daemon also exposes `hotspot_temperature_c` as a number in
+Celsius, or `null` when unavailable.
+
 ## Frame-timing statistics
 
 Three fields come from the overlay layer's own measurements inside the game

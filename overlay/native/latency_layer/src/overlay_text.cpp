@@ -236,7 +236,7 @@ std::string profile_voltage_mv_from_id(const std::string& profile_id) {
     return "";
 }
 
-const std::array<const char*, 26> kOverlayItemOrder = {
+const std::array<const char*, 27> kOverlayItemOrder = {
     "base_fps",
     "fg_fps",
     "latency_ms",
@@ -257,6 +257,7 @@ const std::array<const char*, 26> kOverlayItemOrder = {
     "cpu_peak_thread_pct",
     "fan_pct",
     "temperature_c",
+    "hotspot_temperature_c",
     "uv_offset_mv",
     "mem_clock_mhz",
     "vram",
@@ -488,6 +489,8 @@ OverlayGpuState read_overlay_gpu_state() {
             state.fan_pct = value;
         } else if (key == "temperature_c") {
             state.temperature_c = value;
+        } else if (key == "hotspot_temperature_c") {
+            state.hotspot_temperature_c = value;
         } else if (key == "uv_offset_mv") {
             state.uv_offset_mv = value;
         } else if (key == "vram_used_mb") {
@@ -869,7 +872,7 @@ const std::array<std::vector<const char*>, 8>& overlay_row_groups() {
         {"base_fps", "fg_fps", "latency_ms", "profile"},
         {"fps_1pct_low", "frametime_p97", "fps_session"},
         {"clock_mhz", "voltage_mv", "uv_offset_mv"},
-        {"power_w", "temperature_c", "fan_pct"},
+        {"power_w", "temperature_c", "hotspot_temperature_c", "fan_pct"},
         {"gpu_util_pct", "cpu_util_pct", "cpu_peak_thread_pct"},
         {"mem_clock_mhz", "vram", "ram"},
         {"cpu_temp_c", "cpu_power_w"},
@@ -898,6 +901,7 @@ const std::vector<OverlayHudRow>& overlay_hud_rows() {
         {OverlayRowKind::Value, "gpu", {"clock_mhz", "voltage_mv"}},
         // A blank label continues the group above rather than repeating "gpu".
         {OverlayRowKind::Value, "", {"power_w", "temperature_c"}},
+        {OverlayRowKind::Value, "hotspot", {"hotspot_temperature_c"}},
         {OverlayRowKind::Value, "load", {"gpu_util_pct", "fan_pct"}},
         {OverlayRowKind::Value, "mem", {"mem_clock_mhz"}},
         {OverlayRowKind::Value, "uv", {"uv_offset_mv"}},
@@ -1067,6 +1071,9 @@ std::string overlay_item_value(
     if (item == "temperature_c") {
         return overlay_optional_value(state.temperature_c, " C");
     }
+    if (item == "hotspot_temperature_c") {
+        return overlay_optional_value(state.hotspot_temperature_c, " C");
+    }
     if (item == "gpu_util_pct") {
         return overlay_optional_value(state.gpu_util_pct, "%");
     }
@@ -1219,6 +1226,10 @@ std::string overlay_item_cell(
     if (item == "temperature_c") {
         const std::string temp = overlay_optional_value(state.temperature_c, " C");
         return temp.empty() ? "" : "T " + temp;
+    }
+    if (item == "hotspot_temperature_c") {
+        const std::string temp = overlay_optional_value(state.hotspot_temperature_c, " C");
+        return temp.empty() ? "" : "HOT " + temp;
     }
     if (item == "latency_ms") {
         const std::string latency = overlay_optional_value(

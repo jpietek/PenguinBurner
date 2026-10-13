@@ -7,7 +7,7 @@ use nvml_wrapper::error::NvmlError;
 use nvml_wrapper::{Device, Nvml};
 use serde::Deserialize;
 
-use super::nvapi::{NvapiVfSession, NvapiVoltageSession};
+use super::nvapi::{NvapiTelemetrySession, NvapiVfSession};
 use super::{
     mw_to_w_float, mw_to_w_round, snap_core_clock_mhz, snap_core_clock_range, w_to_mw_round,
     AppliedOffsets, ClockOffsets, ClockType, GpuBackend, GpuContextPids, GpuError, GpuIdentity,
@@ -17,7 +17,7 @@ use super::{
 pub struct NvmlBackend {
     nvml: Nvml,
     gpu_index: u32,
-    voltage: Option<NvapiVoltageSession>,
+    telemetry: Option<NvapiTelemetrySession>,
     vf: Option<NvapiVfSession>,
 }
 
@@ -49,19 +49,21 @@ impl std::fmt::Display for ContextProbeError {
 impl NvmlBackend {
     pub fn open(gpu_index: u32) -> GpuResult<Self> {
         let nvml = Nvml::init().map_err(|error| runtime_error("nvmlInit_v2", error))?;
-        let pci_bus_id = {
+        let (pci_bus_id, architecture) = {
             let device = nvml
                 .device_by_index(gpu_index)
                 .map_err(|error| runtime_error("nvmlDeviceGetHandleByIndex_v2", error))?;
-            device
+            let pci_bus_id = device
                 .pci_info()
                 .map(|info| info.bus_id)
-                .unwrap_or_default()
+                .unwrap_or_default();
+            let architecture = device.architecture().ok().map(|value| value.as_c());
+            (pci_bus_id, architecture)
         };
         Ok(Self {
             nvml,
             gpu_index,
-            voltage: NvapiVoltageSession::open(gpu_index, &pci_bus_id).ok(),
+            telemetry: NvapiTelemetrySession::open(gpu_index, &pci_bus_id, architecture).ok(),
             vf: NvapiVfSession::open(gpu_index, &pci_bus_id).ok(),
         })
     }
@@ -264,6 +266,10 @@ impl GpuBackend for NvmlBackend {
             .temperature(TemperatureSensor::Gpu)
             .map(f64::from)
             .map_err(|error| runtime_error("nvmlDeviceGetTemperature", error))
+    }
+
+    fn hotspot_temperature_c(&self) -> Option<f64> {
+        self.telemetry.as_ref()?.read_hotspot_c()
     }
 
     fn fan_count(&self) -> GpuResult<u32> {
@@ -538,7 +544,7 @@ impl GpuBackend for NvmlBackend {
     }
 
     fn read_voltage_uv(&self) -> Option<i64> {
-        self.voltage.as_ref()?.read_microvolts()
+        self.telemetry.as_ref()?.read_microvolts()
     }
 
     fn vf_curve_available(&self) -> bool {
@@ -686,6 +692,7 @@ mod smoke {
         println!("memory_info    = {:?}", backend.memory_info());
         println!("architecture   = {:?}", backend.architecture());
         println!("temperature_c  = {:?}", backend.temperature_c());
+        println!("hotspot_c      = {:?}", backend.hotspot_temperature_c());
         println!("fan_count      = {:?}", backend.fan_count());
         println!("fan_limits     = {:?}", backend.fan_speed_limits());
         println!("power_draw_w   = {:?}", backend.power_draw_w());

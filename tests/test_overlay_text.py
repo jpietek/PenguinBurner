@@ -21,6 +21,35 @@ def _table(config: OverlayConfig | None = None) -> OverlayConfig:
     )
 
 
+def test_hotspot_is_independent_from_core_temperature_and_optional() -> None:
+    config = OverlayConfig(
+        enabled=True, layout="table",
+        enabled_item_ids=("temperature_c", "hotspot_temperature_c"),
+    )
+    values = {"temperature_c": "67", "hotspot_temperature_c": "79"}
+    assert format_overlay_text(values, config=config) == "T 67 C HOT 79 C"
+    for missing in ("", "n/a"):
+        values["hotspot_temperature_c"] = missing
+        assert format_overlay_text(values, config=config) == "T 67 C"
+    values.pop("hotspot_temperature_c")
+    assert format_overlay_text(values, config=config) == "T 67 C"
+    assert "HOT" not in format_overlay_text({"hotspot_temperature_c": "79"})
+
+
+def test_hotspot_preview_does_not_replace_unavailable_live_data_with_demo() -> None:
+    config = OverlayConfig(
+        enabled=True, layout="table",
+        enabled_item_ids=("temperature_c", "hotspot_temperature_c"),
+    )
+    assert preview_overlay_text({}, config=config) == "T 67 C HOT 79 C"
+    assert preview_overlay_text({"temperature_c": "50"}, config=config) == "T 50 C"
+    assert preview_overlay_text(
+        {"temperature_c": "50", "hotspot_temperature_c": ""}, config=config
+    ) == "T 50 C"
+    assert preview_overlay_text(
+        {"temperature_c": "50", "hotspot_temperature_c": "65"}, config=config
+    ) == "T 50 C HOT 65 C"
+
 
 def test_overlay_text_formats_compact_line_with_explicit_fg_fps() -> None:
     assert (

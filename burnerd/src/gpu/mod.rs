@@ -248,6 +248,7 @@ pub trait GpuBackend {
 
     // --- telemetry reads (best-effort → Option, unless the Python raises) --
     fn temperature_c(&self) -> GpuResult<f64>;
+    fn hotspot_temperature_c(&self) -> Option<f64>;
     fn fan_count(&self) -> GpuResult<u32>;
     fn fan_speed_limits(&self) -> (Option<u32>, Option<u32>);
     fn reported_fan_speeds(&self, fan_count: u32) -> Option<Vec<u32>>;

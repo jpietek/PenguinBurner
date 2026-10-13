@@ -174,6 +174,7 @@ fn open_backend(gpu_index: u32) -> Result<RpcBackend, String> {
         });
         mock.architecture = Some(10);
         mock.temperature_c = 55.0;
+        mock.hotspot_temperature_c = Some(68.25);
         mock.fan_count = 2;
         mock.fan_limits = (Some(30), Some(100));
         mock.reported_fan_speeds = Some(vec![42, 43]);
@@ -388,6 +389,7 @@ fn telemetry(backend: &dyn GpuBackend) -> Result<Value, String> {
         "gpu_index": backend.gpu_index(),
         "updated_unix_ns": unix_time_ns(),
         "temperature_c": temperature_c,
+        "hotspot_temperature_c": backend.hotspot_temperature_c(),
         "fan_speeds_pct": fan_speeds_pct,
         "power_draw_w": backend.power_draw_w(),
         "gpu_utilization_pct": backend.gpu_utilization_pct(),
@@ -785,6 +787,7 @@ mod tests {
         });
         mock.architecture = Some(10);
         mock.temperature_c = 61.5;
+        mock.hotspot_temperature_c = Some(74.25);
         mock.fan_count = 2;
         mock.fan_limits = (Some(30), Some(100));
         mock.reported_fan_speeds = Some(vec![40, 42]);
@@ -891,12 +894,22 @@ mod tests {
         assert_eq!(result["gpu_index"], 1);
         assert!(result["updated_unix_ns"].as_u64().unwrap() > 0);
         assert_eq!(result["temperature_c"], 61.5);
+        assert_eq!(result["hotspot_temperature_c"], 74.25);
         assert_eq!(result["fan_speeds_pct"], json!([40, 42]));
         assert_eq!(result["power_draw_w"], 250.25);
         assert_eq!(result["clocks_mhz"]["graphics"], 2_800);
         assert_eq!(result["voltage_uv"], 900_000);
         assert_eq!(result["voltage_mv"], 900);
         assert_eq!(result["clock_offsets_mhz"]["memory"], 1_500);
+    }
+
+    #[test]
+    fn missing_hotspot_does_not_break_other_telemetry() {
+        let mut mock = readable_mock();
+        mock.hotspot_temperature_c = None;
+        let result = telemetry(&mock).unwrap();
+        assert!(result["hotspot_temperature_c"].is_null());
+        assert_eq!(result["temperature_c"], 61.5);
     }
 
     #[test]

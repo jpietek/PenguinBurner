@@ -75,6 +75,7 @@ pub struct OverlayState {
     pub cpu_power_w: Option<i64>,
     pub fan_pct: Option<i64>,
     pub temperature_c: Option<i64>,
+    pub hotspot_temperature_c: Option<i64>,
     pub uv_offset_mv: Option<i64>,
     pub present_fps: String,
     pub fps_source: String,
@@ -104,7 +105,7 @@ fn value_text(value: Option<i64>) -> String {
     value.map(|v| v.to_string()).unwrap_or_default()
 }
 
-/// Render the file body (all 29 keys, exact order, `key=value\n`).
+/// Render the file body (all 30 keys, exact order, `key=value\n`).
 pub fn render_overlay_state(state: &OverlayState) -> String {
     let updated = if state.updated_unix_ns > 0 {
         state.updated_unix_ns
@@ -112,7 +113,7 @@ pub fn render_overlay_state(state: &OverlayState) -> String {
         super::now_unix_ns()
     };
     let bool_text = |b: bool| if b { "1" } else { "0" };
-    let pairs: [(&str, String); 29] = [
+    let pairs: [(&str, String); 30] = [
         ("version", "1".to_string()),
         ("updated_unix_ns", updated.to_string()),
         ("gpu_index", state.gpu_index.to_string()),
@@ -131,6 +132,10 @@ pub fn render_overlay_state(state: &OverlayState) -> String {
         ("cpu_power_w", value_text(state.cpu_power_w)),
         ("fan_pct", value_text(state.fan_pct)),
         ("temperature_c", value_text(state.temperature_c)),
+        (
+            "hotspot_temperature_c",
+            value_text(state.hotspot_temperature_c),
+        ),
         ("uv_offset_mv", value_text(state.uv_offset_mv)),
         ("present_fps", state.present_fps.clone()),
         ("fps_source", state.fps_source.clone()),
@@ -495,6 +500,9 @@ impl OverlayStatePublisher {
             .temperature_c()
             .ok()
             .map(|t| super::round_half_even(t) as i64);
+        let hotspot_temperature_c = backend
+            .hotspot_temperature_c()
+            .map(|t| super::round_half_even(t) as i64);
         let voltage_mv = backend
             .read_voltage_uv()
             .map(|uv| super::round_half_even(uv as f64 / 1000.0) as i64);
@@ -538,6 +546,7 @@ impl OverlayStatePublisher {
             cpu_power_w,
             fan_pct,
             temperature_c,
+            hotspot_temperature_c,
             uv_offset_mv: uv,
             present_fps,
             fps_source,
@@ -747,6 +756,7 @@ mod tests {
             cpu_power_w: Some(88),
             fan_pct: Some(62),
             temperature_c: Some(67),
+            hotspot_temperature_c: Some(79),
             uv_offset_mv: Some(-75),
             present_fps: "119".into(),
             fps_source: "native".into(),
@@ -760,7 +770,7 @@ mod tests {
             adaptive: false,
             updated_unix_ns: 1751889600123456789,
         };
-        let expected = "version=1\nupdated_unix_ns=1751889600123456789\ngpu_index=0\nclock_mhz=2820\nvoltage_mv=925\npower_w=318\ngpu_util_pct=97\nvram_used_mb=9626\nvram_total_mb=16376\nmem_clock_mhz=10501\ncpu_util_pct=32\ncpu_peak_thread_pct=98\nram_used_mb=14540\nram_total_mb=32768\ncpu_temp_c=61\ncpu_power_w=88\nfan_pct=62\ntemperature_c=67\nuv_offset_mv=-75\npresent_fps=119\nfps_source=native\nframegen_fps=176\nframegen_active=1\nlatency_ms=23\ndisplay_latency_ms=4\nprofile_tier=Balanced\nprofile_tier_key=balanced\nprofile_id=uv_925mv_2820mhz\nadaptive=0\n";
+        let expected = "version=1\nupdated_unix_ns=1751889600123456789\ngpu_index=0\nclock_mhz=2820\nvoltage_mv=925\npower_w=318\ngpu_util_pct=97\nvram_used_mb=9626\nvram_total_mb=16376\nmem_clock_mhz=10501\ncpu_util_pct=32\ncpu_peak_thread_pct=98\nram_used_mb=14540\nram_total_mb=32768\ncpu_temp_c=61\ncpu_power_w=88\nfan_pct=62\ntemperature_c=67\nhotspot_temperature_c=79\nuv_offset_mv=-75\npresent_fps=119\nfps_source=native\nframegen_fps=176\nframegen_active=1\nlatency_ms=23\ndisplay_latency_ms=4\nprofile_tier=Balanced\nprofile_tier_key=balanced\nprofile_id=uv_925mv_2820mhz\nadaptive=0\n";
         assert_eq!(render_overlay_state(&state), expected);
     }
 
@@ -778,7 +788,7 @@ mod tests {
             updated_unix_ns: 1751889600123456789,
             ..Default::default()
         };
-        let expected = "version=1\nupdated_unix_ns=1751889600123456789\ngpu_index=0\nclock_mhz=210\nvoltage_mv=\npower_w=15\ngpu_util_pct=0\nvram_used_mb=\nvram_total_mb=\nmem_clock_mhz=\ncpu_util_pct=\ncpu_peak_thread_pct=\nram_used_mb=\nram_total_mb=\ncpu_temp_c=\ncpu_power_w=\nfan_pct=30\ntemperature_c=41\nuv_offset_mv=\npresent_fps=\nfps_source=\nframegen_fps=\nframegen_active=0\nlatency_ms=\ndisplay_latency_ms=\nprofile_tier=Balanced\nprofile_tier_key=balanced\nprofile_id=\nadaptive=0\n";
+        let expected = "version=1\nupdated_unix_ns=1751889600123456789\ngpu_index=0\nclock_mhz=210\nvoltage_mv=\npower_w=15\ngpu_util_pct=0\nvram_used_mb=\nvram_total_mb=\nmem_clock_mhz=\ncpu_util_pct=\ncpu_peak_thread_pct=\nram_used_mb=\nram_total_mb=\ncpu_temp_c=\ncpu_power_w=\nfan_pct=30\ntemperature_c=41\nhotspot_temperature_c=\nuv_offset_mv=\npresent_fps=\nfps_source=\nframegen_fps=\nframegen_active=0\nlatency_ms=\ndisplay_latency_ms=\nprofile_tier=Balanced\nprofile_tier_key=balanced\nprofile_id=\nadaptive=0\n";
         assert_eq!(render_overlay_state(&state), expected);
     }
 
@@ -796,6 +806,31 @@ mod tests {
     #[test]
     fn escaping_backslash_and_newline() {
         assert_eq!(escape_value("a\\b\nc"), "a\\\\b\\nc");
+    }
+
+    #[test]
+    fn publisher_clears_hotspot_when_sensor_becomes_unavailable() {
+        let mut backend = crate::gpu::mock::MockGpu::new();
+        backend.temperature_c = 67.0;
+        backend.hotspot_temperature_c = Some(79.25);
+        let mut publisher = OverlayStatePublisher::new(
+            0,
+            true,
+            1.0,
+            String::new(),
+            String::new(),
+            String::new(),
+            false,
+            None,
+        );
+        let state = publisher.build_state(&backend, None, 1);
+        assert_eq!(state.hotspot_temperature_c, Some(79));
+        assert!(render_overlay_state(&state).contains("hotspot_temperature_c=79\n"));
+        backend.hotspot_temperature_c = None;
+        let state = publisher.build_state(&backend, None, 2);
+        assert_eq!(state.temperature_c, Some(67));
+        assert_eq!(state.hotspot_temperature_c, None);
+        assert!(render_overlay_state(&state).contains("hotspot_temperature_c=\n"));
     }
 
     #[test]

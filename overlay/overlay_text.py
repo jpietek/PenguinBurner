@@ -36,6 +36,7 @@ SAMPLE_OVERLAY_VALUES = {
     "cpu_peak_thread_pct": "98",
     "fan_pct": "62",
     "temperature_c": "67",
+    "hotspot_temperature_c": "79",
     "latency_ms": "40",
     "display_latency_ms": "",
     "uv_offset_mv": "-75",
@@ -284,6 +285,8 @@ def format_overlay_value(item_id: str, values: dict[str, str]) -> str:
         return _value_or_na(values.get("power_w"), suffix=" W")
     if item_id == "temperature_c":
         return _optional_value(values.get("temperature_c"), suffix=" C")
+    if item_id == "hotspot_temperature_c":
+        return _optional_value(values.get("hotspot_temperature_c"), suffix=" C")
     if item_id == "gpu_util_pct":
         return _optional_value(values.get("gpu_util_pct"), suffix="%")
     if item_id == "fan_pct":
@@ -340,6 +343,13 @@ def preview_overlay_text(
             continue
         if text:
             merged[key] = text
+    if values:
+        # A live daemon may report an unavailable hotspot, or be an older
+        # version without the field. Do not present the demo temperature as
+        # a measured reading in either case.
+        merged["hotspot_temperature_c"] = str(
+            values.get("hotspot_temperature_c") or ""
+        ).strip()
     return format_overlay_text(merged, config=config)
 
 
@@ -401,6 +411,10 @@ def _format_overlay_item(item_id: str, values: dict[str, str]) -> str:
         return _optional_labeled_value("Fan", values.get("fan_pct"), suffix="%")
     if item_id == "temperature_c":
         return _optional_labeled_value("T", values.get("temperature_c"), suffix=" C")
+    if item_id == "hotspot_temperature_c":
+        return _optional_labeled_value(
+            "HOT", values.get("hotspot_temperature_c"), suffix=" C"
+        )
     if item_id == "latency_ms":
         return _optional_labeled_value(
             "LAT", _combined_latency_ms(values), suffix=" ms"

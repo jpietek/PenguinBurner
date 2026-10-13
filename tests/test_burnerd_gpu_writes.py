@@ -244,6 +244,7 @@ def test_typed_gpu_read_snapshots_route_through_daemon(make_daemon, rpc_spy):
     assert capabilities["gpu_count"] == 1
     assert capabilities["supported_core_clock_steps_mhz"] == [1800, 1900, 2000, 2100]
     assert telemetry["temperature_c"] == 55.0
+    assert telemetry["hotspot_temperature_c"] == 68.25
     assert telemetry["fan_speeds_pct"] == [42, 43]
     assert telemetry["voltage_mv"] == 900
     assert vf_snapshot["points"] == [
@@ -273,6 +274,16 @@ def test_daemon_capability_gate_rejects_missing_feature(make_daemon):
         match="missing required capabilities: future-feature-v9",
     ):
         daemon_client.require_daemon_capabilities("future-feature-v9")
+
+
+def test_hotspot_query_failure_leaves_socket_telemetry_usable(make_daemon):
+    make_daemon(mock_fail="hotspot_temperature_c")
+
+    telemetry = DaemonGpuClient(0).telemetry(refresh=True)
+
+    assert telemetry.hotspot_temperature_c is None
+    assert telemetry.temperature_c == 55.0
+    assert telemetry.voltage_mv == 900.0
 
 
 def test_apply_power_limit_routes_watts_through_daemon(make_daemon, rpc_spy):

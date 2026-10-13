@@ -102,6 +102,7 @@ ITEM_LABELS = {
     "cpu_peak_thread_pct": "CPU-T %",
     "fan_pct": "Fan %",
     "temperature_c": "Temp C",
+    "hotspot_temperature_c": "Hotspot C",
     "latency_ms": "Latency ms",
     "uv_offset_mv": "UV offset mV",
     "mem_clock_mhz": "Memory MHz",
@@ -121,6 +122,7 @@ ITEM_TELEMETRY_KEYS = {
     "cpu_peak_thread_pct": "cpu_peak_thread_pct",
     "fan_pct": "fan_pct",
     "temperature_c": "temperature_c",
+    "hotspot_temperature_c": "hotspot_temperature_c",
     "uv_offset_mv": "uv_offset_mv",
     "mem_clock_mhz": "mem_clock_mhz",
     "cpu_temp_c": "cpu_temp_c",
@@ -134,6 +136,7 @@ ITEM_VALUE_WIDTH_EXAMPLES = (
     "9999 mV",
     "CPU-T 9999%",
     "T 9999 C",
+    "HOT 9999 C",
     "UV -9999 mV",
     "99.9 / 99 GiB",
 )
@@ -216,6 +219,10 @@ ITEM_TOOLTIPS = {
     ),
     "fan_pct": "Current reported GPU fan speed percentage. Missing fan data is hidden.",
     "temperature_c": "Current GPU temperature in C. Missing temperature data is hidden.",
+    "hotspot_temperature_c": (
+        "Hottest GPU sensor temperature in C, when supported by the GPU and driver. "
+        "Missing hotspot data is hidden."
+    ),
     "latency_ms": (
         "NVIDIA App-style PC latency for the game: render (Reflex input-to-present "
         "span, including the frame-gen hold) plus the present->scanout display "
@@ -896,6 +903,11 @@ def _preview_values(telemetry: dict[str, str]) -> dict[str, str]:
         text = str(value).strip()
         if text:
             values[key] = text
+    if telemetry:
+        # Sensor loss or an older daemon must hide hotspot, not show demo data.
+        values["hotspot_temperature_c"] = str(
+            telemetry.get("hotspot_temperature_c") or ""
+        ).strip()
     return values
 
 

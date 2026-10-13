@@ -86,6 +86,28 @@ def test_overlay_config_keeps_at_least_one_item_enabled() -> None:
     assert updated.enabled_item_ids == ("base_fps",)
 
 
+def test_hotspot_is_opt_in_and_round_trips(tmp_path) -> None:
+    config = OverlayConfig(enabled=True)
+    assert "hotspot_temperature_c" in ADVANCED_OVERLAY_ITEM_IDS
+    assert "hotspot_temperature_c" not in config.enabled_item_ids
+    assert "hotspot_temperature_c" in set_overlay_detail(config, "full").enabled_item_ids
+    assert "hotspot_temperature_c" not in set_overlay_detail(config, "detailed").enabled_item_ids
+    path = tmp_path / "overlay.toml"
+
+    save_overlay_config(set_overlay_item_enabled(config, "hotspot_temperature_c", True), path)
+    enabled = load_overlay_config(path)
+    assert "hotspot_temperature_c" in enabled.enabled_item_ids
+    assert set_overlay_item_enabled(enabled, "hotspot_temperature_c", False) == config
+
+
+def test_hotspot_panel_displays_live_reading_or_unavailable() -> None:
+    from ui.components.overlay_config import ITEM_LABELS, _sample_text
+
+    assert ITEM_LABELS["hotspot_temperature_c"] == "Hotspot C"
+    assert _sample_text("hotspot_temperature_c", {"hotspot_temperature_c": "79"}) == "HOT 79 C"
+    assert _sample_text("hotspot_temperature_c", {}) == "-"
+
+
 def test_overlay_config_clamps_update_interval() -> None:
     config = OverlayConfig(enabled=True, enabled_item_ids=("base_fps",))
 

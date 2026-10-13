@@ -69,6 +69,7 @@ LIVE_STATE = {
     "cpu_peak_thread_pct": "98",
     "fan_pct": "62",
     "temperature_c": "67",
+    "hotspot_temperature_c": "79",
     "uv_offset_mv": "-75",
     "vram_used_mb": "9626",
     "vram_total_mb": "16376",
@@ -881,6 +882,141 @@ def test_native_overlay_switches_on_and_off_in_same_process(
         assert process.wait(timeout=5) == 0
 
 
+@pytest.mark.parametrize("layout", ["hud", "table"])
+@pytest.mark.parametrize("detail", ["custom", "full"])
+@pytest.mark.parametrize("hotspot", ["79", "", "n/a", None])
+def test_native_hotspot_matches_python_in_both_layouts_and_detail_modes(
+    native_overlay_probe, tmp_path, layout, detail, hotspot,
+) -> None:
+    from overlay.config import load_overlay_config
+
+    config_path = tmp_path / "overlay.toml"
+    state_path = tmp_path / "overlay-state.txt"
+    save_overlay_config(
+        OverlayConfig(
+            enabled=True, layout=layout, detail=detail,
+            enabled_item_ids=("base_fps", "temperature_c", "hotspot_temperature_c"),
+        ),
+        config_path,
+    )
+    values = {"present_fps": "19", "temperature_c": "67"}
+    if hotspot is not None:
+        values["hotspot_temperature_c"] = hotspot
+    state_path.write_text("".join(f"{key}={value}\n" for key, value in values.items()))
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "PENGUIN_BURNER_OVERLAY_CONFIG": str(config_path),
+        "PENGUIN_BURNER_OVERLAY_STATE": str(state_path),
+        "PENGUIN_BURNER_OVERLAY_OVERRIDE": str(tmp_path / "absent-override"),
+        "PB_OVERLAY": "1",
+    }
+    result = subprocess.run(
+        [str(native_overlay_probe), "19"], env=env,
+        capture_output=True, text=True, check=True,
+    )
+    assert result.stdout.strip() == format_overlay_text(
+        values, config=load_overlay_config(config_path),
+    ).strip()
+    label = "hotspot" if layout == "hud" else "HOT"
+    assert (label in result.stdout) == (hotspot == "79")
+    assert "67 C" in result.stdout
+
+
+@pytest.mark.parametrize("layout", ["hud", "table"])
+def test_gui_hotspot_toggle_persists_and_updates_running_native_overlay(
+    tmp_path, monkeypatch, qtbot, layout,
+) -> None:
+    from PySide6 import QtCore, QtWidgets
+
+    from overlay.config import load_overlay_config
+    from ui.components.overlay_config import OverlayConfigPanel
+
+    binary = _build_live_overlay_probe(tmp_path)
+    config_path = tmp_path / "overlay.toml"
+    state_path = tmp_path / "overlay-state.txt"
+    monkeypatch.setenv("PENGUIN_BURNER_OVERLAY_STATE", str(state_path))
+    state_path.write_text("present_fps=19\ntemperature_c=67\nhotspot_temperature_c=79\n")
+    save_overlay_config(
+        OverlayConfig(
+            enabled=True, layout=layout,
+            enabled_item_ids=("base_fps", "temperature_c"),
+        ),
+        config_path,
+    )
+    panel = OverlayConfigPanel(QtCore=QtCore, QtWidgets=QtWidgets, config_path=config_path)
+    qtbot.addWidget(panel.widget)
+    panel.widget.resize(1500, 1000)
+    panel.widget.show()
+    checkbox = panel.item_checkboxes["hotspot_temperature_c"]
+    assert checkbox.text() == "Hotspot C"
+    assert checkbox.parentWidget().objectName() == "overlayItemSection_gpu"
+    assert not checkbox.isChecked()
+    assert panel.item_value_labels["hotspot_temperature_c"].text() == "HOT 79 C"
+
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "PENGUIN_BURNER_OVERLAY_CONFIG": str(config_path),
+        "PENGUIN_BURNER_OVERLAY_STATE": str(state_path),
+        "PENGUIN_BURNER_OVERLAY_OVERRIDE": str(tmp_path / "absent-override"),
+        "PB_OVERLAY": "1",
+    }
+    with subprocess.Popen(
+        [str(binary), "--live"], env=env, stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE, text=True,
+    ) as process:
+        assert process.stdin is not None and process.stdout is not None
+
+        def read_matches_preview(*, tick=True):
+            if tick:
+                process.stdin.write("tick\n")
+                process.stdin.flush()
+            text = process.stdout.readline().strip()
+            assert text == format_overlay_text(
+                panel.preview._values, config=panel.config,
+            ).replace("\n", " ").strip()
+            return text
+
+        label = "hotspot" if layout == "hud" else "HOT"
+        assert label not in read_matches_preview(tick=False)
+        qtbot.mouseClick(checkbox, QtCore.Qt.LeftButton)
+        saved = load_overlay_config(config_path)
+        assert "hotspot_temperature_c" in saved.enabled_item_ids
+        assert saved.detail == "custom"
+        assert label in read_matches_preview()
+        rows = panel.preview._rows()
+        if layout == "hud":
+            assert any(row["label"] == "hotspot" for row in rows)
+        else:
+            assert any("HOT 79 C" in cell["text"] for row in rows for cell in row["cells"])
+
+        reopened = OverlayConfigPanel(
+            QtCore=QtCore, QtWidgets=QtWidgets, config_path=config_path,
+        )
+        qtbot.addWidget(reopened.widget)
+        assert reopened.item_checkboxes["hotspot_temperature_c"].isChecked()
+        assert reopened.config.layout == layout
+
+        # Missing keys from older daemons and failed reads must not use demo 79 C.
+        for hotspot in ("", None, "81"):
+            reading = "" if hotspot is None else f"hotspot_temperature_c={hotspot}\n"
+            state_path.write_text("present_fps=19\ntemperature_c=67\n" + reading)
+            panel.refresh_preview()
+            assert panel.item_value_labels["hotspot_temperature_c"].text() == (
+                f"HOT {hotspot} C" if hotspot else "-"
+            )
+            text = read_matches_preview()
+            assert (label in text) == bool(hotspot)
+            assert "67 C" in text
+            if hotspot:
+                assert "81 C" in text
+
+        qtbot.mouseClick(checkbox, QtCore.Qt.LeftButton)
+        assert "hotspot_temperature_c" not in load_overlay_config(config_path).enabled_item_ids
+        assert label not in read_matches_preview()
+        process.stdin.close()
+        assert process.wait(timeout=5) == 0
+
+
 def _build_live_overlay_probe(tmp_path: Path) -> Path:
     """Build a probe that keeps formatting in one process, tick after tick.
 
@@ -934,6 +1070,8 @@ int main(int argc, char**) {
     state.power_w = "54";
     state.latency_ms = "73";
     state.profile_tier = "Performance";
+    const bool use_file = std::getenv("PENGUIN_BURNER_OVERLAY_STATE") != nullptr;
+    if (use_file) state = pblayer::read_overlay_gpu_state();
     uint64_t now_us = 1000000;
     std::cout << one_line(
                      pblayer::build_overlay_text(stats, facts, state, now_us))
@@ -944,6 +1082,7 @@ int main(int argc, char**) {
         // once that window has passed -- which is what a game would see.
         std::this_thread::sleep_for(std::chrono::milliseconds(1100));
         now_us += 1100000;
+        if (use_file) state = pblayer::read_overlay_gpu_state();
         std::cout << one_line(
                          pblayer::build_overlay_text(stats, facts, state, now_us))
                   << std::endl;
