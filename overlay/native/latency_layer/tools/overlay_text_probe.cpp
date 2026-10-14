@@ -160,10 +160,11 @@ int print_frame_stats(const std::string& list) {
 
 int print_graph(const std::string& list) {
     pblayer::SwapchainContext context{};
+    pblayer::OverlayFrameStats stats{};
     for (uint64_t sample : parse_us_list(list)) {
-        pblayer::overlay_frame_stats_locked(context, sample);
+        stats = pblayer::overlay_frame_stats_locked(context, sample);
     }
-    const pblayer::OverlayGraph graph = pblayer::overlay_graph_locked(context);
+    const pblayer::OverlayGraph graph = pblayer::overlay_graph_locked(context, stats.median_us);
     std::printf("count=%u median_us=%" PRIu64 " samples=", graph.count, graph.median_us);
     for (uint32_t i = 0; i < graph.count; ++i) {
         std::printf("%s%" PRIu64, i ? "," : "", graph.samples[i]);

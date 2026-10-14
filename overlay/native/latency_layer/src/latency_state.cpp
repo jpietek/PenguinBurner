@@ -69,8 +69,6 @@ std::atomic<bool> g_reported_create_instance_enter{false};
 
 std::mutex g_overlay_config_mutex;
 
-std::mutex g_overlay_file_mutex;
-
 // Latest user overlay scale multiplier, published by overlay_text_config() so
 // the present-path draw can read it without threading config through every call.
 std::atomic<double> g_overlay_user_scale{1.0};

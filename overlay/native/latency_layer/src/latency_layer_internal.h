@@ -19,6 +19,7 @@
 #include <cerrno>
 #include <chrono>
 #include <fstream>
+#include <future>
 #include <cctype>
 #include <cinttypes>
 #include <condition_variable>
@@ -275,6 +276,12 @@ struct InstanceContext {
     std::string engine_name = "unknown";
 };
 
+struct OverlayPipelineCache {
+    std::mutex mutex;
+    VkPipelineCache handle = VK_NULL_HANDLE;
+    bool attempted = false;
+};
+
 struct DeviceContext {
     VkDevice device = VK_NULL_HANDLE;
     VkPhysicalDevice physical_device = VK_NULL_HANDLE;
@@ -312,6 +319,9 @@ struct DeviceContext {
     PFN_vkCreatePipelineLayout create_pipeline_layout = nullptr;
     PFN_vkDestroyPipelineLayout destroy_pipeline_layout = nullptr;
     PFN_vkCreateGraphicsPipelines create_graphics_pipelines = nullptr;
+    PFN_vkCreatePipelineCache create_pipeline_cache = nullptr;
+    PFN_vkDestroyPipelineCache destroy_pipeline_cache = nullptr;
+    std::shared_ptr<OverlayPipelineCache> overlay_pipeline_cache;
     PFN_vkDestroyPipeline destroy_pipeline = nullptr;
     PFN_vkCreateBuffer create_buffer = nullptr;
     PFN_vkDestroyBuffer destroy_buffer = nullptr;
@@ -450,19 +460,36 @@ struct OverlayRectBand {
 constexpr uint32_t kOverlayMaxQuads = 8192;
 constexpr uint32_t kOverlayVerticesPerQuad = 6;
 
-struct OverlayRenderResources {
-    bool attempted = false;
-    bool ready = false;
-    uint32_t queue_family_index = UINT32_MAX;
-    VkRenderPass render_pass = VK_NULL_HANDLE;
-    VkCommandPool command_pool = VK_NULL_HANDLE;
-    std::vector<VkImage> images;
-    std::vector<VkImageView> image_views;
-    std::vector<VkFramebuffer> framebuffers;
-    std::vector<VkCommandBuffer> command_buffers;
-    std::vector<VkSemaphore> signal_semaphores;
-    std::vector<VkFence> submit_fences;
-    std::vector<uint8_t> submit_pending;
+struct OverlayReadout;
+
+struct OverlayClearRect {
+    int32_t x, y;
+    uint32_t width, height;
+    VkClearColorValue color;
+};
+
+struct OverlayGraphPlacement {
+    float x = 0, y = 0, width = 0, height = 0, scale = 1;
+    bool area = false;
+    std::size_t vertex_offset = 0;
+};
+
+struct OverlayGeometryCache {
+    std::shared_ptr<const OverlayReadout> readout;
+    VkExtent2D extent{};
+    double scale = 0, opacity = 0;
+    uint32_t position = 0;
+    OverlayFont font = OverlayFont::Pixel;
+    bool blended = false, graph_visible = false;
+    std::vector<OverlayVertex> vertices;
+    std::vector<OverlayVertex> graph_tail;
+    std::vector<OverlayClearRect> clear_rects;
+    std::size_t static_count = 0;
+    OverlayGraphPlacement graph;
+    uint64_t generation = 0;
+};
+
+struct OverlayPipelineResources {
     // Blended-quad pipeline. Every one of these may be absent: when creation
     // fails at any step the overlay keeps drawing with cleared rectangles, so
     // a driver that cannot give us a pipeline costs the look, not the HUD.
@@ -485,6 +512,25 @@ struct OverlayRenderResources {
     VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
     VkBuffer atlas_staging = VK_NULL_HANDLE;
     VkDeviceMemory atlas_staging_memory = VK_NULL_HANDLE;
+};
+
+struct OverlayRenderResources : OverlayPipelineResources {
+    bool attempted = false;
+    bool ready = false;
+    uint32_t queue_family_index = UINT32_MAX;
+    VkRenderPass render_pass = VK_NULL_HANDLE;
+    VkCommandPool command_pool = VK_NULL_HANDLE;
+    std::vector<VkImage> images;
+    std::vector<VkImageView> image_views;
+    std::vector<VkFramebuffer> framebuffers;
+    std::vector<VkCommandBuffer> command_buffers;
+    std::vector<VkSemaphore> signal_semaphores;
+    std::vector<VkFence> submit_fences;
+    std::vector<uint8_t> submit_pending;
+    bool blended_attempted = false;
+    OverlayGeometryCache geometry;
+    std::vector<uint64_t> vertex_generations;
+    std::vector<VkPipelineStageFlags> wait_stages;
 };
 
 struct SwapchainContext {
@@ -525,6 +571,12 @@ struct SwapchainContext {
     BaseMarkerState present_start{};
     BaseMarkerState render_submit_start{};
     OverlayRenderResources overlay{};
+    // Only teardown waits for these workers. Present polls and skips drawing
+    // until resources are ready; workers never access the live context.
+    std::future<OverlayRenderResources> overlay_preparation;
+    std::future<OverlayPipelineResources> pipeline_preparation;
+    uint64_t overlay_readout_time_us = 0;
+    std::shared_ptr<const OverlayReadout> overlay_readout;
 };
 
 // What the layer measured about presentation, as opposed to what the daemon
@@ -533,6 +585,7 @@ struct SwapchainContext {
 struct OverlayFrameStats {
     // Median over the ring; the headline FPS the overlay has always shown.
     uint64_t median_fps = 0;
+    uint64_t median_us = 0;
     // FPS at the mean frametime of the ring's worst 1% of frames.
     uint64_t low_1pct_fps = 0;
     // Frametime 97% of the ring's frames came in under.
@@ -696,7 +749,6 @@ extern std::atomic<bool> g_reported_get_instance_proc_addr;
 extern std::atomic<bool> g_reported_get_device_proc_addr;
 extern std::atomic<bool> g_reported_create_instance_enter;
 extern std::mutex g_overlay_config_mutex;
-extern std::mutex g_overlay_file_mutex;
 // Latest user overlay scale multiplier, published by overlay_text_config() so
 // the present-path draw can read it without threading config through every call.
 extern std::atomic<double> g_overlay_user_scale;
@@ -731,7 +783,7 @@ extern std::atomic<uint32_t> g_overlay_layout;
     VkOffset2D overlay_text_origin( const VkExtent2D& extent, uint32_t box_width, uint32_t box_height, uint32_t margin, OverlayPosition position);
     bool overlay_enabled();
     OverlayFrameStats overlay_frame_stats_locked( SwapchainContext& context, uint64_t present_frametime_us);
-    OverlayGraph overlay_graph_locked(const SwapchainContext& context);
+    OverlayGraph overlay_graph_locked(const SwapchainContext& context, uint64_t median_us);
     uint64_t overlay_graph_span_us(const OverlayGraph& graph, uint64_t worst_us);
     uint32_t overlay_graph_bar_height( uint64_t sample_us, uint64_t span_us, uint32_t height);
     std::string overlay_fit_line(const std::string& line, uint32_t max_chars);
@@ -748,8 +800,6 @@ extern std::atomic<uint32_t> g_overlay_layout;
     OverlayFont overlay_font();
     bool overlay_graph_enabled();
     OverlayFrameStats overlay_frame_stats_from_samples( const uint64_t* samples, uint32_t count, uint64_t session_count, uint64_t session_sum_us, uint64_t session_min_us, uint64_t session_max_us);
-    uint64_t overlay_percentile_us(std::vector<uint64_t>& sorted, unsigned percentile);
-    uint64_t overlay_worst_percent_mean_us( const std::vector<uint64_t>& sorted, unsigned percent);
     uint64_t overlay_fps_from_frametime_us(uint64_t frametime_us);
     OverlayGpuState read_overlay_gpu_state();
     OverlayReadout build_overlay_readout( const OverlayFrameStats& stats, const OverlayDeviceFacts& facts, const OverlayGpuState& state, uint64_t now_us);
@@ -757,9 +807,9 @@ extern std::atomic<uint32_t> g_overlay_layout;
     std::string overlay_present_mode_text(VkPresentModeKHR mode);
     std::string overlay_resolution_text(const VkExtent2D& extent);
     std::string build_overlay_text( const OverlayFrameStats& stats, const OverlayDeviceFacts& facts, const OverlayGpuState& state, uint64_t now_us);
-    OverlayReadout cached_overlay_readout( const OverlayFrameStats& stats, const OverlayDeviceFacts& facts, uint64_t now_us);
+    const std::shared_ptr<const OverlayReadout>& cached_overlay_readout( SwapchainContext& context, const OverlayFrameStats& stats, uint64_t now_us);
     void destroy_overlay_resources( const DeviceContext& device_context, SwapchainContext& swapchain_context);
-    VkSemaphore submit_overlay_locked( const DeviceContext& device_context, VkSwapchainKHR swapchain, SwapchainContext& swapchain_context, const QueueContext& queue_context, VkQueue queue, uint32_t image_index, const VkPresentInfoKHR* present_info, const OverlayReadout& readout, const OverlayGraph& graph);
+    VkSemaphore submit_overlay_locked( const DeviceContext& device_context, VkSwapchainKHR swapchain, SwapchainContext& swapchain_context, const QueueContext& queue_context, VkQueue queue, uint32_t image_index, const VkPresentInfoKHR* present_info, const std::shared_ptr<const OverlayReadout>& readout, const OverlayGraph& graph);
     uint64_t live_swapchain_count_locked(VkDevice device);
     DeviceTelemetryFlags device_telemetry_flags(VkDevice device);
     bool swapchain_latency_mode_enabled(const VkSwapchainCreateInfoKHR* create_info);

@@ -70,6 +70,10 @@ below.
 - **Target FPS** — the reference frame rate, shared with
   [Adaptive Undervolting](./adaptive-uv.md).
 
+After enabling the overlay or changing the game's resolution, the HUD appears
+once preparation finishes. The game continues presenting during preparation.
+Switching from Solid to Blended keeps the Solid HUD visible until Blended is ready.
+
 The default **HUD** layout puts the frame rate on top, then frame generation,
 latency and the active tier; a rule; the card (clocks, power, temperature,
 load, memory clock, undervolt offset); a rule; the frame-timing statistics,

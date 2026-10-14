@@ -282,6 +282,11 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_device(
         next_get_device_proc_addr(*device, "vkDestroyPipelineLayout"));
     context.create_graphics_pipelines = reinterpret_cast<PFN_vkCreateGraphicsPipelines>(
         next_get_device_proc_addr(*device, "vkCreateGraphicsPipelines"));
+    context.create_pipeline_cache = reinterpret_cast<PFN_vkCreatePipelineCache>(
+        next_get_device_proc_addr(*device, "vkCreatePipelineCache"));
+    context.destroy_pipeline_cache = reinterpret_cast<PFN_vkDestroyPipelineCache>(
+        next_get_device_proc_addr(*device, "vkDestroyPipelineCache"));
+    context.overlay_pipeline_cache = std::make_shared<OverlayPipelineCache>();
     context.destroy_pipeline = reinterpret_cast<PFN_vkDestroyPipeline>(
         next_get_device_proc_addr(*device, "vkDestroyPipeline"));
     context.create_buffer = reinterpret_cast<PFN_vkCreateBuffer>(
@@ -458,6 +463,14 @@ VKAPI_ATTR void VKAPI_CALL layer_destroy_device(
         }
     }
 
+    // All overlay workers have joined before their shared device cache dies.
+    if (device_context.overlay_pipeline_cache && device_context.destroy_pipeline_cache
+        && device_context.overlay_pipeline_cache->handle != VK_NULL_HANDLE) {
+        device_context.destroy_pipeline_cache(
+            device, device_context.overlay_pipeline_cache->handle, nullptr);
+        device_context.overlay_pipeline_cache->handle = VK_NULL_HANDLE;
+    }
+
     if (next_destroy_device) {
         next_destroy_device(device, allocator);
     }
@@ -608,7 +621,7 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_swapchain_khr(
             context.device_facts.driver_version = overlay_driver_version_text(
                 properties.driverVersion, properties.vendorID);
         }
-        g_swapchains[*swapchain] = context;
+        g_swapchains[*swapchain] = std::move(context);
         live_swapchain_count = live_swapchain_count_locked(device);
     }
     if (result == VK_SUCCESS && swapchain) {
@@ -775,17 +788,17 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_queue_present_khr(
                         observation.present_frametime_us);
                     observation.overlay_fps = overlay_stats.median_fps;
                     if (overlay_graph_enabled()) {
-                        overlay_graph = overlay_graph_locked(swapchain_context);
+                        overlay_graph = overlay_graph_locked(swapchain_context, overlay_stats.median_us);
                     }
                 }
                 if (overlay_enabled() && has_device_context && has_queue_context
                     && present_info->swapchainCount == 1
                     && present_info->pImageIndices) {
-                    const OverlayReadout overlay_readout = cached_overlay_readout(
+                    const auto& overlay_readout = cached_overlay_readout(
+                        swapchain_context,
                         overlay_stats,
-                        swapchain_context.device_facts,
                         present_time_us);
-                    if (!overlay_readout.text.empty()) {
+                    if (!overlay_readout->text.empty()) {
                         overlay_signal = submit_overlay_locked(
                             device_context,
                             swapchain,

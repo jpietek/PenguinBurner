@@ -532,11 +532,11 @@ uint64_t overlay_fps_from_frametime_us(uint64_t frametime_us) {
 // at or below which `percentile` per cent of the samples fall. With the ring's
 // 120 samples the 99th percentile is the second-worst frame, which is what
 // makes it a tail measure rather than an average.
-uint64_t overlay_percentile_us(std::vector<uint64_t>& sorted, unsigned percentile) {
-    if (sorted.empty()) {
+uint64_t overlay_percentile_us(
+    const uint64_t* sorted, std::size_t size, unsigned percentile) {
+    if (!size) {
         return 0;
     }
-    const std::size_t size = sorted.size();
     std::size_t rank = (size * percentile + 99) / 100;  // ceil(size * p / 100)
     if (rank == 0) {
         rank = 1;
@@ -552,20 +552,19 @@ uint64_t overlay_percentile_us(std::vector<uint64_t>& sorted, unsigned percentil
 // one bad frame in a hundred, the 99th percentile is still a good frame and
 // the stutter disappears. Averaging the tail reports it.
 uint64_t overlay_worst_percent_mean_us(
-    const std::vector<uint64_t>& sorted,
-    unsigned percent) {
-    if (sorted.empty()) {
+    const uint64_t* sorted, std::size_t size, unsigned percent) {
+    if (!size) {
         return 0;
     }
-    std::size_t take = (sorted.size() * percent + 99) / 100;
+    std::size_t take = (size * percent + 99) / 100;
     if (take == 0) {
         take = 1;
     }
-    if (take > sorted.size()) {
-        take = sorted.size();
+    if (take > size) {
+        take = size;
     }
     uint64_t sum = 0;
-    for (std::size_t i = sorted.size() - take; i < sorted.size(); ++i) {
+    for (std::size_t i = size - take; i < size; ++i) {
         sum += sorted[i];
     }
     return (sum + take / 2) / take;
@@ -579,20 +578,26 @@ OverlayFrameStats overlay_frame_stats_from_samples(
     uint64_t session_min_us,
     uint64_t session_max_us) {
     OverlayFrameStats stats{};
-    std::vector<uint64_t> values;
-    values.reserve(count);
+    // The live ring is bounded at 120. Keep its sort off the heap; larger
+    // host-side inputs still retain the formatter probe's original contract.
+    std::array<uint64_t, 120> scratch{};
+    std::vector<uint64_t> overflow;
+    if (count > scratch.size()) {
+        overflow.resize(count);
+    }
+    uint64_t* values = overflow.empty() ? scratch.data() : overflow.data();
     for (uint32_t i = 0; i < count; ++i) {
         if (samples[i]) {
-            values.push_back(samples[i]);
+            values[stats.sample_count++] = samples[i];
         }
     }
-    stats.sample_count = static_cast<uint32_t>(values.size());
-    if (!values.empty()) {
-        std::sort(values.begin(), values.end());
-        stats.median_fps = overlay_fps_from_frametime_us(values[values.size() / 2]);
-        stats.low_1pct_fps =
-            overlay_fps_from_frametime_us(overlay_worst_percent_mean_us(values, 1));
-        stats.p97_frametime_us = overlay_percentile_us(values, 97);
+    if (stats.sample_count) {
+        std::sort(values, values + stats.sample_count);
+        stats.median_us = values[stats.sample_count / 2];
+        stats.median_fps = overlay_fps_from_frametime_us(stats.median_us);
+        stats.low_1pct_fps = overlay_fps_from_frametime_us(
+            overlay_worst_percent_mean_us(values, stats.sample_count, 1));
+        stats.p97_frametime_us = overlay_percentile_us(values, stats.sample_count, 97);
     }
     if (session_count && session_sum_us) {
         // Average over the whole session, not over the ring: a mean of
@@ -608,30 +613,20 @@ OverlayFrameStats overlay_frame_stats_from_samples(
 
 // Oldest sample first. The ring's index points at the next slot to write, so
 // a full ring reads [index, end) then [begin, index).
-OverlayGraph overlay_graph_locked(const SwapchainContext& context) {
+OverlayGraph overlay_graph_locked(const SwapchainContext& context, uint64_t median_us) {
     OverlayGraph graph{};
     const uint32_t size = static_cast<uint32_t>(context.present_frametimes.size());
     const uint32_t count = std::min(context.present_frametime_count, size);
     const uint32_t start = count < size
         ? 0u
         : context.present_frametime_index % size;
-    std::vector<uint64_t> ordered;
-    ordered.reserve(count);
     for (uint32_t i = 0; i < count; ++i) {
         const uint64_t sample = context.present_frametimes[(start + i) % size];
         if (sample) {
-            ordered.push_back(sample);
+            graph.samples[graph.count++] = sample;
         }
     }
-    graph.count = static_cast<uint32_t>(ordered.size());
-    for (uint32_t i = 0; i < graph.count; ++i) {
-        graph.samples[i] = ordered[i];
-    }
-    if (graph.count) {
-        std::vector<uint64_t> sorted(ordered.begin(), ordered.end());
-        std::sort(sorted.begin(), sorted.end());
-        graph.median_us = sorted[sorted.size() / 2];
-    }
+    graph.median_us = graph.count ? median_us : 0;
     return graph;
 }
 
@@ -1551,20 +1546,19 @@ std::string build_overlay_text(
     return build_overlay_readout(stats, facts, state, now_us).text;
 }
 
-OverlayReadout cached_overlay_readout(
+const std::shared_ptr<const OverlayReadout>& cached_overlay_readout(
+    SwapchainContext& context,
     const OverlayFrameStats& stats,
-    const OverlayDeviceFacts& facts,
     uint64_t now_us) {
-    static uint64_t last_read_us = 0;
-    static OverlayReadout last_readout;
-    std::lock_guard lock(g_overlay_file_mutex);
-    if (!last_read_us || now_us < last_read_us
-        || now_us - last_read_us >= 250000) {
-        last_readout =
-            build_overlay_readout(stats, facts, read_overlay_gpu_state(), now_us);
-        last_read_us = now_us;
+    // The caller holds g_mutex. An immutable snapshot avoids copying nested
+    // strings/vectors every present and gives the geometry a revision key.
+    if (!context.overlay_readout || now_us < context.overlay_readout_time_us
+        || now_us - context.overlay_readout_time_us >= 250000) {
+        context.overlay_readout = std::make_shared<const OverlayReadout>(
+            build_overlay_readout(stats, context.device_facts, read_overlay_gpu_state(), now_us));
+        context.overlay_readout_time_us = now_us;
     }
-    return last_readout;
+    return context.overlay_readout;
 }
 
 }  // namespace pblayer

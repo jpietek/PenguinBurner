@@ -400,6 +400,8 @@ struct OverlayQuadSink {
     // Null means the bitmap face; the clear-rect path can draw nothing else.
     const OverlayFontAtlas* atlas = nullptr;
     OverlayFont font = OverlayFont::Pixel;
+    std::vector<OverlayClearRect>* clear_rects = nullptr;
+    OverlayGraphPlacement* graph_placement = nullptr;
 };
 
 void overlay_fill_quad(
@@ -460,6 +462,10 @@ void overlay_fill_rect(
         return;
     }
     if (!sink.vertices) {
+        if (sink.clear_rects) {
+            sink.clear_rects->push_back({x, y, width, height, color});
+            return;
+        }
         overlay_clear_rect(
             *sink.device_context,
             sink.command_buffer,
@@ -1090,26 +1096,40 @@ void overlay_draw_text(
         }
         y += entry.height + static_cast<float>(lead);
         if (graph_after_hero && row.kind == OverlayRowKind::Hero) {
-            overlay_draw_area_graph(
-                sink,
-                graph,
-                left,
-                y,
-                static_cast<float>(text_width),
-                static_cast<float>(graph_height),
-                std::max(1.0f, scale));
+            if (sink.graph_placement) {
+                *sink.graph_placement = {left, y, static_cast<float>(text_width),
+                    static_cast<float>(graph_height), std::max(1.0f, scale), true,
+                    sink.vertices->size()};
+            } else {
+                overlay_draw_area_graph(
+                    sink,
+                    graph,
+                    left,
+                    y,
+                    static_cast<float>(text_width),
+                    static_cast<float>(graph_height),
+                    std::max(1.0f, scale));
+            }
             y += static_cast<float>(graph_height + lead);
         }
     }
     if (draw_graph && !graph_after_hero) {
-        overlay_draw_graph(
-            sink,
-            graph,
-            x0 + static_cast<int32_t>(padding),
-            y0 + static_cast<int32_t>(padding_y + text_height + lead),
-            text_width,
-            graph_height,
-            std::max(1u, static_cast<uint32_t>(std::lround(scale))));
+        if (sink.graph_placement) {
+            *sink.graph_placement = {
+                static_cast<float>(x0 + static_cast<int32_t>(padding)),
+                static_cast<float>(y0 + static_cast<int32_t>(padding_y + text_height + lead)),
+                static_cast<float>(text_width), static_cast<float>(graph_height),
+                static_cast<float>(std::max(1u, static_cast<uint32_t>(std::lround(scale)))), false};
+        } else {
+            overlay_draw_graph(
+                sink,
+                graph,
+                x0 + static_cast<int32_t>(padding),
+                y0 + static_cast<int32_t>(padding_y + text_height + lead),
+                text_width,
+                graph_height,
+                std::max(1u, static_cast<uint32_t>(std::lround(scale))));
+        }
     }
 }
 
@@ -1150,7 +1170,7 @@ bool overlay_pipeline_functions_available(const DeviceContext& context) {
 
 void destroy_overlay_atlas(
     const DeviceContext& device_context,
-    OverlayRenderResources& overlay) {
+    OverlayPipelineResources& overlay) {
     if (overlay.descriptor_pool != VK_NULL_HANDLE
         && device_context.destroy_descriptor_pool) {
         device_context.destroy_descriptor_pool(
@@ -1201,7 +1221,7 @@ void destroy_overlay_atlas(
 
 void destroy_overlay_pipeline(
     const DeviceContext& device_context,
-    OverlayRenderResources& overlay) {
+    OverlayPipelineResources& overlay) {
     for (std::size_t i = 0; i < overlay.vertex_buffers.size(); ++i) {
         if (i < overlay.vertex_mappings.size() && overlay.vertex_mappings[i]
             && i < overlay.vertex_memories.size()
@@ -1255,7 +1275,7 @@ bool overlay_atlas_functions_available(const DeviceContext& context) {
 // charge rather than taking the HUD down with it.
 bool init_overlay_atlas(
     const DeviceContext& device_context,
-    OverlayRenderResources& overlay) {
+    OverlayPipelineResources& overlay) {
     if (!overlay_atlas_functions_available(device_context)) {
         return false;
     }
@@ -1457,15 +1477,36 @@ bool init_overlay_atlas(
     return true;
 }
 
-// Best-effort: every failure here leaves blended_ready false and the overlay
-// keeps drawing with cleared rectangles, so a driver that will not give us a
-// pipeline costs the look rather than the HUD.
+// A device-local cache survives swapchain recreation. Vulkan synchronizes
+// accesses to a default pipeline cache internally; only its lazy creation
+// needs our mutex. Device teardown joins every worker before destroying it.
+VkPipelineCache overlay_pipeline_cache(const DeviceContext& device_context) {
+    if (!device_context.overlay_pipeline_cache || !device_context.create_pipeline_cache
+        || !device_context.destroy_pipeline_cache) {
+        return VK_NULL_HANDLE;
+    }
+    auto& cache = *device_context.overlay_pipeline_cache;
+    std::lock_guard lock(cache.mutex);
+    if (!cache.attempted) {
+        cache.attempted = true;
+        VkPipelineCacheCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+        if (device_context.create_pipeline_cache(device_context.device, &info, nullptr, &cache.handle)
+            != VK_SUCCESS) {
+            cache.handle = VK_NULL_HANDLE;
+        }
+    }
+    return cache.handle;
+}
+
+// Failure leaves the solid renderer available.
 void init_overlay_pipeline(
     const DeviceContext& device_context,
-    OverlayRenderResources& overlay,
+    OverlayPipelineResources& overlay,
+    VkRenderPass render_pass,
     uint32_t image_count) {
     if (!overlay_pipeline_functions_available(device_context)
-        || overlay.render_pass == VK_NULL_HANDLE) {
+        || render_pass == VK_NULL_HANDLE) {
         return;
     }
     // The fragment shader samples the atlas, so the pipeline cannot exist
@@ -1607,11 +1648,11 @@ void init_overlay_pipeline(
         pipeline_info.pColorBlendState = &blend_state;
         pipeline_info.pDynamicState = &dynamic;
         pipeline_info.layout = overlay.pipeline_layout;
-        pipeline_info.renderPass = overlay.render_pass;
+        pipeline_info.renderPass = render_pass;
         pipeline_info.subpass = 0;
         ok = device_context.create_graphics_pipelines(
                  device_context.device,
-                 VK_NULL_HANDLE,
+                 overlay_pipeline_cache(device_context),
                  1,
                  &pipeline_info,
                  nullptr,
@@ -1722,6 +1763,13 @@ void destroy_overlay_resources(
     const DeviceContext& device_context,
     SwapchainContext& swapchain_context) {
     auto& overlay = swapchain_context.overlay;
+    if (swapchain_context.overlay_preparation.valid()) {
+        overlay = swapchain_context.overlay_preparation.get();
+    }
+    if (swapchain_context.pipeline_preparation.valid()) {
+        static_cast<OverlayPipelineResources&>(overlay) =
+            swapchain_context.pipeline_preparation.get();
+    }
     if (device_context.wait_for_fences) {
         std::vector<VkFence> pending;
         for (std::size_t i = 0; i < overlay.submit_fences.size(); ++i) {
@@ -1785,13 +1833,6 @@ bool init_overlay_resources(
     // swapchain; presents from other families skip the overlay instead of
     // destroying resources that may still be in flight.
     if (overlay.attempted) {
-        return false;
-    }
-
-    // A disabled overlay must NOT consume the one-shot init: the live toggle
-    // can enable it later in this same process, and resources then still need
-    // their first (and only) initialization attempt.
-    if (!overlay_enabled()) {
         return false;
     }
 
@@ -2005,10 +2046,159 @@ bool init_overlay_resources(
 
     // Best effort and last: a missing pipeline leaves the clear-rect renderer
     // in charge, so it must not fail the resources that renderer needs.
-    init_overlay_pipeline(device_context, overlay, image_count);
-
+    overlay.blended_attempted = overlay_blended_renderer_enabled();
+    if (overlay.blended_attempted) {
+        init_overlay_pipeline(device_context, overlay, overlay.render_pass, image_count);
+    }
+    overlay.vertex_generations.assign(image_count, 0);
     overlay.ready = true;
     return true;
+}
+
+// Never compile pipelines or allocate Vulkan resources on the game's present
+// thread. The first present supplies the actual graphics queue family; until
+// the worker finishes we leave the game's wait semaphores untouched.
+bool prepare_overlay_resources(
+    const DeviceContext& device_context,
+    VkSwapchainKHR swapchain,
+    SwapchainContext& context,
+    uint32_t queue_family_index) {
+    auto& overlay = context.overlay;
+    if (context.overlay_preparation.valid()) {
+        if (context.overlay_preparation.wait_for(std::chrono::seconds(0))
+            != std::future_status::ready) {
+            return false;
+        }
+        overlay = context.overlay_preparation.get();
+    }
+    if (!overlay.attempted && overlay_enabled()) {
+        SwapchainContext prepared;
+        prepared.image_format = context.image_format;
+        prepared.image_extent = context.image_extent;
+        prepared.image_array_layers = context.image_array_layers;
+        prepared.image_usage = context.image_usage;
+        overlay.attempted = true;
+        try {
+            context.overlay_preparation = std::async(std::launch::async,
+                [device_context, swapchain, queue_family_index,
+                 prepared = std::move(prepared)]() mutable {
+                    try {
+                        init_overlay_resources(device_context, swapchain, prepared, queue_family_index);
+                    } catch (...) {
+                        destroy_overlay_resources(device_context, prepared);
+                    }
+                    prepared.overlay.attempted = true;
+                    return std::move(prepared.overlay);
+                });
+        } catch (...) {
+            // A thread/allocation failure disables this overlay, not the game.
+        }
+        return false;
+    }
+    if (!overlay.ready || overlay.queue_family_index != queue_family_index) {
+        return false;
+    }
+    if (context.pipeline_preparation.valid()
+        && context.pipeline_preparation.wait_for(std::chrono::seconds(0))
+            == std::future_status::ready) {
+        static_cast<OverlayPipelineResources&>(overlay) = context.pipeline_preparation.get();
+    }
+    // A live solid -> blended switch must not compile on the present thread
+    // either. Keep the solid HUD until its independently owned pipeline lands.
+    if (overlay_blended_renderer_enabled() && !overlay.blended_attempted) {
+        overlay.blended_attempted = true;
+        const VkRenderPass render_pass = overlay.render_pass;
+        const uint32_t image_count = static_cast<uint32_t>(overlay.images.size());
+        try {
+            context.pipeline_preparation = std::async(std::launch::async,
+                [device_context, render_pass, image_count] {
+                    OverlayPipelineResources pipeline;
+                    try {
+                        init_overlay_pipeline(device_context, pipeline, render_pass, image_count);
+                    } catch (...) {
+                        destroy_overlay_pipeline(device_context, pipeline);
+                    }
+                    return pipeline;
+                });
+        } catch (...) {
+            // Keep drawing with the already prepared solid renderer.
+        }
+    }
+    return true;
+}
+
+// Cache the panel, glyphs and layout across presents. Only the graph changes
+// each frame. Both renderers use this cache so the solid fallback stays live.
+const OverlayGeometryCache& cached_overlay_geometry(
+    OverlayGeometryCache& cache,
+    const std::shared_ptr<const OverlayReadout>& readout,
+    const OverlayGraph& graph,
+    VkExtent2D extent,
+    bool blended,
+    OverlayFont font) {
+    const double scale = g_overlay_user_scale.load(std::memory_order_relaxed);
+    const double opacity = overlay_opacity();
+    const uint32_t position = g_overlay_position.load(std::memory_order_relaxed);
+    const bool graph_visible = overlay_graph_enabled() && graph.count;
+    if (cache.readout != readout || cache.extent.width != extent.width
+        || cache.extent.height != extent.height || cache.scale != scale
+        || cache.opacity != opacity || cache.position != position
+        || cache.blended != blended || cache.font != font
+        || cache.graph_visible != graph_visible) {
+        cache.readout = readout;
+        cache.extent = extent;
+        cache.scale = scale;
+        cache.opacity = opacity;
+        cache.position = position;
+        cache.blended = blended;
+        cache.font = font;
+        cache.graph_visible = graph_visible;
+        cache.vertices.clear();
+        cache.clear_rects.clear();
+        cache.graph = {};
+        if (blended) {
+            cache.vertices.reserve(kOverlayMaxQuads * kOverlayVerticesPerQuad);
+        } else {
+            cache.clear_rects.reserve(kOverlayMaxQuads);
+        }
+        OverlayQuadSink sink{nullptr, VK_NULL_HANDLE, extent,
+            blended ? &cache.vertices : nullptr, overlay_font_atlas(font), font,
+            blended ? nullptr : &cache.clear_rects, &cache.graph};
+        overlay_draw_text(sink, *readout, graph);
+        cache.static_count = blended ? cache.vertices.size() : cache.clear_rects.size();
+        cache.graph_tail.clear();
+        if (blended && cache.graph.area) {
+            cache.graph_tail.assign(cache.vertices.begin() + cache.graph.vertex_offset,
+                cache.vertices.end());
+        }
+        ++cache.generation;
+    }
+    if (blended) {
+        cache.vertices.resize(cache.graph.area ? cache.graph.vertex_offset : cache.static_count);
+    } else {
+        cache.clear_rects.resize(cache.static_count);
+    }
+    if (graph_visible && cache.graph.width > 0) {
+        const auto& box = cache.graph;
+        OverlayQuadSink sink{nullptr, VK_NULL_HANDLE, extent,
+            blended ? &cache.vertices : nullptr, nullptr, OverlayFont::Pixel,
+            blended ? nullptr : &cache.clear_rects};
+        if (box.area) {
+            overlay_draw_area_graph(sink, graph, box.x, box.y, box.width, box.height, box.scale);
+            // Retain painter order with one contiguous copy of the rows after
+            // the graph, rather than moving the whole buffer twice per frame.
+            const std::size_t remaining = kOverlayMaxQuads * kOverlayVerticesPerQuad
+                - cache.vertices.size();
+            cache.vertices.insert(cache.vertices.end(), cache.graph_tail.begin(),
+                cache.graph_tail.begin() + std::min(remaining, cache.graph_tail.size()));
+        } else {
+            overlay_draw_graph(sink, graph, static_cast<int32_t>(box.x),
+                static_cast<int32_t>(box.y), static_cast<uint32_t>(box.width),
+                static_cast<uint32_t>(box.height), static_cast<uint32_t>(box.scale));
+        }
+        ++cache.generation;
+    }
+    return cache;
 }
 
 VkSemaphore submit_overlay_locked(
@@ -2019,14 +2209,14 @@ VkSemaphore submit_overlay_locked(
     VkQueue queue,
     uint32_t image_index,
     const VkPresentInfoKHR* present_info,
-    const OverlayReadout& readout,
+    const std::shared_ptr<const OverlayReadout>& readout,
     const OverlayGraph& graph) {
-    if (readout.text.empty() || !overlay_enabled()
+    if (!readout || readout->text.empty() || !overlay_enabled()
         || !(queue_context.queue_flags & VK_QUEUE_GRAPHICS_BIT)
         || !present_info) {
         return VK_NULL_HANDLE;
     }
-    if (!init_overlay_resources(
+    if (!prepare_overlay_resources(
             device_context,
             swapchain,
             swapchain_context,
@@ -2151,22 +2341,22 @@ VkSemaphore submit_overlay_locked(
     const OverlayFont font = blended && overlay.atlas_uploaded
         ? overlay_font()
         : OverlayFont::Pixel;
-    std::vector<OverlayVertex> vertices;
-    OverlayQuadSink sink{
-        &device_context,
-        command_buffer,
-        swapchain_context.image_extent,
-        blended ? &vertices : nullptr,
-        overlay_font_atlas(font),
-        font};
-    overlay_draw_text(sink, readout, graph);
-    if (blended && !vertices.empty()) {
-        // The fence for this image already retired above, so nothing is
-        // reading the buffer we are about to overwrite.
-        std::memcpy(
-            overlay.vertex_mappings[image_index],
-            vertices.data(),
-            vertices.size() * sizeof(OverlayVertex));
+    const auto& geometry = cached_overlay_geometry(
+        overlay.geometry, readout, graph, swapchain_context.image_extent, blended, font);
+    const auto& vertices = geometry.vertices;
+    if (!blended) {
+        for (const auto& rect : geometry.clear_rects) {
+            overlay_clear_rect(device_context, command_buffer, swapchain_context.image_extent,
+                rect.x, rect.y, rect.width, rect.height, rect.color);
+        }
+    } else if (!vertices.empty()) {
+        // Each image keeps the last uploaded static geometry. A live graph or
+        // changed readout advances the generation; otherwise no upload is needed.
+        if (overlay.vertex_generations[image_index] != geometry.generation) {
+            std::memcpy(overlay.vertex_mappings[image_index], vertices.data(),
+                vertices.size() * sizeof(OverlayVertex));
+            overlay.vertex_generations[image_index] = geometry.generation;
+        }
         device_context.cmd_bind_pipeline(
             command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, overlay.pipeline);
         device_context.cmd_bind_descriptor_sets(
@@ -2203,8 +2393,8 @@ VkSemaphore submit_overlay_locked(
         return VK_NULL_HANDLE;
     }
 
-    std::vector<VkPipelineStageFlags> wait_stages(
-        present_info->waitSemaphoreCount,
+    auto& wait_stages = overlay.wait_stages;
+    wait_stages.assign(present_info->waitSemaphoreCount,
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
     VkSemaphore signal = overlay.signal_semaphores[image_index];
     VkSubmitInfo submit_info{};
