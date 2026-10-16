@@ -99,6 +99,24 @@ def overlay_override_path(env: Mapping[str, str] | None = None) -> Path:
     return overlay_state_path(resolved_env).with_name("overlay-override")
 
 
+def read_overlay_override(path: str | Path | None = None) -> bool | None:
+    """The live override the layer is honouring, or None when it is absent.
+
+    None means "follow the launch setting", which is what the wrapper leaves
+    behind at every launch.
+    """
+    target = overlay_override_path() if path is None else Path(path)
+    try:
+        value = target.read_text(encoding="utf-8", errors="replace").strip().lower()
+    except OSError:
+        return None
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return None
+
+
 def write_overlay_override(enabled: bool, path: str | Path | None = None) -> bool:
     target = overlay_override_path() if path is None else Path(path)
     try:

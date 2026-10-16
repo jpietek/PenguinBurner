@@ -74,6 +74,15 @@ std::mutex g_overlay_file_mutex;
 // Latest user overlay scale multiplier, published by overlay_text_config() so
 // the present-path draw can read it without threading config through every call.
 std::atomic<double> g_overlay_user_scale{1.0};
+std::atomic<uint32_t> g_overlay_position{
+    static_cast<uint32_t>(kDefaultOverlayPosition)};
+std::atomic<bool> g_overlay_graph_enabled{false};
+std::atomic<double> g_overlay_opacity{1.0};
+std::atomic<bool> g_overlay_blended_renderer{true};
+std::atomic<uint32_t> g_overlay_font{
+    static_cast<uint32_t>(kDefaultOverlayFont)};
+std::atomic<uint32_t> g_overlay_layout{
+    static_cast<uint32_t>(kDefaultOverlayLayout)};
 
 bool should_report_counter(uint64_t count) {
     return count <= 3 || (count % 600) == 0;

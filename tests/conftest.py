@@ -76,6 +76,52 @@ def _no_detached_launch_processes(monkeypatch):
     )
 
 
+@pytest.fixture(scope="session")
+def native_overlay_probe(tmp_path_factory) -> Path:
+    """Build the layer's own overlay formatter and font into a host binary.
+
+    ``overlay/native/latency_layer/tools/overlay_text_probe.cpp`` links the
+    same translation units the Vulkan layer does, so tests can drive the real
+    C++ text builder and glyph table without a GPU, a loader or a game. Built
+    once per session because the compile dominates those tests' runtime.
+    """
+    import shutil
+    import subprocess
+
+    compiler = shutil.which("c++") or shutil.which("g++")
+    if compiler is None:
+        pytest.skip("C++ compiler unavailable")
+    layer_root = REPO_ROOT / "overlay/native/latency_layer"
+    source_dir = layer_root / "src"
+    headers_check = subprocess.run(
+        [compiler, "-std=c++17", "-fsyntax-only", "-x", "c++", "-"],
+        input="#include <vulkan/vk_layer.h>\n",
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if headers_check.returncode != 0:
+        pytest.skip("Vulkan headers unavailable (install the vulkan-headers package)")
+    binary = tmp_path_factory.mktemp("native-overlay-probe") / "overlay_text_probe"
+    subprocess.run(
+        [
+            compiler,
+            "-std=c++17",
+            "-I",
+            str(source_dir),
+            str(layer_root / "tools/overlay_text_probe.cpp"),
+            str(source_dir / "overlay_text.cpp"),
+            str(source_dir / "latency_state.cpp"),
+            str(source_dir / "overlay_render.cpp"),
+            "-o",
+            str(binary),
+        ],
+        check=True,
+        cwd=REPO_ROOT,
+    )
+    return binary
+
+
 @pytest.fixture(autouse=True)
 def _launcher_command_cache():
     from integrations.launchers.installation import native_command

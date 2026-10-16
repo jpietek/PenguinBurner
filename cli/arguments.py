@@ -11,6 +11,7 @@ from auto_uv.domain.user_options import AUTO_UV_DEFAULTS
 from auto_uv.scan_mode.auto_uv_mode import ADAPTIVE_TIER_MODES, AUTO_UV_MODES
 from common.penguin_burner_paths import default_runtime_config_path
 from integrations.afterburner.policy import MAX_AFTERBURNER_MEM_OFFSET_MHZ
+from overlay.control import DETAIL_LABELS, VISIBILITY_MODES
 from runtime.support.runtime_service import DEFAULT_JOURNAL_HOURS
 from stability.q2rtx.resolution import Q2RTX_SCAN_RESOLUTIONS
 
@@ -36,6 +37,7 @@ def parse_arguments(argv):
 
     auto_uv_group = parser.add_argument_group("Auto-UV")
     steam_group = parser.add_argument_group("Steam overlay setup")
+    overlay_group = parser.add_argument_group("In-game overlay control")
     daemon_group = parser.add_argument_group("Runtime and daemon essentials")
     runtime_group = parser.add_argument_group("Runtime tuning")
     advanced_group = parser.add_argument_group("Advanced/debug")
@@ -194,6 +196,36 @@ def parse_arguments(argv):
             "an adaptive 3-in-1 run uses the same duration). Default 300 "
             "seconds; equivalent to PENGUIN_BURNER_AUTO_UV_FINAL_SECONDS."
         ),
+    )
+    overlay_group.add_argument(
+        "--overlay-toggle",
+        action="store_true",
+        help=(
+            "Show or hide the in-game overlay in a running game and exit. Bind "
+            "this to a desktop shortcut to reach it without leaving the game; "
+            "the running layer picks the change up within a second."
+        ),
+    )
+    overlay_group.add_argument(
+        "--overlay-visible",
+        choices=VISIBILITY_MODES,
+        help=(
+            "Show, hide, or hand the overlay back to the game's launch setting "
+            "('auto'), then exit."
+        ),
+    )
+    overlay_group.add_argument(
+        "--overlay-detail-next",
+        action="store_true",
+        help=(
+            "Step the overlay to the next detail level and exit, wrapping from "
+            "the last back to the first. Also reachable as a desktop shortcut."
+        ),
+    )
+    overlay_group.add_argument(
+        "--overlay-detail",
+        choices=tuple(DETAIL_LABELS),
+        help="Set the overlay's detail level and exit.",
     )
     steam_group.add_argument(
         "--set-steam-overlay-launch",

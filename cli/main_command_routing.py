@@ -7,6 +7,13 @@ from dataclasses import dataclass
 from cli.effective_runtime_options import build_effective_auto_uv_runtime_options
 from common.penguin_burner_errors import NvmlError
 from overlay.config import steam_launch_option
+from overlay.control import (
+    OverlayControlResult,
+    cycle_overlay_detail,
+    set_overlay_detail_level,
+    set_overlay_visibility,
+    toggle_overlay_visibility,
+)
 from overlay.telemetry.steam_launch_check import rewrite_launch_options
 from profiles.gpu_identity import profile_gpu_uuid
 from profiles.uv.profile_store import (
@@ -112,6 +119,11 @@ def route_main_command(
 
     if args.assign_auto_uv_tier:
         _assign_profile_tier(args, deps=deps)
+        return MainCommandRoutingResult(handled=True)
+
+    overlay_result = _overlay_control_result(args)
+    if overlay_result is not None:
+        _report_overlay_control(overlay_result, args, deps=deps)
         return MainCommandRoutingResult(handled=True)
 
     if getattr(args, "set_steam_overlay_launch", None):
@@ -220,6 +232,53 @@ def route_main_command(
         auto_uv_profile_selector=auto_uv_profile_selector,
         auto_uv_final_curve_available=auto_uv_final_curve_available,
     )
+
+
+def _overlay_control_result(args) -> OverlayControlResult | None:
+    """Route the overlay key-binding verbs into their owner in overlay/.
+
+    Only one can run per invocation: each is a one-shot action a desktop
+    shortcut fires, not a setting that composes with the others.
+    """
+    requested = [
+        name
+        for name in (
+            "overlay_toggle",
+            "overlay_visible",
+            "overlay_detail_next",
+            "overlay_detail",
+        )
+        if getattr(args, name, None)
+    ]
+    if not requested:
+        return None
+    if len(requested) > 1:
+        raise NvmlError(
+            "choose only one of --overlay-toggle, --overlay-visible, "
+            "--overlay-detail-next or --overlay-detail"
+        )
+    try:
+        if getattr(args, "overlay_toggle", False):
+            return toggle_overlay_visibility()
+        if getattr(args, "overlay_visible", None):
+            return set_overlay_visibility(args.overlay_visible)
+        if getattr(args, "overlay_detail_next", False):
+            return cycle_overlay_detail()
+        return set_overlay_detail_level(args.overlay_detail)
+    except (OSError, ValueError) as exc:
+        raise NvmlError(f"overlay control failed: {exc}") from exc
+
+
+def _report_overlay_control(
+    result: OverlayControlResult,
+    args,
+    *,
+    deps: MainCommandRoutingDependencies,
+) -> None:
+    if getattr(args, "json_events", False):
+        deps.print_fn(json.dumps(result.as_json(), indent=2), flush=True)
+    else:
+        deps.print_fn(result.message, flush=True)
 
 
 def _print_profile_list(args, *, deps: MainCommandRoutingDependencies) -> None:

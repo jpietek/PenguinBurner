@@ -1672,7 +1672,7 @@ def test_overlay_tab_hides_runs_panel_and_scrolls_options(monkeypatch) -> None:
     _ = app
 
     from ui.window import MainWindow
-    from overlay.config import ADVANCED_OVERLAY_ITEM_IDS
+    from overlay.config import OVERLAY_ITEM_SECTIONS
     from ui.components.overlay_config import ITEM_LABELS
 
     monkeypatch.setattr(MainWindow, "_load_profiles", lambda self: None)
@@ -1706,37 +1706,41 @@ def test_overlay_tab_hides_runs_panel_and_scrolls_options(monkeypatch) -> None:
         )
         is not None
     )
-    basic_group = window.overlay_config.widget.findChild(
-        QtWidgets.QGroupBox,
-        "overlayBasicOptionsGroup",
+    # The field list is grouped by subject rather than by a Basic/Advanced
+    # split, which said nothing about what any field was.
+    sections = [
+        window.overlay_config.widget.findChild(
+            QtWidgets.QGroupBox,
+            f"overlayItemSection_{title.lower().replace(' ', '-')}",
+        )
+        for title, _ids in OVERLAY_ITEM_SECTIONS
+    ]
+    assert all(section is not None for section in sections)
+    for section, (_title, item_ids) in zip(sections, OVERLAY_ITEM_SECTIONS, strict=True):
+        labels = [box.text() for box in section.findChildren(QtWidgets.QCheckBox)]
+        assert labels == [ITEM_LABELS[item] for item in item_ids]
+    gpu_section = window.overlay_config.widget.findChild(
+        QtWidgets.QGroupBox, "overlayItemSection_gpu"
     )
-    advanced_group = window.overlay_config.widget.findChild(
-        QtWidgets.QGroupBox,
-        "overlayAdvancedOptionsGroup",
-    )
-    assert basic_group is not None
-    assert advanced_group is not None
-    assert advanced_group.geometry().top() == basic_group.geometry().top()
-    assert advanced_group.geometry().left() > basic_group.geometry().left()
-    advanced_checkboxes = advanced_group.findChildren(QtWidgets.QCheckBox)
-    advanced_labels = [checkbox.text() for checkbox in advanced_checkboxes]
-    assert advanced_labels == [ITEM_LABELS[item] for item in ADVANCED_OVERLAY_ITEM_IDS]
     assert (
-        advanced_group.findChild(
+        gpu_section.findChild(
             QtWidgets.QCheckBox,
             "overlayItemCheckbox_gpu_util_pct",
         ).text()
         == "GPU %"
     )
+    cpu_section = window.overlay_config.widget.findChild(
+        QtWidgets.QGroupBox, "overlayItemSection_cpu-and-system"
+    )
     assert (
-        advanced_group.findChild(
+        cpu_section.findChild(
             QtWidgets.QCheckBox,
             "overlayItemCheckbox_cpu_util_pct",
         ).text()
         == "CPU %"
     )
     assert (
-        advanced_group.findChild(
+        cpu_section.findChild(
             QtWidgets.QCheckBox,
             "overlayItemCheckbox_cpu_peak_thread_pct",
         ).text()
@@ -1804,11 +1808,18 @@ def test_overlay_panel_saves_manual_scale(tmp_path, qtbot) -> None:
     # Defaults to the adaptive 1x option.
     assert panel.scale_combo.currentText() == "1x"
 
-    panel.scale_combo.setCurrentIndex(2)
+    # Picked by label rather than position: the ladder gained the sizes
+    # between the whole multiples, so an index no longer names a size.
+    panel.scale_combo.setCurrentIndex(panel.scale_combo.findText("2x"))
 
     assert panel.scale_combo.currentText() == "2x"
     assert load_overlay_config(config_path).scale == 2.0
     assert "scale = 2.0" in config_path.read_text(encoding="utf-8")
+
+    panel.scale_combo.setCurrentIndex(panel.scale_combo.findText("0.75x"))
+
+    assert load_overlay_config(config_path).scale == 0.75
+    assert "scale = 0.75" in config_path.read_text(encoding="utf-8")
 
 
 def test_overlay_panel_has_no_steam_launch_controls(tmp_path, qtbot) -> None:
