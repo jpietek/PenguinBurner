@@ -128,6 +128,7 @@ class GpuTelemetry:
     voltage_mv: float | None
     throttle_reason_mask: int | None
     clock_offsets: GpuClockOffsets
+    hotspot_temperature_c: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -442,6 +443,7 @@ def _parse_telemetry(raw: dict, gpu_index: int) -> GpuTelemetry:
         gpu_index=_int(raw.get("gpu_index"), gpu_index),
         updated_unix_ns=_optional_int(raw.get("updated_unix_ns")),
         temperature_c=_optional_float(raw.get("temperature_c")),
+        hotspot_temperature_c=_optional_float(raw.get("hotspot_temperature_c")),
         fan_speeds_pct=_float_tuple(raw.get("fan_speeds_pct")),
         power_draw_w=_optional_float(raw.get("power_draw_w")),
         utilization_pct=_optional_float(raw.get("gpu_utilization_pct")),
