@@ -344,6 +344,10 @@ OverlayGpuState read_overlay_gpu_state() {
             state.clock_mhz = value;
         } else if (key == "latency_ms") {
             state.latency_ms = value;
+        } else if (key == "latency_avg_ms") {
+            state.latency_avg_ms = value;
+        } else if (key == "latency_source") {
+            state.latency_source = value;
         } else if (key == "display_latency_ms") {
             state.display_latency_ms = value;
         } else if (key == "voltage_mv") {
@@ -444,33 +448,22 @@ std::string overlay_optional_value(const std::string& value, const char* suffix)
     return text + suffix_text;
 }
 
-// Render latency plus the optional present->scanout display tail, as one number.
-// When the display field is absent (display-latency capture not enabled via the
-// Steam params), this collapses to the render latency alone.
-std::string overlay_combined_latency_value(
-    const std::string& render_ms,
-    const std::string& display_ms) {
-    if (overlay_value_missing(render_ms)) {
+// Use the selected frame span without adding an unrelated presentation wait.
+// Without an input marker the span is an estimate of responsiveness.
+std::string overlay_frame_latency_value(
+    const std::string& latency_ms,
+    const std::string& source) {
+    if (overlay_value_missing(latency_ms)) {
         return "";
     }
-    const std::string render_text = trim_ascii(render_ms);
+    const std::string value = trim_ascii(latency_ms);
     errno = 0;
-    char* render_end = nullptr;
-    const long render = std::strtol(render_text.c_str(), &render_end, 10);
-    if (errno != 0 || render_end == render_text.c_str()) {
+    char* end = nullptr;
+    const long latency = std::strtol(value.c_str(), &end, 10);
+    if (errno != 0 || end == value.c_str()) {
         return "";
     }
-    long total = render;
-    if (!overlay_value_missing(display_ms)) {
-        const std::string display_text = trim_ascii(display_ms);
-        errno = 0;
-        char* display_end = nullptr;
-        const long display = std::strtol(display_text.c_str(), &display_end, 10);
-        if (errno == 0 && display_end != display_text.c_str()) {
-            total += display;
-        }
-    }
-    return std::to_string(total);
+    return std::string(source == "input-to-gpu" ? "" : "~") + std::to_string(latency);
 }
 
 std::string overlay_signed_value(const std::string& value) {
@@ -653,12 +646,15 @@ std::string build_overlay_text(
                 append_overlay_part(text, "T " + temp);
             }
         } else if (item == "latency_ms") {
+            const bool has_average = !trim_ascii(state.latency_avg_ms).empty();
             const std::string latency = overlay_optional_value(
-                overlay_combined_latency_value(
-                    state.latency_ms, state.display_latency_ms),
+                overlay_frame_latency_value(
+                    has_average ? state.latency_avg_ms : state.latency_ms,
+                    state.latency_source),
                 " ms");
             if (!latency.empty()) {
-                append_overlay_part(text, "LAT " + latency);
+                append_overlay_part(
+                    text, std::string(has_average ? "LAT AVG " : "LAT P95 ") + latency);
             }
         } else if (item == "uv_offset_mv") {
             const std::string uv = overlay_optional_value(

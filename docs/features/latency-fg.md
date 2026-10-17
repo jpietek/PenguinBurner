@@ -77,9 +77,29 @@ marker stream at all.
 
 ## Latency Sources
 
+### Driver completion (preferred)
+
+When valid `vkGetLatencyTimingsNV` driver reports are available, `LAT AVG` shows the
+arithmetic mean frame latency over the last three seconds ending at GPU
+completion. Endpoints come from the same report: input sample to GPU completion,
+simulation start to GPU completion, or render submission to GPU completion,
+in that order of preference. This includes the GPU queue and rendering work
+that can continue after a CPU
+`Present()` call returns.
+
+When the input-sample marker is missing, the simulation/submission span is
+prefixed with `~`: it is an estimate of responsiveness, not a measured input
+latency. The published `latency_source` identifies the selected endpoints.
+
+These driver-reported spans are experimental under Proton and frame generation.
+Timestamp ordering checks do not establish that the reported GPU completion is
+the completion of the image the player saw. This is not full mouse-to-screen
+latency: input sampling waits, presentation, and physical display response are
+not fully covered. Neither the average nor p95 proves perceived input delay.
+
 ### NVAPI Shim (default, Wine and Proton games)
 
-The default source is the drop-in NVAPI shim. It taps the Reflex markers above
+The marker fallback uses the drop-in NVAPI shim. It taps the Reflex markers above
 vkd3d's owner-gate — so it still works under frame generation — and streams them
 to the wrapper's FIFO. The bridge pairs markers by frame ID and emits
 `marker-proxy` timing samples; no dxvk-nvapi fork, trace, or marker log is
@@ -98,44 +118,33 @@ publishes samples such as:
 - `submit_to_present_us`
 - `render_submit_us`
 
-Either way the daemon aggregates recent samples and publishes `latency_p95_ms`,
-which the overlay renders as `LAT`.
+The daemon computes the average and p95 from the same selected sample stream.
+It publishes the average as `latency_avg_ms`, rendered as `LAT AVG`. The legacy
+`latency_ms` field retains p95 for diagnostics and older readers. If the daemon
+does not publish the average, the overlay labels its fallback `LAT P95`.
+Repeated driver frame reports are counted only once.
 
-### Display Tail
+### Marker estimates
 
-The render latency and display tail are kept separate internally.
+If valid driver-completion timestamps are unavailable, the daemon uses Reflex
+input/simulation-to-present markers, preferring the out-of-band present span
+when frame-generation markers are present. The overlay prefixes this shorter
+estimate with `~`, for example `LAT AVG ~25 ms`. An older daemon that does not
+publish source information is also shown as an estimate.
 
-- `latency_p95_ms` is the selected render/game latency proxy.
-- `display_latency_p95_ms` is the present-to-scanout tail when
-  `VK_KHR_present_wait` and `VK_KHR_present_id` are available.
+Application present and frame-generation present markers are software events;
+they do not establish when the corresponding image reached the monitor. A low
+marker estimate can coexist with a long GPU queue. Missing markers are not
+replaced with an invented latency derived from FPS.
 
-The overlay sums those two values into the single `LAT` number. If the display
-tail is unavailable, `LAT` falls back to render/game latency alone.
+### Presentation wait
 
-Set this to hide the display tail:
+`display_latency_p95_ms` remains a separate diagnostic for the
+`VK_KHR_present_wait` completion wait. It is not added to `LAT AVG`: the independent
+measurements are not paired by frame, may overlap the measured render span, and
+do not establish physical pixel-response time.
 
-```text
-PENGUIN_BURNER_LATENCY_DISPLAY=0
-```
-
-## Latency Quality
-
-PenguinBurner uses the best usable p95 latency tier available in the current
-sample window. From most complete to weaker proxy, the important tiers are:
-
-- `input-to-oob-present` - input marker to displayed present, including the
-  frame-generation hold.
-- `sim-to-oob-present` - simulation start to displayed present, including the
-  frame-generation hold.
-- `input-to-present` / `marker-input-to-present` - input marker to application
-  present.
-- `sim-to-present` - simulation start to application present.
-- `submit-to-present` - render submit to present.
-- `render-submit` - render-submit marker span only.
-
-If frame generation is active, PenguinBurner prefers the out-of-band present
-span when available because application present can happen before generated
-frames are paced to display.
+Set `PENGUIN_BURNER_LATENCY_DISPLAY=0` to disable that diagnostic capture.
 
 ## Why LAT Can Be Missing
 
@@ -149,8 +158,6 @@ Missing `LAT` is expected for some games. Common causes:
   sample or present markers.
 - `VK_NV_low_latency2` or `vkGetLatencyTimingsNV` is unavailable or returns an
   empty/stale timing ring.
-- Display-tail timing is unavailable because `VK_KHR_present_wait` or
-  `VK_KHR_present_id` is missing.
 - The game was already running when the native layer was rebuilt, so the old
   `.so` is still mapped in that process.
 

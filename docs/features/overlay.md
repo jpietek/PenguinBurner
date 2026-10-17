@@ -26,7 +26,7 @@ The **Preview** line shows exactly what the on-screen string will look like, for
 example:
 
 ```text
-119 FPS  176 FG  LAT 23 ms  225 MHz  8 W  PERF  GPU 0%  CPU-T 98%
+119 FPS  176 FG  LAT AVG ~23 ms  225 MHz  8 W  PERF  GPU 0%  CPU-T 98%
 ```
 
 ## Fields
@@ -57,17 +57,20 @@ frames versus rendered ones.
 See [Latency and frame-generation FPS](./latency-fg.md) for the exact p95,
 raw-output, and frame-generation detection rules.
 
-## PC latency meter
+## Frame latency estimate
 
-The **LAT** field shows PC latency in milliseconds: the render tail plus the
-present-to-scanout display tail when that tail is supported. Where the display
-tail isn't available, it shows render latency alone. It turns on with the
-overlay, sourced from the NVAPI shim on Proton games and the native Vulkan layer
-otherwise.
+**LAT AVG** shows the average of recent frame spans, ending at driver-reported
+GPU completion when available. When input markers are missing, simulation or
+submission timestamps provide an estimate marked with `~`. If only software
+present markers are available, their shorter span is also marked as an estimate.
+**LAT P95** is the fallback label for an older daemon without average telemetry.
 
-- Set `PENGUIN_BURNER_LATENCY_DISPLAY=0` to show render latency only.
-- Set `PB_INGAME_LATENCY=0` to turn the latency field off while keeping the
-  overlay.
+This is not measured mouse-to-screen latency. GPU timing accuracy under Proton
+and frame generation is still being validated. The independent presentation-wait
+percentile is not added to the frame span.
 
-Without usable latency markers, the overlay omits `LAT` and keeps showing FPS
-and GPU telemetry. See [latency and FPS details](latency-fg.md).
+- Set `PENGUIN_BURNER_LATENCY_DISPLAY=0` to disable the separate present-wait diagnostic.
+- Set `PB_INGAME_LATENCY=0` to turn the latency field off while keeping the overlay.
+
+Without usable timing endpoints, latency stays hidden. FPS alone cannot supply
+an input-latency estimate. See [latency and FPS details](latency-fg.md).

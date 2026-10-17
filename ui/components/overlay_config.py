@@ -35,7 +35,7 @@ ITEM_LABELS = {
     "cpu_peak_thread_pct": "CPU-T %",
     "fan_pct": "Fan %",
     "temperature_c": "Temp C",
-    "latency_ms": "Latency ms",
+    "latency_ms": "Frame latency ms",
     "uv_offset_mv": "UV offset mV",
 }
 
@@ -89,13 +89,13 @@ ITEM_TOOLTIPS = {
     "fan_pct": "Current reported GPU fan speed percentage. Missing fan data is hidden.",
     "temperature_c": "Current GPU temperature in C. Missing temperature data is hidden.",
     "latency_ms": (
-        "NVIDIA App-style PC latency for the game: render (Reflex input-to-present "
-        "span, including the frame-gen hold) plus the present->scanout display "
-        "tail, added automatically when supported. Measuring it injects a drop-in "
-        "nvapi64.dll into the game's Proton prefix to tap the game's own Reflex "
-        "markers, so it works even under frame generation; without the shim a "
-        "native Vulkan marker fallback covers the non-frame-gen case. Not exactly "
-        "click-to-photon -- mouse/USB input and panel pixel response are excluded."
+        "Average frame latency over the last 3 seconds, from input/simulation "
+        "or render submission to the driver-reported GPU completion. A ~ prefix "
+        "marks an estimate when input markers or GPU timings are missing. "
+        "P95 is shown instead with older daemons that do not publish the average. "
+        "This is not measured mouse-to-screen latency; input sampling waits, "
+        "presentation and monitor response are not fully covered. Driver timing "
+        "accuracy under Proton/frame generation still needs validation."
     ),
     "uv_offset_mv": (
         "Current voltage delta from the stock VF point for the nearest active "
@@ -351,8 +351,11 @@ def _sample_text(item_id: str, telemetry: dict[str, str]) -> str:
         live = _live_value(telemetry, "framegen_fps")
         return f"{live or demo['framegen_fps']} FG"
     if item_id == "latency_ms":
-        live = _live_value(telemetry, "latency_ms")
-        return f"{live or demo['latency_ms']} ms"
+        has_live_latency = _live_value(telemetry, "latency_avg_ms") or _live_value(
+            telemetry, "latency_ms"
+        )
+        values = telemetry if has_live_latency else demo
+        return format_overlay_item("latency_ms", values)
     telemetry_key = ITEM_TELEMETRY_KEYS.get(item_id)
     live_value = _live_value(telemetry, telemetry_key or "")
     if not telemetry_key or not live_value:
