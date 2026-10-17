@@ -216,6 +216,17 @@ DWORD WINAPI writer_main(LPVOID) {
 }
 
 void start_writer_thread() {
+    // A caller may query NVAPI during DLL_PROCESS_ATTACH and immediately
+    // FreeLibrary its probe handle (OptiScaler does this). The new thread
+    // cannot run until the loader lock is released, so it could otherwise
+    // start after our code and globals have already been unmapped. The writer
+    // lives until process exit; keep its DLL alive for that same lifetime.
+    HMODULE pinned = nullptr;
+    if (!GetModuleHandleExA(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+            reinterpret_cast<LPCSTR>(&writer_main), &pinned)) {
+        return;  // No background thread may outlive an unpinned module.
+    }
     g_wake = CreateEventA(nullptr, FALSE, FALSE, nullptr);
     if (g_wake == nullptr) {
         return;  // emit_raw falls back to direct writes
