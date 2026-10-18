@@ -474,7 +474,18 @@ fn frame_latency_stats(samples: &[&Sample]) -> Option<(LatencyStats, &'static st
             return Some((value, source));
         }
     }
-    latency_proxy_stats(samples).map(|value| (value, "marker-estimate"))
+    if let Some(value) = latency_proxy_stats(samples) {
+        return Some((value, "marker-estimate"));
+    }
+    // Lowest tier: a frame-cycle proxy paired with its own calibrated GPU end.
+    // Never manufacture latency from FPS or from a model-only GPU duration.
+    let spans: Vec<i64> = samples
+        .iter()
+        .filter(|s| measurement(&s.data) == "frame-cycle-gpu")
+        .map(|s| int_value(s.data.get("frame_cycle_gpu_us")))
+        .filter(|&v| v > 0 && v <= 1_000_000)
+        .collect();
+    latency_stats(&spans).map(|value| (value, "frame-cycle-to-gpu"))
 }
 
 // --- meter ------------------------------------------------------------------
@@ -1243,6 +1254,47 @@ mod tests {
         assert_eq!(snapshot.latency_avg_ms, Some(40.0));
         assert_eq!(snapshot.latency_p95_ms, Some(90.0));
         assert_eq!(snapshot.latency_source.as_deref(), Some("marker-estimate"));
+    }
+
+    #[test]
+    fn markerless_completion_is_a_fallback_and_expires() {
+        let mut meter = Meter::new();
+        for us in [22000, 26000, 0, -1, 1000001] {
+            meter.add_sample(obj(timing(
+                json!({"measurement": "frame-cycle-gpu", "frame_cycle_gpu_us": us}),
+            )));
+        }
+        let snapshot = meter.snapshot(monotonic_now(), None).unwrap();
+        assert_eq!(snapshot.latency_avg_ms, Some(24.0));
+        assert_eq!(snapshot.latency_p95_ms, Some(26.0));
+        assert_eq!(
+            snapshot.latency_source.as_deref(),
+            Some("frame-cycle-to-gpu")
+        );
+        assert_eq!(snapshot.present_fps.as_deref(), Some("n/a"));
+        assert_eq!(snapshot.fps_source.as_deref(), Some("none"));
+        meter.add_sample(obj(timing(
+            json!({"measurement": "marker-proxy", "sim_to_present_us": 15000}),
+        )));
+        assert_eq!(
+            meter
+                .snapshot(monotonic_now(), None)
+                .unwrap()
+                .latency_source
+                .as_deref(),
+            Some("marker-estimate")
+        );
+        meter.add_sample(obj(timing(
+            json!({"measurement": "driver-report", "present_id": 1,
+            "input_sample_us": 1000, "gpu_render_start_us": 5000, "gpu_render_end_us": 20000}),
+        )));
+        let snapshot = meter.snapshot(monotonic_now(), None).unwrap();
+        assert_eq!(snapshot.latency_avg_ms, Some(19.0));
+        assert_eq!(snapshot.latency_source.as_deref(), Some("input-to-gpu"));
+        for sample in &mut meter.samples {
+            sample.received_monotonic -= 10.0;
+        }
+        assert!(meter.snapshot(monotonic_now(), None).is_none());
     }
 
     #[test]

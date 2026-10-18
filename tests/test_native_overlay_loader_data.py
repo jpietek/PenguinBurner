@@ -86,6 +86,7 @@ def _build_loader_data_probe(tmp_path: Path) -> Path:
             str(layer_src),
             str(source),
             str(layer_src / "overlay_render.cpp"),
+            str(layer_src / "frame_timing.cpp"),
             str(layer_src / "overlay_text.cpp"),
             str(layer_src / "latency_state.cpp"),
             str(layer_src / "latency_layer.cpp"),

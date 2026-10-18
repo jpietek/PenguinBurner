@@ -13,6 +13,7 @@ from overlay.overlay_text import format_overlay_text, preview_overlay_text
         ("simulation-to-gpu", "~"),
         ("submit-to-gpu", "~"),
         ("marker-estimate", "~"),
+        ("frame-cycle-to-gpu", "~"),
         ("", "~"),
     ],
 )

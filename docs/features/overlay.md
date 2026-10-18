@@ -59,18 +59,19 @@ raw-output, and frame-generation detection rules.
 
 ## Frame latency estimate
 
-**LAT AVG** shows the average of recent frame spans, ending at driver-reported
-GPU completion when available. When input markers are missing, simulation or
-submission timestamps provide an estimate marked with `~`. If only software
-present markers are available, their shorter span is also marked as an estimate.
-**LAT P95** is the fallback label for an older daemon without average telemetry.
+Enable **Frame latency ms** in **In-Game Overlay → Frame rate**. The row shows
+`LAT AVG` (`lat avg` in HUD), or `LAT P95` with an older daemon. Reflex input to
+GPU completion is preferred. A `~` prefix identifies estimated latency.
 
-This is not measured mouse-to-screen latency. GPU timing accuracy under Proton
-and frame generation is still being validated. The independent presentation-wait
-percentile is not added to the frame span.
+Without usable Reflex markers, the Vulkan layer pairs the previous Present
+entry with the current frame's calibrated GPU completion. This frame-cycle
+estimate includes GPU queueing, but its start is a proxy for engine/input work.
+It is not measured mouse-to-screen latency. It uses the existing overlay submit
+and telemetry socket; no injector-specific configuration is needed.
 
-- Set `PENGUIN_BURNER_LATENCY_DISPLAY=0` to disable the separate present-wait diagnostic.
-- Set `PB_INGAME_LATENCY=0` to turn the latency field off while keeping the overlay.
-
-Without usable timing endpoints, latency stays hidden. FPS alone cannot supply
-an input-latency estimate. See [latency and FPS details](latency-fg.md).
+The fallback requires the game/runtime to enable calibrated Vulkan timestamps
+and an active drawable overlay. It reads completed queries without waiting on
+the GPU. Unsupported or stale measurements remain hidden. `PB_INGAME_LATENCY=0`
+disables capture; `PENGUIN_BURNER_LATENCY_DISPLAY=0` disables only the independent
+presentation-wait diagnostic, which is never added to the frame-latency value.
+See [latency measurement](latency-fg.md) for endpoint and frame-generation limits.

@@ -91,7 +91,10 @@ ITEM_TOOLTIPS = {
     "latency_ms": (
         "Average frame latency over the last 3 seconds, from input/simulation "
         "or render submission to the driver-reported GPU completion. A ~ prefix "
-        "marks an estimate when input markers or GPU timings are missing. "
+        "marks an estimate. Without Reflex markers, the Vulkan overlay pairs "
+        "the previous Present call with this frame's GPU completion, including "
+        "GPU queueing. That frame-cycle proxy can miss engine/input work, "
+        "especially with asynchronous rendering or frame generation. "
         "P95 is shown instead with older daemons that do not publish the average. "
         "This is not measured mouse-to-screen latency; input sampling waits, "
         "presentation and monitor response are not fully covered. Driver timing "
