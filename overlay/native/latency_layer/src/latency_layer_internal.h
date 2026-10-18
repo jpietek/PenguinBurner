@@ -406,6 +406,7 @@ struct OverlayGpuState {
     std::string present_fps;
     std::string framegen_fps;
     std::string latency_ms;
+    std::string nr_gpu_ms;
     std::string display_latency_ms;
     std::string clock_mhz;
     std::string voltage_mv;

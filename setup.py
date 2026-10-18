@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import platform
 import re
 import shutil
 import subprocess
+from pathlib import Path
 
 from setuptools import setup
-from setuptools.dist import Distribution
 from setuptools.command.build_py import build_py as _build_py
+from setuptools.dist import Distribution
 from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
-
 
 ROOT = Path(__file__).resolve().parent
 NATIVE_LAYER_SOURCE_DIR = ROOT / "overlay" / "native" / "latency_layer"
@@ -258,6 +257,10 @@ class build_py(_build_py):
             return
         output_dir = Path(self.build_lib) / "overlay" / "nvapi_shim"
         output_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(
+            NVAPI_SHIM_SOURCE_DIR / "third_party/minhook/LICENSE.txt",
+            output_dir / "MinHook-LICENSE.txt",
+        )
         output = output_dir / NVAPI_SHIM_DLL
         try:
             subprocess.check_call(
@@ -273,7 +276,9 @@ class build_py(_build_py):
                     "-static-libstdc++",
                     "-o",
                     str(output),
-                    str(source),
+                    *(str(path) for path in sorted(source.parent.glob("*.cpp"))),
+                    *(str(NVAPI_SHIM_SOURCE_DIR / "third_party/minhook/src" / name)
+                      for name in ("buffer.c", "hook.c", "trampoline.c", "hde/hde64.c")),
                     str(def_file),
                     "-lkernel32",
                 ]
