@@ -40,7 +40,6 @@
 #include <fcntl.h>
 #include <io.h>
 #include <sys/stat.h>
-#include "nr_telemetry.h"
 
 namespace {
 
@@ -323,8 +322,6 @@ BOOL CALLBACK init_once(PINIT_ONCE, PVOID, PVOID*) {
     g_pid = GetCurrentProcessId();
     open_output();
     start_writer_thread();
-    const char* nr_timing = std::getenv("PENGUIN_BURNER_NR_TIMING");
-    if (nr_timing && std::strcmp(nr_timing, "1") == 0) start_nr_telemetry(emit_raw);
     bool ok = load_real();
     char banner[256];
     int len = std::snprintf(

@@ -20,8 +20,7 @@ mkdir -p build
     -static -static-libgcc -static-libstdc++ \
     -Wall -Wextra \
     -o "$out" \
-    src/*.cpp third_party/minhook/src/{buffer,hook,trampoline}.c \
-    third_party/minhook/src/hde/hde64.c nvapi64.def \
+    src/nvapi_shim.cpp nvapi64.def \
     -lkernel32
 
 echo "built: $out"

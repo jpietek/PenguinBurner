@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import shutil
 import subprocess
-from pathlib import Path
 
 import pytest
 
@@ -12,9 +12,17 @@ def test_native_overlay_env_true_overrides_disabled_config(tmp_path: Path) -> No
     binary = _build_native_overlay_probe(tmp_path)
     config_path = tmp_path / "overlay.toml"
     config_path.write_text(
-        'version = 1\nenabled = false\n'
-        'items = ["base_fps", "latency_ms", "clock_mhz", '
-        '"voltage_mv", "power_w", "profile"]\n',
+        "\n".join(
+            [
+                "version = 1",
+                "enabled = false",
+                (
+                    'items = ["base_fps", "latency_ms", "clock_mhz", '
+                    '"voltage_mv", "power_w", "profile"]'
+                ),
+            ]
+        )
+        + "\n",
         encoding="utf-8",
     )
 
@@ -33,7 +41,14 @@ def test_native_overlay_env_false_still_disables_enabled_config(tmp_path: Path) 
     binary = _build_native_overlay_probe(tmp_path)
     config_path = tmp_path / "overlay.toml"
     config_path.write_text(
-        'version = 1\nenabled = true\nitems = ["base_fps", "clock_mhz"]\n',
+        "\n".join(
+            [
+                "version = 1",
+                "enabled = true",
+                'items = ["base_fps", "clock_mhz"]',
+            ]
+        )
+        + "\n",
         encoding="utf-8",
     )
 
@@ -109,7 +124,6 @@ int main(int argc, char**) {
     state.voltage_mv = "885";
     state.power_w = "54";
     state.latency_ms = "73";
-    state.nr_gpu_ms = "2.20";
     state.profile_tier = "Performance";
     uint64_t now_us = 1000000;
     std::cout << pblayer::build_overlay_text(19, state, now_us) << std::endl;
@@ -149,14 +163,3 @@ def _probe_env(config_path: Path, *, pb_overlay: str) -> dict[str, str]:
         "PENGUIN_BURNER_OVERLAY_CONFIG": str(config_path),
         "PB_OVERLAY": pb_overlay,
     }
-
-
-def test_native_nr_gpu_format_matches_python(tmp_path):
-    from overlay.overlay_text import format_overlay_item
-
-    binary = _build_native_overlay_probe(tmp_path)
-    config = tmp_path / "overlay.toml"
-    config.write_text('enabled = true\nitems = ["nr_gpu_ms"]\n')
-    result = subprocess.run([str(binary)], check=True, text=True, capture_output=True,
-                            env=_probe_env(config, pb_overlay="1"))
-    assert result.stdout.strip() == format_overlay_item("nr_gpu_ms", {"nr_gpu_ms": "2.20"})

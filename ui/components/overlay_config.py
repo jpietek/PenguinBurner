@@ -24,7 +24,6 @@ from overlay.overlay_text import (
 from overlay.state import read_overlay_state
 
 ITEM_LABELS = {
-    "nr_gpu_ms": "DLSS5 NR GPU time",
     "base_fps": "Base FPS",
     "fg_fps": "FG FPS",
     "clock_mhz": "Clock MHz",
@@ -41,7 +40,6 @@ ITEM_LABELS = {
 }
 
 ITEM_TELEMETRY_KEYS = {
-    "nr_gpu_ms": "nr_gpu_ms",
     "clock_mhz": "clock_mhz",
     "voltage_mv": "voltage_mv",
     "power_w": "power_w",
@@ -64,12 +62,6 @@ ITEM_VALUE_WIDTH_EXAMPLES = (
 )
 
 ITEM_TOOLTIPS = {
-    "nr_gpu_ms": (
-        "Average GPU elapsed time per DLSS5 neural-rendering model evaluation, "
-        "in milliseconds. This excludes surrounding injector work and is not "
-        "added input latency. Enable before launching the game; restart an "
-        "already running game to start capture. Missing measurements are hidden."
-    ),
     "base_fps": (
         "Exact base present FPS published by PenguinBurner. This is the "
         "pre-frame-generation present_fps headline, not the output FG cadence."

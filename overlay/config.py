@@ -51,7 +51,6 @@ BASIC_OVERLAY_ITEM_IDS = (
     "profile",
 )
 ADVANCED_OVERLAY_ITEM_IDS = (
-    "nr_gpu_ms",
     "gpu_util_pct",
     "cpu_util_pct",
     "cpu_peak_thread_pct",
@@ -60,7 +59,6 @@ ADVANCED_OVERLAY_ITEM_IDS = (
     "uv_offset_mv",
 )
 OVERLAY_ITEM_IDS = (
-    "nr_gpu_ms",
     "base_fps",
     "fg_fps",
     "latency_ms",
