@@ -25,6 +25,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Map, Value};
 
 use super::frametime::{frametime_stats, p95_us, FrametimeStats};
+use super::nr_timing::{NrMeter, NrSample};
 use super::{monotonic_now, round_half_even, LatencySnapshot};
 use crate::paths::{
     claim_desktop_user_ownership, cpath, desktop_cache_dir, nonempty_env, run_user_penguin_dir,
@@ -448,6 +449,7 @@ struct Sample {
 /// Port of `LatencyTelemetryMeter`: a bounded ring of normalized timing samples
 /// plus the cross-window base-present-FPS memory and driver-report dedup state.
 struct Meter {
+    nr: NrMeter,
     samples: VecDeque<Sample>,
     last_base_present_fps: Option<f64>,
     // A wrapper session can have multiple telemetry PIDs: the NVAPI shim uses
@@ -465,6 +467,7 @@ struct Meter {
 impl Meter {
     fn new() -> Self {
         Meter {
+            nr: NrMeter::default(),
             samples: VecDeque::new(),
             last_base_present_fps: None,
             owner_session_id: None,
@@ -481,6 +484,14 @@ impl Meter {
             return;
         }
         let received = monotonic_now();
+        if measurement(&sample) == "nr-gpu" {
+            if let Some(nr) = NrSample::parse(&sample) {
+                if self.accept_sample_owner(&sample, received) {
+                    self.nr.add(nr, received);
+                }
+            }
+            return;
+        }
         let mut data = normalize_timing_sample(sample);
         if !self.accept_sample_owner(&data, received) {
             return;
@@ -558,6 +569,7 @@ impl Meter {
     }
 
     fn reset_owner_state(&mut self) {
+        self.nr = NrMeter::default();
         self.samples.clear();
         self.last_base_present_fps = None;
         self.owner_session_id = None;
@@ -601,7 +613,8 @@ impl Meter {
     /// `snapshot(now)` — the fresh-window aggregation the engine consumes. `None`
     /// when there are no samples within `METER_SAMPLE_MAX_AGE_S` of `now`.
     fn snapshot(&mut self, now: f64, miss_deadline_us: Option<i64>) -> Option<LatencySnapshot> {
-        if self.samples.is_empty() {
+        let nr_gpu_ms = self.nr.average_ms(now);
+        if self.samples.is_empty() && nr_gpu_ms.is_none() {
             return None;
         }
         let samples: Vec<&Sample> = self
@@ -610,7 +623,11 @@ impl Meter {
             .filter(|s| now - s.received_monotonic <= METER_SAMPLE_MAX_AGE_S)
             .collect();
         if samples.is_empty() {
-            return None;
+            return nr_gpu_ms.map(|duration| LatencySnapshot {
+                nr_gpu_ms: Some(duration),
+                session_id: self.owner_session_id.clone(),
+                ..Default::default()
+            });
         }
 
         let present_frametime_values: Vec<i64> = samples
@@ -727,6 +744,7 @@ impl Meter {
             raw_present_fps_avg: raw_present_avg_fps,
             framegen_active: Some(if framegen_active { "true" } else { "false" }.to_string()),
             latency_p95_ms: latency_proxy.map(|v| v as f64 / 1000.0),
+            nr_gpu_ms,
             display_latency_p95_ms: display_latency.map(|v| v as f64 / 1000.0),
             pid,
             session_id,
@@ -1144,6 +1162,32 @@ mod tests {
         let mut map = obj(extra);
         map.insert("type".to_string(), Value::from("timing"));
         Value::Object(map)
+    }
+
+    #[test]
+    fn nr_uses_session_ownership_without_fabricating_frame_latency() {
+        let nr = |session: &str, serial: u64, us: f64| {
+            obj(json!({
+                "v":1,"type":"timing","measurement":"nr-gpu","scope":"model",
+                "source":"ngx-runtime","api":"d3d12","session_id":session,
+                "pid":42,"device":"abc","sample_id":serial,"nr_gpu_us":us
+            }))
+        };
+        let mut meter = Meter::new();
+        meter.add_sample(nr("700", 1, 2200.0));
+        meter.add_sample(nr("701", 2, 9900.0));
+        let snapshot = meter.snapshot(monotonic_now(), None).unwrap();
+        assert_eq!(snapshot.nr_gpu_ms, Some(2.2));
+        assert_eq!(snapshot.session_id.as_deref(), Some("700"));
+        assert!(snapshot.latency_p95_ms.is_none());
+        assert!(snapshot.present_fps.is_none());
+        assert!(meter.snapshot(monotonic_now() + 4.0, None).is_none());
+        meter.last_owner_sample_monotonic = Some(monotonic_now() - 4.0);
+        meter.add_sample(nr("701", 1, 4400.0));
+        assert_eq!(
+            meter.snapshot(monotonic_now(), None).unwrap().nr_gpu_ms,
+            Some(4.4)
+        );
     }
 
     // --- `_int_value` parity table (samples.py) ------------------------------

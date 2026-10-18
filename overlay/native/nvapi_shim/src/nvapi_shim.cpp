@@ -40,6 +40,7 @@
 #include <fcntl.h>
 #include <io.h>
 #include <sys/stat.h>
+#include "nr_telemetry.h"
 
 namespace {
 
@@ -216,6 +217,17 @@ DWORD WINAPI writer_main(LPVOID) {
 }
 
 void start_writer_thread() {
+    // A caller may query NVAPI during DLL_PROCESS_ATTACH and immediately
+    // FreeLibrary its probe handle (OptiScaler does this). The new thread
+    // cannot run until the loader lock is released, so it could otherwise
+    // start after our code and globals have already been unmapped. The writer
+    // lives until process exit; keep its DLL alive for that same lifetime.
+    HMODULE pinned = nullptr;
+    if (!GetModuleHandleExA(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+            reinterpret_cast<LPCSTR>(&writer_main), &pinned)) {
+        return;  // No background thread may outlive an unpinned module.
+    }
     g_wake = CreateEventA(nullptr, FALSE, FALSE, nullptr);
     if (g_wake == nullptr) {
         return;  // emit_raw falls back to direct writes
@@ -311,6 +323,8 @@ BOOL CALLBACK init_once(PINIT_ONCE, PVOID, PVOID*) {
     g_pid = GetCurrentProcessId();
     open_output();
     start_writer_thread();
+    const char* nr_timing = std::getenv("PENGUIN_BURNER_NR_TIMING");
+    if (nr_timing && std::strcmp(nr_timing, "1") == 0) start_nr_telemetry(emit_raw);
     bool ok = load_real();
     char banner[256];
     int len = std::snprintf(

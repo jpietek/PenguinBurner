@@ -34,3 +34,6 @@ third_party/
 .claude/
 # The generator writes a local poster preview next to the GIF; only the GIF ships.
 docs/assets/auto-uv-full-scan-demo-poster.png
+
+# Pinned source dependency for the NGX timing observer.
+!overlay/native/nvapi_shim/third_party/
