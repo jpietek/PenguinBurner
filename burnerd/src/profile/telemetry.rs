@@ -67,6 +67,7 @@ pub struct OverlayState {
     pub framegen_fps: String,
     pub framegen_active: bool,
     pub latency_ms: String,
+    pub nr_gpu_ms: String,
     pub display_latency_ms: String,
     pub profile_tier: String,
     pub profile_tier_key: String,
@@ -123,6 +124,11 @@ pub fn render_overlay_state(state: &OverlayState) -> String {
         text.push_str(key);
         text.push('=');
         text.push_str(&escape_value(value));
+        text.push('\n');
+    }
+    if !state.nr_gpu_ms.is_empty() {
+        text.push_str("nr_gpu_ms=");
+        text.push_str(&escape_value(&state.nr_gpu_ms));
         text.push('\n');
     }
     text
@@ -457,6 +463,11 @@ impl OverlayStatePublisher {
             framegen_fps,
             framegen_active,
             latency_ms,
+            nr_gpu_ms: latency_snapshot
+                .and_then(|s| s.nr_gpu_ms)
+                .filter(|v| v.is_finite() && *v > 0.0)
+                .map(|v| format!("{v:.2}"))
+                .unwrap_or_default(),
             display_latency_ms,
             profile_tier: label,
             profile_tier_key: self.profile_tier_key.clone(),
@@ -659,6 +670,7 @@ mod tests {
             framegen_fps: "176".into(),
             framegen_active: true,
             latency_ms: "23".into(),
+            nr_gpu_ms: String::new(),
             display_latency_ms: "4".into(),
             profile_tier: "Balanced".into(),
             profile_tier_key: "balanced".into(),

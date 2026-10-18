@@ -21,11 +21,17 @@ def shim_probe(tmp_path_factory: pytest.TempPathFactory):
     source = Path(__file__).resolve().parents[1] / "overlay/native/nvapi_shim"
     for name, text in _SOURCES.items():
         (root / name).write_text(text, encoding="utf-8")
+    native = Path(__file__).resolve().parent / "native"
     for output, sources, shared in (
-        ("nvapi64.dll", [source / "src/nvapi_shim.cpp", source / "nvapi64.def"], True),
+        ("nvapi64.dll", [*sorted((source / "src").glob("*.cpp")),
+                         *(source / "third_party/minhook/src" / name for name in
+                           ("buffer.c", "hook.c", "trampoline.c", "hde/hde64.c")),
+                         source / "nvapi64.def"], True),
         ("real.dll", [root / "real.cpp"], True),
         ("probe.dll", [root / "probe.cpp"], True),
         ("probe.exe", [root / "main.cpp"], False),
+        ("_nvngx.dll", [native / "nr_ngx_stub.cpp"], True),
+        ("nr-probe.exe", [native / "nr_gpu_probe.cpp"], False),
     ):
         subprocess.run(
             [
@@ -39,6 +45,7 @@ def shim_probe(tmp_path_factory: pytest.TempPathFactory):
                 *(str(path) for path in sources),
                 "-o",
                 str(root / output),
+                *(["-ld3d12", "-ldxgi", "-ldxguid"] if output == "nr-probe.exe" else []),
             ],
             check=True,
             capture_output=True,
@@ -133,3 +140,34 @@ int main(int argc, char** argv) {
 }
 """,
 }
+
+
+@pytest.mark.parametrize("enabled,feature,failed", [(True, 18, False), (False, 18, False), (True, 1, False), (True, 18, True)])
+def test_nr_gpu_timestamps_survive_repeated_recordings(shim_probe, enabled, feature, failed):
+    from overlay.telemetry.nr_timing import parse_nr_timing
+
+    wine, root, base_env = shim_probe
+    runtime = os.environ.get("PB_TEST_D3D12_RUNTIME")
+    if runtime:
+        for name in ("d3d12.dll", "d3d12core.dll", "dxgi.dll"):
+            shutil.copyfile(Path(runtime) / name, root / name)
+    output = root / f"nr-{enabled}-{feature}-{failed}.log"
+    env = dict(base_env, PENGUIN_BURNER_NR_TIMING="1" if enabled else "0",
+               PENGUIN_BURNER_SHIM_OUTPUT="Z:" + str(output))
+    env["WINEDLLOVERRIDES"] += ";_nvngx=n" + (";d3d12=n;d3d12core=n;dxgi=n" if runtime else "")
+    if failed:
+        env["PB_TEST_NGX_FAIL"] = "1"
+    result = subprocess.run([wine, str(root / "nr-probe.exe"), str(feature)],
+                            cwd=root, env=env, capture_output=True, text=True, timeout=90)
+    if result.returncode == 77:
+        pytest.skip("No D3D12 GPU; set PB_TEST_D3D12_RUNTIME to a vkd3d-proton DLL directory")
+    assert result.returncode == 0, result.stdout + result.stderr
+    samples = [sample for line in output.read_text().splitlines()
+               if (sample := parse_nr_timing(line, "700")) is not None]
+    if enabled and feature == 18 and not failed:
+        # More recordings than the 64-slot query pool verifies fence-safe reuse.
+        assert len(samples) == 100
+        assert len({sample["sample_id"] for sample in samples}) == 100
+        assert all(0 < float(sample["nr_gpu_us"]) < 40_000 for sample in samples)
+    else:
+        assert samples == []
