@@ -66,7 +66,10 @@ pub struct OverlayState {
     pub fps_source: String,
     pub framegen_fps: String,
     pub framegen_active: bool,
+    /// Legacy field retains p95; newer overlays prefer latency_avg_ms.
     pub latency_ms: String,
+    pub latency_avg_ms: String,
+    pub latency_source: String,
     pub display_latency_ms: String,
     pub profile_tier: String,
     pub profile_tier_key: String,
@@ -83,7 +86,7 @@ fn value_text(value: Option<i64>) -> String {
     value.map(|v| v.to_string()).unwrap_or_default()
 }
 
-/// Render the file body (all 22 keys, exact order, `key=value\n`).
+/// Render the file body (all 24 keys, exact order, `key=value\n`).
 pub fn render_overlay_state(state: &OverlayState) -> String {
     let updated = if state.updated_unix_ns > 0 {
         state.updated_unix_ns
@@ -91,7 +94,7 @@ pub fn render_overlay_state(state: &OverlayState) -> String {
         super::now_unix_ns()
     };
     let bool_text = |b: bool| if b { "1" } else { "0" };
-    let pairs: [(&str, String); 22] = [
+    let pairs: [(&str, String); 24] = [
         ("version", "1".to_string()),
         ("updated_unix_ns", updated.to_string()),
         ("gpu_index", state.gpu_index.to_string()),
@@ -112,6 +115,8 @@ pub fn render_overlay_state(state: &OverlayState) -> String {
             bool_text(state.framegen_active).to_string(),
         ),
         ("latency_ms", state.latency_ms.clone()),
+        ("latency_avg_ms", state.latency_avg_ms.clone()),
+        ("latency_source", state.latency_source.clone()),
         ("display_latency_ms", state.display_latency_ms.clone()),
         ("profile_tier", state.profile_tier.clone()),
         ("profile_tier_key", state.profile_tier_key.clone()),
@@ -299,6 +304,8 @@ pub struct OverlayStatePublisher {
     last_fps_ns: Option<i64>,
 
     last_latency_ms: Option<String>,
+    last_latency_avg_ms: Option<String>,
+    last_latency_source: Option<String>,
     last_display_latency_ms: Option<String>,
     last_latency_pid: Option<String>,
     last_latency_ns: Option<i64>,
@@ -339,6 +346,8 @@ impl OverlayStatePublisher {
             last_fps_pid: None,
             last_fps_ns: None,
             last_latency_ms: None,
+            last_latency_avg_ms: None,
+            last_latency_source: None,
             last_display_latency_ms: None,
             last_latency_pid: None,
             last_latency_ns: None,
@@ -436,10 +445,11 @@ impl OverlayStatePublisher {
 
         let (present_fps, fps_source, framegen_fps, framegen_active) =
             self.overlay_fps_values(latency_snapshot, now_ns);
-        let (latency_ms, display_latency_ms) = match latency_snapshot {
-            Some(snapshot) => self.overlay_latency_values(snapshot, now_ns),
-            None => (String::new(), String::new()),
-        };
+        let (latency_avg_ms, latency_ms, latency_source, display_latency_ms) =
+            match latency_snapshot {
+                Some(snapshot) => self.overlay_latency_values(snapshot, now_ns),
+                None => (String::new(), String::new(), String::new(), String::new()),
+            };
 
         OverlayState {
             gpu_index: self.gpu_index,
@@ -457,6 +467,8 @@ impl OverlayStatePublisher {
             framegen_fps,
             framegen_active,
             latency_ms,
+            latency_avg_ms,
+            latency_source,
             display_latency_ms,
             profile_tier: label,
             profile_tier_key: self.profile_tier_key.clone(),
@@ -559,18 +571,27 @@ impl OverlayStatePublisher {
         &mut self,
         snapshot: &LatencySnapshot,
         now_ns: i64,
-    ) -> (String, String) {
+    ) -> (String, String, String, String) {
         let latency_pid = identity_from_snapshot(snapshot);
+        let latency_avg_ms = rounded_text(snapshot.latency_avg_ms);
         let latency_ms = rounded_text(snapshot.latency_p95_ms);
+        let latency_source = snapshot.latency_source.clone().unwrap_or_default();
         let display_latency_ms = rounded_text(snapshot.display_latency_p95_ms);
-        if !latency_ms.is_empty() {
+        if !latency_avg_ms.is_empty() {
+            self.last_latency_avg_ms = Some(latency_avg_ms.clone());
             self.last_latency_ms = Some(latency_ms.clone());
+            self.last_latency_source = Some(latency_source.clone());
             self.last_display_latency_ms = Some(display_latency_ms.clone());
             self.last_latency_pid = latency_pid;
             self.last_latency_ns = Some(now_ns);
-            return (latency_ms, display_latency_ms);
+            return (
+                latency_avg_ms,
+                latency_ms,
+                latency_source,
+                display_latency_ms,
+            );
         }
-        let matches = self.last_latency_ms.is_some()
+        let matches = self.last_latency_avg_ms.is_some()
             && self.last_latency_pid.is_some()
             && latency_pid.is_some()
             && self.last_latency_pid == latency_pid;
@@ -579,15 +600,19 @@ impl OverlayStatePublisher {
         });
         if matches && fresh {
             return (
+                self.last_latency_avg_ms.clone().unwrap_or_default(),
                 self.last_latency_ms.clone().unwrap_or_default(),
+                self.last_latency_source.clone().unwrap_or_default(),
                 self.last_display_latency_ms.clone().unwrap_or_default(),
             );
         }
+        self.last_latency_avg_ms = None;
         self.last_latency_ms = None;
+        self.last_latency_source = None;
         self.last_display_latency_ms = None;
         self.last_latency_pid = None;
         self.last_latency_ns = None;
-        (String::new(), String::new())
+        (String::new(), String::new(), String::new(), String::new())
     }
 }
 
@@ -658,7 +683,9 @@ mod tests {
             fps_source: "native".into(),
             framegen_fps: "176".into(),
             framegen_active: true,
-            latency_ms: "23".into(),
+            latency_ms: "30".into(),
+            latency_avg_ms: "23".into(),
+            latency_source: "simulation-to-gpu".into(),
             display_latency_ms: "4".into(),
             profile_tier: "Balanced".into(),
             profile_tier_key: "balanced".into(),
@@ -666,7 +693,7 @@ mod tests {
             adaptive: false,
             updated_unix_ns: 1751889600123456789,
         };
-        let expected = "version=1\nupdated_unix_ns=1751889600123456789\ngpu_index=0\nclock_mhz=2820\nvoltage_mv=925\npower_w=318\ngpu_util_pct=97\ncpu_util_pct=32\ncpu_peak_thread_pct=98\nfan_pct=62\ntemperature_c=67\nuv_offset_mv=-75\npresent_fps=119\nfps_source=native\nframegen_fps=176\nframegen_active=1\nlatency_ms=23\ndisplay_latency_ms=4\nprofile_tier=Balanced\nprofile_tier_key=balanced\nprofile_id=uv_925mv_2820mhz\nadaptive=0\n";
+        let expected = "version=1\nupdated_unix_ns=1751889600123456789\ngpu_index=0\nclock_mhz=2820\nvoltage_mv=925\npower_w=318\ngpu_util_pct=97\ncpu_util_pct=32\ncpu_peak_thread_pct=98\nfan_pct=62\ntemperature_c=67\nuv_offset_mv=-75\npresent_fps=119\nfps_source=native\nframegen_fps=176\nframegen_active=1\nlatency_ms=30\nlatency_avg_ms=23\nlatency_source=simulation-to-gpu\ndisplay_latency_ms=4\nprofile_tier=Balanced\nprofile_tier_key=balanced\nprofile_id=uv_925mv_2820mhz\nadaptive=0\n";
         assert_eq!(render_overlay_state(&state), expected);
     }
 
@@ -684,13 +711,65 @@ mod tests {
             updated_unix_ns: 1751889600123456789,
             ..Default::default()
         };
-        let expected = "version=1\nupdated_unix_ns=1751889600123456789\ngpu_index=0\nclock_mhz=210\nvoltage_mv=\npower_w=15\ngpu_util_pct=0\ncpu_util_pct=\ncpu_peak_thread_pct=\nfan_pct=30\ntemperature_c=41\nuv_offset_mv=\npresent_fps=\nfps_source=\nframegen_fps=\nframegen_active=0\nlatency_ms=\ndisplay_latency_ms=\nprofile_tier=Balanced\nprofile_tier_key=balanced\nprofile_id=\nadaptive=0\n";
+        let expected = "version=1\nupdated_unix_ns=1751889600123456789\ngpu_index=0\nclock_mhz=210\nvoltage_mv=\npower_w=15\ngpu_util_pct=0\ncpu_util_pct=\ncpu_peak_thread_pct=\nfan_pct=30\ntemperature_c=41\nuv_offset_mv=\npresent_fps=\nfps_source=\nframegen_fps=\nframegen_active=0\nlatency_ms=\nlatency_avg_ms=\nlatency_source=\ndisplay_latency_ms=\nprofile_tier=Balanced\nprofile_tier_key=balanced\nprofile_id=\nadaptive=0\n";
         assert_eq!(render_overlay_state(&state), expected);
     }
 
     #[test]
     fn escaping_backslash_and_newline() {
         assert_eq!(escape_value("a\\b\nc"), "a\\\\b\\nc");
+    }
+
+    #[test]
+    fn latency_provenance_survives_hold_and_clears_with_its_value() {
+        let mut publisher = OverlayStatePublisher::new(
+            0,
+            true,
+            1.0,
+            String::new(),
+            String::new(),
+            String::new(),
+            false,
+            None,
+        );
+        let mut snapshot = LatencySnapshot {
+            session_id: Some("session".into()),
+            latency_avg_ms: Some(80.0),
+            latency_p95_ms: Some(100.0),
+            latency_source: Some("simulation-to-gpu".into()),
+            display_latency_p95_ms: Some(4.0),
+            ..Default::default()
+        };
+        let measured = (
+            "80".into(),
+            "100".into(),
+            "simulation-to-gpu".into(),
+            "4".into(),
+        );
+        assert_eq!(publisher.overlay_latency_values(&snapshot, 1), measured);
+        snapshot.latency_avg_ms = None;
+        snapshot.latency_p95_ms = None;
+        snapshot.latency_source = None;
+        assert_eq!(
+            publisher.overlay_latency_values(&snapshot, 1_000_000_001),
+            measured
+        );
+        assert_eq!(
+            publisher.overlay_latency_values(&snapshot, 4_000_000_001),
+            (String::new(), String::new(), String::new(), String::new()),
+        );
+        snapshot.latency_avg_ms = Some(20.0);
+        snapshot.latency_p95_ms = Some(25.0);
+        snapshot.latency_source = Some("marker-estimate".into());
+        assert_eq!(
+            publisher.overlay_latency_values(&snapshot, 5_000_000_001),
+            (
+                "20".into(),
+                "25".into(),
+                "marker-estimate".into(),
+                "4".into()
+            ),
+        );
     }
 
     #[test]

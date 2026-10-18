@@ -1,11 +1,45 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
+
+
+@pytest.fixture(scope="module")
+def latency_probe(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return _build_native_overlay_probe(tmp_path_factory.mktemp("latency-probe"))
+
+
+@pytest.mark.parametrize("average", ["80", ""])
+@pytest.mark.parametrize(
+    "source", ["input-to-gpu", "simulation-to-gpu", "submit-to-gpu", "marker-estimate", ""]
+)
+def test_native_latency_state_matches_python(
+    latency_probe: Path, tmp_path: Path, average: str, source: str
+) -> None:
+    from overlay.config import OverlayConfig
+    from overlay.overlay_text import format_overlay_text
+
+    values = {
+        "latency_avg_ms": average, "latency_ms": "120",
+        "latency_source": source, "display_latency_ms": "9",
+    }
+    state_path = tmp_path / "overlay-state.txt"
+    state_path.write_text("".join(f"{key}={value}\n" for key, value in values.items()))
+    config_path = tmp_path / "overlay.toml"
+    config_path.write_text('enabled = true\nitems = ["latency_ms"]\n')
+    env = _probe_env(config_path, pb_overlay="1")
+    env["PENGUIN_BURNER_OVERLAY_STATE"] = str(state_path)
+    result = subprocess.run(
+        [str(latency_probe), "--state"], check=True, capture_output=True, text=True, env=env
+    )
+    expected = format_overlay_text(
+        values, config=OverlayConfig(enabled=True, enabled_item_ids=("latency_ms",))
+    )
+    assert result.stdout.strip() == expected
 
 
 def test_native_overlay_env_true_overrides_disabled_config(tmp_path: Path) -> None:
@@ -34,7 +68,7 @@ def test_native_overlay_env_true_overrides_disabled_config(tmp_path: Path) -> No
         env=_probe_env(config_path, pb_overlay="1"),
     )
 
-    assert result.stdout.strip() == "19 FPS LAT 73 ms 1777 MHz 885 mV 54 W PERF"
+    assert result.stdout.strip() == "19 FPS LAT P95 ~73 ms 1777 MHz 885 mV 54 W PERF"
 
 
 def test_native_overlay_env_false_still_disables_enabled_config(tmp_path: Path) -> None:
@@ -114,21 +148,25 @@ def _build_native_overlay_probe(tmp_path: Path) -> Path:
 #include "latency_layer_internal.h"
 
 namespace pblayer {
+OverlayGpuState read_overlay_gpu_state();
 std::string build_overlay_text(
     uint64_t fps, const OverlayGpuState& state, uint64_t now_us);
 }
 
-int main(int argc, char**) {
+int main(int argc, char** argv) {
     pblayer::OverlayGpuState state{};
     state.clock_mhz = "1777";
     state.voltage_mv = "885";
     state.power_w = "54";
     state.latency_ms = "73";
     state.profile_tier = "Performance";
+    if (argc > 1 && std::string(argv[1]) == "--state") {
+        state = pblayer::read_overlay_gpu_state();
+    }
     uint64_t now_us = 1000000;
     std::cout << pblayer::build_overlay_text(19, state, now_us) << std::endl;
     std::string command;
-    while (argc > 1 && std::getline(std::cin, command)) {
+    while (argc > 1 && std::string(argv[1]) == "--live" && std::getline(std::cin, command)) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1100));
         now_us += 1100000;
         std::cout << pblayer::build_overlay_text(19, state, now_us) << std::endl;
