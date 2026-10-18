@@ -85,6 +85,11 @@ for wheel in wheels:
             matches = [name for name in names if name.endswith(suffix)]
             if len(matches) != 1 or not archive.read(matches[0]).startswith(magic):
                 raise SystemExit(f"error: {wheel.name} has no valid {label} payload")
+        # The shim is copied into every fronted Proton prefix: an unstripped
+        # static build carries ~10 MB of libstdc++ DWARF it never needs.
+        shim = next(name for name in names if name.endswith("overlay/nvapi_shim/nvapi64.dll"))
+        if b".debug_info" in archive.read(shim):
+            raise SystemExit(f"error: {wheel.name} ships an unstripped NVAPI shim")
     print(
         f"verified {wheel.name}: wrapper, 64/32-bit Vulkan layers, NVAPI shim, and burnerd"
     )

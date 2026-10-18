@@ -2,12 +2,36 @@
 
 from __future__ import annotations
 
+import ast
 import os
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
+
+
+def _shipped_shim_flags() -> list[str]:
+    # The probe must load the shim exactly as packaged (static, stripped).
+    setup = Path(__file__).resolve().parents[1] / "setup.py"
+    for node in ast.parse(setup.read_text(encoding="utf-8")).body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "NVAPI_SHIM_CXXFLAGS"
+            for target in node.targets
+        ):
+            return list(ast.literal_eval(node.value))
+    raise AssertionError("setup.py defines no NVAPI_SHIM_CXXFLAGS")
+
+
+def _shim_sources(shim_dir: Path) -> list[Path]:
+    # Mirror setup.py: every shim translation unit, plus MinHook when vendored.
+    minhook = shim_dir / "third_party" / "minhook" / "src"
+    vendored = [minhook / n for n in ("buffer.c", "hook.c", "trampoline.c", "hde/hde64.c")]
+    return [
+        *sorted((shim_dir / "src").glob("*.cpp")),
+        *(path for path in vendored if path.exists()),
+        shim_dir / "nvapi64.def",
+    ]
 
 
 @pytest.fixture(scope="module")
@@ -22,26 +46,19 @@ def shim_probe(tmp_path_factory: pytest.TempPathFactory):
     for name, text in _SOURCES.items():
         (root / name).write_text(text, encoding="utf-8")
     native = Path(__file__).resolve().parent / "native"
-    for output, sources, shared in (
-        ("nvapi64.dll", [*sorted((source / "src").glob("*.cpp")),
-                         *(source / "third_party/minhook/src" / name for name in
-                           ("buffer.c", "hook.c", "trampoline.c", "hde/hde64.c")),
-                         source / "nvapi64.def"], True),
-        ("real.dll", [root / "real.cpp"], True),
-        ("probe.dll", [root / "probe.cpp"], True),
-        ("probe.exe", [root / "main.cpp"], False),
-        ("_nvngx.dll", [native / "nr_ngx_stub.cpp"], True),
-        ("nr-probe.exe", [native / "nr_gpu_probe.cpp"], False),
+    probe_flags = ["-O2", "-std=c++17", "-static", "-static-libgcc", "-static-libstdc++"]
+    for output, sources, flags in (
+        ("nvapi64.dll", _shim_sources(source), [*_shipped_shim_flags(), "-lkernel32"]),
+        ("real.dll", [root / "real.cpp"], [*probe_flags, "-shared"]),
+        ("probe.dll", [root / "probe.cpp"], [*probe_flags, "-shared"]),
+        ("probe.exe", [root / "main.cpp"], probe_flags),
+        ("_nvngx.dll", [native / "nr_ngx_stub.cpp"], [*probe_flags, "-shared"]),
+        ("nr-probe.exe", [native / "nr_gpu_probe.cpp"], probe_flags),
     ):
         subprocess.run(
             [
                 compiler,
-                "-O2",
-                "-std=c++17",
-                "-static",
-                "-static-libgcc",
-                "-static-libstdc++",
-                *(["-shared"] if shared else []),
+                *flags,
                 *(str(path) for path in sources),
                 "-o",
                 str(root / output),

@@ -23,6 +23,22 @@ NATIVE_LAYER_MANIFEST_I386 = "VkLayer_PENGUINBURNER_latency.i386.json"
 NVAPI_SHIM_SOURCE_DIR = ROOT / "overlay" / "native" / "nvapi_shim"
 NVAPI_SHIM_DLL = "nvapi64.dll"
 NVAPI_SHIM_COMPILER = "x86_64-w64-mingw32-g++"
+# Static so the DLL needs no MinGW runtime inside the Wine prefix; stripped and
+# section-GC'd because static libstdc++ otherwise drags megabytes of DWARF in.
+NVAPI_SHIM_CXXFLAGS = (
+    "-O2",
+    "-shared",
+    "-std=c++17",
+    "-fno-exceptions",
+    "-fno-rtti",
+    "-ffunction-sections",
+    "-fdata-sections",
+    "-static",
+    "-static-libgcc",
+    "-static-libstdc++",
+    "-s",
+    "-Wl,--gc-sections",
+)
 DAEMON_SOURCE_DIR = ROOT / "burnerd"
 DAEMON_MANIFEST = DAEMON_SOURCE_DIR / "Cargo.toml"
 DAEMON_BINARY = "penguin-burnerd"
@@ -266,14 +282,7 @@ class build_py(_build_py):
             subprocess.check_call(
                 [
                     compiler,
-                    "-O2",
-                    "-shared",
-                    "-std=c++17",
-                    "-fno-exceptions",
-                    "-fno-rtti",
-                    "-static",
-                    "-static-libgcc",
-                    "-static-libstdc++",
+                    *NVAPI_SHIM_CXXFLAGS,
                     "-o",
                     str(output),
                     *(str(path) for path in sorted(source.parent.glob("*.cpp"))),

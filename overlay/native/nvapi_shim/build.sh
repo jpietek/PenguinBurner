@@ -17,7 +17,9 @@ mkdir -p build
 "$CXX" \
     -O2 -shared -std=c++17 \
     -fno-exceptions -fno-rtti \
+    -ffunction-sections -fdata-sections \
     -static -static-libgcc -static-libstdc++ \
+    -s -Wl,--gc-sections \
     -Wall -Wextra \
     -o "$out" \
     src/*.cpp third_party/minhook/src/{buffer,hook,trampoline}.c \
