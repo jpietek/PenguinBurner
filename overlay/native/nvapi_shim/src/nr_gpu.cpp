@@ -16,8 +16,6 @@ namespace {
 constexpr unsigned kSlots = 64;
 constexpr unsigned kMaxDevices = 8;
 using Execute = void (STDMETHODCALLTYPE*)(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
-using CreateQueue = HRESULT (STDMETHODCALLTYPE*)(ID3D12Device*, const D3D12_COMMAND_QUEUE_DESC*, REFIID, void**);
-struct DeviceTap { void** table; CreateQueue original; };
 using Reset = HRESULT (STDMETHODCALLTYPE*)(ID3D12GraphicsCommandList*, ID3D12CommandAllocator*, ID3D12PipelineState*);
 struct QueueTap { void** table; Execute original; };
 struct ListTap { void** table; Reset original; };
@@ -47,7 +45,6 @@ std::mutex g_mutex;
 std::vector<std::unique_ptr<Pool>> g_pools;
 std::vector<QueueTap> g_queues;
 std::vector<ListTap> g_lists;
-std::vector<DeviceTap> g_devices;
 uint64_t g_serial = 0;
 
 void STDMETHODCALLTYPE execute(ID3D12CommandQueue* queue, UINT count, ID3D12CommandList* const* lists) {
@@ -154,38 +151,32 @@ bool tap_commands(ID3D12GraphicsCommandList* commands) {
             return false;
         }
     }
-    // Queue hooks are installed when the application creates its queues.
-    // Creating a throwaway queue here runs third-party queue callbacks in the
-    // middle of NGX evaluation and changes the application's queue topology.
-    const bool ok = !g_queues.empty();
-    return ok;
+    return true;
 }
 
-HRESULT STDMETHODCALLTYPE create_queue(ID3D12Device* device,
-    const D3D12_COMMAND_QUEUE_DESC* desc, REFIID riid, void** out) {
-    CreateQueue original = nullptr;
-    {
-        std::lock_guard lock(g_mutex);
-        auto table = *reinterpret_cast<void***>(device);
-        for (const auto& tap : g_devices) if (tap.table == table) original = tap.original;
-    }
-    const HRESULT result = original ? original(device, desc, riid, out) : E_FAIL;
-    if (FAILED(result) || !out || !*out) return result;
+bool discover_queue(ID3D12Device* device, D3D12_COMMAND_LIST_TYPE type) {
+    // Obtain the runtime's shared queue dispatch table even when the real
+    // queues predate the collector. This temporary queue never submits work.
+    // Only do this at feature creation, without a collector lock held: queue
+    // creation and release can synchronously invoke ReShade/addon callbacks.
+    D3D12_COMMAND_QUEUE_DESC desc{};
+    desc.Type = type;
     ID3D12CommandQueue* queue = nullptr;
-    if (FAILED(static_cast<IUnknown*>(*out)->QueryInterface(IID_PPV_ARGS(&queue)))) return result;
+    if (FAILED(device->CreateCommandQueue(&desc, IID_PPV_ARGS(&queue)))) return false;
+    bool found = false;
     {
         std::lock_guard lock(g_mutex);
         auto table = *reinterpret_cast<void***>(queue);
-        bool found = false;
         for (const auto& tap : g_queues) found |= tap.table == table;
         if (!found && g_queues.size() < 32) {
             auto forward = reinterpret_cast<Execute>(table[10]);
             g_queues.push_back({table, forward});
-            if (!patch_slot(table, 10, reinterpret_cast<void*>(&execute))) g_queues.pop_back();
+            found = patch_slot(table, 10, reinterpret_cast<void*>(&execute));
+            if (!found) g_queues.pop_back();
         }
     }
     queue->Release();
-    return result;
+    return found;
 }
 
 std::unique_ptr<Pool> make_pool(ID3D12Device* device) {
@@ -225,15 +216,37 @@ std::unique_ptr<Pool> make_pool(ID3D12Device* device) {
 }
 } // namespace
 
-void nr_gpu_observe_device(ID3D12Device* device) {
-    if (!device) return;
-    std::lock_guard lock(g_mutex);
-    auto table = *reinterpret_cast<void***>(device);
-    for (const auto& tap : g_devices) if (tap.table == table) return;
-    if (g_devices.size() >= 32) return;
-    auto original = reinterpret_cast<CreateQueue>(table[8]);
-    g_devices.push_back({table, original});
-    if (!patch_slot(table, 8, reinterpret_cast<void*>(&create_queue))) g_devices.pop_back();
+bool nr_gpu_prepare(ID3D12GraphicsCommandList* commands) {
+    if (!commands || (commands->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT &&
+                      commands->GetType() != D3D12_COMMAND_LIST_TYPE_COMPUTE)) return false;
+    static thread_local bool initializing = false;
+    if (initializing) return false;
+    static std::mutex initialization;
+    std::unique_lock init_lock(initialization, std::try_to_lock);
+    if (!init_lock.owns_lock()) return false;
+    ID3D12Device* device = nullptr;
+    if (FAILED(commands->GetDevice(IID_PPV_ARGS(&device)))) return false;
+    bool ready = false;
+    bool capacity = false;
+    {
+        std::lock_guard lock(g_mutex);
+        for (const auto& entry : g_pools) ready |= entry->device == device;
+        capacity = g_pools.size() < kMaxDevices;
+    }
+    if (!ready && capacity) {
+        initializing = true;
+        if (discover_queue(device, commands->GetType())) {
+            auto created = make_pool(device);
+            if (created) {
+                std::lock_guard lock(g_mutex);
+                g_pools.push_back(std::move(created));
+                ready = true;
+            }
+        }
+        initializing = false;
+    }
+    device->Release();
+    return ready;
 }
 
 NrGpuTicket nr_gpu_begin(ID3D12GraphicsCommandList* commands) {
@@ -246,36 +259,7 @@ NrGpuTicket nr_gpu_begin(ID3D12GraphicsCommandList* commands) {
     {
         std::lock_guard lock(g_mutex);
         for (const auto& entry : g_pools) if (entry->device == device) pool = entry.get();
-        tapped = tap_commands(commands);
-    }
-    if (!pool && tapped) {
-        // Initializing another device or a reentrant addon callback may skip a
-        // measurement; neither may block the application's rendering thread.
-        static thread_local bool initializing = false;
-        if (initializing) {
-            device->Release();
-            return {};
-        }
-        static std::mutex initialization;
-        std::unique_lock init_lock(initialization, std::try_to_lock);
-        if (init_lock.owns_lock()) {
-            bool capacity = false;
-            {
-                std::lock_guard lock(g_mutex);
-                for (const auto& entry : g_pools) if (entry->device == device) pool = entry.get();
-                capacity = g_pools.size() < kMaxDevices;
-            }
-            if (!pool && capacity) {
-                initializing = true;
-                auto created = make_pool(device);
-                initializing = false;
-                if (created) {
-                    std::lock_guard lock(g_mutex);
-                    pool = created.get();
-                    g_pools.push_back(std::move(created));
-                }
-            }
-        }
+        if (pool) tapped = tap_commands(commands);
     }
     device->Release();
     if (!pool || !tapped) return {};

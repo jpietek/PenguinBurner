@@ -92,6 +92,12 @@ route. Direct model-DLL calls, Vulkan NR and separate helpers that do not load
 the PBurn shim are not covered. Unsupported paths and readings older than three
 seconds are hidden; they do not display a fabricated zero.
 
+Capture can attach after D3D12 devices and queues already exist, but must observe
+the NR feature's creation. At feature creation it uses that device to discover
+the runtime's shared queue dispatch table through a temporary, idle queue. Queue
+creation and release run outside collector locks. It does not hook device
+creation during startup or create queues during NR evaluation.
+
 The optional observer uses GPU timestamp queries and asynchronous fence polling.
 It sends measurements through the existing NVAPI shim FIFO and session-scoped
 daemon socket, alongside Reflex records. It does not read injector logs or wait

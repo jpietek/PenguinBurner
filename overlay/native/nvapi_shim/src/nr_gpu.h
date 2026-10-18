@@ -10,4 +10,4 @@ NrGpuTicket nr_gpu_begin(ID3D12GraphicsCommandList* commands);
 void nr_gpu_end(NrGpuTicket ticket, bool successful);
 void nr_gpu_poll(NrEmit emit);
 
-void nr_gpu_observe_device(ID3D12Device* device);
+bool nr_gpu_prepare(ID3D12GraphicsCommandList* commands);

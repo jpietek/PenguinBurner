@@ -2,6 +2,8 @@
 #include <d3d12.h>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <string>
 struct Params { ID3D12Resource* dst; ID3D12Resource* src; };
 using Create=int(__cdecl*)(ID3D12GraphicsCommandList*,int,void*,void**);
 using Eval=int(__cdecl*)(ID3D12GraphicsCommandList*,const void*,const void*,void*);
@@ -29,10 +31,8 @@ int main(int argc, char** argv) {
  const int feature_id = argc > 1 ? std::atoi(argv[1]) : 18;
  const unsigned frames = feature_id == 18 ? 100 : 4;
  const bool failed_eval = GetEnvironmentVariableA("PB_TEST_NGX_FAIL", nullptr, 0) != 0;
- HMODULE shim=LoadLibraryA("nvapi64.dll"); if(!shim)return 3;
- auto query=reinterpret_cast<Query>(GetProcAddress(shim,"nvapi_QueryInterface"));query(1);
- HMODULE ngx=LoadLibraryA("_nvngx.dll");if(!ngx)return 4;
- Sleep(750);
+ // A real game can have its device and queues before NGX or our collector.
+ // Never delay creation to give the collector an artificial head start.
  ID3D12Device* device=nullptr;
  if(FAILED(D3D12CreateDevice(nullptr,D3D_FEATURE_LEVEL_11_0,IID_PPV_ARGS(&device))))return 77;
  auto table=*reinterpret_cast<void***>(device);
@@ -59,9 +59,24 @@ int main(int argc, char** argv) {
  CHECK(device->CreateCommittedResource(&hp,D3D12_HEAP_FLAG_NONE,&r,D3D12_RESOURCE_STATE_GENERIC_READ,nullptr,IID_PPV_ARGS(&params.src)));
  hp.Type=D3D12_HEAP_TYPE_DEFAULT;
  CHECK(device->CreateCommittedResource(&hp,D3D12_HEAP_FLAG_NONE,&r,D3D12_RESOURCE_STATE_COPY_DEST,nullptr,IID_PPV_ARGS(&params.dst)));
+ HMODULE shim=LoadLibraryA("nvapi64.dll"); if(!shim)return 3;
+ auto query=reinterpret_cast<Query>(GetProcAddress(shim,"nvapi_QueryInterface"));query(1);
+ HMODULE ngx=LoadLibraryA("_nvngx.dll");if(!ngx)return 4;
+ // Wait for the explicit hook-ready diagnostic, after graphics objects exist.
+ // This tests late attachment, independently of the worker's polling period.
+ if (std::getenv("PENGUIN_BURNER_NR_TIMING") && std::strcmp(std::getenv("PENGUIN_BURNER_NR_TIMING"),"1")==0) {
+  bool ready=false;
+  for(unsigned i=0;i<500 && !ready;++i) {
+   FILE* f=std::fopen(std::getenv("PENGUIN_BURNER_SHIM_OUTPUT"),"rb");
+   if(f){char buf[4096]{};auto n=std::fread(buf,1,sizeof(buf)-1,f);std::fclose(f);ready=std::string(buf,n).find("observer ready")!=std::string::npos;}
+   if(!ready)Sleep(10);
+  }
+  if(!ready){std::puts("NGX observer did not become ready");return 8;}
+ }
  auto create=reinterpret_cast<Create>(GetProcAddress(ngx,"NVSDK_NGX_D3D12_CreateFeature"));
  auto eval=reinterpret_cast<Eval>(GetProcAddress(ngx,"NVSDK_NGX_D3D12_EvaluateFeature"));
  void* feature=nullptr;create(list,feature_id,nullptr,&feature);
+ const unsigned prepared_queues=queue_creations;
  for(unsigned frame=1;frame<=frames;++frame) {
   if(frame>1){CHECK(alloc->Reset());CHECK(list->Reset(alloc,nullptr));}
   const int result = eval(list,feature,&params,nullptr);
@@ -72,8 +87,8 @@ int main(int argc, char** argv) {
  }
  Sleep(100);
  if(callback_failed) return 7;
- if(queue_creations!=1) {
-  std::printf("collector created %u extra application-visible queues\n",queue_creations-1);
+ if(queue_creations!=prepared_queues) {
+  std::printf("collector created %u queues during evaluation\n",queue_creations-prepared_queues);
   return 6;
  }
  std::printf("%u GPU evaluations completed; CPU delay is 40 ms per evaluate\n", frames);

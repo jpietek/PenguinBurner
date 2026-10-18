@@ -25,6 +25,12 @@ bool succeeded(int result) { return (unsigned(result) & 0xfff00000u) != 0xbad000
 int __cdecl create(ID3D12GraphicsCommandList* commands, int feature, void* params, void** out) {
     const int result = g_create(commands, feature, params, out);
     if (feature == 18 && succeeded(result) && out && *out) {
+        // Use the feature's existing device. Do not hook D3D12CreateDevice
+        // during process startup or depend on observing earlier queue creation.
+        if (!nr_gpu_prepare(commands)) {
+            const char message[] = "[pb-nr-gpu] timing resources unavailable; forwarding NR unchanged\n";
+            g_emit(message, sizeof(message) - 1);
+        }
         std::lock_guard lock(g_features_mutex);
         if (g_features.size() < 1024) g_features.insert(*out);
     }
@@ -50,27 +56,6 @@ int __cdecl release(void* feature) {
         g_features.erase(feature);
     }
     return result;
-}
-
-using CreateDevice = HRESULT (WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, void**);
-CreateDevice g_create_device = nullptr;
-HRESULT WINAPI create_device(IUnknown* adapter, D3D_FEATURE_LEVEL level, REFIID riid, void** out) {
-    const HRESULT result = g_create_device(adapter, level, riid, out);
-    if (SUCCEEDED(result) && out && *out) {
-        ID3D12Device* device = nullptr;
-        if (SUCCEEDED(static_cast<IUnknown*>(*out)->QueryInterface(IID_PPV_ARGS(&device)))) {
-            nr_gpu_observe_device(device);
-            device->Release();
-        }
-    }
-    return result;
-}
-
-bool install_device_observer(HMODULE module) {
-    auto address = reinterpret_cast<void*>(GetProcAddress(module, "D3D12CreateDevice"));
-    if (!address || MH_CreateHook(address, reinterpret_cast<void*>(&create_device),
-        reinterpret_cast<void**>(&g_create_device)) != MH_OK) return false;
-    return MH_EnableHook(address) == MH_OK;
 }
 
 bool install(HMODULE module) {
@@ -110,16 +95,7 @@ DWORD WINAPI worker(LPVOID) {
         g_emit(message, sizeof(message) - 1);
         return 0;
     }
-    HMODULE d3d12 = nullptr;
-    bool device_observer_attempted = false;
     for (;;) {
-        if (!device_observer_attempted && GetModuleHandleExA(0, "d3d12.dll", &d3d12)) {
-            device_observer_attempted = true;
-            if (install_device_observer(d3d12)) {
-                const char message[] = "[pb-nr-gpu] observing application D3D12 queues\n";
-                g_emit(message, sizeof(message) - 1);
-            }
-        }
         nr_gpu_poll(g_emit);
         Sleep(10);
     }
