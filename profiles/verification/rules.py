@@ -109,8 +109,11 @@ def profile_verification_voltage_abort_callback(
             reason = previous_callback(progress_state)
             if reason:
                 return str(reason)
-        elapsed_s = _progress_elapsed_s(progress_state)
-        if elapsed_s < PROFILE_VERIFY_VOLTAGE_WARMUP_S:
+        if progress_state.get("running") == "q2rtx":
+            warming_up = progress_state.get("benchmark_phase") != "measure"
+        else:
+            warming_up = _progress_elapsed_s(progress_state) < PROFILE_VERIFY_VOLTAGE_WARMUP_S
+        if warming_up:
             state["high_voltage_streak"] = 0
             return None
         sample = progress_state.get("latest_sample")

@@ -183,6 +183,13 @@ Default final durations are 60 seconds for Efficiency, 180 for Balanced, and
 verification keeps the selected curve, memory offset, and power limit intact.
 A failed final check can retry the next safer tested curve.
 
+Q2RTX startup, including shader compilation, does not count toward verification
+progress or measured telemetry. Its first-render `measure_start` event begins
+measurement and load checks; there is no fixed startup grace period. Concurrent
+CUDA work starts at that event too. A separate startup timeout reports a launch
+failure without marking the voltage unsafe. Stop and fatal-error handling remain
+active throughout startup.
+
 The managed [headless Q2RTX benchmark](https://github.com/jpietek/Q2RTX-headless)
 needs no display server. Automatic resolution is 3840×2160 (4K) on desktop
 RTX 4080, 4080 Super, 4090, 5070 Ti, 5080, and 5090, plus RTX 4090 Laptop and

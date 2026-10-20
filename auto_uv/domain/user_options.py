@@ -66,7 +66,6 @@ class AutoUvProbeTuning:
 class AutoUvStallTuning:
     load_lost_min_samples: int = 8
     load_lost_streak_samples: int = 3
-    selected_gpu_idle_min_s: float = 12.0
     selected_gpu_idle_min_samples: int = 8
     selected_gpu_idle_max_util_pct: float = 5.0
     selected_gpu_idle_max_power_w: float = 25.0
