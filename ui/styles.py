@@ -548,3 +548,32 @@ def curve_editor_legend_stylesheet(object_prefix: str) -> str:
         background: rgba(94, 243, 140, 38);
     }}
     """
+
+
+# Overlay settings use the same preference cards as Game Library.
+STYLESHEET += f'''
+QWidget#overlayConfigPanel, QWidget#overlayPage {{ background: {theme.WINDOW_BG}; }}
+QLabel#overlayPageTitle {{ color: {theme.TEXT_STRONG}; font-size: 23px; font-weight: 700; }}
+QLabel#overlayMuted {{ color: {theme.TEXT_MUTED}; font-size: 12px; }}
+QLabel#overlaySampleValue {{ color: {theme.TEXT_MUTED}; font-size: 12px; }}
+QLabel#overlayPreviewCaption {{ color: {theme.TEXT_MUTED}; font-size: 11px; }}
+QFrame#overlayPreviewCard {{ background: {theme.SURFACE_BG}; border: 1px solid {theme.BORDER_STRONG}; border-radius: 6px; }}
+QWidget#overlayConfigPanel QPushButton {{ padding: 7px 12px; background: {theme.CONTROL_BG}; color: {theme.TEXT_STRONG}; border: 1px solid {theme.BORDER_STRONG}; border-radius: 5px; }}
+QWidget#overlayConfigPanel QPushButton:hover {{ background: {theme.CONTROL_HOVER_BG}; }}
+QWidget#overlayConfigPanel QPushButton#overlayLivePreviewButton {{ background: {theme.PRIMARY_BUTTON_BG}; border-color: {theme.PRIMARY_BUTTON_BORDER}; color: {theme.PRIMARY_BUTTON_TEXT}; }}
+QWidget#overlayConfigPanel QComboBox, QWidget#overlayConfigPanel QSpinBox {{ min-height: 24px; padding: 2px 8px; background: {theme.SURFACE_BG}; color: {theme.TEXT}; border: 1px solid {theme.BORDER_STRONG}; border-radius: 4px; }}
+QWidget#overlayConfigPanel QToolButton#infoButton {{ color: {theme.TEXT_MUTED}; background: transparent; border: 1px solid {theme.BORDER_STRONG}; border-radius: 8px; font-size: 11px; }}
+QWidget#overlayConfigPanel QScrollArea {{ background: transparent; border: 0; }}
+QWidget#overlayConfigPanel QScrollBar:vertical {{ background: transparent; width: 9px; margin: 0; }}
+QWidget#overlayConfigPanel QScrollBar::handle:vertical {{ background: {theme.BORDER_STRONG}; border-radius: 4px; min-height: 32px; }}
+QWidget#overlayConfigPanel QScrollBar::add-line:vertical, QWidget#overlayConfigPanel QScrollBar::sub-line:vertical {{ height: 0; }}
+QWidget#overlayConfigPanel QScrollBar::add-page:vertical, QWidget#overlayConfigPanel QScrollBar::sub-page:vertical {{ background: transparent; }}
+QWidget#overlayConfigPanel QSlider::groove:horizontal {{ background: {theme.BORDER_STRONG}; height: 4px; border-radius: 2px; }}
+QWidget#overlayConfigPanel QSlider::sub-page:horizontal {{ background: {theme.PRIMARY_BUTTON_BORDER}; border-radius: 2px; }}
+QWidget#overlayConfigPanel QSlider::handle:horizontal {{ background: {theme.PRIMARY_BUTTON_TEXT}; border: 2px solid {theme.PRIMARY_BUTTON_BORDER}; width: 13px; margin: -6px 0; border-radius: 8px; }}
+QWidget#overlayConfigPanel QPushButton#overlayEditMetrics {{ background: transparent; border: 0; color: #9fd3b6; padding: 2px 4px; font-size: 12px; }}
+QWidget#overlayConfigPanel QPushButton#overlayEditMetrics:hover {{ color: {theme.PRIMARY_BUTTON_TEXT}; background: {theme.CONTROL_HOVER_BG}; }}
+QLabel#overlayEmptyMetrics {{ color: {theme.TEXT_MUTED}; font-size: 12px; padding: 14px; }}
+QLabel#overlayMetricCount {{ color: {theme.TEXT_DISABLED}; font-size: 11px; }}
+QWidget#overlayConfigPanel QDialog {{ background: {theme.WINDOW_BG}; }}
+'''

@@ -53,6 +53,10 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_instance(
             next_get_instance_proc_addr(
                 *instance,
                 "vkGetPhysicalDeviceProperties"));
+    context.get_physical_device_memory_properties =
+        reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties>(
+            next_get_instance_proc_addr(
+                *instance, "vkGetPhysicalDeviceMemoryProperties"));
     context.get_physical_device_queue_family_properties =
         reinterpret_cast<PFN_vkGetPhysicalDeviceQueueFamilyProperties>(
             next_get_instance_proc_addr(
@@ -268,6 +272,74 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_device(
         next_get_device_proc_addr(*device, "vkCmdEndRenderPass"));
     context.cmd_clear_attachments = reinterpret_cast<PFN_vkCmdClearAttachments>(
         next_get_device_proc_addr(*device, "vkCmdClearAttachments"));
+    context.create_shader_module = reinterpret_cast<PFN_vkCreateShaderModule>(
+        next_get_device_proc_addr(*device, "vkCreateShaderModule"));
+    context.destroy_shader_module = reinterpret_cast<PFN_vkDestroyShaderModule>(
+        next_get_device_proc_addr(*device, "vkDestroyShaderModule"));
+    context.create_pipeline_layout = reinterpret_cast<PFN_vkCreatePipelineLayout>(
+        next_get_device_proc_addr(*device, "vkCreatePipelineLayout"));
+    context.destroy_pipeline_layout = reinterpret_cast<PFN_vkDestroyPipelineLayout>(
+        next_get_device_proc_addr(*device, "vkDestroyPipelineLayout"));
+    context.create_graphics_pipelines = reinterpret_cast<PFN_vkCreateGraphicsPipelines>(
+        next_get_device_proc_addr(*device, "vkCreateGraphicsPipelines"));
+    context.destroy_pipeline = reinterpret_cast<PFN_vkDestroyPipeline>(
+        next_get_device_proc_addr(*device, "vkDestroyPipeline"));
+    context.create_buffer = reinterpret_cast<PFN_vkCreateBuffer>(
+        next_get_device_proc_addr(*device, "vkCreateBuffer"));
+    context.destroy_buffer = reinterpret_cast<PFN_vkDestroyBuffer>(
+        next_get_device_proc_addr(*device, "vkDestroyBuffer"));
+    context.get_buffer_memory_requirements = reinterpret_cast<PFN_vkGetBufferMemoryRequirements>(
+        next_get_device_proc_addr(*device, "vkGetBufferMemoryRequirements"));
+    context.allocate_memory = reinterpret_cast<PFN_vkAllocateMemory>(
+        next_get_device_proc_addr(*device, "vkAllocateMemory"));
+    context.free_memory = reinterpret_cast<PFN_vkFreeMemory>(
+        next_get_device_proc_addr(*device, "vkFreeMemory"));
+    context.bind_buffer_memory = reinterpret_cast<PFN_vkBindBufferMemory>(
+        next_get_device_proc_addr(*device, "vkBindBufferMemory"));
+    context.map_memory = reinterpret_cast<PFN_vkMapMemory>(
+        next_get_device_proc_addr(*device, "vkMapMemory"));
+    context.unmap_memory = reinterpret_cast<PFN_vkUnmapMemory>(
+        next_get_device_proc_addr(*device, "vkUnmapMemory"));
+    context.cmd_bind_pipeline = reinterpret_cast<PFN_vkCmdBindPipeline>(
+        next_get_device_proc_addr(*device, "vkCmdBindPipeline"));
+    context.cmd_bind_vertex_buffers = reinterpret_cast<PFN_vkCmdBindVertexBuffers>(
+        next_get_device_proc_addr(*device, "vkCmdBindVertexBuffers"));
+    context.cmd_set_viewport = reinterpret_cast<PFN_vkCmdSetViewport>(
+        next_get_device_proc_addr(*device, "vkCmdSetViewport"));
+    context.cmd_set_scissor = reinterpret_cast<PFN_vkCmdSetScissor>(
+        next_get_device_proc_addr(*device, "vkCmdSetScissor"));
+    context.cmd_draw = reinterpret_cast<PFN_vkCmdDraw>(
+        next_get_device_proc_addr(*device, "vkCmdDraw"));
+    context.create_image = reinterpret_cast<PFN_vkCreateImage>(
+        next_get_device_proc_addr(*device, "vkCreateImage"));
+    context.destroy_image = reinterpret_cast<PFN_vkDestroyImage>(
+        next_get_device_proc_addr(*device, "vkDestroyImage"));
+    context.get_image_memory_requirements = reinterpret_cast<PFN_vkGetImageMemoryRequirements>(
+        next_get_device_proc_addr(*device, "vkGetImageMemoryRequirements"));
+    context.bind_image_memory = reinterpret_cast<PFN_vkBindImageMemory>(
+        next_get_device_proc_addr(*device, "vkBindImageMemory"));
+    context.create_sampler = reinterpret_cast<PFN_vkCreateSampler>(
+        next_get_device_proc_addr(*device, "vkCreateSampler"));
+    context.destroy_sampler = reinterpret_cast<PFN_vkDestroySampler>(
+        next_get_device_proc_addr(*device, "vkDestroySampler"));
+    context.create_descriptor_set_layout = reinterpret_cast<PFN_vkCreateDescriptorSetLayout>(
+        next_get_device_proc_addr(*device, "vkCreateDescriptorSetLayout"));
+    context.destroy_descriptor_set_layout = reinterpret_cast<PFN_vkDestroyDescriptorSetLayout>(
+        next_get_device_proc_addr(*device, "vkDestroyDescriptorSetLayout"));
+    context.create_descriptor_pool = reinterpret_cast<PFN_vkCreateDescriptorPool>(
+        next_get_device_proc_addr(*device, "vkCreateDescriptorPool"));
+    context.destroy_descriptor_pool = reinterpret_cast<PFN_vkDestroyDescriptorPool>(
+        next_get_device_proc_addr(*device, "vkDestroyDescriptorPool"));
+    context.allocate_descriptor_sets = reinterpret_cast<PFN_vkAllocateDescriptorSets>(
+        next_get_device_proc_addr(*device, "vkAllocateDescriptorSets"));
+    context.update_descriptor_sets = reinterpret_cast<PFN_vkUpdateDescriptorSets>(
+        next_get_device_proc_addr(*device, "vkUpdateDescriptorSets"));
+    context.cmd_bind_descriptor_sets = reinterpret_cast<PFN_vkCmdBindDescriptorSets>(
+        next_get_device_proc_addr(*device, "vkCmdBindDescriptorSets"));
+    context.cmd_copy_buffer_to_image = reinterpret_cast<PFN_vkCmdCopyBufferToImage>(
+        next_get_device_proc_addr(*device, "vkCmdCopyBufferToImage"));
+    context.cmd_pipeline_barrier = reinterpret_cast<PFN_vkCmdPipelineBarrier>(
+        next_get_device_proc_addr(*device, "vkCmdPipelineBarrier"));
     context.create_semaphore = reinterpret_cast<PFN_vkCreateSemaphore>(
         next_get_device_proc_addr(*device, "vkCreateSemaphore"));
     context.destroy_semaphore = reinterpret_cast<PFN_vkDestroySemaphore>(
@@ -304,6 +376,11 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_device(
         instance_context.get_physical_device_properties(
             physical_device,
             &context.physical_device_properties);
+    }
+    if (instance_context.get_physical_device_memory_properties) {
+        instance_context.get_physical_device_memory_properties(
+            physical_device,
+            &context.physical_device_memory_properties);
     }
     if (instance_context.get_physical_device_queue_family_properties) {
         uint32_t queue_family_count = 0;
@@ -515,6 +592,21 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_swapchain_khr(
             context.image_extent = create_info->imageExtent;
             context.image_array_layers = create_info->imageArrayLayers;
             context.image_usage = create_info->imageUsage;
+            context.present_mode = create_info->presentMode;
+            context.device_facts.resolution =
+                overlay_resolution_text(create_info->imageExtent);
+            context.device_facts.present_mode =
+                overlay_present_mode_text(create_info->presentMode);
+        }
+        // The driver already told us the card and its version at device
+        // creation; no daemon round trip and no state file are involved.
+        const auto device_entry = g_devices.find(device);
+        if (device_entry != g_devices.end()) {
+            const VkPhysicalDeviceProperties& properties =
+                device_entry->second.physical_device_properties;
+            context.device_facts.gpu_name = properties.deviceName;
+            context.device_facts.driver_version = overlay_driver_version_text(
+                properties.driverVersion, properties.vendorID);
         }
         g_swapchains[*swapchain] = context;
         live_swapchain_count = live_swapchain_count_locked(device);
@@ -675,20 +767,25 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_queue_present_khr(
                         present_time_us - swapchain_context.last_present_us;
                 }
                 swapchain_context.last_present_us = present_time_us;
+                OverlayFrameStats overlay_stats{};
+                OverlayGraph overlay_graph{};
                 if (overlay_enabled() && observation.present_frametime_us) {
-                    observation.overlay_fps =
-                        median_fps_from_present_frametime_locked(
-                            swapchain_context,
-                            observation.present_frametime_us);
+                    overlay_stats = overlay_frame_stats_locked(
+                        swapchain_context,
+                        observation.present_frametime_us);
+                    observation.overlay_fps = overlay_stats.median_fps;
+                    if (overlay_graph_enabled()) {
+                        overlay_graph = overlay_graph_locked(swapchain_context);
+                    }
                 }
                 if (overlay_enabled() && has_device_context && has_queue_context
                     && present_info->swapchainCount == 1
                     && present_info->pImageIndices) {
-                    const std::string overlay_text =
-                        cached_overlay_text(
-                            observation.overlay_fps,
-                            present_time_us);
-                    if (!overlay_text.empty()) {
+                    const OverlayReadout overlay_readout = cached_overlay_readout(
+                        overlay_stats,
+                        swapchain_context.device_facts,
+                        present_time_us);
+                    if (!overlay_readout.text.empty()) {
                         overlay_signal = submit_overlay_locked(
                             device_context,
                             swapchain,
@@ -697,7 +794,8 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_queue_present_khr(
                             queue,
                             present_info->pImageIndices[i],
                             present_info,
-                            overlay_text);
+                            overlay_readout,
+                            overlay_graph);
                     }
                 }
             }

@@ -267,6 +267,8 @@ struct InstanceContext {
     PFN_vkEnumerateDeviceExtensionProperties enumerate_device_extension_properties =
         nullptr;
     PFN_vkGetPhysicalDeviceProperties get_physical_device_properties = nullptr;
+    PFN_vkGetPhysicalDeviceMemoryProperties
+        get_physical_device_memory_properties = nullptr;
     PFN_vkGetPhysicalDeviceQueueFamilyProperties
         get_physical_device_queue_family_properties = nullptr;
     std::string application_name = "unknown";
@@ -305,6 +307,40 @@ struct DeviceContext {
     PFN_vkCmdBeginRenderPass cmd_begin_render_pass = nullptr;
     PFN_vkCmdEndRenderPass cmd_end_render_pass = nullptr;
     PFN_vkCmdClearAttachments cmd_clear_attachments = nullptr;
+    PFN_vkCreateShaderModule create_shader_module = nullptr;
+    PFN_vkDestroyShaderModule destroy_shader_module = nullptr;
+    PFN_vkCreatePipelineLayout create_pipeline_layout = nullptr;
+    PFN_vkDestroyPipelineLayout destroy_pipeline_layout = nullptr;
+    PFN_vkCreateGraphicsPipelines create_graphics_pipelines = nullptr;
+    PFN_vkDestroyPipeline destroy_pipeline = nullptr;
+    PFN_vkCreateBuffer create_buffer = nullptr;
+    PFN_vkDestroyBuffer destroy_buffer = nullptr;
+    PFN_vkGetBufferMemoryRequirements get_buffer_memory_requirements = nullptr;
+    PFN_vkAllocateMemory allocate_memory = nullptr;
+    PFN_vkFreeMemory free_memory = nullptr;
+    PFN_vkBindBufferMemory bind_buffer_memory = nullptr;
+    PFN_vkMapMemory map_memory = nullptr;
+    PFN_vkUnmapMemory unmap_memory = nullptr;
+    PFN_vkCmdBindPipeline cmd_bind_pipeline = nullptr;
+    PFN_vkCmdBindVertexBuffers cmd_bind_vertex_buffers = nullptr;
+    PFN_vkCmdSetViewport cmd_set_viewport = nullptr;
+    PFN_vkCmdSetScissor cmd_set_scissor = nullptr;
+    PFN_vkCmdDraw cmd_draw = nullptr;
+    PFN_vkCreateImage create_image = nullptr;
+    PFN_vkDestroyImage destroy_image = nullptr;
+    PFN_vkGetImageMemoryRequirements get_image_memory_requirements = nullptr;
+    PFN_vkBindImageMemory bind_image_memory = nullptr;
+    PFN_vkCreateSampler create_sampler = nullptr;
+    PFN_vkDestroySampler destroy_sampler = nullptr;
+    PFN_vkCreateDescriptorSetLayout create_descriptor_set_layout = nullptr;
+    PFN_vkDestroyDescriptorSetLayout destroy_descriptor_set_layout = nullptr;
+    PFN_vkCreateDescriptorPool create_descriptor_pool = nullptr;
+    PFN_vkDestroyDescriptorPool destroy_descriptor_pool = nullptr;
+    PFN_vkAllocateDescriptorSets allocate_descriptor_sets = nullptr;
+    PFN_vkUpdateDescriptorSets update_descriptor_sets = nullptr;
+    PFN_vkCmdBindDescriptorSets cmd_bind_descriptor_sets = nullptr;
+    PFN_vkCmdCopyBufferToImage cmd_copy_buffer_to_image = nullptr;
+    PFN_vkCmdPipelineBarrier cmd_pipeline_barrier = nullptr;
     PFN_vkCreateSemaphore create_semaphore = nullptr;
     PFN_vkDestroySemaphore destroy_semaphore = nullptr;
     PFN_vkCreateFence create_fence = nullptr;
@@ -319,6 +355,7 @@ struct DeviceContext {
     PFN_vkQueueNotifyOutOfBandNV queue_notify_out_of_band_nv = nullptr;
     PFN_vkWaitForPresentKHR wait_for_present_khr = nullptr;
     VkPhysicalDeviceProperties physical_device_properties{};
+    VkPhysicalDeviceMemoryProperties physical_device_memory_properties{};
     std::vector<VkQueueFamilyProperties> queue_family_properties;
     bool low_latency_extension_advertised = false;
     bool low_latency_extension_requested = false;
@@ -354,6 +391,65 @@ struct BaseMarkerState {
     uint64_t timestamp_us = 0;
 };
 
+// What the layer can answer about the game's device and swapchain without
+// asking the daemon anything: the driver handed all of it over at instance and
+// swapchain creation. Built once per swapchain, since none of it changes.
+struct OverlayDeviceFacts {
+    std::string gpu_name;
+    std::string driver_version;
+    std::string resolution;
+    std::string present_mode;
+};
+
+// One blended quad corner. Positions are already in clip space: the CPU knows
+// the swapchain extent when it builds them, so the shaders need no uniform and
+// the pipeline needs no descriptor set.
+struct OverlayVertex {
+    float x = 0.0f;
+    float y = 0.0f;
+    float r = 0.0f;
+    float g = 0.0f;
+    float b = 0.0f;
+    float a = 0.0f;
+    // Atlas coordinates for a glyph; a negative u marks a solid quad, so the
+    // panel and the text share one pipeline.
+    float u = -1.0f;
+    float v = -1.0f;
+};
+
+// Which face the overlay draws its text in. Pixel is the original 5x8 bitmap
+// and the only one the clear-rect renderer can draw at all; the other two come
+// from the signed-distance atlas and need the pipeline.
+// Defined in the generated overlay_font.h; only ever passed by pointer here.
+struct OverlayFontAtlas;
+
+enum class OverlayFont : uint32_t {
+    Pixel = 0,
+    Mono = 1,
+    Sans = 2,
+};
+
+// Sans, matching DEFAULT_OVERLAY_FONT in overlay/config.py. Every fixed-pitch
+// face draws a slashed or dotted zero, which is the first mark to close up once
+// the text is only a few pixels tall; the proportional face carries tabular
+// figures, so its digits still hold a column.
+constexpr OverlayFont kDefaultOverlayFont = OverlayFont::Sans;
+
+// A horizontal slice of the panel. A rounded rectangle is built from
+// non-overlapping bands rather than an overlapping stack, because two
+// translucent quads on top of each other blend twice and show the seam.
+struct OverlayRectBand {
+    int32_t x = 0;
+    int32_t y = 0;
+    uint32_t width = 0;
+    uint32_t height = 0;
+};
+
+// Room for the busiest readout plus its graph. Anything past this is dropped
+// rather than grown mid-present.
+constexpr uint32_t kOverlayMaxQuads = 8192;
+constexpr uint32_t kOverlayVerticesPerQuad = 6;
+
 struct OverlayRenderResources {
     bool attempted = false;
     bool ready = false;
@@ -367,6 +463,28 @@ struct OverlayRenderResources {
     std::vector<VkSemaphore> signal_semaphores;
     std::vector<VkFence> submit_fences;
     std::vector<uint8_t> submit_pending;
+    // Blended-quad pipeline. Every one of these may be absent: when creation
+    // fails at any step the overlay keeps drawing with cleared rectangles, so
+    // a driver that cannot give us a pipeline costs the look, not the HUD.
+    bool blended_ready = false;
+    VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
+    VkPipeline pipeline = VK_NULL_HANDLE;
+    std::vector<VkBuffer> vertex_buffers;
+    std::vector<VkDeviceMemory> vertex_memories;
+    std::vector<void*> vertex_mappings;
+    // Signed-distance font atlas. Absent means the overlay falls back to the
+    // bitmap face, exactly as it does when the whole pipeline is absent.
+    bool atlas_ready = false;
+    bool atlas_uploaded = false;
+    VkImage atlas_image = VK_NULL_HANDLE;
+    VkDeviceMemory atlas_memory = VK_NULL_HANDLE;
+    VkImageView atlas_view = VK_NULL_HANDLE;
+    VkSampler atlas_sampler = VK_NULL_HANDLE;
+    VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
+    VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
+    VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
+    VkBuffer atlas_staging = VK_NULL_HANDLE;
+    VkDeviceMemory atlas_staging_memory = VK_NULL_HANDLE;
 };
 
 struct SwapchainContext {
@@ -376,6 +494,8 @@ struct SwapchainContext {
     VkExtent2D image_extent{};
     uint32_t image_array_layers = 1;
     VkImageUsageFlags image_usage = 0;
+    VkPresentModeKHR present_mode = VK_PRESENT_MODE_FIFO_KHR;
+    OverlayDeviceFacts device_facts{};
     uint64_t last_gpu_render_end_us = 0;
     // Monotonic counter for present IDs we inject (present-id injection path).
     uint64_t last_injected_present_id = 0;
@@ -394,10 +514,107 @@ struct SwapchainContext {
     std::array<uint64_t, 120> present_frametimes{};
     uint32_t present_frametime_index = 0;
     uint32_t present_frametime_count = 0;
+    // Whole-session frametime accumulators. The ring above only spans its last
+    // 120 presents -- about a second at 120 FPS -- so session min/avg/max need
+    // their own running totals rather than a longer buffer.
+    uint64_t session_frametime_count = 0;
+    uint64_t session_frametime_sum_us = 0;
+    uint64_t session_frametime_min_us = 0;
+    uint64_t session_frametime_max_us = 0;
     BaseMarkerState out_of_band_present_start{};
     BaseMarkerState present_start{};
     BaseMarkerState render_submit_start{};
     OverlayRenderResources overlay{};
+};
+
+// What the layer measured about presentation, as opposed to what the daemon
+// published about the GPU. None of this can come from overlay-state.txt: the
+// frametimes only exist inside the game process.
+struct OverlayFrameStats {
+    // Median over the ring; the headline FPS the overlay has always shown.
+    uint64_t median_fps = 0;
+    // FPS at the mean frametime of the ring's worst 1% of frames.
+    uint64_t low_1pct_fps = 0;
+    // Frametime 97% of the ring's frames came in under.
+    uint64_t p97_frametime_us = 0;
+    uint64_t session_min_fps = 0;
+    uint64_t session_avg_fps = 0;
+    uint64_t session_max_fps = 0;
+    uint32_t sample_count = 0;
+};
+
+// A chronological snapshot of the present ring, taken under the swapchain lock
+// so the draw path never reads the ring while a present updates it.
+struct OverlayGraph {
+    std::array<uint64_t, 120> samples{};
+    uint32_t count = 0;
+    // The rule drawn across the bars. The window's own median, not a target
+    // frame rate: the layer has no way to learn the target, and "how far do
+    // the spikes sit above typical" is the question the graph answers anyway.
+    uint64_t median_us = 0;
+};
+
+// How urgently one cell of the readout should read. Colour is a layer-side
+// concern only: the desktop preview shows the same text in one colour, so the
+// two stay in agreement on what is written, not on how it is painted.
+enum class OverlayCellLevel : uint8_t {
+    Normal = 0,
+    Warn = 1,
+    Alert = 2,
+    // Labels and the footer sit back from the values they belong to.
+    Dim = 3,
+    // A value sitting where you want it -- a cool card, a real undervolt.
+    Good = 4,
+    // The tier actually running, which is the one thing only this tool knows.
+    Tier = 5,
+};
+
+// What a row is, rather than what it holds. The designed layout needs more
+// than a grid: a headline frame rate, rules between groups, a quieter footer.
+enum class OverlayRowKind : uint8_t {
+    Value = 0,
+    Hero = 1,
+    Rule = 2,
+    Foot = 3,
+};
+
+// How the readout is arranged. Mirrors OVERLAY_LAYOUTS in overlay/config.py.
+enum class OverlayLayout : uint32_t {
+    Hud = 0,
+    Table = 1,
+};
+
+constexpr OverlayLayout kDefaultOverlayLayout = OverlayLayout::Hud;
+
+// A run of characters in the readout that is not drawn in the default colour.
+struct OverlayTextSpan {
+    uint32_t line = 0;
+    uint32_t column = 0;
+    uint32_t length = 0;
+    OverlayCellLevel level = OverlayCellLevel::Normal;
+};
+
+// One cell of the readout, before any padding.
+struct OverlayReadoutCell {
+    std::string text;
+    OverlayCellLevel level = OverlayCellLevel::Normal;
+};
+
+struct OverlayReadoutRow {
+    OverlayRowKind kind = OverlayRowKind::Value;
+    std::string label;
+    std::vector<OverlayReadoutCell> cells;
+};
+
+struct OverlayReadout {
+    // The padded form. This is what the desktop preview compares against and
+    // what the parity harness diffs, so it stays byte for byte what it was.
+    std::string text;
+    std::vector<OverlayTextSpan> highlights;
+    // The same content unpadded. The renderer lays columns out from measured
+    // widths instead, because space padding only lines up in a fixed-pitch
+    // face and one of the three is not.
+    std::vector<OverlayReadoutRow> rows;
 };
 
 struct OverlayGpuState {
@@ -416,9 +633,36 @@ struct OverlayGpuState {
     std::string fan_pct;
     std::string temperature_c;
     std::string uv_offset_mv;
+    std::string vram_used_mb;
+    std::string vram_total_mb;
+    std::string mem_clock_mhz;
+    std::string ram_used_mb;
+    std::string ram_total_mb;
+    std::string cpu_temp_c;
+    std::string cpu_power_w;
     std::string profile_id;
-    std::string profile_tier = "Balanced";
+    // No default tier: an absent or empty published tier means stock GPU
+    // state, and compact_profile_tier() renders that as DEF. Defaulting to
+    // a real tier here made the HUD claim BAL on an untuned card.
+    std::string profile_tier;
 };
+
+// Where the HUD box sits in the swapchain image. The four corners plus
+// top-centre are what overlay.toml can name; anything else falls back to the
+// historical top-right.
+enum class OverlayPosition : uint32_t {
+    TopLeft = 0,
+    TopCenter = 1,
+    TopRight = 2,
+    BottomLeft = 3,
+    BottomRight = 4,
+};
+
+constexpr OverlayPosition kDefaultOverlayPosition = OverlayPosition::TopRight;
+// What 1x means: the resolution-adaptive size times this. At 0.75, 1x at 1440p
+// draws ~16 px capitals, MangoHud's default text size. Kept in step with
+// OVERLAY_SCALE_REFERENCE in overlay/config.py.
+constexpr double kOverlayScaleReference = 0.75;
 
 struct OverlayTextConfig {
     bool enabled = true;
@@ -427,6 +671,15 @@ struct OverlayTextConfig {
     // resolution-adaptive size; 0.5/2.0 shrink/grow it. The Python UI only
     // writes 0.5/1.0/2.0, but the value is clamped on read for safety.
     double scale = 1.0;
+    OverlayPosition position = kDefaultOverlayPosition;
+    // Panel opacity, 0.0 to 1.0. Only the blended renderer can honour it: a
+    // cleared rectangle writes its colour straight into the image.
+    double opacity = 1.0;
+    // false forces the historical clear-rect renderer even where a pipeline
+    // would work, as a way out if blending upsets a particular game.
+    bool blended_renderer = true;
+    OverlayFont font = kDefaultOverlayFont;
+    OverlayLayout layout = kDefaultOverlayLayout;
 };
 
 // ---- Shared global state (defined in latency_state.cpp / marker_timing.cpp) ----
@@ -446,6 +699,19 @@ extern std::mutex g_overlay_file_mutex;
 // Latest user overlay scale multiplier, published by overlay_text_config() so
 // the present-path draw can read it without threading config through every call.
 extern std::atomic<double> g_overlay_user_scale;
+// Latest overlay corner, published alongside the scale so the present-path
+// draw can read it without threading config through every call.
+extern std::atomic<uint32_t> g_overlay_position;
+// Whether the frametime graph is switched on, published with the rest of the
+// config so the present-path draw can read it without taking the config lock.
+extern std::atomic<bool> g_overlay_graph_enabled;
+// Panel opacity and renderer choice, published with the rest of the config so
+// the present-path draw never takes the config lock.
+extern std::atomic<double> g_overlay_opacity;
+extern std::atomic<bool> g_overlay_blended_renderer;
+// Selected text face, published with the rest of the config.
+extern std::atomic<uint32_t> g_overlay_font;
+extern std::atomic<uint32_t> g_overlay_layout;
 
 // ---- Cross-translation-unit function declarations ----
     bool env_flag_enabled(const char* name);
@@ -458,11 +724,41 @@ extern std::atomic<double> g_overlay_user_scale;
     uint64_t now_monotonic_us();
     uint64_t elapsed_us(uint64_t start_us, uint64_t end_us);
     std::string trim_ascii(std::string value);
+    OverlayPosition parse_overlay_position(const std::string& value);
+    OverlayFont parse_overlay_font(const std::string& value);
+    OverlayLayout parse_overlay_layout(const std::string& value);
+    VkOffset2D overlay_text_origin( const VkExtent2D& extent, uint32_t box_width, uint32_t box_height, uint32_t margin, OverlayPosition position);
     bool overlay_enabled();
-    uint64_t median_fps_from_present_frametime_locked( SwapchainContext& context, uint64_t present_frametime_us);
-    std::string cached_overlay_text(uint64_t fps, uint64_t now_us);
+    OverlayFrameStats overlay_frame_stats_locked( SwapchainContext& context, uint64_t present_frametime_us);
+    OverlayGraph overlay_graph_locked(const SwapchainContext& context);
+    uint64_t overlay_graph_span_us(const OverlayGraph& graph, uint64_t worst_us);
+    uint32_t overlay_graph_bar_height( uint64_t sample_us, uint64_t span_us, uint32_t height);
+    std::string overlay_fit_line(const std::string& line, uint32_t max_chars);
+    float overlay_glyph_advance( const OverlayFontAtlas* atlas, char ch, float scale);
+    float overlay_measure( const std::string& text, const OverlayFontAtlas* atlas, float scale);
+    OverlayLayout overlay_layout();
+    VkClearColorValue overlay_level_color(OverlayCellLevel level);
+    const OverlayFontAtlas* overlay_font_atlas(OverlayFont font);
+    float overlay_ndc_x(int32_t x, uint32_t width);
+    float overlay_ndc_y(int32_t y, uint32_t height);
+    std::vector<OverlayRectBand> overlay_rounded_panel_bands( int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t radius);
+    double overlay_opacity();
+    bool overlay_blended_renderer_enabled();
+    OverlayFont overlay_font();
+    bool overlay_graph_enabled();
+    OverlayFrameStats overlay_frame_stats_from_samples( const uint64_t* samples, uint32_t count, uint64_t session_count, uint64_t session_sum_us, uint64_t session_min_us, uint64_t session_max_us);
+    uint64_t overlay_percentile_us(std::vector<uint64_t>& sorted, unsigned percentile);
+    uint64_t overlay_worst_percent_mean_us( const std::vector<uint64_t>& sorted, unsigned percent);
+    uint64_t overlay_fps_from_frametime_us(uint64_t frametime_us);
+    OverlayGpuState read_overlay_gpu_state();
+    OverlayReadout build_overlay_readout( const OverlayFrameStats& stats, const OverlayDeviceFacts& facts, const OverlayGpuState& state, uint64_t now_us);
+    std::string overlay_driver_version_text(uint32_t version, uint32_t vendor_id);
+    std::string overlay_present_mode_text(VkPresentModeKHR mode);
+    std::string overlay_resolution_text(const VkExtent2D& extent);
+    std::string build_overlay_text( const OverlayFrameStats& stats, const OverlayDeviceFacts& facts, const OverlayGpuState& state, uint64_t now_us);
+    OverlayReadout cached_overlay_readout( const OverlayFrameStats& stats, const OverlayDeviceFacts& facts, uint64_t now_us);
     void destroy_overlay_resources( const DeviceContext& device_context, SwapchainContext& swapchain_context);
-    VkSemaphore submit_overlay_locked( const DeviceContext& device_context, VkSwapchainKHR swapchain, SwapchainContext& swapchain_context, const QueueContext& queue_context, VkQueue queue, uint32_t image_index, const VkPresentInfoKHR* present_info, const std::string& text);
+    VkSemaphore submit_overlay_locked( const DeviceContext& device_context, VkSwapchainKHR swapchain, SwapchainContext& swapchain_context, const QueueContext& queue_context, VkQueue queue, uint32_t image_index, const VkPresentInfoKHR* present_info, const OverlayReadout& readout, const OverlayGraph& graph);
     uint64_t live_swapchain_count_locked(VkDevice device);
     DeviceTelemetryFlags device_telemetry_flags(VkDevice device);
     bool swapchain_latency_mode_enabled(const VkSwapchainCreateInfoKHR* create_info);
