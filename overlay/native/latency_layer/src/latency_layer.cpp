@@ -1094,12 +1094,19 @@ VKAPI_CALL vkGetInstanceProcAddr(VkInstance instance, const char* name) {
             layer_queue_notify_out_of_band_nv);
     }
 
-    std::lock_guard lock(g_mutex);
-    auto it = g_instances.find(instance);
-    if (it != g_instances.end() && it->second.get_instance_proc_addr) {
-        return it->second.get_instance_proc_addr(instance, name);
+    PFN_vkGetInstanceProcAddr next_get_instance_proc_addr = nullptr;
+    {
+        std::lock_guard lock(g_mutex);
+        auto it = g_instances.find(instance);
+        if (it != g_instances.end()) {
+            next_get_instance_proc_addr = it->second.get_instance_proc_addr;
+        }
     }
-    return nullptr;
+    // Never call down the chain with g_mutex held: the loader calls into this
+    // layer under its own lock (vkEnumeratePhysicalDevices), so that deadlocks.
+    return next_get_instance_proc_addr
+        ? next_get_instance_proc_addr(instance, name)
+        : nullptr;
 }
 
 extern "C" __attribute__((visibility("default"))) VKAPI_ATTR PFN_vkVoidFunction
@@ -1152,10 +1159,16 @@ VKAPI_CALL vkGetDeviceProcAddr(VkDevice device, const char* name) {
             layer_queue_notify_out_of_band_nv);
     }
 
-    std::lock_guard lock(g_mutex);
-    auto it = g_devices.find(device);
-    if (it != g_devices.end() && it->second.get_device_proc_addr) {
-        return it->second.get_device_proc_addr(device, name);
+    PFN_vkGetDeviceProcAddr next_get_device_proc_addr = nullptr;
+    {
+        std::lock_guard lock(g_mutex);
+        auto it = g_devices.find(device);
+        if (it != g_devices.end()) {
+            next_get_device_proc_addr = it->second.get_device_proc_addr;
+        }
     }
-    return nullptr;
+    // Same lock order as vkGetInstanceProcAddr: never hold g_mutex down-chain.
+    return next_get_device_proc_addr
+        ? next_get_device_proc_addr(device, name)
+        : nullptr;
 }
