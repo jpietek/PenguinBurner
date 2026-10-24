@@ -155,7 +155,8 @@ std::string profile_voltage_mv_from_id(const std::string& profile_id) {
     return "";
 }
 
-const std::array<const char*, 13> kOverlayItemOrder = {
+const std::array<const char*, 14> kOverlayItemOrder = {
+    "nr_gpu_ms",
     "base_fps",
     "fg_fps",
     "latency_ms",
@@ -344,6 +345,8 @@ OverlayGpuState read_overlay_gpu_state() {
             state.clock_mhz = value;
         } else if (key == "latency_ms") {
             state.latency_ms = value;
+        } else if (key == "nr_gpu_ms") {
+            state.nr_gpu_ms = value;
         } else if (key == "display_latency_ms") {
             state.display_latency_ms = value;
         } else if (key == "voltage_mv") {
@@ -652,6 +655,9 @@ std::string build_overlay_text(
             if (!temp.empty()) {
                 append_overlay_part(text, "T " + temp);
             }
+        } else if (item == "nr_gpu_ms") {
+            const std::string duration = overlay_optional_value(state.nr_gpu_ms, " ms");
+            append_overlay_part(text, "dlss5 nr " + (duration.empty() ? "-" : duration));
         } else if (item == "latency_ms") {
             const std::string latency = overlay_optional_value(
                 overlay_combined_latency_value(

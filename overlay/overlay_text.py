@@ -3,6 +3,7 @@ from __future__ import annotations
 from .config import OverlayConfig, default_overlay_config, normalize_overlay_config
 
 SAMPLE_OVERLAY_VALUES = {
+    "nr_gpu_ms": "2.20",
     "present_fps": "60",
     "framegen_fps": "120",
     "framegen_active": "1",
@@ -56,6 +57,8 @@ def preview_overlay_text(
 
 
 def _format_overlay_item(item_id: str, values: dict[str, str]) -> str:
+    if item_id == "nr_gpu_ms":
+        return _optional_labeled_value("dlss5 nr", values.get("nr_gpu_ms"), suffix=" ms") or "dlss5 nr -"
     if item_id == "base_fps":
         return _value_or_na(_fps_display_value(values.get("present_fps")), suffix=" FPS")
     if item_id == "fg_fps":

@@ -50,6 +50,7 @@ from pathlib import Path
 from types import FrameType
 
 from .. import shim_deploy as _shim_deploy
+from .nr_timing import parse_nr_timing
 from .sockets import latency_socket_path, latency_socket_paths
 
 # NV_LATENCY_MARKER_TYPE values named on the shim's marker lines.
@@ -466,6 +467,10 @@ def run(
             session_alive_fn=session_alive_fn,
             session_quiesced_fn=session_quiesced_fn,
         ):
+            nr_sample = parse_nr_timing(line, session_id)
+            if nr_sample is not None:
+                _send_sample(sock, targets, nr_sample)
+                continue
             parsed = _parse_line_with_pid(line)
             if parsed is None:
                 # Not one of ours: it is the game's own diagnostic output,
