@@ -37,6 +37,21 @@ def test_device_creation_without_loader_callback(loader_data_probe: Path) -> Non
     )
 
 
+def test_estimated_latency_glyph_is_visible(loader_data_probe: Path) -> None:
+    def glyph(character: str) -> list[int]:
+        result = subprocess.run(
+            [str(loader_data_probe), "--glyph", character],
+            check=True, text=True, capture_output=True, timeout=10,
+        )
+        return [int(row) for row in result.stdout.split()]
+
+    estimate = glyph("~")
+    assert len(estimate) == 7
+    assert any(estimate)
+    assert estimate != glyph("-")
+    assert estimate != glyph(" ")
+
+
 def _run_probe(binary: Path, fail_at: int, callback_first: bool) -> str:
     result = subprocess.run(
         [str(binary), str(fail_at), str(int(callback_first))],
@@ -71,6 +86,7 @@ def _build_loader_data_probe(tmp_path: Path) -> Path:
             str(layer_src),
             str(source),
             str(layer_src / "overlay_render.cpp"),
+            str(layer_src / "frame_timing.cpp"),
             str(layer_src / "overlay_text.cpp"),
             str(layer_src / "latency_state.cpp"),
             str(layer_src / "latency_layer.cpp"),
@@ -93,6 +109,7 @@ _PROBE_SOURCE = r'''
 #include "latency_layer_internal.h"
 
 namespace pblayer {
+std::array<uint8_t, 7> overlay_glyph_rows(char ch);
 VKAPI_ATTR VkResult VKAPI_CALL layer_create_device(
     VkPhysicalDevice, const VkDeviceCreateInfo*, const VkAllocationCallbacks*, VkDevice*);
 bool init_overlay_resources(
@@ -311,6 +328,12 @@ pblayer::SwapchainContext make_swapchain_context() {
 
 int main(int argc, char** argv) {
     assert(argc == 3);
+    if (std::string(argv[1]) == "--glyph") {
+        for (const auto row : pblayer::overlay_glyph_rows(argv[2][0])) {
+            std::printf("%u ", static_cast<unsigned>(row));
+        }
+        return 0;
+    }
     g_fail_at = std::atoi(argv[1]);
     pblayer::DeviceContext device_context = make_device_context(std::atoi(argv[2]) != 0);
     pblayer::SwapchainContext swapchain_context = make_swapchain_context();

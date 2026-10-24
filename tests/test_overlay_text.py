@@ -1,8 +1,38 @@
 from __future__ import annotations
 
+import pytest
+
 from overlay.config import OverlayConfig
-from overlay.overlay_text import format_overlay_text
-from overlay.overlay_text import preview_overlay_text
+from overlay.overlay_text import format_overlay_text, preview_overlay_text
+
+
+@pytest.mark.parametrize(
+    ("source", "prefix"),
+    [
+        ("input-to-gpu", ""),
+        ("simulation-to-gpu", "~"),
+        ("submit-to-gpu", "~"),
+        ("marker-estimate", "~"),
+        ("frame-cycle-to-gpu", "~"),
+        ("", "~"),
+    ],
+)
+def test_average_frame_latency_identifies_estimates(source: str, prefix: str) -> None:
+    config = OverlayConfig(enabled=True, enabled_item_ids=("latency_ms",))
+    values = {
+        "latency_avg_ms": "80", "latency_ms": "120",
+        "latency_source": source, "display_latency_ms": "9",
+    }
+    assert format_overlay_text(values, config=config) == f"LAT AVG {prefix}80 ms"
+    values["latency_avg_ms"] = ""
+    assert format_overlay_text(values, config=config) == f"LAT P95 {prefix}120 ms"
+
+
+def test_latency_is_not_invented_from_fps_or_a_display_wait() -> None:
+    config = OverlayConfig(enabled=True, enabled_item_ids=("latency_ms",))
+    assert format_overlay_text(
+        {"present_fps": "60", "display_latency_ms": "5"}, config=config
+    ) == "PB waiting"
 
 
 def test_overlay_text_formats_compact_line_with_explicit_fg_fps() -> None:
@@ -19,7 +49,7 @@ def test_overlay_text_formats_compact_line_with_explicit_fg_fps() -> None:
                 "profile_tier": "Balanced",
             }
         )
-        == "50 FPS 100 FG LAT 34 ms 2500 MHz 850 mV 220 W BAL"
+        == "50 FPS 100 FG LAT P95 ~34 ms 2500 MHz 850 mV 220 W BAL"
     )
 
 
@@ -51,11 +81,11 @@ def test_overlay_text_shows_latency_when_enabled() -> None:
             },
             config=config,
         )
-        == "50 FPS 100 FG LAT 34 ms 2500 MHz 850 mV 220 W BAL"
+        == "50 FPS 100 FG LAT P95 ~34 ms 2500 MHz 850 mV 220 W BAL"
     )
 
 
-def test_overlay_text_adds_display_tail_into_single_latency_number() -> None:
+def test_overlay_text_does_not_add_unpaired_display_wait() -> None:
     config = OverlayConfig(enabled=True, enabled_item_ids=("latency_ms",))
 
     assert (
@@ -63,7 +93,7 @@ def test_overlay_text_adds_display_tail_into_single_latency_number() -> None:
             {"latency_ms": "30", "display_latency_ms": "4"},
             config=config,
         )
-        == "LAT 34 ms"
+        == "LAT P95 ~30 ms"
     )
 
 
@@ -71,14 +101,14 @@ def test_overlay_text_latency_falls_back_to_render_without_display_tail() -> Non
     config = OverlayConfig(enabled=True, enabled_item_ids=("latency_ms",))
 
     assert (
-        format_overlay_text({"latency_ms": "30"}, config=config) == "LAT 30 ms"
+        format_overlay_text({"latency_ms": "30"}, config=config) == "LAT P95 ~30 ms"
     )
     assert (
         format_overlay_text(
             {"latency_ms": "30", "display_latency_ms": ""},
             config=config,
         )
-        == "LAT 30 ms"
+        == "LAT P95 ~30 ms"
     )
 
 
@@ -113,7 +143,7 @@ def test_overlay_text_normalizes_latency_into_fps_block() -> None:
             },
             config=config,
         )
-        == "42 FPS LAT 16 ms 2500 MHz 850 mV 220 W EFF"
+        == "42 FPS LAT P95 ~16 ms 2500 MHz 850 mV 220 W EFF"
     )
 
 
@@ -130,7 +160,7 @@ def test_overlay_text_does_not_guess_static_framegen_from_ratio() -> None:
                 "profile_tier": "Balanced",
             }
         )
-        == "50 FPS LAT 34 ms 2500 MHz 850 mV 220 W BAL"
+        == "50 FPS LAT P95 ~34 ms 2500 MHz 850 mV 220 W BAL"
     )
 
 
@@ -147,7 +177,7 @@ def test_overlay_text_keeps_base_fps_when_output_is_not_framegen() -> None:
                 "profile_tier": "Balanced",
             }
         )
-        == "58 FPS LAT 18 ms 2500 MHz 850 mV 220 W BAL"
+        == "58 FPS LAT P95 ~18 ms 2500 MHz 850 mV 220 W BAL"
     )
 
 
@@ -164,7 +194,7 @@ def test_overlay_text_keeps_base_fps_when_dynamic_fg_is_unmarked() -> None:
                 "profile_tier": "Efficiency",
             }
         )
-        == "39 FPS LAT 21 ms 2550 MHz 850 mV 194 W EFF"
+        == "39 FPS LAT P95 ~21 ms 2550 MHz 850 mV 194 W EFF"
     )
 
 
@@ -182,7 +212,7 @@ def test_overlay_text_shows_dynamic_fg_when_marked_active() -> None:
                 "profile_tier": "Balanced",
             }
         )
-        == "51 FPS 120 FG LAT 32 ms 2500 MHz 850 mV 220 W BAL"
+        == "51 FPS 120 FG LAT P95 ~32 ms 2500 MHz 850 mV 220 W BAL"
     )
 
 
@@ -199,7 +229,7 @@ def test_overlay_text_falls_back_to_base_when_output_missing() -> None:
                 "profile_tier": "Balanced",
             }
         )
-        == "58 FPS LAT 18 ms 2500 MHz 850 mV 220 W BAL"
+        == "58 FPS LAT P95 ~18 ms 2500 MHz 850 mV 220 W BAL"
     )
 
 
@@ -215,7 +245,7 @@ def test_overlay_text_does_not_substitute_output_fps_when_base_is_missing() -> N
                 "profile_tier": "Balanced",
             }
         )
-        == "n/a FPS LAT 18 ms 2500 MHz 850 mV 220 W BAL"
+        == "n/a FPS LAT P95 ~18 ms 2500 MHz 850 mV 220 W BAL"
     )
 
 

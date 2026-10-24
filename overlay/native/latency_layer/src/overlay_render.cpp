@@ -51,6 +51,7 @@ std::array<uint8_t, 7> overlay_glyph_rows(char ch) {
         case 'Z': return {0x1f, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1f};
         case '+': return {0x00, 0x04, 0x04, 0x1f, 0x04, 0x04, 0x00};
         case '-': return {0x00, 0x00, 0x00, 0x1f, 0x00, 0x00, 0x00};
+        case '~': return {0x00, 0x00, 0x09, 0x16, 0x00, 0x00, 0x00};
         case '/': return {0x01, 0x01, 0x02, 0x04, 0x08, 0x10, 0x10};
         case '%': return {0x19, 0x19, 0x02, 0x04, 0x08, 0x13, 0x13};
         case '.': return {0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x06};
@@ -302,6 +303,9 @@ void destroy_overlay_resources(
                 1000000000ull);
         }
     }
+    if (overlay.frame_queries && device_context.destroy_query_pool) {
+        device_context.destroy_query_pool(device_context.device, overlay.frame_queries, nullptr);
+    }
     for (VkFence fence : overlay.submit_fences) {
         if (fence != VK_NULL_HANDLE && device_context.destroy_fence) {
             device_context.destroy_fence(device_context.device, fence, nullptr);
@@ -548,6 +552,23 @@ bool init_overlay_resources(
         }
     }
 
+    // Optional timing piggybacks on the existing overlay command buffers.
+    // A failure here must not prevent the overlay or game from rendering.
+    if (frame_completion_enabled(device_context) && device_context.create_query_pool
+        && device_context.destroy_query_pool && device_context.get_query_pool_results
+        && device_context.cmd_reset_query_pool && device_context.cmd_write_timestamp
+        && queue_family_index < device_context.queue_family_properties.size()
+        && device_context.queue_family_properties[queue_family_index].timestampValidBits) {
+        VkQueryPoolCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+        info.queryType = VK_QUERY_TYPE_TIMESTAMP;
+        info.queryCount = image_count;
+        if (device_context.create_query_pool(device_context.device, &info, nullptr, &overlay.frame_queries) == VK_SUCCESS) {
+            overlay.frame_samples.resize(image_count);
+        } else {
+            overlay.frame_queries = VK_NULL_HANDLE;
+        }
+    }
     overlay.submit_fences.resize(image_count, VK_NULL_HANDLE);
     overlay.submit_pending.assign(image_count, 0);
     VkFenceCreateInfo fence_info{};
@@ -577,7 +598,7 @@ VkSemaphore submit_overlay_locked(
     uint32_t image_index,
     const VkPresentInfoKHR* present_info,
     const std::string& text) {
-    if (text.empty() || !overlay_enabled()
+    if ((text.empty() && !frame_completion_enabled(device_context)) || !overlay_enabled()
         || !(queue_context.queue_flags & VK_QUEUE_GRAPHICS_BIT)
         || !present_info) {
         return VK_NULL_HANDLE;
@@ -607,6 +628,7 @@ VkSemaphore submit_overlay_locked(
             != VK_SUCCESS) {
             return VK_NULL_HANDLE;
         }
+        collect_frame_completion(device_context, swapchain, overlay, image_index);
         overlay.submit_pending[image_index] = 0;
     }
     if (device_context.reset_fences(device_context.device, 1, &fence)
@@ -644,6 +666,11 @@ VkSemaphore submit_overlay_locked(
         swapchain_context.image_extent,
         text);
     device_context.cmd_end_render_pass(command_buffer);
+    if (overlay.frame_queries) {
+        device_context.cmd_reset_query_pool(command_buffer, overlay.frame_queries, image_index, 1);
+        device_context.cmd_write_timestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+            overlay.frame_queries, image_index);
+    }
 
     result = device_context.end_command_buffer(command_buffer);
     if (result != VK_SUCCESS) {
@@ -667,6 +694,10 @@ VkSemaphore submit_overlay_locked(
     result = device_context.queue_submit(queue, 1, &submit_info, fence);
     if (result != VK_SUCCESS) {
         return VK_NULL_HANDLE;
+    }
+    if (image_index < overlay.frame_samples.size()) {
+        overlay.frame_samples[image_index] = {swapchain_context.frame_cycle_start_us,
+            swapchain_context.last_present_us, swapchain_context.present_count, false};
     }
     overlay.submit_pending[image_index] = 1;
     return signal;

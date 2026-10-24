@@ -1060,7 +1060,7 @@ def test_pypi_summary_matches_readme_positioning() -> None:
     )
     assert "three verified tiers" in summary
     assert "Steam, Lutris, Heroic and Faugus" in summary
-    assert "PC latency" in summary
+    assert "frame latency estimates" in summary
     assert "Steam, Lutris, Heroic and Faugus" in readme
     assert {"overclocking", "adaptive", "steam", "lutris", "heroic", "faugus", "overlay"} <= keywords
 
@@ -1099,7 +1099,7 @@ def test_native_package_descriptions_cover_readme_headline_features() -> None:
         assert "Adaptive undervolting" in prose
         assert "Steam, Lutris, Heroic and Faugus games into one list" in prose
         assert "frame-generation FPS" in prose
-        assert "PC latency" in prose
+        assert "frame latency estimates" in prose
         assert "MSI Afterburner profile import" in prose
         assert "LACT config export" in prose
         assert "penguin-burnerd" in prose

@@ -372,12 +372,25 @@ fn select_base_marker_frametime_p95(
     })
 }
 
-/// `_latency_proxy_p95` — the widest available click-to-photon proxy span, in
-/// tier order. Under explicit frame generation, prefer the displayed-present
-/// (out-of-band) spans that include the pacing hold. Only the p95 is consumed
-/// (the tier label feeds the summary log, which we do not reproduce).
-fn latency_proxy_from_samples(samples: &[&Sample], framegen_active: bool) -> Option<i64> {
-    let tier_p95 = |key: &str, marker_proxy: Option<bool>| -> Option<i64> {
+#[derive(Clone, Copy)]
+struct LatencyStats {
+    avg_us: f64,
+    p95_us: i64,
+}
+
+fn latency_stats(values: &[i64]) -> Option<LatencyStats> {
+    let p95 = p95_us(values)?;
+    let positive: Vec<i64> = values.iter().copied().filter(|&v| v > 0).collect();
+    Some(LatencyStats {
+        avg_us: positive.iter().map(|&v| v as f64).sum::<f64>() / positive.len() as f64,
+        p95_us: p95,
+    })
+}
+
+/// Select one marker span for both statistics. Under explicit frame generation,
+/// prefer out-of-band present spans that include the pacing hold.
+fn latency_proxy_from_samples(samples: &[&Sample], framegen_active: bool) -> Option<LatencyStats> {
+    let tier_stats = |key: &str, marker_proxy: Option<bool>| -> Option<LatencyStats> {
         let vals: Vec<i64> = samples
             .iter()
             .filter(|s| match marker_proxy {
@@ -386,13 +399,13 @@ fn latency_proxy_from_samples(samples: &[&Sample], framegen_active: bool) -> Opt
             })
             .map(|s| int_value(s.data.get(key)))
             .collect();
-        p95_us(&vals)
+        latency_stats(&vals)
     };
 
     if framegen_active {
         for key in ["input_to_oob_present_us", "sim_to_oob_present_us"] {
-            if let Some(p95) = tier_p95(key, None) {
-                return Some(p95);
+            if let Some(stats) = tier_stats(key, None) {
+                return Some(stats);
             }
         }
     }
@@ -406,14 +419,14 @@ fn latency_proxy_from_samples(samples: &[&Sample], framegen_active: bool) -> Opt
         ("render_submit_us", None),
     ];
     for (key, marker_proxy) in tiers {
-        if let Some(p95) = tier_p95(key, marker_proxy) {
-            return Some(p95);
+        if let Some(stats) = tier_stats(key, marker_proxy) {
+            return Some(stats);
         }
     }
     None
 }
 
-fn latency_proxy_p95(samples: &[&Sample]) -> Option<i64> {
+fn latency_proxy_stats(samples: &[&Sample]) -> Option<LatencyStats> {
     // Frame-generation evidence lives on the layer's marker samples, not the
     // bridge's (which never assert it) — judge it across ALL samples so the
     // shim-preferred pass can still pick the displayed-present spans.
@@ -436,6 +449,43 @@ fn latency_proxy_p95(samples: &[&Sample]) -> Option<i64> {
         .filter(|s| s.data.get("source").and_then(Value::as_str) != Some(NVAPI_MARKER_SOURCE))
         .collect();
     latency_proxy_from_samples(&fallback_samples, framegen_active)
+}
+
+/// Frame latency ends at GPU completion, not at the CPU's Present return.
+/// Use endpoints from one driver report; never combine timestamps across
+/// frames or add the independent present-wait percentile to this span.
+fn frame_latency_stats(samples: &[&Sample]) -> Option<(LatencyStats, &'static str)> {
+    for (start_key, source) in [
+        ("input_sample_us", "input-to-gpu"),
+        ("sim_start_us", "simulation-to-gpu"),
+        ("render_submit_start_us", "submit-to-gpu"),
+    ] {
+        let spans: Vec<i64> = samples
+            .iter()
+            .filter(|s| measurement(&s.data) == "driver-report")
+            .filter_map(|s| {
+                let start = int_value(s.data.get(start_key));
+                let gpu_start = int_value(s.data.get("gpu_render_start_us"));
+                let gpu_end = int_value(s.data.get("gpu_render_end_us"));
+                (start > 0 && gpu_start >= start && gpu_end > gpu_start).then(|| gpu_end - start)
+            })
+            .collect();
+        if let Some(value) = latency_stats(&spans) {
+            return Some((value, source));
+        }
+    }
+    if let Some(value) = latency_proxy_stats(samples) {
+        return Some((value, "marker-estimate"));
+    }
+    // Lowest tier: a frame-cycle proxy paired with its own calibrated GPU end.
+    // Never manufacture latency from FPS or from a model-only GPU duration.
+    let spans: Vec<i64> = samples
+        .iter()
+        .filter(|s| measurement(&s.data) == "frame-cycle-gpu")
+        .map(|s| int_value(s.data.get("frame_cycle_gpu_us")))
+        .filter(|&v| v > 0 && v <= 1_000_000)
+        .collect();
+    latency_stats(&spans).map(|value| (value, "frame-cycle-to-gpu"))
 }
 
 // --- meter ------------------------------------------------------------------
@@ -693,7 +743,7 @@ impl Meter {
             raw_present_avg_fps,
             cadence_is_independent,
         );
-        let latency_proxy = latency_proxy_p95(&samples);
+        let latency = frame_latency_stats(&samples);
         let display_latency = p95_us(
             &samples
                 .iter()
@@ -726,7 +776,9 @@ impl Meter {
             raw_present_fps_stats_avg: Some(raw_present_fps_stats_avg),
             raw_present_fps_avg: raw_present_avg_fps,
             framegen_active: Some(if framegen_active { "true" } else { "false" }.to_string()),
-            latency_p95_ms: latency_proxy.map(|v| v as f64 / 1000.0),
+            latency_avg_ms: latency.map(|(stats, _)| stats.avg_us / 1000.0),
+            latency_p95_ms: latency.map(|(stats, _)| stats.p95_us as f64 / 1000.0),
+            latency_source: latency.map(|(_, source)| source.to_string()),
             display_latency_p95_ms: display_latency.map(|v| v as f64 / 1000.0),
             pid,
             session_id,
@@ -1144,6 +1196,169 @@ mod tests {
         let mut map = obj(extra);
         map.insert("type".to_string(), Value::from("timing"));
         Value::Object(map)
+    }
+
+    #[test]
+    fn driver_completion_exposes_gpu_delay_hidden_by_present_markers() {
+        // Same-frame endpoints from the 007 capture, with a shifted epoch.
+        // Present returns after 13.563 ms; GPU completion is 94.291 ms.
+        let snapshot = snapshot_of(vec![
+            timing(json!({
+                "measurement": "marker-proxy", "source": NVAPI_MARKER_SOURCE,
+                "sim_to_present_us": 13563, "sim_to_oob_present_us": 24738,
+            })),
+            timing(json!({
+                "measurement": "driver-report", "present_id": 38971,
+                "sim_start_us": 1000000, "present_end_us": 1013563,
+                "gpu_render_start_us": 1041410, "gpu_render_end_us": 1094291,
+                "display_latency_us": 4000,
+            })),
+        ])
+        .unwrap();
+        assert!(approx(snapshot.latency_p95_ms.unwrap(), 94.291));
+        assert_eq!(
+            snapshot.latency_source.as_deref(),
+            Some("simulation-to-gpu")
+        );
+        assert_eq!(snapshot.display_latency_p95_ms, Some(4.0));
+    }
+
+    #[test]
+    fn latency_average_uses_unique_frames_and_keeps_p95_separate() {
+        let mut meter = Meter::new();
+        for (frame, duration_us) in [(1, 10_000), (2, 20_000), (3, 90_000), (3, 90_000)] {
+            meter.add_sample(obj(timing(json!({
+                "measurement": "driver-report", "present_id": frame,
+                "sim_start_us": 1_000_000, "gpu_render_start_us": 1_001_000,
+                "gpu_render_end_us": 1_000_000 + duration_us,
+            }))));
+        }
+        let snapshot = meter.snapshot(monotonic_now(), None).unwrap();
+        assert_eq!(snapshot.latency_avg_ms, Some(40.0));
+        assert_eq!(snapshot.latency_p95_ms, Some(90.0));
+        assert_eq!(
+            snapshot.latency_source.as_deref(),
+            Some("simulation-to-gpu")
+        );
+    }
+
+    #[test]
+    fn marker_average_ignores_missing_spans_and_uses_one_endpoint_pair() {
+        let samples = [10_000, 20_000, 90_000, 0].map(|span| {
+            timing(json!({
+                "measurement": "marker-proxy", "source": NVAPI_MARKER_SOURCE,
+                "sim_to_present_us": span, "render_submit_us": 500,
+            }))
+        });
+        let snapshot = snapshot_of(samples.to_vec()).unwrap();
+        assert_eq!(snapshot.latency_avg_ms, Some(40.0));
+        assert_eq!(snapshot.latency_p95_ms, Some(90.0));
+        assert_eq!(snapshot.latency_source.as_deref(), Some("marker-estimate"));
+    }
+
+    #[test]
+    fn markerless_completion_is_a_fallback_and_expires() {
+        let mut meter = Meter::new();
+        for us in [22000, 26000, 0, -1, 1000001] {
+            meter.add_sample(obj(timing(
+                json!({"measurement": "frame-cycle-gpu", "frame_cycle_gpu_us": us}),
+            )));
+        }
+        let snapshot = meter.snapshot(monotonic_now(), None).unwrap();
+        assert_eq!(snapshot.latency_avg_ms, Some(24.0));
+        assert_eq!(snapshot.latency_p95_ms, Some(26.0));
+        assert_eq!(
+            snapshot.latency_source.as_deref(),
+            Some("frame-cycle-to-gpu")
+        );
+        assert_eq!(snapshot.present_fps.as_deref(), Some("n/a"));
+        assert_eq!(snapshot.fps_source.as_deref(), Some("none"));
+        meter.add_sample(obj(timing(
+            json!({"measurement": "marker-proxy", "sim_to_present_us": 15000}),
+        )));
+        assert_eq!(
+            meter
+                .snapshot(monotonic_now(), None)
+                .unwrap()
+                .latency_source
+                .as_deref(),
+            Some("marker-estimate")
+        );
+        meter.add_sample(obj(timing(
+            json!({"measurement": "driver-report", "present_id": 1,
+            "input_sample_us": 1000, "gpu_render_start_us": 5000, "gpu_render_end_us": 20000}),
+        )));
+        let snapshot = meter.snapshot(monotonic_now(), None).unwrap();
+        assert_eq!(snapshot.latency_avg_ms, Some(19.0));
+        assert_eq!(snapshot.latency_source.as_deref(), Some("input-to-gpu"));
+        for sample in &mut meter.samples {
+            sample.received_monotonic -= 10.0;
+        }
+        assert!(meter.snapshot(monotonic_now(), None).is_none());
+    }
+
+    #[test]
+    fn gpu_duration_or_pacing_without_a_start_marker_is_not_latency() {
+        let snapshot = snapshot_of(vec![timing(json!({
+            "measurement": "driver-report", "present_id": 1,
+            "gpu_render_start_us": 50000, "gpu_render_end_us": 100000,
+            "present_frametime_us": 16667, "display_latency_us": 4000,
+        }))])
+        .unwrap();
+        assert!(snapshot.latency_avg_ms.is_none());
+        assert!(snapshot.latency_p95_ms.is_none());
+        assert!(snapshot.latency_source.is_none());
+    }
+
+    #[test]
+    fn completion_endpoints_stay_with_their_own_frame() {
+        let snapshot = snapshot_of(vec![
+            timing(json!({
+                "measurement": "driver-report", "present_id": 1,
+                "input_sample_us": 1000, "sim_start_us": 2000,
+            })),
+            timing(json!({
+                "measurement": "driver-report", "present_id": 2,
+                "gpu_render_start_us": 50000, "gpu_render_end_us": 100000,
+            })),
+            timing(json!({"measurement": "marker-proxy", "sim_to_present_us": 25000})),
+        ])
+        .unwrap();
+        assert_eq!(snapshot.latency_p95_ms, Some(25.0));
+        assert_eq!(snapshot.latency_source.as_deref(), Some("marker-estimate"));
+    }
+
+    #[test]
+    fn completion_uses_the_widest_valid_endpoint() {
+        for (input, sim, submit, expected, source) in [
+            (1000, 2000, 3000, 99.0, "input-to-gpu"),
+            (0, 2000, 3000, 98.0, "simulation-to-gpu"),
+            (0, 0, 3000, 97.0, "submit-to-gpu"),
+            (120000, 2000, 3000, 98.0, "simulation-to-gpu"),
+        ] {
+            let snapshot = snapshot_of(vec![timing(json!({
+                "measurement": "driver-report", "present_id": 1,
+                "input_sample_us": input, "sim_start_us": sim,
+                "render_submit_start_us": submit,
+                "gpu_render_start_us": 50000, "gpu_render_end_us": 100000,
+            }))])
+            .unwrap();
+            assert_eq!(snapshot.latency_p95_ms, Some(expected));
+            assert_eq!(snapshot.latency_source.as_deref(), Some(source));
+        }
+    }
+
+    #[test]
+    fn invalid_driver_completion_does_not_become_measured_latency() {
+        for (gpu_start, gpu_end) in [(0, 100000), (100000, 50000), (100000, 100000)] {
+            let snapshot = snapshot_of(vec![timing(json!({
+                "measurement": "driver-report", "sim_start_us": 1000,
+                "gpu_render_start_us": gpu_start, "gpu_render_end_us": gpu_end,
+            }))])
+            .unwrap();
+            assert!(snapshot.latency_p95_ms.is_none());
+            assert!(snapshot.latency_source.is_none());
+        }
     }
 
     // --- `_int_value` parity table (samples.py) ------------------------------

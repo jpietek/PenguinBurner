@@ -1,16 +1,18 @@
 from __future__ import annotations
 
-from overlay.config import ADVANCED_OVERLAY_ITEM_IDS
-from overlay.config import BASIC_OVERLAY_ITEM_IDS
-from overlay.config import OVERLAY_ITEM_IDS
-from overlay.config import OverlayConfig
-from overlay.config import load_overlay_config
-from overlay.config import save_overlay_config
-from overlay.config import OVERLAY_SCALE_OPTIONS
-from overlay.config import set_overlay_item_enabled
-from overlay.config import set_overlay_scale
-from overlay.config import set_overlay_update_interval_s
-from overlay.config import snap_overlay_scale
+from overlay.config import (
+    ADVANCED_OVERLAY_ITEM_IDS,
+    BASIC_OVERLAY_ITEM_IDS,
+    OVERLAY_ITEM_IDS,
+    OVERLAY_SCALE_OPTIONS,
+    OverlayConfig,
+    load_overlay_config,
+    save_overlay_config,
+    set_overlay_item_enabled,
+    set_overlay_scale,
+    set_overlay_update_interval_s,
+    snap_overlay_scale,
+)
 
 
 def test_overlay_config_defaults_to_hidden_base_items() -> None:
@@ -119,11 +121,14 @@ def test_overlay_panel_samples_keep_only_basic_example_values() -> None:
     # fallback when no wrapped game is publishing telemetry.
     assert _sample_text("base_fps", telemetry) == "22 FPS"
     assert _sample_text("fg_fps", telemetry) == "44 FG"
-    assert _sample_text("latency_ms", telemetry) == "88 ms"
+    assert _sample_text("latency_ms", telemetry) == "LAT P95 ~88 ms"
+    assert _sample_text(
+        "latency_ms", telemetry | {"latency_avg_ms": "70", "latency_source": "simulation-to-gpu"}
+    ) == "LAT AVG ~70 ms"
 
     assert _sample_text("base_fps", {}) == "60 FPS"
     assert _sample_text("fg_fps", {}) == "120 FG"
-    assert _sample_text("latency_ms", {}) == "40 ms"
+    assert _sample_text("latency_ms", {}) == "LAT P95 ~40 ms"
     assert _sample_text("base_fps", {"present_fps": "n/a"}) == "60 FPS"
 
 
