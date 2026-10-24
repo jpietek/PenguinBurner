@@ -73,7 +73,7 @@ claim to measure engine input or physical mouse-to-screen latency.
 
 ### Driver completion (preferred)
 
-When valid `vkGetLatencyTimingsNV` driver reports are available, `LAT AVG` shows the
+When valid `vkGetLatencyTimingsNV` or `NvAPI_D3D_GetLatency` driver reports are available, `LAT AVG` shows the
 arithmetic mean frame latency over the last three seconds ending at GPU
 completion. Endpoints come from the same report: input sample to GPU completion,
 simulation start to GPU completion, or render submission to GPU completion,
@@ -93,7 +93,16 @@ not fully covered. Neither the average nor p95 proves perceived input delay.
 
 ### NVAPI Shim (default, Wine and Proton games)
 
-The marker fallback uses the drop-in NVAPI shim. It taps the Reflex markers above
+The drop-in NVAPI shim captures successful V1 `NvAPI_D3D_GetLatency` reports
+when the game requests them. It also queries the existing device at successful
+Reflex present-end markers, at most ten times per second, for games that stop
+requesting reports during frame generation. It forwards the newest reported
+frame through the same FIFO as the markers; repeated reports are deduplicated
+by the receiver. Polling does not fabricate missing input or GPU endpoints.
+Empty warm-up reports, failures, and unknown ABI versions do not become latency.
+Missing input or GPU timestamps retain the appropriate estimated fallback.
+
+The marker fallback also uses the shim. It taps the Reflex markers above
 vkd3d's owner-gate — so it still works under frame generation — and streams them
 to the wrapper's FIFO. The bridge pairs markers by frame ID and emits
 `marker-proxy` timing samples; no dxvk-nvapi fork, trace, or marker log is

@@ -1,4 +1,8 @@
-"""Bridge NVAPI-shim Reflex marker lines into the latency receiver.
+"""Bridge NVAPI-shim Reflex markers and driver reports into the latency receiver.
+
+Successful GetLatency reports carry the driver's unchanged endpoints through
+the same FIFO. The daemon validates their scope, deduplicates frames and prefers
+complete input-to-GPU spans over the marker fallback described below.
 
 The drop-in NVAPI shim (overlay/shim_deploy.py) writes one line per Reflex
 marker to the launch's marker FIFO, reusing the wire format the old
@@ -50,6 +54,7 @@ from pathlib import Path
 from types import FrameType
 
 from .. import shim_deploy as _shim_deploy
+from .reflex_report import REPORT_PREFIX, parse_reflex_report
 from .sockets import latency_socket_path, latency_socket_paths
 
 # NV_LATENCY_MARKER_TYPE values named on the shim's marker lines.
@@ -466,6 +471,11 @@ def run(
             session_alive_fn=session_alive_fn,
             session_quiesced_fn=session_quiesced_fn,
         ):
+            if line.startswith(REPORT_PREFIX):
+                report = parse_reflex_report(line, session_id)
+                if report is not None:
+                    _send_sample(sock, targets, report)
+                continue
             parsed = _parse_line_with_pid(line)
             if parsed is None:
                 # Not one of ours: it is the game's own diagnostic output,
