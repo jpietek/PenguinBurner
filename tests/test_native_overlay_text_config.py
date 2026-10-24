@@ -94,6 +94,7 @@ def _build_native_overlay_probe(tmp_path: Path) -> Path:
     source = tmp_path / "native_overlay_probe.cpp"
     source.write_text(
         r'''
+#include <cstdlib>
 #include <iostream>
 #include <thread>
 #include "latency_layer_internal.h"
@@ -109,7 +110,8 @@ int main(int argc, char**) {
     state.voltage_mv = "885";
     state.power_w = "54";
     state.latency_ms = "73";
-    state.nr_gpu_ms = "2.20";
+    const char* nr_value = std::getenv("TEST_NR_GPU_MS");
+    state.nr_gpu_ms = nr_value ? nr_value : "2.20";
     state.profile_tier = "Performance";
     uint64_t now_us = 1000000;
     std::cout << pblayer::build_overlay_text(19, state, now_us) << std::endl;
@@ -151,12 +153,14 @@ def _probe_env(config_path: Path, *, pb_overlay: str) -> dict[str, str]:
     }
 
 
-def test_native_nr_gpu_format_matches_python(tmp_path):
+@pytest.mark.parametrize("nr_value", ["2.20", "", "-"])
+def test_native_nr_gpu_format_matches_python(tmp_path, nr_value):
     from overlay.overlay_text import format_overlay_item
 
     binary = _build_native_overlay_probe(tmp_path)
     config = tmp_path / "overlay.toml"
     config.write_text('enabled = true\nitems = ["nr_gpu_ms"]\n')
-    result = subprocess.run([str(binary)], check=True, text=True, capture_output=True,
-                            env=_probe_env(config, pb_overlay="1"))
-    assert result.stdout.strip() == format_overlay_item("nr_gpu_ms", {"nr_gpu_ms": "2.20"})
+    env = _probe_env(config, pb_overlay="1")
+    env["TEST_NR_GPU_MS"] = nr_value
+    result = subprocess.run([str(binary)], check=True, text=True, capture_output=True, env=env)
+    assert result.stdout.strip() == format_overlay_item("nr_gpu_ms", {"nr_gpu_ms": nr_value})

@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include "../../overlay/native/nvapi_shim/src/nr_forwarder.h"
 struct Params { ID3D12Resource* dst; ID3D12Resource* src; };
 using Create=int(__cdecl*)(ID3D12GraphicsCommandList*,int,void*,void**);
 using Eval=int(__cdecl*)(ID3D12GraphicsCommandList*,const void*,const void*,void*);
@@ -31,6 +32,11 @@ int main(int argc, char** argv) {
  const int feature_id = argc > 1 ? std::atoi(argv[1]) : 18;
  const unsigned frames = feature_id == 18 ? 100 : 4;
  const bool failed_eval = GetEnvironmentVariableA("PB_TEST_NGX_FAIL", nullptr, 0) != 0;
+ const bool late = GetEnvironmentVariableA("PB_TEST_NR_LATE", nullptr, 0) != 0;
+ const bool nested = GetEnvironmentVariableA("PB_TEST_NR_NESTED", nullptr, 0) != 0;
+ const bool refused = GetEnvironmentVariableA("PB_TEST_NR_REFUSED", nullptr, 0) != 0;
+ const bool forwarder = GetEnvironmentVariableA("PB_TEST_NR_FORWARDER", nullptr, 0) != 0;
+ const bool unsupported = GetEnvironmentVariableA("PB_TEST_NR_UNKNOWN_ABI", nullptr, 0) != 0;
  // A real game can have its device and queues before NGX or our collector.
  // Never delay creation to give the collector an artificial head start.
  ID3D12Device* device=nullptr;
@@ -59,28 +65,43 @@ int main(int argc, char** argv) {
  CHECK(device->CreateCommittedResource(&hp,D3D12_HEAP_FLAG_NONE,&r,D3D12_RESOURCE_STATE_GENERIC_READ,nullptr,IID_PPV_ARGS(&params.src)));
  hp.Type=D3D12_HEAP_TYPE_DEFAULT;
  CHECK(device->CreateCommittedResource(&hp,D3D12_HEAP_FLAG_NONE,&r,D3D12_RESOURCE_STATE_COPY_DEST,nullptr,IID_PPV_ARGS(&params.dst)));
+ HMODULE early=nullptr; void* feature=nullptr;
+ if(late) {
+  early=LoadLibraryA("nvngx.dll_dlssnr.dll"); if(!early)return 4;
+  auto create=reinterpret_cast<nr_forwarder::Create>(GetProcAddress(early,"dlssnr_call_create"));
+  feature=create(L"model",L"data",device,list,&params,640,480,2,.5f,1,.25f,.75f,1.f,1,0);
+ }
+ if(nested && !LoadLibraryA("_nvngx.dll"))return 4;
  HMODULE shim=LoadLibraryA("nvapi64.dll"); if(!shim)return 3;
  auto query=reinterpret_cast<Query>(GetProcAddress(shim,"nvapi_QueryInterface"));query(1);
- HMODULE ngx=LoadLibraryA("_nvngx.dll");if(!ngx)return 4;
+ HMODULE ngx=LoadLibraryA(forwarder ? "nvngx.dll_dlssnr.dll" : "_nvngx.dll");if(!ngx)return 4;
  // Wait for the explicit hook-ready diagnostic, after graphics objects exist.
  // This tests late attachment, independently of the worker's polling period.
  if (std::getenv("PENGUIN_BURNER_NR_TIMING") && std::strcmp(std::getenv("PENGUIN_BURNER_NR_TIMING"),"1")==0) {
   bool ready=false;
   for(unsigned i=0;i<500 && !ready;++i) {
    FILE* f=std::fopen(std::getenv("PENGUIN_BURNER_SHIM_OUTPUT"),"rb");
-   if(f){char buf[4096]{};auto n=std::fread(buf,1,sizeof(buf)-1,f);std::fclose(f);ready=std::string(buf,n).find("observer ready")!=std::string::npos;}
+   if(f){char buf[4096]{};auto n=std::fread(buf,1,sizeof(buf)-1,f);std::fclose(f);std::string text(buf,n);ready=text.find(unsupported ? "observer unavailable" : (forwarder ? "forwarder ABI v2 observer ready" : "feature-18 observer ready"))!=std::string::npos;
+    if(nested)ready=ready && text.find("feature-18 observer ready")!=std::string::npos;}
    if(!ready)Sleep(10);
   }
   if(!ready){std::puts("NGX observer did not become ready");return 8;}
  }
  auto create=reinterpret_cast<Create>(GetProcAddress(ngx,"NVSDK_NGX_D3D12_CreateFeature"));
  auto eval=reinterpret_cast<Eval>(GetProcAddress(ngx,"NVSDK_NGX_D3D12_EvaluateFeature"));
- void* feature=nullptr;create(list,feature_id,nullptr,&feature);
- const unsigned prepared_queues=queue_creations;
+ auto forward_create=reinterpret_cast<nr_forwarder::Create>(GetProcAddress(ngx,"dlssnr_call_create"));
+ auto forward_eval=reinterpret_cast<nr_forwarder::Evaluate>(GetProcAddress(ngx,"dlssnr_call_evaluate"));
+ if (forwarder && !late) feature=forward_create(L"model",L"data",device,list,&params,640,480,2,.5f,1,.25f,.75f,1.f,1,0);
+ else if (!forwarder) create(list,feature_id,nullptr,&feature);
+ if(!feature)return 9;
+ unsigned prepared_queues=queue_creations;
  for(unsigned frame=1;frame<=frames;++frame) {
   if(frame>1){CHECK(alloc->Reset());CHECK(list->Reset(alloc,nullptr));}
-  const int result = eval(list,feature,&params,nullptr);
-  if ((!failed_eval && result != 1) || (failed_eval && result == 1)) return 5;
+  const int result = forwarder ? forward_eval(list,feature,&params,nullptr,nullptr,nullptr,nullptr,
+      640,480,320,240,160,120,2,3,4,5,1,0,.5f,1,.25f,.75f,1.f,1,-1.f,2.f)
+      : eval(list,feature,&params,nullptr);
+  if (refused ? result != 0 : ((!failed_eval && result != 1) || (failed_eval && result == 1))) return 5;
+  if(late && frame==1)prepared_queues=queue_creations;
   CHECK(list->Close());ID3D12CommandList* submit[]={list};queue->ExecuteCommandLists(1,submit);
   CHECK(queue->Signal(fence,frame));while(fence->GetCompletedValue()<frame)Sleep(1);
   Sleep(12);

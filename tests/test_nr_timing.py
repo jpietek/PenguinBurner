@@ -64,8 +64,8 @@ def test_nr_gui_toggle_persists_and_drives_independent_capture(tmp_path, monkeyp
     checkbox.setChecked(True)
     app.processEvents()
     assert "nr_gpu_ms" in load_overlay_config(path).enabled_item_ids
-    assert format_overlay_item("nr_gpu_ms", {"nr_gpu_ms": "2.20"}) == "NR GPU 2.20 ms"
-    assert format_overlay_item("nr_gpu_ms", {}) == ""
+    assert format_overlay_item("nr_gpu_ms", {"nr_gpu_ms": "2.20"}) == "dlss5 nr 2.20 ms"
+    assert format_overlay_item("nr_gpu_ms", {}) == "dlss5 nr -"
     configured = []
     monkeypatch.setattr(launcher, "_configure_dxvk_nvapi_marker_output", lambda *_a, **_kw: configured.append(True) or True)
     env = {OVERLAY_CONFIG_ENV: str(path), "PB_OVERLAY": "1", "PB_INGAME_LATENCY": "0"}

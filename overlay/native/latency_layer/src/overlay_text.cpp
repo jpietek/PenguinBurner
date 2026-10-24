@@ -657,7 +657,7 @@ std::string build_overlay_text(
             }
         } else if (item == "nr_gpu_ms") {
             const std::string duration = overlay_optional_value(state.nr_gpu_ms, " ms");
-            if (!duration.empty()) append_overlay_part(text, "NR GPU " + duration);
+            append_overlay_part(text, "dlss5 nr " + (duration.empty() ? "-" : duration));
         } else if (item == "latency_ms") {
             const std::string latency = overlay_optional_value(
                 overlay_combined_latency_value(
