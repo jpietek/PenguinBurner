@@ -1439,11 +1439,14 @@ def stop_existing_penguin_burner_runtime(*, log):
     status = daemon_status(socket_path=DEFAULT_DAEMON_SOCKET)
     job = status.get("active_job") or {}
     if job.get("type") in {"auto_uv_scan", "profile_verification"} and job.get("returncode") is None:
-        if job.get("type") == "auto_uv_scan" and job.get("pid") == os.getpid():
-            # The GUI's daemon-owned child already has exclusive control.
+        if job.get("pid") == os.getpid():
+            # Both daemon-owned workloads must recognize their own registration.
             # Stopping here would erase the session profile restored on exit.
             return
-        raise RuntimeError("Cannot start Auto-UV: another scan or profile verification is running")
+        raise RuntimeError(
+            "Cannot start GPU workload: another scan or profile verification is running "
+            f"(type={job.get('type')}, pid={job.get('pid')}, caller_pid={os.getpid()})"
+        )
     if job.get("type") == "runtime_profile":
         # Works for stock too, including a stock profile restored after boot.
         # A failed/wedged stop is fatal before fans or V/F checks write anything.
