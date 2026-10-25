@@ -1,37 +1,40 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from pathlib import Path
 
-from overlay.config import ADVANCED_OVERLAY_ITEM_IDS
-from overlay.config import OVERLAY_SCALE_REFERENCE
-from overlay.config import BASIC_OVERLAY_ITEM_IDS
-from overlay.config import OVERLAY_ITEM_IDS
-from overlay.config import OverlayConfig
-from overlay.config import load_overlay_config
-from overlay.config import save_overlay_config
-from overlay.config import OVERLAY_DETAIL_IDS
-from overlay.config import OVERLAY_DETAIL_PRESETS
-from overlay.config import OVERLAY_NON_TEXT_ITEM_IDS
-from overlay.config import OVERLAY_POSITION_IDS
-from overlay.config import OVERLAY_FONTS
-from overlay.config import OVERLAY_RENDERERS
-from overlay.config import OVERLAY_ROW_GROUPS
-from overlay.config import OVERLAY_SCALE_OPTIONS
-from overlay.config import normalize_overlay_detail
-from overlay.config import clamp_overlay_opacity
-from overlay.config import normalize_overlay_position
-from overlay.config import normalize_overlay_font
-from overlay.config import normalize_overlay_renderer
-from overlay.config import set_overlay_item_enabled
-from overlay.config import set_overlay_detail
-from overlay.config import set_overlay_opacity
-from overlay.config import set_overlay_position
-from overlay.config import set_overlay_font
-from overlay.config import set_overlay_renderer
-from overlay.config import set_overlay_scale
-from overlay.config import set_overlay_update_interval_s
-from overlay.config import snap_overlay_scale
+from overlay.config import (
+    ADVANCED_OVERLAY_ITEM_IDS,
+    BASIC_OVERLAY_ITEM_IDS,
+    OVERLAY_DETAIL_IDS,
+    OVERLAY_DETAIL_PRESETS,
+    OVERLAY_FONTS,
+    OVERLAY_ITEM_IDS,
+    OVERLAY_NON_TEXT_ITEM_IDS,
+    OVERLAY_POSITION_IDS,
+    OVERLAY_RENDERERS,
+    OVERLAY_ROW_GROUPS,
+    OVERLAY_SCALE_OPTIONS,
+    OVERLAY_SCALE_REFERENCE,
+    OverlayConfig,
+    clamp_overlay_opacity,
+    load_overlay_config,
+    normalize_overlay_detail,
+    normalize_overlay_font,
+    normalize_overlay_position,
+    normalize_overlay_renderer,
+    save_overlay_config,
+    set_overlay_detail,
+    set_overlay_font,
+    set_overlay_item_enabled,
+    set_overlay_opacity,
+    set_overlay_position,
+    set_overlay_renderer,
+    set_overlay_scale,
+    set_overlay_update_interval_s,
+    snap_overlay_scale,
+)
 from overlay.overlay_text import SAMPLE_OVERLAY_VALUES
 
 
@@ -97,14 +100,16 @@ def test_hotspot_is_opt_in_and_round_trips(tmp_path) -> None:
     save_overlay_config(set_overlay_item_enabled(config, "hotspot_temperature_c", True), path)
     enabled = load_overlay_config(path)
     assert "hotspot_temperature_c" in enabled.enabled_item_ids
-    assert set_overlay_item_enabled(enabled, "hotspot_temperature_c", False) == config
+    assert set_overlay_item_enabled(enabled, "hotspot_temperature_c", False) == replace(
+        config, custom_item_ids=config.enabled_item_ids
+    )
 
 
 def test_hotspot_panel_displays_live_reading_or_unavailable() -> None:
     from ui.components.overlay_config import ITEM_LABELS, _sample_text
 
-    assert ITEM_LABELS["hotspot_temperature_c"] == "Hotspot C"
-    assert _sample_text("hotspot_temperature_c", {"hotspot_temperature_c": "79"}) == "HOT 79 C"
+    assert ITEM_LABELS["hotspot_temperature_c"] == "Hotspot temperature"
+    assert _sample_text("hotspot_temperature_c", {"hotspot_temperature_c": "79"}) == "79 °C"
     assert _sample_text("hotspot_temperature_c", {}) == "-"
 
 
@@ -351,12 +356,12 @@ def test_overlay_panel_samples_keep_only_basic_example_values() -> None:
     # Real in-game numbers lead; the 60/120/40 demo values are only the
     # fallback when no wrapped game is publishing telemetry.
     assert _sample_text("base_fps", telemetry) == "22 FPS"
-    assert _sample_text("fg_fps", telemetry) == "44 FG"
-    assert _sample_text("latency_ms", telemetry) == "88 ms"
+    assert _sample_text("fg_fps", telemetry) == "44 FPS"
+    assert _sample_text("latency_ms", telemetry) == "~88 ms"
 
     assert _sample_text("base_fps", {}) == "60 FPS"
-    assert _sample_text("fg_fps", {}) == "120 FG"
-    assert _sample_text("latency_ms", {}) == "40 ms"
+    assert _sample_text("fg_fps", {}) == "120 FPS"
+    assert _sample_text("latency_ms", {}) == "~40 ms"
     assert _sample_text("base_fps", {"present_fps": "n/a"}) == "60 FPS"
 
 
@@ -371,13 +376,49 @@ def test_overlay_panel_values_use_live_telemetry_or_dash() -> None:
     }
 
     assert _sample_text("clock_mhz", telemetry) == "607 MHz"
-    assert _sample_text("profile", telemetry) == "PERF"
-    assert _sample_text("gpu_util_pct", telemetry) == "GPU 33%"
+    assert _sample_text("profile", telemetry) == "Performance"
+    assert _sample_text("gpu_util_pct", telemetry) == "33%"
     assert _sample_text("cpu_peak_thread_pct", telemetry) == "-"
     assert _sample_text("voltage_mv", telemetry) == "-"
 
 
-def test_overlay_panel_refreshes_value_rows_from_current_telemetry(monkeypatch) -> None:
+def test_overlay_panel_values_pair_units_with_full_labels_without_duplicate_prefixes(
+    monkeypatch,
+) -> None:
+    from ui.components import overlay_config
+
+    monkeypatch.setattr(
+        overlay_config,
+        "SAMPLE_OVERLAY_VALUES",
+        {**SAMPLE_OVERLAY_VALUES, "gpu_name": "NVIDIA GeForce RTX 5080"},
+    )
+
+    telemetry = dict(SAMPLE_OVERLAY_VALUES)
+    telemetry.update(clock_mhz="2850", mem_clock_mhz="15000", cpu_peak_thread_pct="78")
+    expected = {
+        "clock_mhz": "2,850 MHz",
+        "mem_clock_mhz": "15,000 MHz",
+        "cpu_peak_thread_pct": "78%",
+        "cpu_temp_c": "61 °C",
+        "cpu_power_w": "88 W",
+        "uv_offset_mv": "−75 mV",
+        "vram": "9.4 / 16 GiB",
+        "ram": "14.2 / 32 GiB",
+        "fps_session": "38 / 58 / 61 FPS",
+        "frametime_graph": "Graph",
+        "gpu_name": "NVIDIA GeForce RTX 5080",
+        "driver_version": "580.76",
+        "resolution": "2560 × 1440",
+        "present_mode": "FIFO",
+    }
+
+    for item_id, value in expected.items():
+        assert overlay_config._sample_text(item_id, telemetry) == value, item_id
+
+
+def test_overlay_panel_refreshes_value_rows_from_current_telemetry(
+    monkeypatch, tmp_path
+) -> None:
     from ui.components import overlay_config
 
     class Label:
@@ -396,6 +437,9 @@ def test_overlay_panel_refreshes_value_rows_from_current_telemetry(monkeypatch) 
         enabled=True,
         enabled_item_ids=("clock_mhz",),
     )
+    panel.config_path = tmp_path / "overlay.toml"
+    save_overlay_config(panel.config, panel.config_path)
+    panel.config = load_overlay_config(panel.config_path)
 
     class Preview:
         """Stands in for the painted preview: it takes the config and the

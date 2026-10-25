@@ -1,15 +1,21 @@
 from __future__ import annotations
 
-from overlay.config import OVERLAY_ITEM_IDS
-from overlay.config import OVERLAY_NON_TEXT_ITEM_IDS
-from overlay.config import OverlayConfig
-from overlay.config import default_overlay_config
-from overlay.config import set_overlay_layout
-from overlay.overlay_text import SAMPLE_OVERLAY_VALUES
-from overlay.overlay_text import format_overlay_item
-from overlay.overlay_text import format_overlay_text
-from overlay.overlay_text import format_overlay_value
-from overlay.overlay_text import preview_overlay_text
+import pytest
+
+from overlay.config import (
+    OVERLAY_ITEM_IDS,
+    OVERLAY_NON_TEXT_ITEM_IDS,
+    OverlayConfig,
+    default_overlay_config,
+    set_overlay_layout,
+)
+from overlay.overlay_text import (
+    SAMPLE_OVERLAY_VALUES,
+    format_overlay_item,
+    format_overlay_text,
+    format_overlay_value,
+    preview_overlay_text,
+)
 
 
 # Everything below describes the table layout -- the plain grid every field
@@ -66,13 +72,7 @@ def test_overlay_text_formats_compact_line_with_explicit_fg_fps() -> None:
             },
             config=_table(),
         )
-        == "\n".join(
-            [
-                "50 FPS   100 FG LAT 34 ms BAL",
-                "2500 MHz 850 mV",
-                "220 W",
-            ]
-        )
+        == "50 FPS   100 FG LAT P95 ~34 ms BAL\n2500 MHz 850 mV\n220 W"
     )
 
 
@@ -104,17 +104,11 @@ def test_overlay_text_shows_latency_when_enabled() -> None:
             },
             config=_table(config),
         )
-        == "\n".join(
-            [
-                "50 FPS   100 FG LAT 34 ms BAL",
-                "2500 MHz 850 mV",
-                "220 W",
-            ]
-        )
+        == "50 FPS   100 FG LAT P95 ~34 ms BAL\n2500 MHz 850 mV\n220 W"
     )
 
 
-def test_overlay_text_adds_display_tail_into_single_latency_number() -> None:
+def test_overlay_text_keeps_display_tail_separate_from_frame_latency() -> None:
     config = OverlayConfig(enabled=True, enabled_item_ids=("latency_ms",))
 
     assert (
@@ -122,7 +116,7 @@ def test_overlay_text_adds_display_tail_into_single_latency_number() -> None:
             {"latency_ms": "30", "display_latency_ms": "4"},
             config=_table(config),
         )
-        == "LAT 34 ms"
+        == "LAT P95 ~30 ms"
     )
 
 
@@ -130,14 +124,14 @@ def test_overlay_text_latency_falls_back_to_render_without_display_tail() -> Non
     config = OverlayConfig(enabled=True, enabled_item_ids=("latency_ms",))
 
     assert (
-        format_overlay_text({"latency_ms": "30"}, config=_table(config)) == "LAT 30 ms"
+        format_overlay_text({"latency_ms": "30"}, config=_table(config)) == "LAT P95 ~30 ms"
     )
     assert (
         format_overlay_text(
             {"latency_ms": "30", "display_latency_ms": ""},
             config=_table(config),
         )
-        == "LAT 30 ms"
+        == "LAT P95 ~30 ms"
     )
 
 
@@ -172,13 +166,7 @@ def test_overlay_text_normalizes_latency_into_fps_block() -> None:
             },
             config=_table(config),
         )
-        == "\n".join(
-            [
-                "42 FPS   LAT 16 ms EFF",
-                "2500 MHz 850 mV",
-                "220 W",
-            ]
-        )
+        == "42 FPS   LAT P95 ~16 ms EFF\n2500 MHz 850 mV\n220 W"
     )
 
 
@@ -196,13 +184,7 @@ def test_overlay_text_does_not_guess_static_framegen_from_ratio() -> None:
             },
             config=_table(),
         )
-        == "\n".join(
-            [
-                "50 FPS   LAT 34 ms BAL",
-                "2500 MHz 850 mV",
-                "220 W",
-            ]
-        )
+        == "50 FPS   LAT P95 ~34 ms BAL\n2500 MHz 850 mV\n220 W"
     )
 
 
@@ -220,13 +202,7 @@ def test_overlay_text_keeps_base_fps_when_output_is_not_framegen() -> None:
             },
             config=_table(),
         )
-        == "\n".join(
-            [
-                "58 FPS   LAT 18 ms BAL",
-                "2500 MHz 850 mV",
-                "220 W",
-            ]
-        )
+        == "58 FPS   LAT P95 ~18 ms BAL\n2500 MHz 850 mV\n220 W"
     )
 
 
@@ -244,13 +220,7 @@ def test_overlay_text_keeps_base_fps_when_dynamic_fg_is_unmarked() -> None:
             },
             config=_table(),
         )
-        == "\n".join(
-            [
-                "39 FPS   LAT 21 ms EFF",
-                "2550 MHz 850 mV",
-                "194 W",
-            ]
-        )
+        == "39 FPS   LAT P95 ~21 ms EFF\n2550 MHz 850 mV\n194 W"
     )
 
 
@@ -269,13 +239,7 @@ def test_overlay_text_shows_dynamic_fg_when_marked_active() -> None:
             },
             config=_table(),
         )
-        == "\n".join(
-            [
-                "51 FPS   120 FG LAT 32 ms BAL",
-                "2500 MHz 850 mV",
-                "220 W",
-            ]
-        )
+        == "51 FPS   120 FG LAT P95 ~32 ms BAL\n2500 MHz 850 mV\n220 W"
     )
 
 
@@ -293,13 +257,7 @@ def test_overlay_text_falls_back_to_base_when_output_missing() -> None:
             },
             config=_table(),
         )
-        == "\n".join(
-            [
-                "58 FPS   LAT 18 ms BAL",
-                "2500 MHz 850 mV",
-                "220 W",
-            ]
-        )
+        == "58 FPS   LAT P95 ~18 ms BAL\n2500 MHz 850 mV\n220 W"
     )
 
 
@@ -316,13 +274,7 @@ def test_overlay_text_does_not_substitute_output_fps_when_base_is_missing() -> N
             },
             config=_table(),
         )
-        == "\n".join(
-            [
-                "n/a FPS  LAT 18 ms BAL",
-                "2500 MHz 850 mV",
-                "220 W",
-            ]
-        )
+        == "n/a FPS  LAT P95 ~18 ms BAL\n2500 MHz 850 mV\n220 W"
     )
 
 
@@ -348,13 +300,7 @@ def test_overlay_text_omits_missing_latency() -> None:
 def test_overlay_text_handles_missing_values() -> None:
     # An absent tier is stock/default GPU state and must read DEF — showing
     # BAL would claim a tuned profile that is not applied.
-    assert format_overlay_text({}, config=_table()) == "\n".join(
-        [
-            "n/a FPS DEF",
-            "n/a MHz n/a mV",
-            "n/a W",
-        ]
-    )
+    assert format_overlay_text({}, config=_table()) == "n/a FPS DEF\nn/a MHz n/a mV\nn/a W"
 
 
 def test_overlay_text_hides_missing_advanced_values() -> None:
@@ -404,14 +350,7 @@ def test_overlay_text_formats_advanced_values_when_available() -> None:
             },
             config=_table(config),
         )
-        == "\n".join(
-            [
-                "72 FPS",
-                "UV -75 mV",
-                "T 67 C    Fan 62%",
-                "GPU 97%   CPU 32% CPU-T 98%",
-            ]
-        )
+        == "72 FPS\nUV -75 mV\nT 67 C    Fan 62%\nGPU 97%   CPU 32% CPU-T 98%"
     )
 
 
@@ -429,14 +368,7 @@ def test_overlay_preview_uses_sample_values_for_missing_items() -> None:
         ),
     )
 
-    assert preview_overlay_text({"present_fps": "60"}, config=_table(config)) == "\n".join(
-        [
-            "60 FPS",
-            "UV -75 mV",
-            "T 67 C    Fan 62%",
-            "GPU 97%   CPU 32% CPU-T 98%",
-        ]
-    )
+    assert preview_overlay_text({"present_fps": "60"}, config=_table(config)) == "60 FPS\nUV -75 mV\nT 67 C    Fan 62%\nGPU 97%   CPU 32% CPU-T 98%"
 
 
 def test_overlay_preview_keeps_sample_fg_when_live_state_is_inactive() -> None:
@@ -546,3 +478,32 @@ def test_the_table_gives_each_cpu_metric_its_own_label() -> None:
     assert format_overlay_item("cpu_peak_thread_pct", values) == "CPU-T 98%"
     assert format_overlay_item("cpu_temp_c", values) == "CPU 61 C"
     assert format_overlay_item("cpu_power_w", values) == "CPU 88 W"
+
+
+@pytest.mark.parametrize(
+    ("source", "prefix"),
+    [
+        ("input-to-gpu", ""),
+        ("simulation-to-gpu", "~"),
+        ("submit-to-gpu", "~"),
+        ("marker-estimate", "~"),
+        ("frame-cycle-to-gpu", "~"),
+        ("", "~"),
+    ],
+)
+def test_average_frame_latency_identifies_estimates(source: str, prefix: str) -> None:
+    config = OverlayConfig(enabled=True, layout="table", enabled_item_ids=("latency_ms",))
+    values = {
+        "latency_avg_ms": "80", "latency_ms": "120",
+        "latency_source": source, "display_latency_ms": "9",
+    }
+    assert format_overlay_text(values, config=config) == f"LAT AVG {prefix}80 ms"
+    values["latency_avg_ms"] = ""
+    assert format_overlay_text(values, config=config) == f"LAT P95 {prefix}120 ms"
+
+
+def test_latency_is_not_invented_from_fps_or_a_display_wait() -> None:
+    config = OverlayConfig(enabled=True, layout="table", enabled_item_ids=("latency_ms",))
+    assert format_overlay_text(
+        {"present_fps": "60", "display_latency_ms": "5"}, config=config
+    ) == "PB waiting"

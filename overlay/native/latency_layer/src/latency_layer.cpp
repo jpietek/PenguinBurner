@@ -241,6 +241,32 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_device(
         next_get_device_proc_addr(*device, "vkQueuePresentKHR"));
     context.queue_submit = reinterpret_cast<PFN_vkQueueSubmit>(
         next_get_device_proc_addr(*device, "vkQueueSubmit"));
+    // Use the application's enabled clock-calibration extension. This adds no
+    // device features or graphics initialization to the game's startup path.
+    const char* calibration_suffix = extension_requested(create_info, "VK_KHR_calibrated_timestamps")
+        ? "KHR" : extension_requested(create_info, VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME)
+        ? "EXT" : nullptr;
+    if (calibration_suffix && instance_context.get_instance_proc_addr) {
+        const std::string domains_name = std::string("vkGetPhysicalDeviceCalibrateableTimeDomains") + calibration_suffix;
+        auto domains_fn = reinterpret_cast<PFN_vkGetPhysicalDeviceCalibrateableTimeDomainsEXT>(
+            instance_context.get_instance_proc_addr(instance, domains_name.c_str()));
+        uint32_t count = 0;
+        if (domains_fn && domains_fn(physical_device, &count, nullptr) == VK_SUCCESS && count) {
+            std::vector<VkTimeDomainEXT> domains(count);
+            if (domains_fn(physical_device, &count, domains.data()) == VK_SUCCESS
+                && std::find(domains.begin(), domains.end(), VK_TIME_DOMAIN_CLOCK_MONOTONIC_EXT) != domains.end()
+                && std::find(domains.begin(), domains.end(), VK_TIME_DOMAIN_DEVICE_EXT) != domains.end()) {
+                const std::string name = std::string("vkGetCalibratedTimestamps") + calibration_suffix;
+                context.get_calibrated_timestamps = reinterpret_cast<PFN_vkGetCalibratedTimestampsEXT>(
+                    next_get_device_proc_addr(*device, name.c_str()));
+            }
+        }
+    }
+    context.create_query_pool = reinterpret_cast<PFN_vkCreateQueryPool>(next_get_device_proc_addr(*device, "vkCreateQueryPool"));
+    context.destroy_query_pool = reinterpret_cast<PFN_vkDestroyQueryPool>(next_get_device_proc_addr(*device, "vkDestroyQueryPool"));
+    context.get_query_pool_results = reinterpret_cast<PFN_vkGetQueryPoolResults>(next_get_device_proc_addr(*device, "vkGetQueryPoolResults"));
+    context.cmd_reset_query_pool = reinterpret_cast<PFN_vkCmdResetQueryPool>(next_get_device_proc_addr(*device, "vkCmdResetQueryPool"));
+    context.cmd_write_timestamp = reinterpret_cast<PFN_vkCmdWriteTimestamp>(next_get_device_proc_addr(*device, "vkCmdWriteTimestamp"));
     context.create_image_view = reinterpret_cast<PFN_vkCreateImageView>(
         next_get_device_proc_addr(*device, "vkCreateImageView"));
     context.destroy_image_view = reinterpret_cast<PFN_vkDestroyImageView>(
@@ -779,6 +805,7 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_queue_present_khr(
                     observation.present_frametime_us =
                         present_time_us - swapchain_context.last_present_us;
                 }
+                swapchain_context.frame_cycle_start_us = swapchain_context.last_present_us;
                 swapchain_context.last_present_us = present_time_us;
                 OverlayFrameStats overlay_stats{};
                 OverlayGraph overlay_graph{};
@@ -798,7 +825,7 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_queue_present_khr(
                         swapchain_context,
                         overlay_stats,
                         present_time_us);
-                    if (!overlay_readout->text.empty()) {
+                    if (!overlay_readout->text.empty() || frame_completion_enabled(device_context)) {
                         overlay_signal = submit_overlay_locked(
                             device_context,
                             swapchain,
@@ -855,6 +882,19 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_queue_present_khr(
     }
 
     VkResult result = next_queue_present(queue, next_present_info);
+    if (overlay_signal != VK_NULL_HANDLE && present_info && present_info->swapchainCount == 1) {
+        std::lock_guard lock(g_mutex);
+        auto it = g_swapchains.find(present_info->pSwapchains[0]);
+        if (it != g_swapchains.end()) {
+            auto& samples = it->second.overlay.frame_samples;
+            const auto index = present_info->pImageIndices[0];
+            const auto per_swapchain = present_info->pResults ? present_info->pResults[0] : result;
+            if (index < samples.size()) {
+                samples[index].presented = (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR)
+                    && (per_swapchain == VK_SUCCESS || per_swapchain == VK_SUBOPTIMAL_KHR);
+            }
+        }
+    }
     for (const PresentObservation& observation : observations) {
         VkSwapchainKHR swapchain = observation.swapchain;
         const uint64_t present_count = observation.present_count;
@@ -1205,12 +1245,19 @@ VKAPI_CALL vkGetInstanceProcAddr(VkInstance instance, const char* name) {
             layer_queue_notify_out_of_band_nv);
     }
 
-    std::lock_guard lock(g_mutex);
-    auto it = g_instances.find(instance);
-    if (it != g_instances.end() && it->second.get_instance_proc_addr) {
-        return it->second.get_instance_proc_addr(instance, name);
+    PFN_vkGetInstanceProcAddr next_get_instance_proc_addr = nullptr;
+    {
+        std::lock_guard lock(g_mutex);
+        auto it = g_instances.find(instance);
+        if (it != g_instances.end()) {
+            next_get_instance_proc_addr = it->second.get_instance_proc_addr;
+        }
     }
-    return nullptr;
+    // Never call down the chain with g_mutex held: the loader calls into this
+    // layer under its own lock (vkEnumeratePhysicalDevices), so that deadlocks.
+    return next_get_instance_proc_addr
+        ? next_get_instance_proc_addr(instance, name)
+        : nullptr;
 }
 
 extern "C" __attribute__((visibility("default"))) VKAPI_ATTR PFN_vkVoidFunction
@@ -1263,10 +1310,16 @@ VKAPI_CALL vkGetDeviceProcAddr(VkDevice device, const char* name) {
             layer_queue_notify_out_of_band_nv);
     }
 
-    std::lock_guard lock(g_mutex);
-    auto it = g_devices.find(device);
-    if (it != g_devices.end() && it->second.get_device_proc_addr) {
-        return it->second.get_device_proc_addr(device, name);
+    PFN_vkGetDeviceProcAddr next_get_device_proc_addr = nullptr;
+    {
+        std::lock_guard lock(g_mutex);
+        auto it = g_devices.find(device);
+        if (it != g_devices.end()) {
+            next_get_device_proc_addr = it->second.get_device_proc_addr;
+        }
     }
-    return nullptr;
+    // Same lock order as vkGetInstanceProcAddr: never hold g_mutex down-chain.
+    return next_get_device_proc_addr
+        ? next_get_device_proc_addr(device, name)
+        : nullptr;
 }

@@ -9,17 +9,15 @@ host probe and diff it against the Python one over a shared case table.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
-from pathlib import Path
 import shutil
 import subprocess
+from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 
-from overlay.config import OVERLAY_ITEM_IDS
-from overlay.config import OverlayConfig
-from overlay.config import save_overlay_config
+from overlay.config import OVERLAY_ITEM_IDS, OverlayConfig, save_overlay_config
 from overlay.overlay_text import format_overlay_text
 
 
@@ -285,16 +283,7 @@ def test_native_overlay_env_true_overrides_disabled_config(
         native_overlay_probe, tmp_path, case, enabled=False, pb_overlay="1"
     )
 
-    assert native == "\n".join(
-        [
-            "19 fps",
-            "lat  73 ms",
-            "tier Performance",
-            "--------------------",
-            "gpu  1777 MHz 885 mV",
-            "     54 W",
-        ]
-    )
+    assert native == "19 fps\nlat  ~73 ms\ntier Performance\n--------------------\ngpu  1777 MHz 885 mV\n     54 W"
 
 
 def test_native_overlay_env_false_still_disables_enabled_config(
@@ -947,11 +936,11 @@ def test_gui_hotspot_toggle_persists_and_updates_running_native_overlay(
     qtbot.addWidget(panel.widget)
     panel.widget.resize(1500, 1000)
     panel.widget.show()
+    panel.section_edit_buttons["GPU"].click()
     checkbox = panel.item_checkboxes["hotspot_temperature_c"]
-    assert checkbox.text() == "Hotspot C"
-    assert checkbox.parentWidget().objectName() == "overlayItemSection_gpu"
+    assert panel.item_title_labels["hotspot_temperature_c"].text() == "Hotspot temperature"
     assert not checkbox.isChecked()
-    assert panel.item_value_labels["hotspot_temperature_c"].text() == "HOT 79 C"
+    assert panel.item_value_labels["hotspot_temperature_c"].text() == "79 °C"
 
     env = {
         "PATH": os.environ.get("PATH", ""),
@@ -1002,7 +991,7 @@ def test_gui_hotspot_toggle_persists_and_updates_running_native_overlay(
             state_path.write_text("present_fps=19\ntemperature_c=67\n" + reading)
             panel.refresh_preview()
             assert panel.item_value_labels["hotspot_temperature_c"].text() == (
-                f"HOT {hotspot} C" if hotspot else "-"
+                f"{hotspot} °C" if hotspot else "-"
             )
             text = read_matches_preview()
             assert (label in text) == bool(hotspot)
@@ -1069,6 +1058,8 @@ int main(int argc, char**) {
     state.voltage_mv = "885";
     state.power_w = "54";
     state.latency_ms = "73";
+    const char* nr_value = std::getenv("TEST_NR_GPU_MS");
+    state.nr_gpu_ms = nr_value ? nr_value : "2.20";
     state.profile_tier = "Performance";
     const bool use_file = std::getenv("PENGUIN_BURNER_OVERLAY_STATE") != nullptr;
     if (use_file) state = pblayer::read_overlay_gpu_state();
@@ -1101,7 +1092,7 @@ int main(int argc, char**) {
             str(source_dir),
             str(source),
             str(source_dir / "overlay_text.cpp"),
-            str(source_dir / "latency_state.cpp"),
+            str(source_dir / "latency_state.cpp"), str(source_dir / "frame_timing.cpp"),
             str(source_dir / "overlay_render.cpp"),
             "-o",
             str(output),
@@ -1146,3 +1137,55 @@ def test_native_table_gives_each_cpu_metric_its_own_label(
     assert "CPU 61 C" in result.stdout
     assert "CPU 88 W" in result.stdout
     assert result.stdout.count("CPU-T") == 1
+
+
+@pytest.mark.parametrize("nr_value", ["2.20", "", "-"])
+def test_native_nr_gpu_format_matches_python(tmp_path, nr_value):
+    from overlay.overlay_text import format_overlay_item
+
+    binary = _build_live_overlay_probe(tmp_path)
+    config = tmp_path / "overlay.toml"
+    config.write_text('enabled = true\nlayout = "table"\nitems = ["nr_gpu_ms"]\n')
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "PENGUIN_BURNER_OVERLAY_CONFIG": str(config),
+        "PENGUIN_BURNER_OVERLAY_OVERRIDE": str(tmp_path / "absent"),
+        "PB_OVERLAY": "1",
+        "TEST_NR_GPU_MS": nr_value,
+    }
+    result = subprocess.run([str(binary)], check=True, text=True, capture_output=True, env=env)
+    assert result.stdout.strip() == format_overlay_item("nr_gpu_ms", {"nr_gpu_ms": nr_value})
+
+
+@pytest.fixture(scope="module")
+def latency_probe(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return _build_live_overlay_probe(tmp_path_factory.mktemp("latency-probe"))
+
+
+@pytest.mark.parametrize("average", ["80", ""])
+@pytest.mark.parametrize(
+    "source", ["input-to-gpu", "simulation-to-gpu", "submit-to-gpu", "marker-estimate", ""]
+)
+def test_native_latency_state_matches_python(
+    latency_probe: Path, tmp_path: Path, average: str, source: str
+) -> None:
+    from overlay.config import OverlayConfig
+    from overlay.overlay_text import format_overlay_text
+
+    values = {
+        "latency_avg_ms": average, "latency_ms": "120",
+        "latency_source": source, "display_latency_ms": "9",
+    }
+    state_path = tmp_path / "overlay-state.txt"
+    state_path.write_text("".join(f"{key}={value}\n" for key, value in values.items()))
+    config_path = tmp_path / "overlay.toml"
+    config_path.write_text('enabled = true\nlayout = "table"\nitems = ["latency_ms"]\n')
+    env = {"PATH": os.environ.get("PATH", ""), "PB_OVERLAY": "1", "PENGUIN_BURNER_OVERLAY_CONFIG": str(config_path), "PENGUIN_BURNER_OVERLAY_OVERRIDE": str(tmp_path / "absent")}
+    env["PENGUIN_BURNER_OVERLAY_STATE"] = str(state_path)
+    result = subprocess.run(
+        [str(latency_probe), "--state"], check=True, capture_output=True, text=True, env=env
+    )
+    expected = format_overlay_text(
+        values, config=OverlayConfig(enabled=True, layout="table", enabled_item_ids=("latency_ms",))
+    )
+    assert result.stdout.strip() == expected

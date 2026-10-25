@@ -299,6 +299,12 @@ struct DeviceContext {
     PFN_vkGetSwapchainImagesKHR get_swapchain_images_khr = nullptr;
     PFN_vkQueuePresentKHR queue_present_khr = nullptr;
     PFN_vkQueueSubmit queue_submit = nullptr;
+    PFN_vkGetCalibratedTimestampsEXT get_calibrated_timestamps = nullptr;
+    PFN_vkCreateQueryPool create_query_pool = nullptr;
+    PFN_vkDestroyQueryPool destroy_query_pool = nullptr;
+    PFN_vkGetQueryPoolResults get_query_pool_results = nullptr;
+    PFN_vkCmdResetQueryPool cmd_reset_query_pool = nullptr;
+    PFN_vkCmdWriteTimestamp cmd_write_timestamp = nullptr;
     PFN_vkCreateImageView create_image_view = nullptr;
     PFN_vkDestroyImageView destroy_image_view = nullptr;
     PFN_vkCreateRenderPass create_render_pass = nullptr;
@@ -399,6 +405,13 @@ struct DeviceContext {
 struct BaseMarkerState {
     uint64_t frame_id = 0;
     uint64_t timestamp_us = 0;
+};
+
+struct FrameCompletionSample {
+    uint64_t cycle_start_us = 0;
+    uint64_t present_us = 0;
+    uint64_t present_count = 0;
+    bool presented = false;
 };
 
 // What the layer can answer about the game's device and swapchain without
@@ -531,6 +544,8 @@ struct OverlayRenderResources : OverlayPipelineResources {
     OverlayGeometryCache geometry;
     std::vector<uint64_t> vertex_generations;
     std::vector<VkPipelineStageFlags> wait_stages;
+    VkQueryPool frame_queries = VK_NULL_HANDLE;
+    std::vector<FrameCompletionSample> frame_samples;
 };
 
 struct SwapchainContext {
@@ -553,6 +568,7 @@ struct SwapchainContext {
     uint64_t present_count = 0;
     uint64_t last_vulkan_present_id = 0;
     uint64_t last_present_us = 0;
+    uint64_t frame_cycle_start_us = 0;
     uint64_t timing_unavailable_count = 0;
     uint64_t timing_empty_count = 0;
     uint64_t latency_recovery_attempt_count = 0;
@@ -676,6 +692,9 @@ struct OverlayGpuState {
     std::string present_fps;
     std::string framegen_fps;
     std::string latency_ms;
+    std::string nr_gpu_ms;
+    std::string latency_avg_ms;
+    std::string latency_source;
     std::string display_latency_ms;
     std::string clock_mhz;
     std::string voltage_mv;
@@ -774,6 +793,7 @@ extern std::atomic<uint32_t> g_overlay_layout;
     bool inject_present_id_enabled();
     bool should_report_counter(uint64_t count);
     bool timing_queries_enabled();
+    bool env_value_is_false(const char* value);
     uint64_t now_monotonic_us();
     uint64_t elapsed_us(uint64_t start_us, uint64_t end_us);
     std::string trim_ascii(std::string value);
@@ -829,6 +849,9 @@ extern std::atomic<uint32_t> g_overlay_layout;
     void store_queue( VkDevice device, VkQueue queue, uint32_t queue_family_index, uint32_t queue_index);
     void record_marker( VkDevice device, VkSwapchainKHR swapchain, const VkSetLatencyMarkerInfoNV* marker_info);
     void observe_latency_marker( VkDevice device, VkSwapchainKHR swapchain, const VkSetLatencyMarkerInfoNV* marker_info);
+    bool frame_completion_enabled(const DeviceContext& device);
+    uint64_t calibrated_frame_latency_us(const FrameCompletionSample& sample, uint64_t gpu_ticks, uint64_t calibrated_ticks, uint64_t calibrated_cpu_ns, uint64_t deviation_ns, double period_ns, uint32_t valid_bits);
+    void collect_frame_completion(const DeviceContext& device, VkSwapchainKHR swapchain, OverlayRenderResources& overlay, uint32_t image_index);
     void send_present_pacing_sample( VkDevice device, VkSwapchainKHR swapchain, uint64_t present_frametime_us, uint64_t present_count);
     void send_inject_debug_event( VkDevice device, VkSwapchainKHR swapchain, uint64_t present_count, bool chain_has_present_id, bool present_id_at_head, bool want_inject, uint64_t injected_present_id);
     void display_latency_enqueue( VkDevice device, PFN_vkWaitForPresentKHR wait_fn, VkSwapchainKHR swapchain, uint64_t present_id, uint64_t submit_us);

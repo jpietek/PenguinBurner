@@ -2,7 +2,7 @@
 
 The layer captures no input. A desktop shortcut runs one of these instead, and
 the running game picks the change up on its own: the visibility override is
-re-read about once a second and overlay.toml four times a second, so nothing
+re-read every 50 ms and overlay.toml four times a second, so nothing
 here has to reach into the game process.
 
 Everything in here is an unprivileged write to the user's own files. Changing
@@ -16,12 +16,17 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from overlay.config import (
+    OVERLAY_DETAIL_LABELS,
+    OVERLAY_POSITION_IDS,
+    OVERLAY_SCALE_OPTIONS,
     OverlayConfig,
     load_overlay_config,
     next_overlay_detail,
     normalize_overlay_detail,
     save_overlay_config,
     set_overlay_detail,
+    set_overlay_position,
+    set_overlay_scale,
 )
 from overlay.state import (
     clear_overlay_override,
@@ -30,14 +35,6 @@ from overlay.state import (
 )
 
 VISIBILITY_MODES = ("on", "off", "auto")
-
-DETAIL_LABELS = {
-    "minimal": "Minimal",
-    "standard": "Standard",
-    "detailed": "Detailed",
-    "full": "Everything",
-    "custom": "Custom",
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +45,8 @@ class OverlayControlResult:
     message: str
     visible: bool | None = None
     detail: str | None = None
+    scale: float | None = None
+    position: str | None = None
 
     def as_json(self) -> dict[str, object]:
         payload: dict[str, object] = {"action": self.action, "message": self.message}
@@ -55,6 +54,10 @@ class OverlayControlResult:
             payload["visible"] = self.visible
         if self.detail is not None:
             payload["detail"] = self.detail
+        if self.scale is not None:
+            payload["scale"] = self.scale
+        if self.position is not None:
+            payload["position"] = self.position
         return payload
 
 
@@ -115,7 +118,7 @@ def set_overlay_detail_level(
     normalized = normalize_overlay_detail(detail)
     if normalized != str(detail or "").strip().lower():
         raise ValueError(
-            f"overlay detail must be one of {', '.join(DETAIL_LABELS)}"
+            f"overlay detail must be one of {', '.join(OVERLAY_DETAIL_LABELS)}"
         )
     return _apply_detail(load_overlay_config(config_path), normalized, config_path)
 
@@ -129,6 +132,43 @@ def _apply_detail(
     save_overlay_config(updated, config_path)
     return OverlayControlResult(
         action="overlay_detail",
-        message=f"Overlay detail: {DETAIL_LABELS[updated.detail]}.",
+        message=f"Overlay preset: {OVERLAY_DETAIL_LABELS[updated.detail]}.",
         detail=updated.detail,
+    )
+
+
+def step_overlay_scale(
+    direction: int,
+    config_path: str | Path | None = None,
+) -> OverlayControlResult:
+    """Change scale by one step, stopping at either end."""
+    if direction not in (-1, 1):
+        raise ValueError("overlay scale direction must be -1 or 1")
+    config = load_overlay_config(config_path)
+    index = OVERLAY_SCALE_OPTIONS.index(config.scale)
+    index = max(0, min(len(OVERLAY_SCALE_OPTIONS) - 1, index + direction))
+    updated = set_overlay_scale(config, OVERLAY_SCALE_OPTIONS[index])
+    save_overlay_config(updated, config_path)
+    return OverlayControlResult(
+        action="overlay_scale",
+        message=f"Overlay scale: {updated.scale:g}x.",
+        scale=updated.scale,
+    )
+
+
+def cycle_overlay_position(
+    direction: int,
+    config_path: str | Path | None = None,
+) -> OverlayControlResult:
+    """Move through the five positions, wrapping in either direction."""
+    if direction not in (-1, 1):
+        raise ValueError("overlay position direction must be -1 or 1")
+    config = load_overlay_config(config_path)
+    index = (OVERLAY_POSITION_IDS.index(config.position) + direction) % len(OVERLAY_POSITION_IDS)
+    updated = set_overlay_position(config, OVERLAY_POSITION_IDS[index])
+    save_overlay_config(updated, config_path)
+    return OverlayControlResult(
+        action="overlay_position",
+        message=f"Overlay position: {updated.position.replace('_', ' ')}.",
+        position=updated.position,
     )

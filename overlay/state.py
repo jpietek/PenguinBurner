@@ -86,7 +86,7 @@ def overlay_state_path(env: Mapping[str, str] | None = None) -> Path:
 
 
 def overlay_override_path(env: Mapping[str, str] | None = None) -> Path:
-    """The live overlay visibility override the native layer polls (~1s).
+    """The live overlay visibility override the native layer polls (every 50 ms).
 
     "1"/"0" wins over the game's launch-time env; absent means "follow the
     launch setting". The wrapper clears it at every launch so a stale

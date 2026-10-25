@@ -13,6 +13,7 @@ from .config import (
 )
 
 SAMPLE_OVERLAY_VALUES = {
+    "nr_gpu_ms": "2.20",
     "present_fps": "60",
     "fps_1pct_low": "47",
     "frametime_p97": "21.3",
@@ -263,6 +264,8 @@ def format_overlay_value(item_id: str, values: dict[str, str]) -> str:
     """
     if item_id in OVERLAY_NON_TEXT_ITEM_IDS:
         return ""
+    if item_id == "nr_gpu_ms":
+        return _optional_value(values.get("nr_gpu_ms"), suffix=" ms") or "-"
     if item_id == "base_fps":
         return _value_or_na(_fps_display_value(values.get("present_fps")), suffix="")
     if item_id == "fg_fps":
@@ -272,7 +275,7 @@ def format_overlay_value(item_id: str, values: dict[str, str]) -> str:
             return ""
         return f"{_framegen_value_or_na(values.get('framegen_fps'))} fps"
     if item_id == "latency_ms":
-        return _optional_value(_combined_latency_ms(values), suffix=" ms")
+        return _optional_value(_frame_latency_ms(values), suffix=" ms")
     if item_id == "profile":
         # The designed layout has room for the tier's real name.
         text = str(values.get("profile_tier") or "").strip()
@@ -357,6 +360,8 @@ def _format_overlay_item(item_id: str, values: dict[str, str]) -> str:
     if item_id in OVERLAY_NON_TEXT_ITEM_IDS:
         # The layer draws these; they contribute nothing to the readout text.
         return ""
+    if item_id == "nr_gpu_ms":
+        return _optional_labeled_value("dlss5 nr", values.get("nr_gpu_ms"), suffix=" ms") or "dlss5 nr -"
     if item_id == "base_fps":
         return _value_or_na(_fps_display_value(values.get("present_fps")), suffix=" FPS")
     if item_id == "fg_fps":
@@ -417,7 +422,8 @@ def _format_overlay_item(item_id: str, values: dict[str, str]) -> str:
         )
     if item_id == "latency_ms":
         return _optional_labeled_value(
-            "LAT", _combined_latency_ms(values), suffix=" ms"
+            "LAT AVG" if values.get("latency_avg_ms", "").strip() else "LAT P95",
+            _frame_latency_ms(values), suffix=" ms"
         )
     if item_id == "uv_offset_mv":
         return _optional_labeled_value(
@@ -475,20 +481,14 @@ def _requested_voltage_mv(values: dict[str, str]) -> str:
     return str(values.get("voltage_mv") or "")
 
 
-def _combined_latency_ms(values: dict[str, str]) -> str:
-    """Render latency = render-latency tail + present->scanout display tail.
-
-    The two metrics are kept separate upstream (receiver/state); the overlay
-    sums them into one click-to-photon number. When the display tail is absent
-    (no VK_KHR_present_wait data), this collapses to the render latency alone,
-    exactly as before.
-    """
-    render = _ms_number(values.get("latency_ms"))
-    if render is None:
+def _frame_latency_ms(values: dict[str, str]) -> str:
+    """Keep frame spans intact; missing input markers make this an estimate."""
+    average = values.get("latency_avg_ms", "").strip()
+    value = _ms_number(average or values.get("latency_ms"))
+    if value is None:
         return ""
-    display = _ms_number(values.get("display_latency_ms"))
-    total = render if display is None else render + display
-    return str(total)
+    measured_input = values.get("latency_source") == "input-to-gpu"
+    return f"{'' if measured_input else '~'}{value}"
 
 
 def _ms_number(value: object) -> int | None:

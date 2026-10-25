@@ -207,7 +207,25 @@ def test_main_command_routing_sets_the_overlay_detail_level(monkeypatch, tmp_pat
     )
 
     assert result.handled is True
-    assert calls["prints"][0][0] == ("Overlay detail: Detailed.",)
+    assert calls["prints"][0][0] == ("Overlay preset: Large.",)
+
+
+@pytest.mark.parametrize("flag, expected", [
+    ("overlay_scale_down", "Overlay scale: 0.75x."),
+    ("overlay_scale_up", "Overlay scale: 1.5x."),
+    ("overlay_position_prev", "Overlay position: top center."),
+    ("overlay_position_next", "Overlay position: bottom left."),
+])
+def test_overlay_scale_and_position_route_without_runtime_config(monkeypatch, tmp_path, flag, expected):
+    monkeypatch.setenv("PENGUIN_BURNER_OVERLAY_CONFIG", str(tmp_path / "overlay.toml"))
+    deps, calls = _deps(load_config=lambda _: pytest.fail("runtime config must not be loaded"))
+    result = route_main_command(
+        args=parse_arguments(["--" + flag.replace("_", "-")]),
+        argv=["--" + flag.replace("_", "-")],
+        explicit_cli_args=True, interactive=False, dependencies=deps,
+    )
+    assert result.handled is True
+    assert calls["prints"][0][0] == (expected,)
 
 
 def test_main_command_routing_rejects_two_overlay_actions_at_once(tmp_path):

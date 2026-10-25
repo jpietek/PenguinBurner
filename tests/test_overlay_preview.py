@@ -160,38 +160,3 @@ def test_the_overlay_tab_can_switch_the_overlay_on(tmp_path) -> None:
     panel.enabled_switch.setChecked(False)
 
     assert load_overlay_config(config_path).enabled is False
-
-
-def test_the_field_sections_wrap_to_the_width_they_are_given(tmp_path) -> None:
-    """Qt has no wrapping layout, so a fixed grid pushed half the fields past
-    the right edge on a narrow window -- and with horizontal scrolling off,
-    they could not be reached at all."""
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtWidgets
-
-    from overlay.config import OVERLAY_ITEM_IDS, OVERLAY_ITEM_SECTIONS
-    from ui.components.overlay_config import OverlayConfigPanel
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-    panel = OverlayConfigPanel(
-        QtCore=QtCore, QtWidgets=QtWidgets, config_path=tmp_path / "overlay.toml"
-    )
-
-    # Every field appears exactly once, whatever the arrangement.
-    listed = [item for _title, items in OVERLAY_ITEM_SECTIONS for item in items]
-    assert sorted(listed) == sorted(OVERLAY_ITEM_IDS)
-    assert set(panel.item_checkboxes) == set(OVERLAY_ITEM_IDS)
-
-    widest = max(group.sizeHint().width() for group in panel._section_groups)
-
-    panel._fit_sections_to_width(widest * 2 + 40)
-    assert panel._section_columns == 2
-
-    panel._fit_sections_to_width(widest)
-    assert panel._section_columns == 1
-
-    # Narrower than one section still leaves one column, never zero.
-    panel._fit_sections_to_width(10)
-    assert panel._section_columns == 1

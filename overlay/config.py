@@ -59,6 +59,7 @@ ADVANCED_OVERLAY_ITEM_IDS = (
     "driver_version",
     "resolution",
     "present_mode",
+    "nr_gpu_ms",
     "gpu_util_pct",
     "cpu_util_pct",
     "cpu_peak_thread_pct",
@@ -73,6 +74,7 @@ ADVANCED_OVERLAY_ITEM_IDS = (
     "cpu_power_w",
 )
 OVERLAY_ITEM_IDS = (
+    "nr_gpu_ms",
     "base_fps",
     "fg_fps",
     "latency_ms",
@@ -119,6 +121,7 @@ OVERLAY_ITEM_SECTIONS = (
             "base_fps",
             "fg_fps",
             "latency_ms",
+            "nr_gpu_ms",
             "fps_1pct_low",
             "frametime_p97",
             "fps_session",
@@ -158,7 +161,7 @@ OVERLAY_ITEM_SECTIONS = (
 )
 
 OVERLAY_ROW_GROUPS = (
-    ("base_fps", "fg_fps", "latency_ms", "profile"),
+    ("base_fps", "fg_fps", "latency_ms", "nr_gpu_ms", "profile"),
     ("fps_1pct_low", "frametime_p97", "fps_session"),
     ("frametime_graph",),
     ("clock_mhz", "voltage_mv", "uv_offset_mv"),
@@ -234,6 +237,7 @@ OVERLAY_HUD_ROWS = (
     (HERO_ROW, "", ("base_fps",)),
     (VALUE_ROW, "fg", ("fg_fps",)),
     (VALUE_ROW, "lat", ("latency_ms",)),
+    (VALUE_ROW, "dlss5 nr", ("nr_gpu_ms",)),
     (VALUE_ROW, "tier", ("profile",)),
     (RULE_ROW, "", ()),
     (VALUE_ROW, "gpu", ("clock_mhz", "voltage_mv")),
@@ -273,7 +277,15 @@ OVERLAY_DETAIL_PRESETS = {
     ),
     "full": OVERLAY_ITEM_IDS,
 }
-OVERLAY_DETAIL_IDS = ("minimal", "standard", "detailed", "full", "custom")
+OVERLAY_PRESET_CYCLE = ("minimal", "standard", "detailed", "full")
+OVERLAY_DETAIL_IDS = (*OVERLAY_PRESET_CYCLE, "custom")
+OVERLAY_DETAIL_LABELS = {
+    "minimal": "Small",
+    "standard": "Medium",
+    "detailed": "Large",
+    "full": "Biggest",
+    "custom": "Custom",
+}
 CUSTOM_OVERLAY_DETAIL = "custom"
 DEFAULT_OVERLAY_DETAIL = CUSTOM_OVERLAY_DETAIL
 
@@ -290,6 +302,8 @@ class OverlayConfig:
     renderer: str = DEFAULT_OVERLAY_RENDERER
     font: str = DEFAULT_OVERLAY_FONT
     layout: str = DEFAULT_OVERLAY_LAYOUT
+    # Kept separately while a preset supplies the active field list.
+    custom_item_ids: tuple[str, ...] = ()
 
     @property
     def latency_enabled(self) -> bool:
@@ -340,6 +354,9 @@ def load_overlay_config(path: str | Path | None = None) -> OverlayConfig:
             enabled_item_ids=normalize_overlay_item_ids(
                 payload.get("items", DEFAULT_ENABLED_OVERLAY_ITEM_IDS)
             ),
+            custom_item_ids=normalize_overlay_item_ids(
+                payload.get("custom_items", payload.get("items", DEFAULT_ENABLED_OVERLAY_ITEM_IDS))
+            ),
             update_interval_s=clamp_overlay_update_interval_s(
                 payload.get("update_interval_s", DEFAULT_OVERLAY_UPDATE_INTERVAL_S)
             ),
@@ -388,6 +405,9 @@ def save_overlay_config(
         "items = ["
         + ", ".join(f'"{item_id}"' for item_id in config.enabled_item_ids)
         + "]\n"
+        "custom_items = ["
+        + ", ".join(f'"{item_id}"' for item_id in config.custom_item_ids)
+        + "]\n"
     )
     return atomic_write_text(config_path, text)
 
@@ -402,6 +422,11 @@ def normalize_overlay_config(config: OverlayConfig) -> OverlayConfig:
         if detail == CUSTOM_OVERLAY_DETAIL
         else OVERLAY_DETAIL_PRESETS[detail]
     )
+    custom_items = (
+        config.enabled_item_ids
+        if detail == CUSTOM_OVERLAY_DETAIL
+        else config.custom_item_ids or config.enabled_item_ids
+    )
     return OverlayConfig(
         enabled=bool(config.enabled),
         enabled_item_ids=normalize_overlay_item_ids(items),
@@ -413,6 +438,7 @@ def normalize_overlay_config(config: OverlayConfig) -> OverlayConfig:
         renderer=normalize_overlay_renderer(config.renderer),
         font=normalize_overlay_font(config.font),
         layout=normalize_overlay_layout(config.layout),
+        custom_item_ids=normalize_overlay_item_ids(custom_items),
     )
 
 
@@ -473,8 +499,10 @@ def set_overlay_position(config: OverlayConfig, value: object) -> OverlayConfig:
 
 
 def set_overlay_detail(config: OverlayConfig, value: object) -> OverlayConfig:
+    config = normalize_overlay_config(config)
+    detail = normalize_overlay_detail(value)
     return normalize_overlay_config(
-        replace(config, detail=normalize_overlay_detail(value))
+        replace(config, detail=detail, enabled_item_ids=config.custom_item_ids)
     )
 
 
@@ -526,15 +554,12 @@ def normalize_overlay_renderer(value: object) -> str:
 
 
 def next_overlay_detail(value: object) -> str:
-    """The detail level after this one, wrapping at the end.
-
-    Custom is part of the cycle rather than an escape from it: it holds the
-    user's own field selection, so skipping it would make that selection
-    unreachable from a key binding.
-    """
+    """Cycle the four presets; Custom enters the cycle at Small."""
     current = normalize_overlay_detail(value)
-    index = OVERLAY_DETAIL_IDS.index(current)
-    return OVERLAY_DETAIL_IDS[(index + 1) % len(OVERLAY_DETAIL_IDS)]
+    if current not in OVERLAY_PRESET_CYCLE:
+        return OVERLAY_PRESET_CYCLE[0]
+    index = OVERLAY_PRESET_CYCLE.index(current)
+    return OVERLAY_PRESET_CYCLE[(index + 1) % len(OVERLAY_PRESET_CYCLE)]
 
 
 def normalize_overlay_detail(value: object) -> str:

@@ -5,6 +5,7 @@
 The overlay shows live FPS, latency, GPU telemetry, and the active profile
 while you play.
 
+<!-- Regenerate with: python scripts/render-overlay-settings.py -->
 ![Overlay configuration tab](../assets/overlay.png)
 
 ## Enabling the overlay
@@ -14,26 +15,31 @@ Use the Overlay tab to choose fields and appearance. For manual launch options,
 see [Steam](../steam.md#manual-launch-options), [Lutris](lutris.md),
 [Heroic](heroic.md) or [Faugus](faugus.md).
 
-The controls are grouped by the question they answer — **Placement and size**,
-**Style**, **Behaviour** — with the preview beside them and the field list
-below.
+The tab uses the same preference cards as Game Library. **Preview**,
+**Appearance**, and **Behaviour** sit beside the metric groups on wide windows;
+the cards stack as the window narrows.
 
-- **Enable overlay** — master toggle.
-- **Refresh** — how often the readout refreshes (e.g. `1 s`).
-- **Size** — size multiplier (`0.5x`, `0.75x`, `1x`, `1.5x`, `2x`). `1x`, the
-  default, draws text about as large as MangoHud's default at 1440p; the
+Each metric group shows its selected fields and a count. Click **Edit** to
+reveal checkboxes in that card, change the selection, then click **Done** to
+return to the summary. Selections save immediately; Edit and Done only change
+the presentation. No metric dialog opens. An empty group shows **No metrics
+selected.**
+
+- The header's **On / Off** switch is the master toggle.
+- **Refresh interval** — how often the readout refreshes (e.g. `1 s`).
+- **Scale** — a slider with a percentage readout, using the existing scale
+  steps. `100%`, the default, draws text about as large as MangoHud's default
+  at 1440p; the
   overlay already grows and shrinks with the game's resolution on its own.
   The fractional steps need **Sans** or **Mono**; the **Pixel (bitmap)** face
   can only be magnified by whole pixels, so it rounds to the nearest whole
   size.
-- **Detail** — how much the overlay shows: **Minimal** (frame rate only),
-  **Standard** (frame rate, FG, latency, tier), **Detailed** (adds clocks,
-  voltage, power, 1% low, GPU/CPU load and temperature), **Everything** (all
-  fields),
-  or **Custom**. Ticking or unticking any field below switches to Custom and
-  keeps your own selection.
-- **Opacity** — how much of the game shows through the overlay's panel. Only
-  the blended renderer can honour it; the text itself stays fully opaque.
+- **Preset** — Small (frame rate only), Medium (frame rate, FG, latency,
+  tier), Large (adds GPU and CPU readings), Biggest (all fields), or Custom.
+  Editing a field switches to Custom. Your custom selection is saved separately
+  and restored when you choose Custom again, including after cycling presets.
+- **Background opacity** — how much of the game shows through the overlay's
+  panel. Only the blended renderer can honour it; the text itself stays fully opaque.
 - **Layout** — **HUD** is the designed arrangement: the frame rate as a
   headline, dim labels beside their values, rules between groups and a quieter
   footer for the device line. **Table** is the plain grid every field shares,
@@ -60,11 +66,6 @@ below.
   narrower for the same cap height.
   With a proportional face the columns are placed from measured widths rather
   than padded with spaces, because every character has its own.
-- **Renderer** — **Blended** draws through a Vulkan pipeline, which is what
-  makes translucency and rounded corners possible. **Solid (compatibility)**
-  forces the original renderer, which draws with cleared rectangles and cannot
-  blend. Blended falls back to Solid on its own when a driver will not give it
-  a pipeline, so the HUD never disappears over it.
 - **Position** — which corner the readout sits in: top left,
   top center, top right (the default), bottom left, or bottom right.
 - **Target FPS** — the reference frame rate, shared with
@@ -73,6 +74,11 @@ below.
 After enabling the overlay or changing the game's resolution, the HUD appears
 once preparation finishes. The game continues presenting during preparation.
 Switching from Solid to Blended keeps the Solid HUD visible until Blended is ready.
+
+Settings changes use **Blended**, with no renderer selector. It supports
+translucency and rounded corners, and retains the automatic solid fallback
+when a driver cannot create the pipeline. Opening the tab preserves an older
+saved renderer choice; the next explicit settings change selects Blended.
 
 The default **HUD** layout puts the frame rate on top, then frame generation,
 latency and the active tier; a rule; the card (clocks, power, temperature,
@@ -88,7 +94,7 @@ the game, and the frametime graph sits under the readout):
 ```text
 119 fps
 fg      176 fps
-lat     23 ms
+lat     ~23 ms
 tier    Performance
 -------------------------------------------
 gpu     2820 MHz 925 mV
@@ -126,25 +132,27 @@ GiB (1024 MiB).
 
 ## Fields
 
-Toggle each item independently — doing so switches **Detail** to Custom.
+Click a group’s **Edit** button to toggle its fields independently. Changing
+a selection switches **Preset** to Custom.
 They are grouped by what they describe, and the groups wrap to the width the
 tab has, so the whole list is reachable without resizing the window:
 
 | Frame rate | GPU | CPU and system | Device |
 | --- | --- | --- | --- |
-| Base FPS | Clock MHz | CPU % | GPU name |
-| FG FPS (frame-generation) | Voltage mV | CPU-T (peak thread) | Driver version |
-| Latency ms | Memory MHz | CPU temp C | Resolution |
-| 1% low FPS | Power W | CPU power W | Present mode |
-| Frametime p97 | Temp C | System RAM |  |
-| Session min/avg/max | GPU % |  |  |
-| Frametime graph | Fan % |  |  |
-|  | VRAM used/total |  |  |
-|  | UV offset mV |  |  |
-|  | Profile (tier: EFF/BAL/PERF) |  |  |
+| Base frame rate | GPU clock | CPU usage | Graphics card |
+| FPS after frame generation | GPU voltage | Busiest CPU thread | Driver version |
+| Frame latency | Memory clock | CPU temperature | Resolution |
+| 1% low frame rate | Power draw | CPU power draw | Presentation mode |
+| Frame time · 97th percentile | GPU temperature | System memory |  |
+| Session minimum / average / maximum |  |  |  |
+| Frame time graph | GPU usage |  |  |
+|  | Fan speed |  |  |
+|  | Video memory |  |  |
+|  | Undervolt offset |  |  |
+|  | Active profile |  |  |
 
-**Memory MHz**, **VRAM**, **System RAM**, **CPU temp** and **CPU power** come
-from the daemon. VRAM and the memory clock are NVML readings taken beside the
+**Memory clock**, **Video memory**, **System memory**, **CPU temperature** and
+**CPU power draw** come from the daemon. VRAM and the memory clock are NVML readings taken beside the
 core clock. System RAM counts *used* as total minus available, not total minus
 free: Linux lends nearly all idle memory to the page cache, so total-minus-free
 would read as a full machine at all times. CPU temperature comes from the
@@ -162,19 +170,32 @@ missing row is honest; a zero would read as a real measurement.
 PenguinBurner captures no keyboard input. Instead it ships one-shot commands
 that your desktop's own global shortcuts can run, and the overlay picks the
 change up by itself: the running layer re-reads its visibility override about
-once a second and `overlay.toml` four times a second.
+every 50 ms and `overlay.toml` four times a second.
 
 That is deliberate. A desktop shortcut already works over a fullscreen game, on
 both X11 and Wayland, and needs no new privileges. Reading the keyboard from
 inside a Vulkan layer would mean hooking whichever input API the game happens
 to use, per game, with everything that implies for anti-cheat.
 
-| Command | What it does |
-| --- | --- |
-| `penguin-burner-cli --overlay-toggle` | Show or hide the overlay |
-| `penguin-burner-cli --overlay-visible on\|off\|auto` | Set it explicitly; `auto` hands it back to the game's launch setting |
-| `penguin-burner-cli --overlay-detail-next` | Step to the next detail level, wrapping at the end |
-| `penguin-burner-cli --overlay-detail minimal\|standard\|detailed\|full\|custom` | Jump straight to one level |
+| Default key | Command | What it does |
+| --- | --- | --- |
+| Alt+C | `penguin-burner-cli --overlay-detail-next` | Small → Medium → Large → Biggest → Small |
+| Alt+[ | `penguin-burner-cli --overlay-scale-down` | Decrease Scale, stopping at 50% |
+| Alt+] | `penguin-burner-cli --overlay-scale-up` | Increase Scale, stopping at 200% |
+| Alt+< | `penguin-burner-cli --overlay-position-prev` | Previous position, wrapping |
+| Alt+> | `penguin-burner-cli --overlay-position-next` | Next position, wrapping |
+| Alt+X | `penguin-burner-cli --overlay-toggle` | Show or hide the overlay |
+| Unassigned | `penguin-burner-cli --overlay-visible on\|off\|auto` | Set visibility; `auto` follows the game's launch setting |
+| Unassigned | `penguin-burner-cli --overlay-detail minimal\|standard\|detailed\|full\|custom` | Choose Small, Medium, Large, Biggest or Custom directly |
+
+Preset cycling changes the field count, leaving Scale alone. From Custom,
+the first press selects Small; Custom is not a stop in the cycle. Unavailable readings can be hidden and the HUD groups some fields onto the same row.
+
+Scale steps through 50%, 75%, 100%, 150% and 200%. Position order is top
+left → top centre → top right → bottom left → bottom right → top left;
+Alt+< goes in reverse. These actions preserve the selected fields, visibility,
+font and other settings. On layouts where `<` and `>` require Shift, hold
+Shift as well as Alt, or choose different keys in desktop settings.
 
 With no override in place the game is following its launch setting, which is
 **Enable overlay** on the Overlay tab — so the first `--overlay-toggle` hides
@@ -184,11 +205,24 @@ option, so with **Enable overlay** off it takes a second press to hide it.
 
 ### Binding a key
 
-**KDE Plasma** — System Settings → Shortcuts → Add New → Command or Script.
-Enter the command, then click the shortcut field and press the key you want.
+On KDE, **Keyboard shortcuts…** opens the PenguinBurner entry directly, with
+all six actions and their defaults already registered by the installed desktop
+entry. No commands need to be copied or added. Existing custom bindings take
+precedence, and keys can be changed in KDE. On GNOME, the button offers
+**Set up GNOME shortcuts**. Other desktops show commands and setup guidance. Opening settings does not change bindings.
 
-**GNOME** — Settings → Keyboard → View and Customize Shortcuts → Custom
-Shortcuts → +. Give it a name, paste the command, and set the shortcut.
+**KDE Plasma** — System Settings → Keyboard → Shortcuts → PenguinBurner.
+Select an action to change its key binding.
+
+**GNOME** — Click **Keyboard shortcuts…**, then **Set up GNOME shortcuts**.
+All six actions are added to GNOME's Custom Shortcuts and its settings window
+opens automatically. No commands need to be copied. Repeating setup preserves
+existing actions, customized keys, disabled bindings, and unrelated shortcuts.
+If a default conflicts with an existing GNOME binding, the new action is added
+without a key and setup reports which action needs a free combination.
+The same workflow supports native and Flatpak installations; Flatpak registers
+commands on the host. Registration requires GNOME's keyboard settings service.
+
 
 If the command is not on your `PATH` (a `pip install --user` that did not add
 `~/.local/bin`), use the full path in the shortcut.
@@ -196,10 +230,10 @@ If the command is not on your `PATH` (a `pip install --user` that did not add
 ## Colour and cut rows
 
 The readout is coloured by role, the same way in both layouts. Labels and the footer sit
-back from the values they belong to. **Temp C** reads green while the card is
+back from the values they belong to. **GPU temperature** reads green while the card is
 cool, amber from 72 C and red from 80 C — earlier than the point a card
 throttles, because on a tuning HUD the useful moment is the one before the
-clocks move. **CPU temp C** uses the same colours but reaches them later, at
+clocks move. **CPU temperature** uses the same colours but reaches them later, at
 85 C and 95 C, because a CPU is expected to sit hotter than a card.
 The active **tier** and the **UV offset** carry their own accents:
 they are the two things this tool changes, as opposed to merely reports.
@@ -223,13 +257,13 @@ so and nothing else on the tab is affected.
 The Overlay tab's preview paints the same rows, in the same colours, over a
 stand-in game frame, so the accents, the panel's translucency and the corner
 the box sits in all read before a game is launched. It is drawn against a
-1440p frame, which is what lets **Size** show how much of the screen
+1440p frame, which is what lets **Scale** show how much of the screen
 each step actually covers rather than merely a bigger box. The preview uses
 the desktop copies of the same typefaces; the in-game text comes from the
 distance-field atlas, so hinting differs slightly at the smallest sizes.
 
 If a row is wider than the game's image, what is drawn ends in `>`. The row is
-still cut, but you can tell that it was: pick a smaller **Size**, or
+still cut, but you can tell that it was: pick a smaller **Scale**, or
 switch off fields, to see the rest.
 
 ## What the layer knows about your game
@@ -238,20 +272,20 @@ Four fields come from the game's own Vulkan device and swapchain. The layer
 reads them straight from the driver when the game starts up, so they cost no
 daemon round trip and no state file:
 
-- **GPU name** — the card the game is actually rendering on. On a multi-GPU
+- **Graphics card** — the card the game is actually rendering on. On a multi-GPU
   machine that is not always the one the desktop app is tuning.
 - **Driver version** — decoded the way the card's vendor packs it, which is not
   the same for every vendor: NVIDIA's proprietary driver uses its own scheme,
   and Mesa drivers (Intel, AMD) use the standard Vulkan one, so they read as
   the Mesa release, e.g. `24.2.3`.
-- **Resolution** — the game's own render resolution from the swapchain it
-  created, not the desktop resolution, so upscaling and windowed modes show
-  their real size.
-- **Present mode** — `fifo` is vsync, `immediate` is uncapped and can tear,
-  `mailbox` is triple buffering. Worth a look when a frame rate cap appears
-  from nowhere.
+- **Resolution** — the size of the game's Vulkan presentation surface.
+  Upscaling may render the scene at a different internal resolution.
+- **Presentation mode** — the Vulkan swapchain's presentation mode, such as
+  FIFO, Immediate, or Mailbox. This checkbox displays information; it does not
+  change VSync or enable VRR. The layer records the mode when the swapchain is
+  created, so it may not reflect per-present changes made later by the game.
 
-Enabling **GPU name** widens the whole readout: columns line up across every
+Enabling **Graphics card** widens the whole readout: columns line up across every
 row, so the longest cell sets the first column's width for all of them.
 
 ## GPU hotspot temperature
@@ -272,13 +306,13 @@ Celsius, or `null` when unavailable.
 Three fields come from the overlay layer's own measurements inside the game
 process, not from the daemon:
 
-- **1% low FPS** — the frame rate of the slowest one per cent of recent
+- **1% low frame rate** — the frame rate of the slowest one per cent of recent
   frames, averaged. This is the number that moves when an undervolt starts
   costing you stutter. A tier that holds its 1% low while dropping voltage is
   a good tier, and the headline frame rate will not tell you that.
-- **Frametime p97** — the frametime 97% of recent frames came in under, in
+- **Frame time · 97th percentile** — the frametime 97% of recent frames came in under, in
   milliseconds. The same tail, expressed as time rather than rate.
-- **Session min/avg/max** — slowest, average and fastest frame rate since the
+- **Session minimum / average / maximum** — slowest, average and fastest frame rate since the
   game created its current swapchain. A resize, a fullscreen toggle or any
   other swapchain rebuild starts a new session, and frames are only counted
   while the overlay is shown. The average is taken over the session's total
@@ -286,7 +320,7 @@ process, not from the daemon:
   are single frames and will look spiky: one alt-tab or shader compile sets
   the minimum for the rest of the session.
 
-A fourth field, **Frametime graph**, draws that same window as bars under the
+A fourth field, **Frame time graph**, draws that same window as bars under the
 readout, newest on the right, with a rule across the window's median
 frametime. Bars that reach twice the median turn amber, so a stutter is
 visible without reading a number. The bars are scaled against the worse of the
@@ -305,8 +339,8 @@ example values for these three rather than live ones.
 
 The overlay shows two frame-rate numbers:
 
-- **Base FPS** — the rendered present rate, before frame generation.
-- **FG FPS** — the rate with frame generation, shown only when frame
+- **Base frame rate** — the rendered present rate, before frame generation.
+- **FPS after frame generation** — the rate with frame generation, shown only when frame
   generation is active.
 
 Having both makes it obvious how much of the displayed rate comes from generated
@@ -315,17 +349,60 @@ frames versus rendered ones.
 See [Latency and frame-generation FPS](./latency-fg.md) for the exact p95,
 raw-output, and frame-generation detection rules.
 
-## PC latency meter
+## Frame latency estimate
 
-The **LAT** field shows PC latency in milliseconds: the render tail plus the
-present-to-scanout display tail when that tail is supported. Where the display
-tail isn't available, it shows render latency alone. It turns on with the
-overlay, sourced from the NVAPI shim on Proton games and the native Vulkan layer
-otherwise.
+Enable **Frame latency ms** in **In-Game Overlay → Frame rate**. The row shows
+`LAT AVG` (`lat avg` in HUD), or `LAT P95` with an older daemon. Reflex input to
+GPU completion is preferred. A `~` prefix identifies estimated latency.
 
-- Set `PENGUIN_BURNER_LATENCY_DISPLAY=0` to show render latency only.
-- Set `PB_INGAME_LATENCY=0` to turn the latency field off while keeping the
-  overlay.
+Without usable Reflex markers, the Vulkan layer pairs the previous Present
+entry with the current frame's calibrated GPU completion. This frame-cycle
+estimate includes GPU queueing, but its start is a proxy for engine/input work.
+It is not measured mouse-to-screen latency. It uses the existing overlay submit
+and telemetry socket; no injector-specific configuration is needed.
 
-Without usable latency markers, the overlay omits `LAT` and keeps showing FPS
-and GPU telemetry. See [latency and FPS details](latency-fg.md).
+The fallback requires the game/runtime to enable calibrated Vulkan timestamps
+and an active drawable overlay. It reads completed queries without waiting on
+the GPU. Unsupported or stale measurements remain hidden. `PB_INGAME_LATENCY=0`
+disables capture; `PENGUIN_BURNER_LATENCY_DISPLAY=0` disables only the independent
+presentation-wait diagnostic, which is never added to the frame-latency value.
+See [latency measurement](latency-fg.md) for endpoint and frame-generation limits.
+
+## DLSS5 neural-rendering GPU time
+
+Enable **DLSS5 NR GPU time** in the Overlay tab, then launch or restart the
+wrapped game. The overlay displays **dlss5 nr 2.20 ms**, for example. The setting
+is also available as `nr_gpu_ms` in the overlay configuration's `items` list.
+Changing visibility applies live; starting capture requires a game restart.
+
+This is a three-second average of GPU elapsed time per successful NR model
+evaluation. It measures GPU commands recorded by the NR model, excluding
+surrounding injector processing. It is neither additional input latency nor a
+measurement of DLSS Super Resolution or Frame Generation. Existing frame-latency
+telemetry remains separate.
+
+Capture currently supports 64-bit Proton/Wine games using NVIDIA's NGX D3D12
+driver dispatcher (`_nvngx.dll`, feature 18) and the version-2 NR forwarder
+interface (`nvngx.dll_dlssnr.dll`) used by Retoque. Capture follows these shared
+interfaces rather than detecting individual OptiScaler forks. Both adapters use
+the same GPU collector and telemetry path; nested calls produce one sample.
+Unknown forwarder ABI versions remain untouched. Direct model-DLL calls outside
+these interfaces, Vulkan NR and separate helpers that do not load the PBurn shim
+are not covered. Unsupported paths and readings older than three seconds are
+shown as **dlss5 nr -**; they do not display a fabricated zero.
+The enabled row stays visible when NR is off, keeping the overlay layout stable.
+
+Capture can attach after D3D12 devices and queues already exist. The NGX adapter
+must observe feature creation to identify NR. The NR-only forwarder can also
+recognize an existing feature at its first evaluation. Preparation uses that
+device to discover the runtime's shared queue dispatch table through a temporary,
+idle queue, outside collector locks. This happens once per observed feature;
+prepared devices reuse the collector. Capture does not hook device creation
+during startup or create a queue on every evaluation.
+
+The optional observer uses GPU timestamp queries and asynchronous fence polling.
+It sends measurements through the existing NVAPI shim FIFO and session-scoped
+daemon socket, alongside Reflex records. It does not read injector logs or wait
+for GPU completion on the game thread. Each device has a bounded query pool;
+exhausted or unsafe replay recordings are skipped. Concurrent producers are not
+averaged together: the newest producer supplies the displayed reading.

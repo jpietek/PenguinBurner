@@ -20,6 +20,9 @@ def telemetry_live_abort_reason(
     proper_run_power_floor_w: float | None,
     progress_state: dict,
 ) -> str | None:
+    if state.get("running") == "q2rtx" and state.get("benchmark_phase") != "measure":
+        progress_state["low_power_streak"] = 0
+        return None
     latest = state.get("latest_sample")
     latest_busy = telemetry_sample_is_busy(latest, busy_power_floor_w)
     lost = load_lost_abort_reason(
@@ -36,17 +39,12 @@ def telemetry_live_abort_reason(
 
 
 def selected_nvidia_gpu_idle_abort_reason(state: dict) -> str | None:
-    if float(state.get("elapsed_s", 0.0)) < float(
-        AUTO_UV_STALL_TUNING.selected_gpu_idle_min_s
-    ):
+    if state.get("running") == "q2rtx" and state.get("benchmark_phase") != "measure":
         return None
     samples = [
         sample
         for sample in list(state.get("telemetry_samples") or [])
         if sample is not None
-        and getattr(sample, "elapsed_s", None) is not None
-        and float(sample.elapsed_s)
-        >= float(AUTO_UV_METRIC_TUNING.loaded_sample_warmup_s)
     ]
     if len(samples) < int(AUTO_UV_STALL_TUNING.selected_gpu_idle_min_samples):
         return None
@@ -105,8 +103,6 @@ def load_lost_abort_reason(
         or latest_sample.power_w is None
         or len(list(state.get("telemetry_samples") or []))
         < AUTO_UV_STALL_TUNING.load_lost_min_samples
-        or float(state.get("elapsed_s", 0.0))
-        < float(AUTO_UV_METRIC_TUNING.loaded_sample_warmup_s)
     ):
         return None
     progress_state["low_power_streak"] = (

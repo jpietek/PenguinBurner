@@ -20,7 +20,7 @@ def render_cache_probe(tmp_path_factory: pytest.TempPathFactory) -> Path:
     binary = target / "probe"
     subprocess.run([
         compiler, "-std=c++17", "-O2", "-I", str(src), str(probe),
-        str(src / "overlay_text.cpp"), str(src / "latency_state.cpp"),
+        str(src / "overlay_text.cpp"), str(src / "latency_state.cpp"), str(src / "frame_timing.cpp"),
         "-o", str(binary),
     ], check=True)
     return binary

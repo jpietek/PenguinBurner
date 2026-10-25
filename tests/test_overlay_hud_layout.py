@@ -9,25 +9,28 @@ pixels.
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
 import pytest
 
-from overlay.config import OVERLAY_HUD_ROWS
-from overlay.config import OVERLAY_ITEM_IDS
-from overlay.config import OVERLAY_NON_TEXT_ITEM_IDS
-from overlay.config import OverlayConfig
-from overlay.overlay_text import ALERT_TEMPERATURE_C
-from overlay.overlay_text import CELL_ALERT
-from overlay.overlay_text import CELL_DIM
-from overlay.overlay_text import CELL_GOOD
-from overlay.overlay_text import CELL_NORMAL
-from overlay.overlay_text import CELL_TIER
-from overlay.overlay_text import CELL_WARN
-from overlay.overlay_text import WARN_TEMPERATURE_C
-from overlay.overlay_text import format_overlay_hud_rows
-
+from overlay.config import (
+    OVERLAY_HUD_ROWS,
+    OVERLAY_ITEM_IDS,
+    OVERLAY_NON_TEXT_ITEM_IDS,
+    OverlayConfig,
+)
+from overlay.overlay_text import (
+    ALERT_TEMPERATURE_C,
+    CELL_ALERT,
+    CELL_DIM,
+    CELL_GOOD,
+    CELL_NORMAL,
+    CELL_TIER,
+    CELL_WARN,
+    WARN_TEMPERATURE_C,
+    format_overlay_hud_rows,
+)
 
 LIVE = {
     "present_fps": "119",

@@ -136,7 +136,7 @@ static int overlay_visibility_override() {
     // Launch-time default from the wrapper env, overridable LIVE by a small
     // runtime file the UI writes ("1"/"0"): the layer is always loaded, so
     // visibility can flip on a running game without a restart. The file is
-    // re-checked at most once a second; the wrapper clears it at launch so a
+    // re-checked every 50 ms; the wrapper clears it at launch so a
     // stale override never leaks into the next game.
     static std::mutex override_mutex;
     static std::chrono::steady_clock::time_point last_check{};
@@ -145,7 +145,7 @@ static int overlay_visibility_override() {
     std::lock_guard<std::mutex> lock(override_mutex);
     const auto now = std::chrono::steady_clock::now();
     if (last_check.time_since_epoch().count() == 0
-        || now - last_check >= std::chrono::seconds(1)) {
+        || now - last_check >= std::chrono::milliseconds(50)) {
         last_check = now;
         override_state = -1;
         static const std::string override_path = overlay_runtime_path(
@@ -236,7 +236,8 @@ std::string profile_voltage_mv_from_id(const std::string& profile_id) {
     return "";
 }
 
-const std::array<const char*, 27> kOverlayItemOrder = {
+const std::array<const char*, 28> kOverlayItemOrder = {
+    "nr_gpu_ms",
     "base_fps",
     "fg_fps",
     "latency_ms",
@@ -473,6 +474,12 @@ OverlayGpuState read_overlay_gpu_state() {
             state.clock_mhz = value;
         } else if (key == "latency_ms") {
             state.latency_ms = value;
+        } else if (key == "nr_gpu_ms") {
+            state.nr_gpu_ms = value;
+        } else if (key == "latency_avg_ms") {
+            state.latency_avg_ms = value;
+        } else if (key == "latency_source") {
+            state.latency_source = value;
         } else if (key == "display_latency_ms") {
             state.display_latency_ms = value;
         } else if (key == "voltage_mv") {
@@ -702,33 +709,22 @@ std::string overlay_optional_value(const std::string& value, const char* suffix)
     return text + suffix_text;
 }
 
-// Render latency plus the optional present->scanout display tail, as one number.
-// When the display field is absent (display-latency capture not enabled via the
-// Steam params), this collapses to the render latency alone.
-std::string overlay_combined_latency_value(
-    const std::string& render_ms,
-    const std::string& display_ms) {
-    if (overlay_value_missing(render_ms)) {
+// Use the selected frame span without adding an unrelated presentation wait.
+// Without an input marker the span is an estimate of responsiveness.
+std::string overlay_frame_latency_value(
+    const std::string& latency_ms,
+    const std::string& source) {
+    if (overlay_value_missing(latency_ms)) {
         return "";
     }
-    const std::string render_text = trim_ascii(render_ms);
+    const std::string value = trim_ascii(latency_ms);
     errno = 0;
-    char* render_end = nullptr;
-    const long render = std::strtol(render_text.c_str(), &render_end, 10);
-    if (errno != 0 || render_end == render_text.c_str()) {
+    char* end = nullptr;
+    const long latency = std::strtol(value.c_str(), &end, 10);
+    if (errno != 0 || end == value.c_str()) {
         return "";
     }
-    long total = render;
-    if (!overlay_value_missing(display_ms)) {
-        const std::string display_text = trim_ascii(display_ms);
-        errno = 0;
-        char* display_end = nullptr;
-        const long display = std::strtol(display_text.c_str(), &display_end, 10);
-        if (errno == 0 && display_end != display_text.c_str()) {
-            total += display;
-        }
-    }
-    return std::to_string(total);
+    return std::string(source == "input-to-gpu" ? "" : "~") + std::to_string(latency);
 }
 
 std::string overlay_signed_value(const std::string& value) {
@@ -864,7 +860,7 @@ std::string compact_profile_tier(const std::string& value) {
 // with nothing enabled in it draws no row.
 const std::array<std::vector<const char*>, 8>& overlay_row_groups() {
     static const std::array<std::vector<const char*>, 8> groups = {{
-        {"base_fps", "fg_fps", "latency_ms", "profile"},
+        {"base_fps", "fg_fps", "latency_ms", "nr_gpu_ms", "profile"},
         {"fps_1pct_low", "frametime_p97", "fps_session"},
         {"clock_mhz", "voltage_mv", "uv_offset_mv"},
         {"power_w", "temperature_c", "hotspot_temperature_c", "fan_pct"},
@@ -891,6 +887,7 @@ const std::vector<OverlayHudRow>& overlay_hud_rows() {
         {OverlayRowKind::Hero, "", {"base_fps"}},
         {OverlayRowKind::Value, "fg", {"fg_fps"}},
         {OverlayRowKind::Value, "lat", {"latency_ms"}},
+        {OverlayRowKind::Value, "dlss5 nr", {"nr_gpu_ms"}},
         {OverlayRowKind::Value, "tier", {"profile"}},
         {OverlayRowKind::Rule, "", {}},
         {OverlayRowKind::Value, "gpu", {"clock_mhz", "voltage_mv"}},
@@ -1028,6 +1025,10 @@ std::string overlay_item_value(
     const OverlayFrameStats& stats,
     const OverlayDeviceFacts& facts,
     const OverlayGpuState& state) {
+    if (item == "nr_gpu_ms") {
+        const auto value = overlay_optional_value(state.nr_gpu_ms, " ms");
+        return value.empty() ? "-" : value;
+    }
     if (item == "base_fps") {
         const std::string published = trim_ascii(state.present_fps);
         if (!published.empty()) {
@@ -1045,8 +1046,9 @@ std::string overlay_item_value(
     }
     if (item == "latency_ms") {
         return overlay_optional_value(
-            overlay_combined_latency_value(
-                state.latency_ms, state.display_latency_ms),
+            overlay_frame_latency_value(
+                trim_ascii(state.latency_avg_ms).empty() ? state.latency_ms : state.latency_avg_ms,
+                state.latency_source),
             " ms");
     }
     if (item == "profile") {
@@ -1155,6 +1157,9 @@ std::string overlay_item_cell(
     if (item == "present_mode") {
         return facts.present_mode;
     }
+    if (item == "nr_gpu_ms") {
+        return "dlss5 nr " + overlay_item_value(item, stats, facts, state);
+    }
     if (item == "base_fps") {
         return overlay_fps_text(fps, state);
     }
@@ -1228,10 +1233,11 @@ std::string overlay_item_cell(
     }
     if (item == "latency_ms") {
         const std::string latency = overlay_optional_value(
-            overlay_combined_latency_value(
-                state.latency_ms, state.display_latency_ms),
+            overlay_frame_latency_value(
+                trim_ascii(state.latency_avg_ms).empty() ? state.latency_ms : state.latency_avg_ms,
+                state.latency_source),
             " ms");
-        return latency.empty() ? "" : "LAT " + latency;
+        return latency.empty() ? "" : std::string(trim_ascii(state.latency_avg_ms).empty() ? "LAT P95 " : "LAT AVG ") + latency;
     }
     if (item == "mem_clock_mhz") {
         const std::string mem = overlay_optional_value(state.mem_clock_mhz, " MHz");

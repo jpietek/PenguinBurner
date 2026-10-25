@@ -151,7 +151,7 @@ and adaptive switching. NVIDIA-only comparison, to the best of our knowledge:
 | Rust hardware daemon | ✅ | ✅ |
 | **Adaptive** undervolt (switches tiers by frame rate) | ✅ | ❌ |
 | **In-game performance overlay** | ✅ | ❌ |
-| **PC latency meter** | ✅ | ❌ |
+| **Frame latency estimate** | ✅ | ❌ |
 | **Pre-frame-generation FPS counter** (base vs FG FPS) | ✅ | ❌ |
 | Manual V/F curve editor | ✅ | ✅ |
 | Fan curve control | ✅ auto silent curve + editor | ✅ custom curves |
@@ -180,10 +180,11 @@ the resulting curve under LACT if you prefer.
 
 ## Performance Overlay
 
-Show **base FPS**, **frame-generation FPS**, **PC latency**, GPU clocks,
+Show **base FPS**, **frame-generation FPS**, **frame latency estimates**, GPU clocks,
 power, temperatures, and the active tier while playing. Enable **Overlay** for
 a game in Game Library and select fields in the Overlay tab. Latency requires
-usable timing markers from the game.
+usable timing endpoints from the game. Estimates are marked with `~` and do not
+measure full mouse-to-screen delay.
 
 ![Performance overlay](docs/assets/overlay.png)
 

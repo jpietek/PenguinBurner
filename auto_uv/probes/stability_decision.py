@@ -26,6 +26,7 @@ class StabilityThresholds:
 
 
 FATAL_REASON_PREFIXES = (
+    "benchmark-companion-start-missing",
     "benchmark-crashed-signal",
     "benchmark-duration-short",
     "benchmark-event-pipe-closed",
@@ -35,6 +36,7 @@ FATAL_REASON_PREFIXES = (
     "benchmark-metrics-invalid",
     "benchmark-nonzero-exit",
     "benchmark-start-missing",
+    "benchmark-startup-timeout",
     "benchmark-summary-missing",
     "benchmark-timeout",
     "fatal-cuda-output",

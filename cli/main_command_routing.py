@@ -10,8 +10,10 @@ from overlay.config import steam_launch_option
 from overlay.control import (
     OverlayControlResult,
     cycle_overlay_detail,
+    cycle_overlay_position,
     set_overlay_detail_level,
     set_overlay_visibility,
+    step_overlay_scale,
     toggle_overlay_visibility,
 )
 from overlay.telemetry.steam_launch_check import rewrite_launch_options
@@ -247,6 +249,10 @@ def _overlay_control_result(args) -> OverlayControlResult | None:
             "overlay_visible",
             "overlay_detail_next",
             "overlay_detail",
+            "overlay_scale_down",
+            "overlay_scale_up",
+            "overlay_position_prev",
+            "overlay_position_next",
         )
         if getattr(args, name, None)
     ]
@@ -255,7 +261,8 @@ def _overlay_control_result(args) -> OverlayControlResult | None:
     if len(requested) > 1:
         raise NvmlError(
             "choose only one of --overlay-toggle, --overlay-visible, "
-            "--overlay-detail-next or --overlay-detail"
+            "--overlay-detail-next, --overlay-detail, --overlay-scale-down, "
+            "--overlay-scale-up, --overlay-position-prev or --overlay-position-next"
         )
     try:
         if getattr(args, "overlay_toggle", False):
@@ -264,6 +271,14 @@ def _overlay_control_result(args) -> OverlayControlResult | None:
             return set_overlay_visibility(args.overlay_visible)
         if getattr(args, "overlay_detail_next", False):
             return cycle_overlay_detail()
+        if getattr(args, "overlay_scale_down", False):
+            return step_overlay_scale(-1)
+        if getattr(args, "overlay_scale_up", False):
+            return step_overlay_scale(1)
+        if getattr(args, "overlay_position_prev", False):
+            return cycle_overlay_position(-1)
+        if getattr(args, "overlay_position_next", False):
+            return cycle_overlay_position(1)
         return set_overlay_detail_level(args.overlay_detail)
     except (OSError, ValueError) as exc:
         raise NvmlError(f"overlay control failed: {exc}") from exc

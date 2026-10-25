@@ -11,7 +11,8 @@ from auto_uv.domain.user_options import AUTO_UV_DEFAULTS
 from auto_uv.scan_mode.auto_uv_mode import ADAPTIVE_TIER_MODES, AUTO_UV_MODES
 from common.penguin_burner_paths import default_runtime_config_path
 from integrations.afterburner.policy import MAX_AFTERBURNER_MEM_OFFSET_MHZ
-from overlay.control import DETAIL_LABELS, VISIBILITY_MODES
+from overlay.config import OVERLAY_DETAIL_IDS
+from overlay.control import VISIBILITY_MODES
 from runtime.support.runtime_service import DEFAULT_JOURNAL_HOURS
 from stability.q2rtx.resolution import Q2RTX_SCAN_RESOLUTIONS
 
@@ -203,7 +204,7 @@ def parse_arguments(argv):
         help=(
             "Show or hide the in-game overlay in a running game and exit. Bind "
             "this to a desktop shortcut to reach it without leaving the game; "
-            "the running layer picks the change up within a second."
+            "the running layer checks visibility every 50 ms."
         ),
     )
     overlay_group.add_argument(
@@ -218,15 +219,23 @@ def parse_arguments(argv):
         "--overlay-detail-next",
         action="store_true",
         help=(
-            "Step the overlay to the next detail level and exit, wrapping from "
-            "the last back to the first. Also reachable as a desktop shortcut."
+            "Cycle Small → Medium → Large → Biggest → Small and exit. "
+            "Custom starts at Small. Default desktop shortcut: Alt+C."
         ),
     )
     overlay_group.add_argument(
         "--overlay-detail",
-        choices=tuple(DETAIL_LABELS),
-        help="Set the overlay's detail level and exit.",
+        choices=OVERLAY_DETAIL_IDS,
+        help=("Set the overlay preset and exit: minimal=Small, standard=Medium, "
+              "detailed=Large, full=Biggest; custom restores your selected fields."),
     )
+    for flag, help_text in (
+        ("--overlay-scale-down", "Decrease overlay scale one step (minimum 0.5x). Default shortcut: Alt+[."),
+        ("--overlay-scale-up", "Increase overlay scale one step (maximum 2x). Default shortcut: Alt+]."),
+        ("--overlay-position-prev", "Cycle to the previous overlay position, wrapping. Default shortcut: Alt+<."),
+        ("--overlay-position-next", "Cycle to the next overlay position, wrapping. Default shortcut: Alt+>."),
+    ):
+        overlay_group.add_argument(flag, action="store_true", help=help_text)
     steam_group.add_argument(
         "--set-steam-overlay-launch",
         metavar="APPID",

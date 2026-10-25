@@ -83,7 +83,7 @@ def _build_loader_data_probe(tmp_path: Path) -> Path:
             str(source),
             str(layer_src / "overlay_render.cpp"),
             str(layer_src / "overlay_text.cpp"),
-            str(layer_src / "latency_state.cpp"),
+            str(layer_src / "latency_state.cpp"), str(layer_src / "frame_timing.cpp"),
             str(layer_src / "latency_layer.cpp"),
             str(layer_src / "telemetry_events.cpp"),
             str(layer_src / "marker_timing.cpp"),
@@ -104,6 +104,7 @@ _PROBE_SOURCE = r'''
 #include "latency_layer_internal.h"
 
 namespace pblayer {
+std::array<uint8_t, 8> overlay_glyph_rows(char);
 VKAPI_ATTR VkResult VKAPI_CALL layer_create_device(
     VkPhysicalDevice, const VkDeviceCreateInfo*, const VkAllocationCallbacks*, VkDevice*);
 VKAPI_ATTR void VKAPI_CALL layer_destroy_device(VkDevice, const VkAllocationCallbacks*);
@@ -526,6 +527,12 @@ void test_async(pblayer::DeviceContext& device, const std::string& mode) {
 
 int main(int argc, char** argv) {
     assert(argc == 3 || argc == 4);
+    if (std::string(argv[1]) == "--glyph") {
+        for (const auto row : pblayer::overlay_glyph_rows(argv[2][0])) {
+            std::printf("%u ", static_cast<unsigned>(row));
+        }
+        return 0;
+    }
     g_fail_at = std::atoi(argv[1]);
     pblayer::DeviceContext device_context = make_device_context(std::atoi(argv[2]) != 0);
     if (argc == 4) {
@@ -554,3 +561,18 @@ int main(int argc, char** argv) {
     return 0;
 }
 '''
+
+
+def test_estimated_latency_glyph_is_visible(loader_data_probe: Path) -> None:
+    def glyph(character: str) -> list[int]:
+        result = subprocess.run(
+            [str(loader_data_probe), "--glyph", character],
+            check=True, text=True, capture_output=True, timeout=10,
+        )
+        return [int(row) for row in result.stdout.split()]
+
+    estimate = glyph("~")
+    assert len(estimate) == 8
+    assert any(estimate)
+    assert estimate != glyph("-")
+    assert estimate != glyph(" ")

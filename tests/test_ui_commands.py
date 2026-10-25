@@ -1689,9 +1689,8 @@ def test_overlay_tab_hides_runs_panel_and_scrolls_options(monkeypatch) -> None:
         )
         is None
     )
-    # The overlay tab lost its global checkbox, but the per-game switch in the
-    # library tab is a different control and must survive. It is a toggle
-    # switch, not a checkbox: a QAbstractButton painted from the theme.
+    # The per-game switch in Game Library remains a separate control.
+    # It is a QAbstractButton painted from the shared theme.
     assert (
         window.game_library_panel.widget.findChild(
             QtWidgets.QAbstractButton,
@@ -1702,55 +1701,27 @@ def test_overlay_tab_hides_runs_panel_and_scrolls_options(monkeypatch) -> None:
     assert (
         window.overlay_config.widget.findChild(
             QtWidgets.QScrollArea,
-            "overlayOptionsScroll",
         )
-        is not None
+        is window.overlay_config._options_scroll
     )
-    # The field list is grouped by subject rather than by a Basic/Advanced
-    # split, which said nothing about what any field was.
-    sections = [
-        window.overlay_config.widget.findChild(
-            QtWidgets.QGroupBox,
-            f"overlayItemSection_{title.lower().replace(' ', '-')}",
-        )
-        for title, _ids in OVERLAY_ITEM_SECTIONS
-    ]
-    assert all(section is not None for section in sections)
-    for section, (_title, item_ids) in zip(sections, OVERLAY_ITEM_SECTIONS, strict=True):
-        labels = [box.text() for box in section.findChildren(QtWidgets.QCheckBox)]
+    # Subject groups use the same cards as Game Library, with full labels
+    # and checkboxes revealed inside each section only while editing it.
+    panel = window.overlay_config
+    headings = {
+        label.property("headingText")
+        for label in panel.widget.findChildren(QtWidgets.QLabel, "prefGroupHeading")
+    }
+    assert {title for title, _ids in OVERLAY_ITEM_SECTIONS}.issubset(headings)
+    for title, item_ids in OVERLAY_ITEM_SECTIONS:
+        labels = [panel.item_title_labels[item].text() for item in item_ids]
         assert labels == [ITEM_LABELS[item] for item in item_ids]
-    gpu_section = window.overlay_config.widget.findChild(
-        QtWidgets.QGroupBox, "overlayItemSection_gpu"
-    )
-    assert (
-        gpu_section.findChild(
-            QtWidgets.QCheckBox,
-            "overlayItemCheckbox_gpu_util_pct",
-        ).text()
-        == "GPU %"
-    )
-    cpu_section = window.overlay_config.widget.findChild(
-        QtWidgets.QGroupBox, "overlayItemSection_cpu-and-system"
-    )
-    assert (
-        cpu_section.findChild(
-            QtWidgets.QCheckBox,
-            "overlayItemCheckbox_cpu_util_pct",
-        ).text()
-        == "CPU %"
-    )
-    assert (
-        cpu_section.findChild(
-            QtWidgets.QCheckBox,
-            "overlayItemCheckbox_cpu_peak_thread_pct",
-        ).text()
-        == "CPU-T %"
-    )
-    value_labels = list(window.overlay_config.item_value_labels.values())
-    assert len({label.width() for label in value_labels}) == 1
-    assert value_labels[0].width() >= value_labels[0].fontMetrics().horizontalAdvance(
-        "UV -9999 mV"
-    )
+        assert all(panel.item_checkboxes[item].isHidden() for item in item_ids)
+        panel.section_edit_buttons[title].click()
+        assert all(not panel.item_checkboxes[item].isHidden() for item in item_ids)
+        panel.section_edit_buttons[title].click()
+    assert panel.item_title_labels["gpu_util_pct"].text() == "GPU usage"
+    assert panel.item_title_labels["cpu_util_pct"].text() == "CPU usage"
+    assert panel.item_title_labels["cpu_peak_thread_pct"].text() == "Busiest CPU thread"
 
     window.tabs.setCurrentIndex(window.auto_uv_tab_index)
     assert window.table_panel.isVisibleTo(window.window)
@@ -1794,7 +1765,7 @@ def test_overlay_panel_saves_manual_scale(tmp_path, qtbot) -> None:
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     _ = app
 
-    from overlay.config import load_overlay_config
+    from overlay.config import OVERLAY_SCALE_OPTIONS, load_overlay_config
     from ui.components.overlay_config import OverlayConfigPanel
 
     config_path = tmp_path / "overlay.toml"
@@ -1805,18 +1776,17 @@ def test_overlay_panel_saves_manual_scale(tmp_path, qtbot) -> None:
     )
     qtbot.addWidget(panel.widget)
 
-    # Defaults to the adaptive 1x option.
-    assert panel.scale_combo.currentText() == "1x"
+    # The slider uses the existing adaptive scale steps, displayed as percentages.
+    assert panel.scale_slider.value() == OVERLAY_SCALE_OPTIONS.index(1.0)
+    assert panel.scale_value_label.text() == "100%"
 
-    # Picked by label rather than position: the ladder gained the sizes
-    # between the whole multiples, so an index no longer names a size.
-    panel.scale_combo.setCurrentIndex(panel.scale_combo.findText("2x"))
+    panel.scale_slider.setValue(OVERLAY_SCALE_OPTIONS.index(2.0))
 
-    assert panel.scale_combo.currentText() == "2x"
+    assert panel.scale_value_label.text() == "200%"
     assert load_overlay_config(config_path).scale == 2.0
     assert "scale = 2.0" in config_path.read_text(encoding="utf-8")
 
-    panel.scale_combo.setCurrentIndex(panel.scale_combo.findText("0.75x"))
+    panel.scale_slider.setValue(OVERLAY_SCALE_OPTIONS.index(0.75))
 
     assert load_overlay_config(config_path).scale == 0.75
     assert "scale = 0.75" in config_path.read_text(encoding="utf-8")
@@ -2233,10 +2203,19 @@ def test_stopping_rows_remain_active_until_stop_is_finalized() -> None:
     assert not _is_active_decision("stopped")
 
 
-def test_app_stylesheet_does_not_override_native_scrollbars() -> None:
+def test_app_stylesheet_keeps_custom_scrollbars_inside_overlay() -> None:
     first_selector = STYLESHEET.split("{", 1)[0]
+    scrollbar_selectors = [
+        selector.strip()
+        for rule in STYLESHEET.split("}")
+        for selector in rule.split("{", 1)[0].split(",")
+        if "QScrollBar" in selector
+    ]
 
-    assert "QScrollBar" not in STYLESHEET
+    assert all(
+        selector.startswith("QWidget#overlayConfigPanel QScrollBar")
+        for selector in scrollbar_selectors
+    )
     assert "QWidget" not in first_selector
 
 

@@ -302,6 +302,25 @@ int print_origin(char** argv) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    if (argc > 1 && std::string(argv[1]) == "--config-watch") {
+        uint64_t now_us;
+        while (std::cin >> now_us) {
+            const auto config = pblayer::overlay_text_config(now_us);
+            const auto origin = pblayer::overlay_text_origin(
+                VkExtent2D{1280, 720}, 200, 100, 10, config.position);
+            std::cout << config.items.size() << ' ' << config.scale << ' '
+                      << origin.x << ' ' << origin.y << std::endl;
+        }
+        return 0;
+    }
+
+    if (argc > 1 && std::string(argv[1]) == "--visibility-watch") {
+        std::string command;
+        while (std::getline(std::cin, command)) {
+            std::cout << pblayer::overlay_enabled() << std::endl;
+        }
+        return 0;
+    }
     if (argc > 2 && std::string(argv[1]) == "--glyphs") {
         return print_glyphs(argv[2]);
     }
