@@ -129,7 +129,8 @@ def _display_default_candidate_id(payload: dict, candidates: list[dict]) -> str:
     }
     request_reason = str(payload.get("request_reason") or "").strip().lower()
     if (
-        request_reason == "previous-crash" or request_reason.startswith("adaptive-")
+        request_reason in {"previous-crash", "performance-comparison"}
+        or request_reason.startswith("adaptive-")
     ) and requested_default in candidate_ids:
         return requested_default
     best_id = best_final_choice_candidate_id(
@@ -277,6 +278,13 @@ def _intro_text(
     request_reason: str,
     recovery_decision: object,
 ) -> str:
+    if request_reason == "performance-comparison":
+        return (
+            "Two close Performance candidates were compared twice each with equal "
+            "30s Q2RTX + 5s CUDA runs. Their FPS, clock and power show the two-run "
+            "means. The comparison winner is selected; other rows retain their "
+            "earlier short probes. Long Final verification is still required."
+        )
     metric_text = (
         "highest FPS"
         if normalize_auto_uv_mode(auto_uv_mode) == AUTO_UV_MODE_PERFORMANCE
@@ -322,6 +330,8 @@ def _status_text(
             parts.append("Resume from here")
         elif request_reason == "final-verification-failed":
             parts.append("Next safer pick")
+        elif request_reason == "performance-comparison":
+            parts.append("Comparison winner")
         elif request_reason.startswith("adaptive-"):
             parts.append("Tier suggestion")
         else:
@@ -330,6 +340,8 @@ def _status_text(
                 if normalize_auto_uv_mode(auto_uv_mode) == AUTO_UV_MODE_PERFORMANCE
                 else ("Recommended" if normalize_auto_uv_mode(auto_uv_mode) == "efficiency" else "Best FPS/W")
             )
+    if candidate.get("comparison_runs"):
+        parts.append("Mean of 2 matched runs")
     parts.append(
         "Final stability verified"
         if bool(candidate.get("final_verified"))
