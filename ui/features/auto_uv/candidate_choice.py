@@ -83,7 +83,10 @@ def choose_final_verification_candidate(
     )
     # Adaptive tiers preselect the tier's confirmed candidate, not the
     # mode-metric best, so accepting the default saves this tier's own point.
-    if str(request_reason or "").startswith("adaptive-") and any(
+    if (
+        str(request_reason or "").startswith("adaptive-")
+        or request_reason == "performance-comparison"
+    ) and any(
         str(candidate.get("candidate_id", "")) == current_stable_id
         for candidate in candidates
     ):
@@ -487,6 +490,8 @@ def candidate_record_from_probe(
         "tail_rise_bins": int(tail_rise_bins),
         "avg_core_clock_mhz": float_or_none(probe.avg_core_clock_mhz),
         "avg_fps": float_or_none(probe.avg_fps),
+        "comparison_runs": probe.comparison_runs,
+        "comparison_duration_s": probe.comparison_duration_s,
         "avg_power_w": float_or_none(probe.avg_power_w),
         "efficiency_fps_per_w": float_or_none(probe.efficiency_fps_per_w),
         "plan": plan,
@@ -550,6 +555,8 @@ def candidate_selection_summary(
         "label": str(candidate.get("label", candidate.get("reason", ""))),
         "reason": str(candidate.get("reason", "")),
         "final_verified": bool(candidate.get("final_verified", False)),
+        "comparison_runs": candidate.get("comparison_runs", 0),
+        "comparison_duration_s": candidate.get("comparison_duration_s", 0),
         "candidate_voltage_mv": candidate.get("candidate_voltage_mv"),
         "lock_clock_mhz": candidate.get("lock_clock_mhz"),
         "avg_core_clock_mhz": candidate.get("avg_core_clock_mhz"),
@@ -676,6 +683,8 @@ def candidate_short_verification_duration_s(
     base_duration_s: int | None = None,
     use_recorded_duration: bool = True,
 ) -> int:
+    if candidate.get("comparison_runs") and candidate.get("comparison_duration_s"):
+        return int(candidate["comparison_runs"]) * int(candidate["comparison_duration_s"])
     value = candidate.get("short_verification_duration_s")
     if use_recorded_duration and value not in (None, ""):
         try:

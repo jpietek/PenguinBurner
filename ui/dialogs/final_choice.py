@@ -59,6 +59,8 @@ def candidate_status_text(
             parts.append("Resume from here")
         elif reason == "final-verification-failed":
             parts.append("Next safer pick")
+        elif reason == "performance-comparison":
+            parts.append("Comparison winner")
         elif reason.startswith("adaptive-"):
             parts.append("Tier suggestion")
         else:
@@ -67,6 +69,8 @@ def candidate_status_text(
                 if normalize_auto_uv_mode(auto_uv_mode) == AUTO_UV_MODE_PERFORMANCE
                 else "Best FPS/W"
             )
+    if candidate.get("comparison_runs"):
+        parts.append("Mean of 2 matched runs")
     parts.append(
         "Final stability verified"
         if bool(candidate.get("final_verified"))
@@ -120,7 +124,9 @@ def select_final_candidate(
     # Crash resume and adaptive tiers preselect the backend's requested
     # candidate (the failed point / the tier's confirmed point), not the
     # mode-metric best.
-    honors_requested_default = previous_crash or reason.startswith("adaptive-")
+    honors_requested_default = (
+        previous_crash or reason.startswith("adaptive-") or reason == "performance-comparison"
+    )
     if honors_requested_default and requested_default_id in by_id:
         default_candidate_id = requested_default_id
     else:
@@ -252,6 +258,13 @@ def final_choice_intro_text(
     recovery_decision: dict | None = None,
 ) -> str:
     reason = str(request_reason or "").strip().lower()
+    if reason == "performance-comparison":
+        return (
+            "Two close Performance candidates were compared twice each with equal "
+            "30s Q2RTX + 5s CUDA runs. Their FPS, clock and power show the two-run "
+            "means. The comparison winner is selected; other rows retain their "
+            "earlier short probes. Long Final verification is still required."
+        )
     if reason.startswith("adaptive-"):
         return (
             "The adaptive sweep is complete. This tier's confirmed candidate "
