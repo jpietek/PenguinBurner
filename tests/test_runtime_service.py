@@ -9,7 +9,6 @@ import pytest
 
 from runtime.support import runtime_service
 
-
 CANONICAL_DAEMON_BINARY = (
     "/var/opt/penguin-burner/libexec/penguin-burnerd"
 )
@@ -752,9 +751,8 @@ def test_install_transaction_reports_original_and_rollback_failures(
 
     monkeypatch.setattr(transaction, "_rollback", fail_rollback)
 
-    with pytest.raises(RuntimeError) as exc_info:
-        with transaction:
-            raise RuntimeError("injected readiness failure")
+    with pytest.raises(RuntimeError) as exc_info, transaction:
+        raise RuntimeError("injected readiness failure")
 
     message = str(exc_info.value)
     assert "injected readiness failure" in message
@@ -807,9 +805,8 @@ def test_install_transaction_reports_failed_service_stop_during_rollback(
     monkeypatch.setattr(runtime_service, "SYSTEMCTL", "/bin/systemctl")
     monkeypatch.setattr(runtime_service, "run_checked_subprocess", fail_daemon_stop)
 
-    with pytest.raises(RuntimeError) as exc_info:
-        with transaction:
-            raise RuntimeError("injected readiness failure")
+    with pytest.raises(RuntimeError) as exc_info, transaction:
+        raise RuntimeError("injected readiness failure")
 
     message = str(exc_info.value)
     assert "injected readiness failure" in message
@@ -1287,9 +1284,8 @@ def test_stop_existing_runtime_does_not_disable_persistent_service(monkeypatch, 
     assert any("before foreground Auto-UV scan" in message for message in logs)
 
 
-@pytest.mark.parametrize("job_type, own_child", [
-    ("auto_uv_scan", True), ("auto_uv_scan", False), ("profile_verification", False),
-])
+@pytest.mark.parametrize("job_type", ["auto_uv_scan", "profile_verification"])
+@pytest.mark.parametrize("own_child", [True, False])
 def test_scan_handoff_preserves_own_daemon_child_and_refuses_other_work(monkeypatch, job_type, own_child):
     monkeypatch.setattr(runtime_service, "daemon_status", lambda **_: {
         "active_job": {"type": job_type, "pid": os.getpid() if own_child else -1, "returncode": None}
@@ -1298,8 +1294,22 @@ def test_scan_handoff_preserves_own_daemon_child_and_refuses_other_work(monkeypa
     if own_child:
         runtime_service.stop_existing_penguin_burner_runtime(log=lambda _: None)
     else:
-        with pytest.raises(RuntimeError, match="another scan or profile verification"):
+        with pytest.raises(RuntimeError, match="another scan or profile verification") as exc:
             runtime_service.stop_existing_penguin_burner_runtime(log=lambda _: None)
+        assert f"type={job_type}" in str(exc.value)
+        assert "pid=-1" in str(exc.value)
+        assert f"caller_pid={os.getpid()}" in str(exc.value)
+
+
+@pytest.mark.parametrize("job_type", ["auto_uv_scan", "profile_verification"])
+@pytest.mark.parametrize("returncode", [0, 1, -15])
+def test_scan_handoff_ignores_completed_jobs(monkeypatch, job_type, returncode):
+    monkeypatch.setattr(runtime_service, "daemon_status", lambda **_: {
+        "active_job": {"type": job_type, "pid": -1, "returncode": returncode}
+    })
+    monkeypatch.setattr(runtime_service, "stop_runtime_profile", lambda **_: pytest.fail("must not clear session"))
+
+    runtime_service.stop_existing_penguin_burner_runtime(log=lambda _: None)
 
 
 def test_scan_handoff_propagates_wedged_profile_failure(monkeypatch):
