@@ -59,6 +59,8 @@ def _run_probe(
             "PATH": os.environ.get("PATH", ""),
             "PB_OVERLAY": "1",
             "PENGUIN_BURNER_OVERLAY_OVERRIDE": str(binary.parent / "no-override"),
+            "PENGUIN_BURNER_OVERLAY_CONFIG": str(binary.parent / "missing"),
+            "PENGUIN_BURNER_OVERLAY_STATE": str(binary.parent / "missing"),
             "XDG_RUNTIME_DIR": str(binary.parent),
         },
     )
@@ -82,6 +84,7 @@ def _build_loader_data_probe(tmp_path: Path) -> Path:
             str(layer_src),
             str(source),
             str(layer_src / "overlay_render.cpp"),
+            str(layer_src / "overlay_worker.cpp"),
             str(layer_src / "overlay_text.cpp"),
             str(layer_src / "latency_state.cpp"), str(layer_src / "frame_timing.cpp"),
             str(layer_src / "display_timing.cpp"),
@@ -417,6 +420,8 @@ pblayer::SwapchainContext make_swapchain_context() {
     pblayer::SwapchainContext context{};
     context.image_format = VK_FORMAT_B8G8R8A8_UNORM;
     context.image_extent = {1920, 1080};
+    // No background rebuilds: the probe drives snapshots with build_now().
+    context.overlay_worker = std::make_unique<pblayer::OverlayWorker>(false);
     context.image_array_layers = 1;
     context.image_usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     return context;
@@ -440,12 +445,15 @@ void test_async(pblayer::DeviceContext& device, const std::string& mode) {
     pblayer::QueueContext queue_context{};
     queue_context.queue_family_index = 0;
     queue_context.queue_flags = VK_QUEUE_GRAPHICS_BIT;
-    auto text = std::make_shared<pblayer::OverlayReadout>();
-    text->text = "hotspot 79 C";
-    text->rows = {{pblayer::OverlayRowKind::Value, "hotspot", {{"79 C"}}}};
     const auto submit = [&] {
         return pblayer::submit_overlay_locked(device, swapchain, context,
-            queue_context, queue, image, &present, text, {});
+            queue_context, queue, image, &present, {}, {});
+    };
+    // A submit posts this frame's inputs; the worker then has a snapshot to draw.
+    const auto catch_up = [&] {
+        submit();
+        context.overlay_worker->build_now();
+        if (mode == "solid") pblayer::g_overlay_blended_renderer = false;
     };
     if (mode == "solid") pblayer::g_overlay_blended_renderer = false;
     g_block_init = !pipeline_mode;
@@ -467,6 +475,7 @@ void test_async(pblayer::DeviceContext& device, const std::string& mode) {
     } else {
         g_release_init.set_value();
         context.overlay_preparation.wait();
+        catch_up();
         const auto signal = submit();
         if (mode == "failure") {
             assert(signal == VK_NULL_HANDLE && !context.overlay.ready);
@@ -486,8 +495,8 @@ void test_async(pblayer::DeviceContext& device, const std::string& mode) {
                 assert(submit() != VK_NULL_HANDLE);
                 assert(context.overlay.vertex_generations[0] == context.overlay.vertex_generations[1]);
                 image = 0;
-                text = std::make_shared<pblayer::OverlayReadout>(*text);
-                text->rows[0].cells[0].text = "83 C";
+                // A fresh worker snapshot is new geometry: it uploads again.
+                context.overlay_worker->build_now();
                 assert(submit() != VK_NULL_HANDLE && mapping[0] == first_byte);
                 assert(context.overlay.vertex_generations[0] > context.overlay.vertex_generations[1]);
             }
@@ -514,6 +523,7 @@ void test_async(pblayer::DeviceContext& device, const std::string& mode) {
             context = make_swapchain_context();
             assert(submit() == VK_NULL_HANDLE);
             context.overlay_preparation.wait();
+            catch_up();
             assert(submit() != VK_NULL_HANDLE && g_cache_creations == 1);
             pblayer::destroy_overlay_resources(device, context);
         }

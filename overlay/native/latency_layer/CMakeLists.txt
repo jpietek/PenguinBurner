@@ -12,6 +12,7 @@ add_library(latency_layer SHARED
   src/latency_state.cpp
   src/overlay_text.cpp
   src/overlay_render.cpp
+  src/overlay_worker.cpp
   src/telemetry_events.cpp
   src/display_timing.cpp
   src/frame_timing.cpp

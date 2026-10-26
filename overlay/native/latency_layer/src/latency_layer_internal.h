@@ -571,6 +571,8 @@ struct DisplayTimingState {
     uint32_t count = 0, index = 0;
 };
 
+class OverlayWorker;
+
 struct SwapchainContext {
     DisplayTimingState display_timing{};
     VkDevice device = VK_NULL_HANDLE;
@@ -615,8 +617,9 @@ struct SwapchainContext {
     // until resources are ready; workers never access the live context.
     std::future<OverlayRenderResources> overlay_preparation;
     std::future<OverlayPipelineResources> pipeline_preparation;
-    uint64_t overlay_readout_time_us = 0;
-    std::shared_ptr<const OverlayReadout> overlay_readout;
+    // Readout and text geometry come from this worker; the present thread
+    // never reads files or lays out glyphs. Destroyed before the swapchain.
+    std::unique_ptr<OverlayWorker> overlay_worker;
 };
 
 // What the layer measured about presentation, as opposed to what the daemon
@@ -650,6 +653,45 @@ struct OverlayGraph {
     // frame rate: the layer has no way to learn the target, and "how far do
     // the spikes sit above typical" is the question the graph answers anyway.
     uint64_t median_us = 0;
+};
+
+// One worker snapshot: the readout and its static text geometry, built off
+// the present thread. The present path only appends the live graph bars.
+struct OverlayPrepared {
+    std::shared_ptr<const OverlayReadout> readout;
+    OverlayGeometryCache geometry;
+};
+
+// Rebuilds the HUD every 250 ms on its own thread: config and state files,
+// string formatting, glyph layout. The present thread posts plain copies of
+// its inputs and takes the newest snapshot; neither call blocks on the build.
+class OverlayWorker {
+public:
+    // background=false runs no thread; callers drive build_now() (tests).
+    explicit OverlayWorker(bool background = true);
+    ~OverlayWorker();
+    OverlayWorker(const OverlayWorker&) = delete;
+    OverlayWorker& operator=(const OverlayWorker&) = delete;
+    void set_facts(const OverlayDeviceFacts& facts);
+    void post(const OverlayFrameStats& stats, const OverlayGraph& graph, VkExtent2D extent,
+        bool blended, OverlayFont font);
+    std::shared_ptr<const OverlayPrepared> latest();
+    // Build one snapshot from the posted inputs now, on the calling thread.
+    std::shared_ptr<const OverlayPrepared> build_now();
+private:
+    void run();
+    std::mutex mutex_;
+    std::condition_variable cv_;
+    bool stop_ = false;
+    bool valid_ = false;
+    OverlayDeviceFacts facts_;
+    OverlayFrameStats stats_{};
+    OverlayGraph graph_{};
+    VkExtent2D extent_{};
+    bool blended_ = false;
+    OverlayFont font_ = OverlayFont::Pixel;
+    std::shared_ptr<const OverlayPrepared> latest_;
+    std::thread thread_;
 };
 
 // How urgently one cell of the readout should read. Colour is a layer-side
@@ -859,9 +901,10 @@ extern std::atomic<uint32_t> g_overlay_layout;
     std::string overlay_present_mode_text(VkPresentModeKHR mode);
     std::string overlay_resolution_text(const VkExtent2D& extent);
     std::string build_overlay_text( const OverlayFrameStats& stats, const OverlayDeviceFacts& facts, const OverlayGpuState& state, uint64_t now_us);
-    const std::shared_ptr<const OverlayReadout>& cached_overlay_readout( SwapchainContext& context, const OverlayFrameStats& stats, uint64_t now_us);
     void destroy_overlay_resources( const DeviceContext& device_context, SwapchainContext& swapchain_context);
-    VkSemaphore submit_overlay_locked( const DeviceContext& device_context, VkSwapchainKHR swapchain, SwapchainContext& swapchain_context, const QueueContext& queue_context, VkQueue queue, uint32_t image_index, const VkPresentInfoKHR* present_info, const std::shared_ptr<const OverlayReadout>& readout, const OverlayGraph& graph);
+    VkSemaphore submit_overlay_locked( const DeviceContext& device_context, VkSwapchainKHR swapchain, SwapchainContext& swapchain_context, const QueueContext& queue_context, VkQueue queue, uint32_t image_index, const VkPresentInfoKHR* present_info, const OverlayFrameStats& stats, const OverlayGraph& graph);
+    void overlay_build_static_geometry( OverlayGeometryCache& cache, const std::shared_ptr<const OverlayReadout>& readout, const OverlayGraph& graph, VkExtent2D extent, bool blended, OverlayFont font);
+    const OverlayGeometryCache* overlay_frame_geometry( OverlayGeometryCache& cache, const OverlayPrepared& prepared, const OverlayGraph& graph, VkExtent2D extent);
     uint64_t live_swapchain_count_locked(VkDevice device);
     DeviceTelemetryFlags device_telemetry_flags(VkDevice device);
     bool swapchain_latency_mode_enabled(const VkSwapchainCreateInfoKHR* create_info);
@@ -893,7 +936,7 @@ extern std::atomic<uint32_t> g_overlay_layout;
 
 
 void record_display_timestamp(DisplayTimingState& state, uint64_t timestamp_ns, uint64_t now_us);
-// Trace log for the display-timing path; no-op unless PENGUIN_BURNER_LATENCY_DEBUG_FLOW.
+// Trace log (latency_state.cpp); no-op unless PENGUIN_BURNER_LATENCY_DEBUG_FLOW.
 bool display_debug_enabled();
 void display_debug_log(const char* fmt, ...);
 #ifdef VK_EXT_present_timing

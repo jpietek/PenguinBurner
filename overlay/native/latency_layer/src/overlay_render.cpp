@@ -1794,6 +1794,9 @@ bool overlay_device_functions_available(const DeviceContext& context) {
 void destroy_overlay_resources(
     const DeviceContext& device_context,
     SwapchainContext& swapchain_context) {
+    // Join the text worker first: it only holds CPU-side copies, so this is
+    // at most one in-flight rebuild.
+    swapchain_context.overlay_worker.reset();
     auto& overlay = swapchain_context.overlay;
     if (swapchain_context.overlay_preparation.valid()) {
         overlay = swapchain_context.overlay_preparation.get();
@@ -2183,61 +2186,78 @@ bool prepare_overlay_resources(
 
 // Cache the panel, glyphs and layout across presents. Only the graph changes
 // each frame. Both renderers use this cache so the solid fallback stays live.
-const OverlayGeometryCache& cached_overlay_geometry(
+void overlay_build_static_geometry(
     OverlayGeometryCache& cache,
     const std::shared_ptr<const OverlayReadout>& readout,
     const OverlayGraph& graph,
     VkExtent2D extent,
     bool blended,
     OverlayFont font) {
-    const double scale = g_overlay_user_scale.load(std::memory_order_relaxed);
-    const double opacity = overlay_opacity();
-    const uint32_t position = g_overlay_position.load(std::memory_order_relaxed);
-    const bool graph_visible = overlay_graph_enabled();
-    const auto graph_mode = g_overlay_graph_mode.load(std::memory_order_relaxed);
-    if (cache.readout != readout || cache.extent.width != extent.width
-        || cache.extent.height != extent.height || cache.scale != scale
-        || cache.opacity != opacity || cache.position != position
-        || cache.blended != blended || cache.font != font
-        || cache.graph_visible != graph_visible || cache.graph_mode != graph_mode) {
-        cache.readout = readout;
-        cache.extent = extent;
-        cache.scale = scale;
-        cache.opacity = opacity;
-        cache.position = position;
-        cache.blended = blended;
-        cache.font = font;
-        cache.graph_visible = graph_visible;
-        cache.graph_mode = graph_mode;
-        cache.vertices.clear();
-        cache.clear_rects.clear();
-        cache.graph = {};
-        if (blended) {
-            cache.vertices.reserve(kOverlayMaxQuads * kOverlayVerticesPerQuad);
-        } else {
-            cache.clear_rects.reserve(kOverlayMaxQuads);
-        }
-        OverlayQuadSink sink{nullptr, VK_NULL_HANDLE, extent,
-            blended ? &cache.vertices : nullptr, overlay_font_atlas(font), font,
-            blended ? nullptr : &cache.clear_rects, &cache.graph};
-        overlay_draw_text(sink, *readout, graph);
-        cache.static_count = blended ? cache.vertices.size() : cache.clear_rects.size();
-        cache.graph_tail.clear();
-        if (blended && cache.graph.area) {
-            cache.graph_tail.assign(cache.vertices.begin() + cache.graph.vertex_offset,
-                cache.vertices.end());
-        }
-        ++cache.generation;
+    cache.readout = readout;
+    cache.extent = extent;
+    cache.scale = g_overlay_user_scale.load(std::memory_order_relaxed);
+    cache.opacity = overlay_opacity();
+    cache.position = g_overlay_position.load(std::memory_order_relaxed);
+    cache.blended = blended;
+    cache.font = font;
+    cache.graph_visible = overlay_graph_enabled();
+    cache.graph_mode = g_overlay_graph_mode.load(std::memory_order_relaxed);
+    cache.vertices.clear();
+    cache.clear_rects.clear();
+    cache.graph = {};
+    if (blended) {
+        cache.vertices.reserve(kOverlayMaxQuads * kOverlayVerticesPerQuad);
+    } else {
+        cache.clear_rects.reserve(kOverlayMaxQuads);
     }
+    OverlayQuadSink sink{nullptr, VK_NULL_HANDLE, extent,
+        blended ? &cache.vertices : nullptr, overlay_font_atlas(font), font,
+        blended ? nullptr : &cache.clear_rects, &cache.graph};
+    if (readout) {
+        overlay_draw_text(sink, *readout, graph);
+    }
+    cache.static_count = blended ? cache.vertices.size() : cache.clear_rects.size();
+    cache.graph_tail.clear();
+    if (blended && cache.graph.area) {
+        cache.graph_tail.assign(cache.vertices.begin() + cache.graph.vertex_offset,
+            cache.vertices.end());
+    }
+    ++cache.generation;
+}
+
+// Per present: adopt the worker's newest snapshot when it is new, then append
+// the live graph bars. Returns null when the snapshot was laid out for another
+// extent, which only happens around a swapchain recreation.
+const OverlayGeometryCache* overlay_frame_geometry(
+    OverlayGeometryCache& cache,
+    const OverlayPrepared& prepared,
+    const OverlayGraph& graph,
+    VkExtent2D extent) {
+    if (prepared.geometry.extent.width != extent.width
+        || prepared.geometry.extent.height != extent.height) {
+        return nullptr;
+    }
+    if (cache.readout != prepared.readout || cache.extent.width != extent.width
+        || cache.extent.height != extent.height || cache.scale != prepared.geometry.scale
+        || cache.opacity != prepared.geometry.opacity
+        || cache.position != prepared.geometry.position
+        || cache.blended != prepared.geometry.blended || cache.font != prepared.geometry.font
+        || cache.graph_visible != prepared.geometry.graph_visible
+        || cache.graph_mode != prepared.geometry.graph_mode) {
+        const uint64_t generation = cache.generation;
+        cache = prepared.geometry;
+        cache.generation = generation + 1;
+    }
+    const bool blended = cache.blended;
     if (blended) {
         cache.vertices.resize(cache.graph.area ? cache.graph.vertex_offset : cache.static_count);
     } else {
         cache.clear_rects.resize(cache.static_count);
     }
-    if (graph_visible && cache.graph.width > 0) {
+    if (cache.graph_visible && cache.graph.width > 0) {
         const auto& box = cache.graph;
         OverlayQuadSink sink{nullptr, VK_NULL_HANDLE, extent,
-            blended ? &cache.vertices : nullptr, overlay_font_atlas(font), font,
+            blended ? &cache.vertices : nullptr, overlay_font_atlas(cache.font), cache.font,
             blended ? nullptr : &cache.clear_rects};
         if (box.area) {
             overlay_draw_timing_graphs(sink, graph, box.x, box.y, box.width, box.height, box.scale, true);
@@ -2252,7 +2272,7 @@ const OverlayGeometryCache& cached_overlay_geometry(
         }
         ++cache.generation;
     }
-    return cache;
+    return &cache;
 }
 
 VkSemaphore submit_overlay_locked(
@@ -2263,9 +2283,9 @@ VkSemaphore submit_overlay_locked(
     VkQueue queue,
     uint32_t image_index,
     const VkPresentInfoKHR* present_info,
-    const std::shared_ptr<const OverlayReadout>& readout,
+    const OverlayFrameStats& stats,
     const OverlayGraph& graph) {
-    if (!readout || (readout->text.empty() && !frame_completion_enabled(device_context)) || !overlay_enabled()
+    if (!overlay_enabled()
         || !(queue_context.queue_flags & VK_QUEUE_GRAPHICS_BIT)
         || !present_info) {
         return VK_NULL_HANDLE;
@@ -2283,6 +2303,34 @@ VkSemaphore submit_overlay_locked(
         || image_index >= overlay.signal_semaphores.size()
         || image_index >= overlay.submit_fences.size()
         || image_index >= overlay.submit_pending.size()) {
+        return VK_NULL_HANDLE;
+    }
+
+    // Text comes from the worker: post this present's inputs, take its newest
+    // snapshot, draw it in the mode it was built for. Nothing here reads a
+    // file or lays out a glyph.
+    const bool blended_available =
+        overlay.blended_ready && overlay_blended_renderer_enabled();
+    const bool blended = blended_available
+        && image_index < overlay.vertex_buffers.size()
+        && overlay.vertex_mappings[image_index];
+    // The bitmap face is the only one the clear-rect path can draw, and the
+    // only one available until the atlas has landed (this submit uploads it).
+    const bool atlas_landed = overlay.atlas_uploaded || (blended_available && overlay.atlas_ready);
+    const OverlayFont font = blended && atlas_landed ? overlay_font() : OverlayFont::Pixel;
+    if (!swapchain_context.overlay_worker) {
+        return VK_NULL_HANDLE;
+    }
+    swapchain_context.overlay_worker->post(stats, graph, swapchain_context.image_extent, blended, font);
+    const auto prepared = swapchain_context.overlay_worker->latest();
+    if (!prepared || !prepared->readout
+        || (prepared->readout->text.empty() && !frame_completion_enabled(device_context))) {
+        return VK_NULL_HANDLE;
+    }
+    const uint64_t trace_begin_us = display_debug_enabled() ? now_monotonic_us() : 0;
+    const OverlayGeometryCache* geometry = overlay_frame_geometry(
+        overlay.geometry, *prepared, graph, swapchain_context.image_extent);
+    if (!geometry) {
         return VK_NULL_HANDLE;
     }
 
@@ -2317,8 +2365,6 @@ VkSemaphore submit_overlay_locked(
         return VK_NULL_HANDLE;
     }
 
-    const bool blended_available =
-        overlay.blended_ready && overlay_blended_renderer_enabled();
     if (blended_available && overlay.atlas_ready && !overlay.atlas_uploaded) {
         // Copying both faces in once, on the first frame that draws, keeps the
         // atlas out of device creation and off every later frame.
@@ -2388,29 +2434,19 @@ VkSemaphore submit_overlay_locked(
         command_buffer,
         &render_pass_info,
         VK_SUBPASS_CONTENTS_INLINE);
-    const bool blended = blended_available
-        && image_index < overlay.vertex_buffers.size()
-        && overlay.vertex_mappings[image_index];
-    // The bitmap face is the only one the clear-rect path can draw, and the
-    // only one available until the atlas has actually landed in the image.
-    const OverlayFont font = blended && overlay.atlas_uploaded
-        ? overlay_font()
-        : OverlayFont::Pixel;
-    const auto& geometry = cached_overlay_geometry(
-        overlay.geometry, readout, graph, swapchain_context.image_extent, blended, font);
-    const auto& vertices = geometry.vertices;
-    if (!blended) {
-        for (const auto& rect : geometry.clear_rects) {
+    const auto& vertices = geometry->vertices;
+    if (!geometry->blended) {
+        for (const auto& rect : geometry->clear_rects) {
             overlay_clear_rect(device_context, command_buffer, swapchain_context.image_extent,
                 rect.x, rect.y, rect.width, rect.height, rect.color);
         }
     } else if (!vertices.empty()) {
         // Each image keeps the last uploaded static geometry. A live graph or
         // changed readout advances the generation; otherwise no upload is needed.
-        if (overlay.vertex_generations[image_index] != geometry.generation) {
+        if (overlay.vertex_generations[image_index] != geometry->generation) {
             std::memcpy(overlay.vertex_mappings[image_index], vertices.data(),
                 vertices.size() * sizeof(OverlayVertex));
-            overlay.vertex_generations[image_index] = geometry.generation;
+            overlay.vertex_generations[image_index] = geometry->generation;
         }
         device_context.cmd_bind_pipeline(
             command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, overlay.pipeline);
@@ -2467,7 +2503,21 @@ VkSemaphore submit_overlay_locked(
     submit_info.pCommandBuffers = &command_buffer;
     submit_info.signalSemaphoreCount = 1;
     submit_info.pSignalSemaphores = &signal;
+    const uint64_t submit_begin_us = trace_begin_us ? now_monotonic_us() : 0;
     result = device_context.queue_submit(queue, 1, &submit_info, fence);
+    if (trace_begin_us) {
+        // Trace only: split the overlay's present-thread cost into our
+        // geometry+record work and the driver's vkQueueSubmit.
+        static uint64_t n = 0, ours_sum = 0, ours_max = 0, drv_sum = 0, drv_max = 0;
+        const uint64_t done_us = now_monotonic_us();
+        const uint64_t ours = submit_begin_us - trace_begin_us, drv = done_us - submit_begin_us;
+        ours_sum += ours; drv_sum += drv; ours_max = std::max(ours_max, ours); drv_max = std::max(drv_max, drv);
+        if (++n % 600 == 0) {
+            display_debug_log("overlay-submit geometry+record avg=%.1fus max=%" PRIu64 "us | vkQueueSubmit avg=%.1fus max=%" PRIu64 "us",
+                ours_sum / 600.0, ours_max, drv_sum / 600.0, drv_max);
+            ours_sum = drv_sum = ours_max = drv_max = 0;
+        }
+    }
     if (result != VK_SUCCESS) {
         return VK_NULL_HANDLE;
     }

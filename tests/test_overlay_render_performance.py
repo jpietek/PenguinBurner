@@ -21,6 +21,7 @@ def render_cache_probe(tmp_path_factory: pytest.TempPathFactory) -> Path:
     subprocess.run([
         compiler, "-std=c++17", "-O2", "-I", str(src), str(probe),
         str(src / "overlay_text.cpp"), str(src / "latency_state.cpp"), str(src / "frame_timing.cpp"),
+        str(src / "overlay_worker.cpp"),
         "-o", str(binary),
     ], check=True)
     return binary
@@ -86,8 +87,16 @@ int main(int argc, char** argv) {
     std::shared_ptr<const OverlayReadout> readout = mutable_readout;
     OverlayGeometryCache cache;
     VkExtent2D extent{2560, 1440};
+    OverlayPrepared prepared;
+    const auto rebuild = [&] {
+        prepared.readout = readout;
+        overlay_build_static_geometry(prepared.geometry, readout, graph, extent, blended, font);
+    };
     const auto verify = [&] {
-        const auto& cached = cached_overlay_geometry(cache, readout, graph, extent, blended, font);
+        rebuild();
+        const auto* frame = overlay_frame_geometry(cache, prepared, graph, extent);
+        assert(frame);
+        const auto& cached = *frame;
         std::vector<OverlayVertex> vertices;
         std::vector<OverlayClearRect> rects;
         OverlayQuadSink direct{nullptr, VK_NULL_HANDLE, extent,
@@ -114,7 +123,7 @@ int main(int argc, char** argv) {
     allocations = 0;
     counting = true;
     for (int i = 0; i < 500; ++i) {
-        cached_overlay_geometry(cache, readout, graph, extent, blended, font);
+        assert(overlay_frame_geometry(cache, prepared, graph, extent));
     }
     counting = false;
     assert(allocations == 0);
@@ -135,24 +144,31 @@ int main(int argc, char** argv) {
     readout = updated; verify();
     g_overlay_graph_enabled = !graph_on; verify();
     g_overlay_graph_enabled = false;
-    // Per-swapchain snapshots stay stable between polls and do not leak device facts.
-    SwapchainContext context, other;
+    // The worker owns readout building; the present-side post/take pair never
+    // allocates, and a snapshot stays stable until the worker rebuilds.
+    SwapchainContext context;
     context.device_facts.gpu_name = "first";
-    other.device_facts.gpu_name = "second";
+    context.overlay_worker = std::make_unique<OverlayWorker>(false);
+    context.overlay_worker->set_facts(context.device_facts);
     auto stats = overlay_frame_stats_locked(context, 10000);
-    const auto first = cached_overlay_readout(context, stats, 1000000);
-    assert(cached_overlay_readout(other, stats, 1000000) != first);
+    context.overlay_worker->post(stats, graph, extent, blended, font);
+    const auto first = context.overlay_worker->build_now();
+    assert(first && first->readout && !first->readout->text.empty());
+    assert(first->geometry.extent.width == extent.width);
     allocations = 0;
     counting = true;
     for (int i = 0; i < 500; ++i) {
         stats = overlay_frame_stats_locked(context, 8000 + i);
         const auto trace = overlay_graph_locked(context, stats.median_us);
         assert(trace.median_us == stats.median_us);
-        assert(cached_overlay_readout(context, stats, 1100000) == first);
+        context.overlay_worker->post(stats, trace, extent, blended, font);
+        assert(context.overlay_worker->latest() == first);
     }
     counting = false;
     assert(allocations == 0);
-    assert(cached_overlay_readout(context, stats, 1250000) != first);
+    assert(context.overlay_worker->build_now() != first);
+    assert(context.overlay_worker->latest() != first);
+    context.overlay_worker.reset();
     std::puts("cache parity, invalidation, graph and allocations passed");
 }
 '''

@@ -1,5 +1,7 @@
 // Shared global state, env-flag gates, and leaf time/counter helpers.
 #include "latency_layer_internal.h"
+#include <cstdarg>
+#include <unistd.h>
 
 namespace pblayer {
 bool env_flag_enabled(const char* name) {
@@ -115,6 +117,41 @@ uint64_t elapsed_us(uint64_t start_us, uint64_t end_us) {
         return 0;
     }
     return end_us - start_us;
+}
+
+
+// Trace of the overlay/display-timing path, on only with PENGUIN_BURNER_LATENCY_DEBUG_FLOW.
+// Writes ~/.cache/penguin-burner/display-timing.<pid>.log; callers keep it sparse.
+bool display_debug_enabled() {
+    static const bool enabled = [] {
+        const char* value = std::getenv(kDebugFlowEnv);
+        return value && *value && std::strcmp(value, "0") != 0;
+    }();
+    return enabled;
+}
+
+void display_debug_log(const char* fmt, ...) {
+    if (!display_debug_enabled()) return;
+    static std::mutex log_mutex;
+    static FILE* file = nullptr;
+    std::lock_guard<std::mutex> lock(log_mutex);
+    if (!file) {
+        const char* cache = std::getenv("XDG_CACHE_HOME");
+        std::string dir = cache && *cache ? std::string(cache)
+            : std::string(std::getenv("HOME") ? std::getenv("HOME") : "/tmp") + "/.cache";
+        dir += "/penguin-burner";
+        char path[512];
+        std::snprintf(path, sizeof(path), "%s/display-timing.%ld.log", dir.c_str(), static_cast<long>(::getpid()));
+        file = std::fopen(path, "a");
+        if (!file) return;
+    }
+    std::fprintf(file, "%" PRIu64 " ", now_monotonic_us());
+    va_list args;
+    va_start(args, fmt);
+    std::vfprintf(file, fmt, args);
+    va_end(args);
+    std::fputc('\n', file);
+    std::fflush(file);
 }
 
 }  // namespace pblayer

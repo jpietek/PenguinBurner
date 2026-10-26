@@ -1570,19 +1570,5 @@ std::string build_overlay_text(
     return build_overlay_readout(stats, facts, state, now_us).text;
 }
 
-const std::shared_ptr<const OverlayReadout>& cached_overlay_readout(
-    SwapchainContext& context,
-    const OverlayFrameStats& stats,
-    uint64_t now_us) {
-    // The caller holds g_mutex. An immutable snapshot avoids copying nested
-    // strings/vectors every present and gives the geometry a revision key.
-    if (!context.overlay_readout || now_us < context.overlay_readout_time_us
-        || now_us - context.overlay_readout_time_us >= 250000) {
-        context.overlay_readout = std::make_shared<const OverlayReadout>(
-            build_overlay_readout(stats, context.device_facts, read_overlay_gpu_state(), now_us));
-        context.overlay_readout_time_us = now_us;
-    }
-    return context.overlay_readout;
-}
 
 }  // namespace pblayer

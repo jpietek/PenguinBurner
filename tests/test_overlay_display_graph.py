@@ -105,6 +105,10 @@ std::mutex g_mutex;
 std::unordered_map<VkDevice, DeviceContext> g_devices;
 std::unordered_map<VkSwapchainKHR, SwapchainContext> g_swapchains;
 uint64_t now_monotonic_us() { return 1000000; }
+bool display_debug_enabled() { return false; }
+void display_debug_log(const char*, ...) {}
+// SwapchainContext owns a worker; these probes never start one.
+OverlayWorker::~OverlayWorker() {}
 }
 using namespace pblayer;
 #ifdef VK_EXT_present_timing
@@ -197,6 +201,10 @@ std::mutex g_mutex;
 std::unordered_map<VkDevice, DeviceContext> g_devices;
 std::unordered_map<VkSwapchainKHR, SwapchainContext> g_swapchains;
 uint64_t now_monotonic_us() { return 1000000; }
+bool display_debug_enabled() { return false; }
+void display_debug_log(const char*, ...) {}
+// SwapchainContext owns a worker; these probes never start one.
+OverlayWorker::~OverlayWorker() {}
 }
 using namespace pblayer;
 #ifdef VK_EXT_present_timing

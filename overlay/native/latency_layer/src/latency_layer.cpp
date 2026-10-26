@@ -709,6 +709,9 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_swapchain_khr(
             context.device_facts.driver_version = overlay_driver_version_text(
                 properties.driverVersion, properties.vendorID);
         }
+        // Text and geometry are built off the present thread from here on.
+        context.overlay_worker = std::make_unique<OverlayWorker>();
+        context.overlay_worker->set_facts(context.device_facts);
         g_swapchains[*swapchain] = std::move(context);
         live_swapchain_count = live_swapchain_count_locked(device);
     }
@@ -892,7 +895,9 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_queue_present_khr(
                         swapchain_context.present_mode = modes->pPresentModes[i];
                         swapchain_context.device_facts.present_mode =
                             overlay_present_mode_text(modes->pPresentModes[i]);
-                        swapchain_context.overlay_readout.reset();
+                        if (swapchain_context.overlay_worker) {
+                            swapchain_context.overlay_worker->set_facts(swapchain_context.device_facts);
+                        }
                     }
                     break;
                 }
@@ -910,22 +915,16 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_queue_present_khr(
                 if (overlay_enabled() && has_device_context && has_queue_context
                     && present_info->swapchainCount == 1
                     && present_info->pImageIndices) {
-                    const auto& overlay_readout = cached_overlay_readout(
+                    overlay_signal = submit_overlay_locked(
+                        device_context,
+                        swapchain,
                         swapchain_context,
+                        queue_context,
+                        queue,
+                        present_info->pImageIndices[i],
+                        present_info,
                         overlay_stats,
-                        present_time_us);
-                    if (!overlay_readout->text.empty() || frame_completion_enabled(device_context)) {
-                        overlay_signal = submit_overlay_locked(
-                            device_context,
-                            swapchain,
-                            swapchain_context,
-                            queue_context,
-                            queue,
-                            present_info->pImageIndices[i],
-                            present_info,
-                            overlay_readout,
-                            overlay_graph);
-                    }
+                        overlay_graph);
                 }
             }
             observations.push_back(observation);

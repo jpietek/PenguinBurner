@@ -42,6 +42,7 @@ def lock_order_probe(tmp_path_factory: pytest.TempPathFactory) -> Path:
                 "latency_state.cpp",
                 "frame_timing.cpp",
                 "display_timing.cpp",
+                "overlay_worker.cpp",
                 "latency_layer.cpp",
                 "telemetry_events.cpp",
                 "marker_timing.cpp",
