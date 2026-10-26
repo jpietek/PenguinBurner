@@ -38,8 +38,9 @@ selected.**
   tier), Large (adds GPU and CPU readings), Biggest (all fields), or Custom.
   Editing a field switches to Custom. Your custom selection is saved separately
   and restored when you choose Custom again, including after cycling presets.
-- **Background opacity** — how much of the game shows through the overlay's
-  panel. Only the blended renderer can honour it; the text itself stays fully opaque.
+- **Background opacity** — a slider with a percentage readout (20–100%) for
+  how much of the game shows through the overlay's panel. Only the blended
+  renderer can honour it; the text itself stays fully opaque.
   **Alt+O** cycles 50, 60, 70, 75, 80, 85, 90, 95, 100%, then back to 50%.
   The command is `pburn-cli --overlay-opacity-next`; changes apply live.
 - **Layout** — **HUD** is the designed arrangement: the frame rate as a

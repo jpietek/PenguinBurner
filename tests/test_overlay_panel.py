@@ -241,6 +241,30 @@ def test_scale_slider_uses_existing_steps_with_keyboard_and_percent_label(
     assert load_overlay_config(panel.config_path).scale == OVERLAY_SCALE_OPTIONS[-1]
 
 
+def test_opacity_slider_steps_five_percent_with_keyboard_and_percent_label(
+    panel_factory,
+) -> None:
+    from PySide6 import QtCore, QtTest
+
+    panel = panel_factory(OverlayConfig(opacity=0.85))
+    slider = panel.opacity_slider
+    slider.setFocus()
+    assert (slider.minimum(), slider.maximum()) == (20, 100)
+    assert slider.value() == 85
+    assert panel.opacity_value_label.text() == "85%"
+
+    QtTest.QTest.keyClick(slider, QtCore.Qt.Key.Key_Left)
+    assert slider.value() == 80
+    assert panel.opacity_value_label.text() == "80%"
+    assert load_overlay_config(panel.config_path).opacity == 0.8
+
+    QtTest.QTest.keyClick(slider, QtCore.Qt.Key.Key_End)
+    assert load_overlay_config(panel.config_path).opacity == 1.0
+    QtTest.QTest.keyClick(slider, QtCore.Qt.Key.Key_Home)
+    assert load_overlay_config(panel.config_path).opacity == 0.2
+    assert panel.opacity_value_label.text() == "20%"
+
+
 def test_external_config_refresh_updates_controls_without_writing_or_closing_edit(
     panel_factory, monkeypatch
 ) -> None:
@@ -298,7 +322,7 @@ def test_renderer_has_no_selector_and_changes_to_blended_only_on_explicit_save(
     assert load_overlay_config(panel.config_path).renderer == renderer
     assert panel.config_path.stat().st_mtime_ns == before.st_mtime_ns
 
-    panel.opacity_spin.setValue(60)
+    panel.opacity_slider.setValue(60)
     assert load_overlay_config(panel.config_path) == replace(
         original, opacity=0.6, renderer="blended",
         custom_item_ids=original.enabled_item_ids
