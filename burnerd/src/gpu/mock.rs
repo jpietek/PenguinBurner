@@ -71,6 +71,7 @@ pub struct MockGpu {
     pub architecture: Option<u32>,
 
     pub temperature_c: f64,
+    pub hotspot_temperature_c: Option<f64>,
     pub fan_count: u32,
     pub fan_limits: (Option<u32>, Option<u32>),
     pub reported_fan_speeds: Option<Vec<u32>>,
@@ -136,6 +137,7 @@ impl Default for MockGpu {
             memory_info: None,
             architecture: None,
             temperature_c: 0.0,
+            hotspot_temperature_c: None,
             fan_count: 0,
             fan_limits: (None, None),
             reported_fan_speeds: None,
@@ -296,6 +298,11 @@ impl GpuBackend for MockGpu {
         }
         self.fail("temperature_c")?;
         Ok(self.temperature_c)
+    }
+
+    fn hotspot_temperature_c(&self) -> Option<f64> {
+        self.fail("hotspot_temperature_c").ok()?;
+        self.hotspot_temperature_c
     }
 
     fn fan_count(&self) -> GpuResult<u32> {

@@ -11,6 +11,7 @@ mod cpu;
 mod fan;
 mod frametime;
 mod guard;
+mod host;
 mod latency_rx;
 mod logfmt;
 mod resume;
