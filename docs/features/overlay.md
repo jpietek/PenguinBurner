@@ -343,7 +343,7 @@ process, not from the daemon:
   panel are skipped, so the plot shows what was actually displayed. The HUD
   footer follows the mode the game presents with, not the swapchain's
   creation mode. Queue-completion feedback alone remains unavailable.
-- **Both graphs (debug)**: two labeled plots with the same vertical scale,
+- **Both graphs**: two labeled plots with the same vertical scale,
   keeping the last 120 samples from each source. They can cover different time
   spans because their sampling rates differ. Neither plot averages out spikes.
 

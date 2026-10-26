@@ -226,7 +226,7 @@ OVERLAY_GRAPH_MODES = ("present", "display", "both")
 OVERLAY_GRAPH_MODE_LABELS = {
     "present": "Present calls",
     "display": "Displayed frames (post-FG)",
-    "both": "Both graphs (debug)",
+    "both": "Both graphs",
 }
 DEFAULT_OVERLAY_GRAPH_MODE = "present"
 
