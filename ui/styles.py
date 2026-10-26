@@ -568,6 +568,7 @@ QWidget#overlayConfigPanel QScrollBar:vertical {{ background: transparent; width
 QWidget#overlayConfigPanel QScrollBar::handle:vertical {{ background: {theme.BORDER_STRONG}; border-radius: 4px; min-height: 32px; }}
 QWidget#overlayConfigPanel QScrollBar::add-line:vertical, QWidget#overlayConfigPanel QScrollBar::sub-line:vertical {{ height: 0; }}
 QWidget#overlayConfigPanel QScrollBar::add-page:vertical, QWidget#overlayConfigPanel QScrollBar::sub-page:vertical {{ background: transparent; }}
+QWidget#overlayConfigPanel QSlider {{ min-height: 30px; }} /* same box as the combo boxes above: 24px + 2px padding + 1px border per side */
 QWidget#overlayConfigPanel QSlider::groove:horizontal {{ background: {theme.BORDER_STRONG}; height: 4px; border-radius: 2px; }}
 QWidget#overlayConfigPanel QSlider::sub-page:horizontal {{ background: {theme.PRIMARY_BUTTON_BORDER}; border-radius: 2px; }}
 QWidget#overlayConfigPanel QSlider::handle:horizontal {{ background: {theme.PRIMARY_BUTTON_TEXT}; border: 2px solid {theme.PRIMARY_BUTTON_BORDER}; width: 13px; margin: -6px 0; border-radius: 8px; }}
