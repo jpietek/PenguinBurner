@@ -309,7 +309,7 @@ def test_gui_follows_external_size_and_position_changes(qtbot, tmp_path):
         ("scale_slider", 4, "scale", 2.0),
         ("position_combo", 0, "position", "top_left"),
         ("detail_combo", 2, "detail", "detailed"),
-        ("opacity_spin", 70, "opacity", 0.7),
+        ("opacity_slider", 70, "opacity", 0.7),
         ("font_combo", 1, "font", "mono"),
         ("layout_combo", 1, "layout", "table"),
     ],
@@ -455,6 +455,6 @@ def test_opacity_shortcut_updates_gui_and_routes_from_cli(qtbot, tmp_path, monke
     assert result.opacity == 0.75
     saved = path.read_bytes()
     panel.refresh_preview()
-    assert panel.opacity_spin.value() == 75
+    assert panel.opacity_slider.value() == 75
     assert panel.preview._config.opacity == 0.75
     assert path.read_bytes() == saved

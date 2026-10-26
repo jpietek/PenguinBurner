@@ -360,14 +360,26 @@ class OverlayConfigPanel:
         self.detail_combo.setToolTip(
             "Small, Medium, Large or Biggest. The preset shortcut cycles these four. Scale is independent. Custom restores your saved field selection; editing a metric selection updates it."
         )
-        self.opacity_spin = QtWidgets.QSpinBox()
-        self.opacity_spin.setObjectName("overlayOpacitySpin")
-        self.opacity_spin.setRange(
+        self.opacity_control = QtWidgets.QWidget()
+        opacity_layout = QtWidgets.QHBoxLayout(self.opacity_control)
+        opacity_layout.setContentsMargins(0, 0, 0, 0)
+        opacity_layout.setSpacing(12)
+        self.opacity_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.opacity_slider.setObjectName("overlayOpacitySlider")
+        self.opacity_slider.setAccessibleName("Overlay background opacity")
+        self.opacity_slider.setRange(
             round(MIN_OVERLAY_OPACITY * 100), round(MAX_OVERLAY_OPACITY * 100)
         )
-        self.opacity_spin.setSingleStep(5)
-        self.opacity_spin.setSuffix(" %")
-        self.opacity_spin.setToolTip(
+        self.opacity_slider.setSingleStep(5)
+        self.opacity_slider.setPageStep(10)
+        self.opacity_value_label = self._label("", "overlayMuted")
+        self.opacity_value_label.setFixedWidth(42)
+        self.opacity_value_label.setAlignment(
+            QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter
+        )
+        opacity_layout.addWidget(self.opacity_slider, 1)
+        opacity_layout.addWidget(self.opacity_value_label)
+        self.opacity_control.setToolTip(
             "Opacity of the background panel; text stays fully opaque."
         )
         self.update_interval_spin = QtWidgets.QSpinBox()
@@ -489,7 +501,7 @@ class OverlayConfigPanel:
         controls = [
             ("Position", self.position_combo),
             ("Scale", scale_control),
-            ("Background opacity", self.opacity_spin),
+            ("Background opacity", self.opacity_control),
             ("Layout", self.layout_combo),
             ("Frame timing graphs", self.graph_mode_combo),
             ("Font", self.font_combo),
@@ -695,7 +707,7 @@ class OverlayConfigPanel:
         self.scale_slider.valueChanged.connect(self._set_overlay_scale)
         self.position_combo.currentIndexChanged.connect(self._set_overlay_position)
         self.detail_combo.currentIndexChanged.connect(self._set_overlay_detail)
-        self.opacity_spin.valueChanged.connect(self._set_overlay_opacity)
+        self.opacity_slider.valueChanged.connect(self._set_overlay_opacity)
         self.graph_mode_combo.currentIndexChanged.connect(self._set_overlay_graph_mode)
         self.font_combo.currentIndexChanged.connect(self._set_overlay_font)
         self.layout_combo.currentIndexChanged.connect(self._set_overlay_layout)
@@ -836,7 +848,13 @@ class OverlayConfigPanel:
         self.config = set_overlay_position(load_overlay_config(self.config_path), OVERLAY_POSITION_IDS[index])
         self._save()
 
+    def _show_opacity_value(self, percent: int) -> None:
+        self.opacity_value_label.setText(f"{percent}%")
+        self.opacity_slider.setToolTip(f"{percent}%")
+        self.opacity_slider.setAccessibleDescription(f"{percent} percent")
+
     def _set_overlay_opacity(self, value: int) -> None:
+        self._show_opacity_value(value)
         if self._syncing:
             return
         self.config = set_overlay_opacity(load_overlay_config(self.config_path), value / 100.0)
@@ -903,7 +921,9 @@ class OverlayConfigPanel:
             self.detail_combo.setCurrentIndex(
                 OVERLAY_DETAIL_IDS.index(normalize_overlay_detail(self.config.detail))
             )
-            self.opacity_spin.setValue(round(float(self.config.opacity) * 100))
+            opacity_percent = round(float(self.config.opacity) * 100)
+            self.opacity_slider.setValue(opacity_percent)
+            self._show_opacity_value(opacity_percent)
             self.graph_mode_combo.setCurrentIndex(OVERLAY_GRAPH_MODES.index(self.config.graph_mode))
             self.font_combo.setCurrentIndex(
                 OVERLAY_FONTS.index(normalize_overlay_font(self.config.font))
