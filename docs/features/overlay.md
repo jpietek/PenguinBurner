@@ -220,6 +220,15 @@ precedence, and keys can be changed in KDE. On GNOME, the button offers
 **KDE Plasma** — System Settings → Keyboard → Shortcuts → PenguinBurner.
 Select an action to change its key binding.
 
+A `pip install --user` puts the commands in `~/.local/bin`, which the Plasma
+session PATH usually lacks, so KDE reports `Could not find the program
+'penguin-burner-cli'`. **Keyboard shortcuts…** fixes that by pointing the
+user-level desktop entry (`~/.local/share/applications`) at those scripts by
+absolute path before it opens KDE settings. Reinstalling restores the packaged
+entry, so click the button once more after an upgrade. If KDE still runs the
+old command, log out and back in. Distribution packages and Flatpak are not
+changed.
+
 **GNOME** — Click **Keyboard shortcuts…**, then **Set up GNOME shortcuts**.
 All six actions are added to GNOME's Custom Shortcuts and its settings window
 opens automatically. No commands need to be copied. Repeating setup preserves
