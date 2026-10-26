@@ -91,6 +91,10 @@ from auto_uv.run.crash_recovery import (
     recovery_probe_history,
     replay_recovered_resume_probe_rows,
 )
+from auto_uv.run.performance_comparison import (
+    compare_performance_finalists,
+    performance_comparison_pair,
+)
 from auto_uv.run.scan_runtime_settings import (
     adaptive_tier_option,
     read_scan_runtime_settings,
@@ -2170,6 +2174,25 @@ def select_final_scan_candidate(
             and probe.lock_clock_mhz
             <= int(final_auto_oc_metadata["custom_target_clock_mhz"])
         ]
+    if (
+        selection_mode == AUTO_UV_MODE_PERFORMANCE
+        and custom_target is None
+        and request_reason != "user-stop"
+    ):
+        pair = performance_comparison_pair(choice_history)
+        if pair is not None:
+            if checkpoint:
+                checkpoint.continue_live()
+            final_probe, compared = compare_performance_finalists(
+                pair, runner=runner, clock_ceiling=gpu.clock_ceiling,
+                tail_rise_bins=tail_rise_bins, probe_history=probe_history, log=log,
+            )
+            choice_history.extend(compared)
+            stable_history.extend(compared)
+            final_plan = [dict(point) for point in final_probe.tested_plan or []]
+            final_voltage_mv = final_probe.candidate_voltage_mv
+            final_lock_clock_mhz = final_probe.lock_clock_mhz
+            request_reason = "performance-comparison"
     if bool(runtime_options.get("auto_uv_require_final_choice")) and not unsafe_voltage_block_reason(
         unsafe, candidate_voltage_mv=final_voltage_mv,
         lock_clock_mhz=final_lock_clock_mhz, profile_tier=selection_mode,
@@ -2203,6 +2226,10 @@ def select_final_scan_candidate(
         if selected_stable_probe is not None:
             final_probe = selected_stable_probe
 
+    if request_reason == "performance-comparison" and final_auto_oc_metadata.get("auto_oc"):
+        final_auto_oc_metadata["auto_oc_applied_mhz"] = round(
+            final_lock_clock_mhz - float(final_auto_oc_metadata["auto_oc_baseline_clock_mhz"])
+        )
     selection = FinalScanCandidate(
         plan=final_plan,
         voltage_mv=int(final_voltage_mv),
