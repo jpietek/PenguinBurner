@@ -229,10 +229,13 @@ def parse_arguments(argv):
         help=("Set the overlay preset and exit: minimal=Small, standard=Medium, "
               "detailed=Large, full=Biggest; custom restores your selected fields."),
     )
+    parser.add_argument("--overlay-graph", choices=("present", "display", "both"), help="Select frame timing graphs; displayed timing requires driver feedback.")
     for flag, help_text in (
         ("--overlay-scale-down", "Decrease overlay scale one step (minimum 0.5x). Default shortcut: Alt+[."),
         ("--overlay-scale-up", "Increase overlay scale one step (maximum 2x). Default shortcut: Alt+]."),
         ("--overlay-position-prev", "Cycle to the previous overlay position, wrapping. Default shortcut: Alt+<."),
+        ("--overlay-opacity-next", "Cycle background opacity: 50, 60, 70, 75, 80, 85, 90, 95, 100 percent. Default shortcut: Alt+O."),
+        ("--overlay-graph-next", "Cycle frame timing graphs: Present calls, Displayed frames, Both. Default shortcut: Alt+G."),
         ("--overlay-position-next", "Cycle to the next overlay position, wrapping. Default shortcut: Alt+>."),
     ):
         overlay_group.add_argument(flag, action="store_true", help=help_text)

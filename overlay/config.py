@@ -203,6 +203,7 @@ DEFAULT_OVERLAY_POSITION = "top_right"
 MIN_OVERLAY_OPACITY = 0.2
 MAX_OVERLAY_OPACITY = 1.0
 DEFAULT_OVERLAY_OPACITY = 0.85
+OVERLAY_OPACITY_CYCLE = (0.50, 0.60, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.00)
 # "blended" uses the Vulkan pipeline where the driver gives us one, which is
 # what makes translucency and rounded corners possible. "clear_rect" forces the
 # original renderer, as a way out if blending upsets a particular game.
@@ -224,6 +225,13 @@ DEFAULT_OVERLAY_FONT = "sans"
 # "table" is the plain grid every field shares, which is what shipped first.
 OVERLAY_LAYOUTS = ("hud", "table")
 DEFAULT_OVERLAY_LAYOUT = "hud"
+OVERLAY_GRAPH_MODES = ("present", "display", "both")
+OVERLAY_GRAPH_MODE_LABELS = {
+    "present": "Present calls",
+    "display": "Displayed frames (post-FG)",
+    "both": "Both graphs (debug)",
+}
+DEFAULT_OVERLAY_GRAPH_MODE = "present"
 
 # The designed layout, as rows. Each entry is (kind, label, item ids); a row
 # whose items are all switched off is not drawn, and nor is a rule that would
@@ -302,6 +310,7 @@ class OverlayConfig:
     renderer: str = DEFAULT_OVERLAY_RENDERER
     font: str = DEFAULT_OVERLAY_FONT
     layout: str = DEFAULT_OVERLAY_LAYOUT
+    graph_mode: str = DEFAULT_OVERLAY_GRAPH_MODE
     # Kept separately while a preset supplies the active field list.
     custom_item_ids: tuple[str, ...] = ()
 
@@ -374,6 +383,7 @@ def load_overlay_config(path: str | Path | None = None) -> OverlayConfig:
                 payload.get("renderer", DEFAULT_OVERLAY_RENDERER)
             ),
             font=normalize_overlay_font(payload.get("font", DEFAULT_OVERLAY_FONT)),
+            graph_mode=normalize_overlay_graph_mode(payload.get("graph_mode")),
             layout=normalize_overlay_layout(
                 payload.get("layout", DEFAULT_OVERLAY_LAYOUT)
             ),
@@ -402,6 +412,7 @@ def save_overlay_config(
         f'renderer = "{config.renderer}"\n'
         f'font = "{config.font}"\n'
         f'layout = "{config.layout}"\n'
+        f'graph_mode = "{config.graph_mode}"\n'
         "items = ["
         + ", ".join(f'"{item_id}"' for item_id in config.enabled_item_ids)
         + "]\n"
@@ -438,6 +449,7 @@ def normalize_overlay_config(config: OverlayConfig) -> OverlayConfig:
         renderer=normalize_overlay_renderer(config.renderer),
         font=normalize_overlay_font(config.font),
         layout=normalize_overlay_layout(config.layout),
+        graph_mode=normalize_overlay_graph_mode(config.graph_mode),
         custom_item_ids=normalize_overlay_item_ids(custom_items),
     )
 
@@ -536,6 +548,15 @@ def set_overlay_layout(config: OverlayConfig, value: object) -> OverlayConfig:
     return normalize_overlay_config(
         replace(config, layout=normalize_overlay_layout(value))
     )
+
+
+def normalize_overlay_graph_mode(value: object) -> str:
+    text = str(value or "").strip().lower()
+    return text if text in OVERLAY_GRAPH_MODES else DEFAULT_OVERLAY_GRAPH_MODE
+
+
+def set_overlay_graph_mode(config: OverlayConfig, value: object) -> OverlayConfig:
+    return normalize_overlay_config(replace(config, graph_mode=normalize_overlay_graph_mode(value)))
 
 
 def normalize_overlay_layout(value: object) -> str:

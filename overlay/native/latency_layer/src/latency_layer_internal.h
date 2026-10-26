@@ -33,6 +33,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <pthread.h>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
@@ -261,6 +262,7 @@ struct QueueContext {
 };
 
 struct InstanceContext {
+    bool surface_capabilities2_enabled = false;
     PFN_vkGetInstanceProcAddr get_instance_proc_addr = nullptr;
     PFN_vkDestroyInstance destroy_instance = nullptr;
     PFN_vkCreateDevice create_device = nullptr;
@@ -283,6 +285,12 @@ struct OverlayPipelineCache {
 };
 
 struct DeviceContext {
+    bool owns_display_timing = false;
+#ifdef VK_EXT_present_timing
+    PFN_vkSetSwapchainPresentTimingQueueSizeEXT set_timing_queue = nullptr;
+    PFN_vkGetSwapchainTimeDomainPropertiesEXT get_timing_domains = nullptr;
+    PFN_vkGetPastPresentationTimingEXT get_past_timing = nullptr;
+#endif
     VkDevice device = VK_NULL_HANDLE;
     VkPhysicalDevice physical_device = VK_NULL_HANDLE;
     PFN_vkGetDeviceProcAddr get_device_proc_addr = nullptr;
@@ -494,6 +502,7 @@ struct OverlayGeometryCache {
     uint32_t position = 0;
     OverlayFont font = OverlayFont::Pixel;
     bool blended = false, graph_visible = false;
+    uint32_t graph_mode = 0;
     std::vector<OverlayVertex> vertices;
     std::vector<OverlayVertex> graph_tail;
     std::vector<OverlayClearRect> clear_rects;
@@ -548,7 +557,22 @@ struct OverlayRenderResources : OverlayPipelineResources {
     std::vector<FrameCompletionSample> frame_samples;
 };
 
+// Driver timestamps are independent of CPU Present entry intervals.
+struct DisplayTimingState {
+    bool available = false;
+    bool passive = false;
+    // App owns VK_EXT_present_timing and flagged the swapchain, but stamps no
+    // requests (vkd3d-proton off FIFO): we stamp them, the app's polls return them.
+    bool shared = false;
+    uint64_t last_observed_us = 0;
+    uint32_t stage = 0, pending = 0;
+    uint64_t domain_id = 0, next_id = 0, last_timestamp_ns = 0, last_sample_us = 0;
+    std::array<uint64_t, 120> samples{};
+    uint32_t count = 0, index = 0;
+};
+
 struct SwapchainContext {
+    DisplayTimingState display_timing{};
     VkDevice device = VK_NULL_HANDLE;
     bool swapchain_latency_mode = false;
     VkFormat image_format = VK_FORMAT_UNDEFINED;
@@ -615,6 +639,11 @@ struct OverlayFrameStats {
 // A chronological snapshot of the present ring, taken under the swapchain lock
 // so the draw path never reads the ring while a present updates it.
 struct OverlayGraph {
+    std::array<uint64_t, 120> display_samples{};
+    uint32_t display_count = 0;
+    uint64_t display_median_us = 0;
+    bool display_available = false;
+    uint64_t scale_span_us = 0;
     std::array<uint64_t, 120> samples{};
     uint32_t count = 0;
     // The rule drawn across the bars. The window's own median, not a target
@@ -753,6 +782,7 @@ struct OverlayTextConfig {
     bool blended_renderer = true;
     OverlayFont font = kDefaultOverlayFont;
     OverlayLayout layout = kDefaultOverlayLayout;
+    uint32_t graph_mode = 0;
 };
 
 // ---- Shared global state (defined in latency_state.cpp / marker_timing.cpp) ----
@@ -777,6 +807,7 @@ extern std::atomic<uint32_t> g_overlay_position;
 // Whether the frametime graph is switched on, published with the rest of the
 // config so the present-path draw can read it without taking the config lock.
 extern std::atomic<bool> g_overlay_graph_enabled;
+extern std::atomic<uint32_t> g_overlay_graph_mode;
 // Panel opacity and renderer choice, published with the rest of the config so
 // the present-path draw never takes the config lock.
 extern std::atomic<double> g_overlay_opacity;
@@ -803,6 +834,7 @@ extern std::atomic<uint32_t> g_overlay_layout;
     VkOffset2D overlay_text_origin( const VkExtent2D& extent, uint32_t box_width, uint32_t box_height, uint32_t margin, OverlayPosition position);
     bool overlay_enabled();
     OverlayFrameStats overlay_frame_stats_locked( SwapchainContext& context, uint64_t present_frametime_us);
+    std::string overlay_frametime_ms_text(uint64_t frametime_us);
     OverlayGraph overlay_graph_locked(const SwapchainContext& context, uint64_t median_us);
     uint64_t overlay_graph_span_us(const OverlayGraph& graph, uint64_t worst_us);
     uint32_t overlay_graph_bar_height( uint64_t sample_us, uint64_t span_us, uint32_t height);
@@ -859,6 +891,30 @@ extern std::atomic<uint32_t> g_overlay_layout;
     bool reapply_latency_sleep_mode( const char* event, VkDevice device, VkSwapchainKHR swapchain, uint64_t duplicate_count, uint64_t present_count);
     void query_latency_timing(VkDevice device, VkSwapchainKHR swapchain);
 
+
+void record_display_timestamp(DisplayTimingState& state, uint64_t timestamp_ns, uint64_t now_us);
+// Trace log for the display-timing path; no-op unless PENGUIN_BURNER_LATENCY_DEBUG_FLOW.
+bool display_debug_enabled();
+void display_debug_log(const char* fmt, ...);
+#ifdef VK_EXT_present_timing
+struct DisplayTimingDeviceSetup {
+    bool enabled = false;
+    VkDeviceCreateInfo info{};
+    std::vector<const char*> extensions;
+    VkPhysicalDevicePresentTimingFeaturesEXT timing{};
+    VkPhysicalDevicePresentId2FeaturesKHR id{};
+};
+void prepare_display_timing_device(VkInstance instance, const InstanceContext& context,
+    VkPhysicalDevice physical, const VkDeviceCreateInfo* original, DisplayTimingDeviceSetup& setup);
+uint32_t display_timing_surface_stage(VkInstance instance, PFN_vkGetInstanceProcAddr get_proc,
+    VkPhysicalDevice physical, VkSurfaceKHR surface);
+void init_display_timing(const DeviceContext& device, VkSwapchainKHR swapchain, DisplayTimingState& state);
+void collect_display_timing(const DeviceContext& device, VkSwapchainKHR swapchain, DisplayTimingState& state);
+void observe_display_timing(DisplayTimingState& state,
+    const VkPastPresentationTimingPropertiesEXT& results, uint64_t now_us);
+VKAPI_ATTR VkResult VKAPI_CALL layer_get_past_presentation_timing_ext(VkDevice device,
+    const VkPastPresentationTimingInfoEXT* info, VkPastPresentationTimingPropertiesEXT* results);
+#endif
 }  // namespace pblayer
 
 #endif  // PENGUINBURNER_LATENCY_LAYER_INTERNAL_H

@@ -43,6 +43,8 @@ def test_shortcut_defaults_include_all_overlay_actions():
     assert shortcuts.SHORTCUT_DEFAULTS == {
         "--overlay-toggle": "Alt+X",
         "--overlay-detail-next": "Alt+C",
+        "--overlay-graph-next": "Alt+G",
+        "--overlay-opacity-next": "Alt+O",
         "--overlay-scale-down": "Alt+[",
         "--overlay-scale-up": "Alt+]",
         "--overlay-position-prev": "Alt+<",
@@ -151,7 +153,7 @@ def test_other_desktops_keep_manual_shortcut_commands(qtbot, monkeypatch):
     monkeypatch.setenv("XDG_CURRENT_DESKTOP", "sway")
     dialog = overlay_shortcuts.overlay_shortcuts_dialog(QtCore=QtCore, QtWidgets=QtWidgets, parent=None)
     qtbot.addWidget(dialog)
-    assert len(dialog.findChildren(QtWidgets.QLineEdit)) == 6
+    assert len(dialog.findChildren(QtWidgets.QLineEdit)) == 8
     assert dialog.findChild(QtWidgets.QPushButton, "overlayShortcutSetup") is None
     command = dialog.findChild(QtWidgets.QLineEdit, "overlayShortcutCommand0")
     dialog.findChild(QtWidgets.QPushButton, "overlayShortcutCopy0").click()
@@ -260,7 +262,7 @@ def test_desktop_shortcut_actions_route_to_supported_cli_commands(package):
     entry.read(Path("packaging") / package / "io.github.jpietek.PenguinBurner.desktop")
     actions = entry["Desktop Entry"]["Actions"].strip(";").split(";")
     assert actions == [
-        "ToggleOverlay", "NextOverlayDetail", "SmallerOverlayText",
+        "ToggleOverlay", "NextOverlayDetail", "NextOverlayGraph", "NextOverlayOpacity", "SmallerOverlayText",
         "LargerOverlayText", "PreviousOverlayPosition", "NextOverlayPosition",
     ]
     for action, (_, flag) in zip(actions, shortcuts.SHORTCUT_ACTIONS, strict=True):
@@ -421,3 +423,38 @@ def test_native_visibility_reacts_before_the_old_one_second_poll(native_overlay_
         finally:
             process.stdin.close()
             process.wait(timeout=5)
+
+
+def test_opacity_shortcut_cycles_requested_stops_and_preserves_settings(tmp_path):
+    from dataclasses import replace
+
+    from overlay.control import cycle_overlay_opacity
+
+    path = tmp_path / 'overlay.toml'
+    save_overlay_config(OverlayConfig(opacity=0.70, scale=0.75, graph_mode='both'), path)
+    before = load_overlay_config(path)
+    for opacity in (0.75, 0.80, 0.85, 0.90, 0.95, 1.00, 0.50, 0.60, 0.70):
+        result = cycle_overlay_opacity(path)
+        assert result.as_json()['opacity'] == opacity
+        assert load_overlay_config(path) == replace(before, opacity=opacity)
+    for current, expected in ((0.20, 0.50), (0.65, 0.70), (0.99, 1.00)):
+        save_overlay_config(replace(before, opacity=current), path)
+        assert cycle_overlay_opacity(path).opacity == expected
+
+
+def test_opacity_shortcut_updates_gui_and_routes_from_cli(qtbot, tmp_path, monkeypatch):
+    from cli import main_command_routing
+    from overlay.control import cycle_overlay_opacity
+
+    path = tmp_path / 'overlay.toml'
+    save_overlay_config(OverlayConfig(opacity=0.70), path)
+    panel = OverlayConfigPanel(QtCore=QtCore, QtWidgets=QtWidgets, config_path=path)
+    qtbot.addWidget(panel.widget)
+    monkeypatch.setattr(main_command_routing, 'cycle_overlay_opacity', lambda: cycle_overlay_opacity(path))
+    result = main_command_routing._overlay_control_result(parse_arguments(['--overlay-opacity-next']))
+    assert result.opacity == 0.75
+    saved = path.read_bytes()
+    panel.refresh_preview()
+    assert panel.opacity_spin.value() == 75
+    assert panel.preview._config.opacity == 0.75
+    assert path.read_bytes() == saved

@@ -17,6 +17,9 @@ from pathlib import Path
 
 from overlay.config import (
     OVERLAY_DETAIL_LABELS,
+    OVERLAY_GRAPH_MODE_LABELS,
+    OVERLAY_GRAPH_MODES,
+    OVERLAY_OPACITY_CYCLE,
     OVERLAY_POSITION_IDS,
     OVERLAY_SCALE_OPTIONS,
     OverlayConfig,
@@ -25,6 +28,8 @@ from overlay.config import (
     normalize_overlay_detail,
     save_overlay_config,
     set_overlay_detail,
+    set_overlay_graph_mode,
+    set_overlay_opacity,
     set_overlay_position,
     set_overlay_scale,
 )
@@ -45,7 +50,9 @@ class OverlayControlResult:
     message: str
     visible: bool | None = None
     detail: str | None = None
+    graph_mode: str | None = None
     scale: float | None = None
+    opacity: float | None = None
     position: str | None = None
 
     def as_json(self) -> dict[str, object]:
@@ -56,8 +63,12 @@ class OverlayControlResult:
             payload["detail"] = self.detail
         if self.scale is not None:
             payload["scale"] = self.scale
+        if self.opacity is not None:
+            payload["opacity"] = self.opacity
         if self.position is not None:
             payload["position"] = self.position
+        if self.graph_mode is not None:
+            payload["graph_mode"] = self.graph_mode
         return payload
 
 
@@ -171,4 +182,37 @@ def cycle_overlay_position(
         action="overlay_position",
         message=f"Overlay position: {updated.position.replace('_', ' ')}.",
         position=updated.position,
+    )
+
+
+def change_overlay_graph_mode(
+    mode: str = "next", config_path: str | Path | None = None,
+) -> OverlayControlResult:
+    config = load_overlay_config(config_path)
+    if mode == "next":
+        mode = OVERLAY_GRAPH_MODES[(OVERLAY_GRAPH_MODES.index(config.graph_mode) + 1) % len(OVERLAY_GRAPH_MODES)]
+    if mode not in OVERLAY_GRAPH_MODES:
+        raise ValueError("overlay graph must be present, display, both or next")
+    updated = set_overlay_graph_mode(config, mode)
+    save_overlay_config(updated, config_path)
+    return OverlayControlResult(
+        action="overlay_graph", graph_mode=mode,
+        message=f"Overlay graph: {OVERLAY_GRAPH_MODE_LABELS[mode]}.",
+    )
+
+
+def cycle_overlay_opacity(
+    config_path: str | Path | None = None,
+) -> OverlayControlResult:
+    """Step to the next opacity stop; wrap at 100%, never below 50%."""
+    config = load_overlay_config(config_path)
+    opacity = next(
+        (value for value in OVERLAY_OPACITY_CYCLE if value > config.opacity + 1e-9),
+        OVERLAY_OPACITY_CYCLE[0],
+    )
+    updated = set_overlay_opacity(config, opacity)
+    save_overlay_config(updated, config_path)
+    return OverlayControlResult(
+        action="overlay_opacity", opacity=updated.opacity,
+        message=f"Overlay background opacity: {updated.opacity:.0%}.",
     )

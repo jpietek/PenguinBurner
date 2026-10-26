@@ -373,6 +373,7 @@ OverlayTextConfig read_overlay_text_config() {
     bool blended_renderer = true;
     OverlayFont font = kDefaultOverlayFont;
     OverlayLayout layout = kDefaultOverlayLayout;
+    uint32_t graph_mode = 0;
     std::vector<std::string> requested;
     char line_buffer[512]{};
     while (std::fgets(line_buffer, sizeof(line_buffer), file)) {
@@ -397,6 +398,9 @@ OverlayTextConfig read_overlay_text_config() {
             blended_renderer = unquote_lower(value) != "clear_rect";
         } else if (key == "font") {
             font = parse_overlay_font(value);
+        } else if (key == "graph_mode") {
+            const auto mode = unquote_lower(value);
+            graph_mode = mode == "both" ? 2 : mode == "display" ? 1 : 0;
         } else if (key == "layout") {
             layout = parse_overlay_layout(value);
         }
@@ -416,6 +420,7 @@ OverlayTextConfig read_overlay_text_config() {
     result.blended_renderer = blended_renderer;
     result.font = font;
     result.layout = layout;
+    result.graph_mode = graph_mode;
     return result;
 }
 
@@ -427,6 +432,7 @@ OverlayTextConfig overlay_text_config(uint64_t now_us) {
         || now_us - last_read_us >= 250000) {
         config = read_overlay_text_config();
         last_read_us = now_us;
+        g_overlay_graph_mode.store(config.graph_mode, std::memory_order_relaxed);
         g_overlay_user_scale.store(config.scale, std::memory_order_relaxed);
         g_overlay_position.store(
             static_cast<uint32_t>(config.position), std::memory_order_relaxed);
@@ -634,6 +640,18 @@ OverlayGraph overlay_graph_locked(const SwapchainContext& context, uint64_t medi
         }
     }
     graph.median_us = graph.count ? median_us : 0;
+    const auto& display = context.display_timing;
+    graph.display_available = display.available;
+    const uint64_t now = now_monotonic_us();
+    if (display.last_sample_us && now >= display.last_sample_us && now - display.last_sample_us < 2000000) {
+        graph.display_count = display.count;
+        const uint32_t first = display.count == display.samples.size() ? display.index : 0;
+        for (uint32_t i = 0; i < display.count; ++i)
+            graph.display_samples[i] = display.samples[(first + i) % display.samples.size()];
+        auto sorted = graph.display_samples;
+        std::sort(sorted.begin(), sorted.begin() + graph.display_count);
+        if (graph.display_count) graph.display_median_us = sorted[graph.display_count / 2];
+    }
     return graph;
 }
 

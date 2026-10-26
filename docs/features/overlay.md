@@ -40,6 +40,8 @@ selected.**
   and restored when you choose Custom again, including after cycling presets.
 - **Background opacity** — how much of the game shows through the overlay's
   panel. Only the blended renderer can honour it; the text itself stays fully opaque.
+  **Alt+O** cycles 50, 60, 70, 75, 80, 85, 90, 95, 100%, then back to 50%.
+  The command is `pburn-cli --overlay-opacity-next`; changes apply live.
 - **Layout** — **HUD** is the designed arrangement: the frame rate as a
   headline, dim labels beside their values, rules between groups and a quieter
   footer for the device line. **Table** is the plain grid every field shares,
@@ -320,12 +322,33 @@ process, not from the daemon:
   are single frames and will look spiky: one alt-tab or shader compile sets
   the minimum for the rest of the session.
 
-A fourth field, **Frame time graph**, draws that same window as bars under the
-readout, newest on the right, with a rule across the window's median
-frametime. Bars that reach twice the median turn amber, so a stutter is
-visible without reading a number. The bars are scaled against the worse of the
-window's slowest frame or twice its median, which keeps a steady run looking
-flat instead of amplifying noise into a jagged mess.
+**Frame time graph** has three modes in Overlay Setup → **Frame timing graphs**:
+
+- **Present calls**: unsmoothed intervals between Vulkan Present calls. These
+  are API timing, not a guarantee of pre-FG rendering or screen delivery.
+- **Displayed frames (post-FG)**: driver-reported visible/scanout timestamps,
+  including generated frames when the driver exposes them through that swapchain.
+  This uses `VK_EXT_present_timing`; GPU queue completion and CPU wait wakeups
+  are never substituted for display timestamps. Unsupported surfaces show
+  **unavailable**, and missing or stale feedback shows **waiting**.
+  When Proton or the game already manages the timing queue, PBurn observes
+  the feedback it polls for. vkd3d-proton only files timing requests on FIFO
+  (vsync on) presents; with vsync off PBurn files its own request on each
+  present and reads it back through vkd3d's polling, so the plot works in
+  mailbox and immediate modes too. Replaced frames that never reached the
+  panel are skipped, so the plot shows what was actually displayed. The HUD
+  footer follows the mode the game presents with, not the swapchain's
+  creation mode. Queue-completion feedback alone remains unavailable.
+- **Both graphs (debug)**: two labeled plots with the same vertical scale,
+  keeping the last 120 samples from each source. They can cover different time
+  spans because their sampling rates differ. Neither plot averages out spikes.
+
+**Alt+G** cycles Present calls → Displayed frames → Both. It changes the saved
+mode live; enable the Frame time graph metric to see it. The CLI equivalents
+are `pburn-cli --overlay-graph-next` and
+`pburn-cli --overlay-graph present|display|both`. Existing games need one restart
+when upgrading the native layer. Mode changes after that require no restart.
+The desktop preview labels its traces as examples, not live measurements.
 
 **1% low** and **p97** read the layer's rolling window of the last 120
 presents: about a second at 120 FPS, half a second at 240 FPS and four seconds

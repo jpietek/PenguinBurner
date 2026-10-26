@@ -4,7 +4,8 @@
 # Output: build/nvapi64.dll — a PE x86_64 DLL exporting only nvapi_QueryInterface,
 # forwarding to the real (dxvk-nvapi) nvapi64.dll and tapping the Reflex latency
 # markers. Statically linked so it has no libgcc/libstdc++/winpthread runtime
-# dependency to resolve inside the Wine prefix.
+# dependency to resolve inside the Wine prefix. Keep the flags in step with
+# NVAPI_SHIM_CXXFLAGS in setup.py (stripped: no static-libstdc++ DWARF).
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

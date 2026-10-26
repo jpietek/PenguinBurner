@@ -74,6 +74,7 @@ std::mutex g_overlay_config_mutex;
 std::atomic<double> g_overlay_user_scale{1.0};
 std::atomic<uint32_t> g_overlay_position{
     static_cast<uint32_t>(kDefaultOverlayPosition)};
+std::atomic<uint32_t> g_overlay_graph_mode{0};
 std::atomic<bool> g_overlay_graph_enabled{false};
 std::atomic<double> g_overlay_opacity{1.0};
 std::atomic<bool> g_overlay_blended_renderer{true};

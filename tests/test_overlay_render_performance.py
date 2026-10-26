@@ -28,11 +28,12 @@ def render_cache_probe(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.mark.parametrize("renderer", ["sans", "mono", "pixel", "solid"])
 @pytest.mark.parametrize("graph", [False, True])
+@pytest.mark.parametrize("graph_mode", [0, 1, 2])
 def test_cached_geometry_preserves_output_and_has_no_warm_frame_allocations(
-    render_cache_probe: Path, renderer: str, graph: bool,
+    render_cache_probe: Path, renderer: str, graph: bool, graph_mode: int,
 ) -> None:
     result = subprocess.run(
-        [str(render_cache_probe), renderer, str(int(graph))],
+        [str(render_cache_probe), renderer, str(int(graph)), str(graph_mode)],
         check=True, capture_output=True, text=True, timeout=10,
         env={**os.environ,
              "PENGUIN_BURNER_OVERLAY_CONFIG": str(render_cache_probe.parent / "missing"),
@@ -63,7 +64,8 @@ void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
 using namespace pblayer;
 
 int main(int argc, char** argv) {
-    assert(argc == 3);
+    assert(argc == 4);
+    g_overlay_graph_mode = std::atoi(argv[3]);
     const bool blended = std::string(argv[1]) != "solid";
     OverlayFont font = blended ? parse_overlay_font(argv[1]) : OverlayFont::Pixel;
     const bool graph_on = std::atoi(argv[2]);

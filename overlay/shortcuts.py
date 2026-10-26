@@ -11,6 +11,8 @@ from common.flatpak_wrappers import running_in_flatpak
 SHORTCUT_ACTIONS = (
     ("Toggle overlay", "--overlay-toggle"),
     ("Cycle overlay preset", "--overlay-detail-next"),
+    ("Cycle frame timing graphs", "--overlay-graph-next"),
+    ("Cycle background opacity", "--overlay-opacity-next"),
     ("Decrease overlay Scale", "--overlay-scale-down"),
     ("Increase overlay Scale", "--overlay-scale-up"),
     ("Previous overlay position", "--overlay-position-prev"),
@@ -19,6 +21,8 @@ SHORTCUT_ACTIONS = (
 SHORTCUT_DEFAULTS = {
     "--overlay-toggle": "Alt+X",
     "--overlay-detail-next": "Alt+C",
+    "--overlay-graph-next": "Alt+G",
+    "--overlay-opacity-next": "Alt+O",
     "--overlay-scale-down": "Alt+[",
     "--overlay-scale-up": "Alt+]",
     "--overlay-position-prev": "Alt+<",
@@ -70,7 +74,7 @@ def shortcut_instructions() -> str:
         )
     if desktop == "gnome":
         return (
-            "Set up all six overlay shortcuts automatically. Existing shortcuts and "
+            "Set up all overlay shortcuts automatically. Existing shortcuts and "
             "your customized bindings are preserved. If a default key is already "
             "used, its new action is left unassigned for you to choose a free key."
         )

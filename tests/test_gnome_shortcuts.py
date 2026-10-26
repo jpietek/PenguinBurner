@@ -72,15 +72,15 @@ def host(monkeypatch):
     return fake
 
 
-def test_registers_six_and_is_idempotent_preserving_unrelated(host, monkeypatch):
+def test_registers_all_and_is_idempotent_preserving_unrelated(host, monkeypatch):
     monkeypatch.setattr(shortcuts, "shortcut_command", lambda action: f"'/opt/Penguin Burner/bin/pburn-cli' {action}")
     unrelated = shortcuts.CUSTOM_PATH + "custom0/"
     host.entry(unrelated, "unrelated --arg", "<Super>u")
     unrelated_values = dict(host.values)
     first = shortcuts.setup_gnome_shortcuts()
     assert first.success
-    assert len(first.added) == 6
-    assert len(host.paths) == 7
+    assert len(first.added) == 8
+    assert len(host.paths) == 9
     assert host.paths[0] == unrelated
     for key, value in unrelated_values.items():
         assert host.values[key] == value
@@ -88,7 +88,7 @@ def test_registers_six_and_is_idempotent_preserving_unrelated(host, monkeypatch)
     host.calls.clear()
     second = shortcuts.setup_gnome_shortcuts()
     assert second.success
-    assert len(second.preserved) == 6
+    assert len(second.preserved) == 8
     assert not second.added
     assert (host.values, host.paths) == before
     assert not any(call[0] in {"set", "reset"} for call in host.calls)
@@ -102,7 +102,7 @@ def test_preserves_user_binding_and_disabled_entry(host, binding):
     assert result.success
     assert "Toggle overlay" in result.preserved
     assert host.values[(f"{shortcuts.CUSTOM_SCHEMA}:{path}", "binding")] == binding
-    assert len(result.added) == 5
+    assert len(result.added) == 7
 
 
 def test_preserves_removed_owned_shortcut(host):

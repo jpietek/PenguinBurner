@@ -2161,3 +2161,18 @@ def test_row_art_is_painted_at_the_screen_pixel_density(qapp, monkeypatch):
     assert (pixmap.width(), pixmap.height()) == (90, 120)
     assert pixmap.devicePixelRatio() == 2.5
     panel.widget.close()
+
+
+def test_library_defaults_to_recent_and_keeps_explicit_sort(qapp):
+    source = _Source("steam", "Steam", "tab-steam.png", [
+        _game("steam", "1", "Alpha", last_played=100),
+        _game("steam", "2", "Zulu", last_played=200),
+        _game("steam", "3", "Never played"),
+    ])
+    panel = _panel(qapp, (source,))
+    assert panel.sort_combo.currentData() == "recent"
+    assert panel.sort_combo.currentText() == "Recently played"
+    panel.ensure_scanned()
+    assert [game.name for game in panel._games] == ["Zulu", "Alpha", "Never played"]
+    panel.sort_combo.setCurrentIndex(panel.sort_combo.findData("alphabetical"))
+    assert [game.name for game in panel._sorted_games(source._games)] == ["Alpha", "Never played", "Zulu"]

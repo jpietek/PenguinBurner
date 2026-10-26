@@ -17,6 +17,8 @@ CUSTOM_PATH = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/
 GNOME_DEFAULTS = {
     "--overlay-toggle": "<Alt>x",
     "--overlay-detail-next": "<Alt>c",
+    "--overlay-graph-next": "<Alt>g",
+    "--overlay-opacity-next": "<Alt>o",
     "--overlay-scale-down": "<Alt>bracketleft",
     "--overlay-scale-up": "<Alt>bracketright",
     "--overlay-position-prev": "<Alt>less",

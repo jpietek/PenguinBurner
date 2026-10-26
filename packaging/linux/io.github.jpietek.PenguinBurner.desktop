@@ -10,7 +10,7 @@ Categories=Settings;HardwareSettings;Qt;
 Keywords=Penguin;Burner;Penguin Burner;PenguinBurner;penguin-burner;pburn;Nvidia;NVIDIA;GPU;Tuning;Undervolt;Undervolting;Overclock;Overclocking;Adaptive;Overlay;Auto-UV;Q2RTX;CUDA;Steam;Lutris;Heroic;Faugus;
 StartupNotify=true
 StartupWMClass=io.github.jpietek.PenguinBurner
-Actions=ToggleOverlay;NextOverlayDetail;SmallerOverlayText;LargerOverlayText;PreviousOverlayPosition;NextOverlayPosition;
+Actions=ToggleOverlay;NextOverlayDetail;NextOverlayGraph;NextOverlayOpacity;SmallerOverlayText;LargerOverlayText;PreviousOverlayPosition;NextOverlayPosition;
 
 [Desktop Action ToggleOverlay]
 Name=Toggle overlay
@@ -41,3 +41,13 @@ X-KDE-Shortcuts=Alt+<
 Name=Next overlay position
 Exec=penguin-burner-cli --overlay-position-next
 X-KDE-Shortcuts=Alt+>
+
+[Desktop Action NextOverlayGraph]
+Name=Cycle frame timing graphs
+Exec=penguin-burner-cli --overlay-graph-next
+X-KDE-Shortcuts=Alt+G
+
+[Desktop Action NextOverlayOpacity]
+Name=Cycle background opacity
+Exec=penguin-burner-cli --overlay-opacity-next
+X-KDE-Shortcuts=Alt+O

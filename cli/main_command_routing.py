@@ -9,7 +9,9 @@ from common.penguin_burner_errors import NvmlError
 from overlay.config import steam_launch_option
 from overlay.control import (
     OverlayControlResult,
+    change_overlay_graph_mode,
     cycle_overlay_detail,
+    cycle_overlay_opacity,
     cycle_overlay_position,
     set_overlay_detail_level,
     set_overlay_visibility,
@@ -248,6 +250,9 @@ def _overlay_control_result(args) -> OverlayControlResult | None:
             "overlay_toggle",
             "overlay_visible",
             "overlay_detail_next",
+            "overlay_graph_next",
+            "overlay_opacity_next",
+            "overlay_graph",
             "overlay_detail",
             "overlay_scale_down",
             "overlay_scale_up",
@@ -261,7 +266,7 @@ def _overlay_control_result(args) -> OverlayControlResult | None:
     if len(requested) > 1:
         raise NvmlError(
             "choose only one of --overlay-toggle, --overlay-visible, "
-            "--overlay-detail-next, --overlay-detail, --overlay-scale-down, "
+            "--overlay-detail-next, --overlay-detail, --overlay-opacity-next, --overlay-graph-next, --overlay-graph, --overlay-scale-down, "
             "--overlay-scale-up, --overlay-position-prev or --overlay-position-next"
         )
     try:
@@ -269,6 +274,12 @@ def _overlay_control_result(args) -> OverlayControlResult | None:
             return toggle_overlay_visibility()
         if getattr(args, "overlay_visible", None):
             return set_overlay_visibility(args.overlay_visible)
+        if getattr(args, "overlay_opacity_next", False):
+            return cycle_overlay_opacity()
+        if getattr(args, "overlay_graph_next", False):
+            return change_overlay_graph_mode()
+        if getattr(args, "overlay_graph", None):
+            return change_overlay_graph_mode(args.overlay_graph)
         if getattr(args, "overlay_detail_next", False):
             return cycle_overlay_detail()
         if getattr(args, "overlay_scale_down", False):

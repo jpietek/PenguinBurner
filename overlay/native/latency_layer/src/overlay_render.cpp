@@ -1,5 +1,6 @@
 // In-present-path Vulkan overlay rendering (bitmap glyphs).
 #include "latency_layer_internal.h"
+#include <string_view>
 
 #include <cmath>
 #include "overlay_glyphs.h"
@@ -582,6 +583,7 @@ void overlay_draw_glyph(
 // a perfectly smooth run into amplified noise, so a smooth window is measured
 // against twice its median instead and the bars sit at about half height.
 uint64_t overlay_graph_span_us(const OverlayGraph& graph, uint64_t worst_us) {
+    if (graph.scale_span_us) return graph.scale_span_us;
     const uint64_t floor_us = graph.median_us * 2;
     return std::max<uint64_t>(std::max(worst_us, floor_us), 1);
 }
@@ -814,7 +816,7 @@ struct OverlayDrawnRow {
 
 void overlay_draw_row_text(
     OverlayQuadSink& sink,
-    const std::string& text,
+    std::string_view text,
     float pen_x,
     float line_top,
     float scale,
@@ -843,6 +845,45 @@ void overlay_draw_row_text(
             }
         }
         glyph_x += overlay_glyph_advance(sink.atlas, ch, scale);
+    }
+}
+
+// Both plots share the same vertical span so their heights are comparable.
+void overlay_draw_timing_graphs(OverlayQuadSink& sink, const OverlayGraph& graph,
+    float x, float y, float width, float height, float scale, bool area) {
+    const auto mode = g_overlay_graph_mode.load(std::memory_order_relaxed);
+    const uint32_t plots = mode == 2 ? 2 : 1;
+    const float slot = height / plots;
+    const float label_height = slot / 3.0f;
+    // Breathing room under each plot so its bars never touch the next label.
+    const float gap = plots > 1 ? std::max(2.0f, 3.0f * scale) : 0.0f;
+    uint64_t span = 1;
+    for (uint32_t i = 0; i < graph.count; ++i) span = std::max(span, graph.samples[i]);
+    for (uint32_t i = 0; i < graph.display_count; ++i) span = std::max(span, graph.display_samples[i]);
+    span = std::max(span, 2 * std::max(graph.median_us, graph.display_median_us));
+    for (uint32_t i = 0; i < plots; ++i) {
+        const bool displayed = mode == 1 || (mode == 2 && i == 1);
+        OverlayGraph plot{};
+        plot.samples = displayed ? graph.display_samples : graph.samples;
+        plot.count = displayed ? graph.display_count : graph.count;
+        plot.median_us = displayed ? graph.display_median_us : graph.median_us;
+        plot.scale_span_us = span;
+        char label[96]{};
+        const char* title = displayed ? "Displayed (post-FG)" : "Present calls";
+        if (displayed && !plot.count)
+            std::snprintf(label, sizeof(label), "%s - %s", title,
+                graph.display_available ? "waiting" : "unavailable");
+        else
+            std::snprintf(label, sizeof(label), "%s  %.1f ms", title,
+                static_cast<double>(plot.median_us) / 1000.0);
+        overlay_draw_row_text(sink, label, x, y + i * slot, scale * 0.8f,
+            overlay_level_color(OverlayCellLevel::Dim));
+        if (!plot.count) continue;
+        const float plot_y = y + i * slot + label_height;
+        if (area) overlay_draw_area_graph(sink, plot, x, plot_y, width, slot - label_height - gap, scale);
+        else overlay_draw_graph(sink, plot, static_cast<int32_t>(x), static_cast<int32_t>(plot_y),
+            static_cast<uint32_t>(width), static_cast<uint32_t>(slot - label_height - gap),
+            std::max(1u, static_cast<uint32_t>(scale)));
     }
 }
 
@@ -954,7 +995,7 @@ void overlay_draw_text(
     // narrower than that -- a minimal readout is a handful of short values --
     // so the graph claims a floor of its own, the way the design does.
     if (overlay_graph_enabled() && graph.count) {
-        content_width = std::max(content_width, static_cast<float>(line_height) * 10.0f);
+        content_width = std::max(content_width, static_cast<float>(line_height) * 18.0f);
     }
 
     // Round up, never down: a width a fraction short of the content takes the
@@ -968,8 +1009,9 @@ void overlay_draw_text(
     if (!text_width) {
         return;
     }
-    const bool draw_graph = overlay_graph_enabled() && graph.count;
-    const uint32_t graph_height = draw_graph ? line_height * 2 : 0;
+    const bool draw_graph = overlay_graph_enabled();
+    const uint32_t graph_height = draw_graph ? line_height * 3
+        * (g_overlay_graph_mode.load(std::memory_order_relaxed) == 2 ? 2 : 1) : 0;
     // The designed layout reads the trace as part of the headline -- how the
     // frame rate is behaving, right under what it currently is -- so on the
     // blended path it sits under the hero rather than at the foot of the
@@ -1101,14 +1143,9 @@ void overlay_draw_text(
                     static_cast<float>(graph_height), std::max(1.0f, scale), true,
                     sink.vertices->size()};
             } else {
-                overlay_draw_area_graph(
-                    sink,
-                    graph,
-                    left,
-                    y,
-                    static_cast<float>(text_width),
-                    static_cast<float>(graph_height),
-                    std::max(1.0f, scale));
+                overlay_draw_timing_graphs(sink, graph, left, y,
+                    static_cast<float>(text_width), static_cast<float>(graph_height),
+                    std::max(1.0f, scale), true);
             }
             y += static_cast<float>(graph_height + lead);
         }
@@ -1121,14 +1158,9 @@ void overlay_draw_text(
                 static_cast<float>(text_width), static_cast<float>(graph_height),
                 static_cast<float>(std::max(1u, static_cast<uint32_t>(std::lround(scale)))), false};
         } else {
-            overlay_draw_graph(
-                sink,
-                graph,
-                x0 + static_cast<int32_t>(padding),
-                y0 + static_cast<int32_t>(padding_y + text_height + lead),
-                text_width,
-                graph_height,
-                std::max(1u, static_cast<uint32_t>(std::lround(scale))));
+            overlay_draw_timing_graphs(sink, graph, x0 + padding,
+                y0 + padding_y + text_height + lead, text_width, graph_height,
+                std::max(1.0f, scale), false);
         }
     }
 }
@@ -2102,6 +2134,7 @@ bool prepare_overlay_resources(
             context.overlay_preparation = std::async(std::launch::async,
                 [device_context, swapchain, queue_family_index,
                  prepared = std::move(prepared)]() mutable {
+                    pthread_setname_np(pthread_self(), "pb-overlay-prep");
                     try {
                         init_overlay_resources(device_context, swapchain, prepared, queue_family_index);
                     } catch (...) {
@@ -2132,6 +2165,7 @@ bool prepare_overlay_resources(
         try {
             context.pipeline_preparation = std::async(std::launch::async,
                 [device_context, render_pass, image_count] {
+                    pthread_setname_np(pthread_self(), "pb-pipeline-prep");
                     OverlayPipelineResources pipeline;
                     try {
                         init_overlay_pipeline(device_context, pipeline, render_pass, image_count);
@@ -2159,12 +2193,13 @@ const OverlayGeometryCache& cached_overlay_geometry(
     const double scale = g_overlay_user_scale.load(std::memory_order_relaxed);
     const double opacity = overlay_opacity();
     const uint32_t position = g_overlay_position.load(std::memory_order_relaxed);
-    const bool graph_visible = overlay_graph_enabled() && graph.count;
+    const bool graph_visible = overlay_graph_enabled();
+    const auto graph_mode = g_overlay_graph_mode.load(std::memory_order_relaxed);
     if (cache.readout != readout || cache.extent.width != extent.width
         || cache.extent.height != extent.height || cache.scale != scale
         || cache.opacity != opacity || cache.position != position
         || cache.blended != blended || cache.font != font
-        || cache.graph_visible != graph_visible) {
+        || cache.graph_visible != graph_visible || cache.graph_mode != graph_mode) {
         cache.readout = readout;
         cache.extent = extent;
         cache.scale = scale;
@@ -2173,6 +2208,7 @@ const OverlayGeometryCache& cached_overlay_geometry(
         cache.blended = blended;
         cache.font = font;
         cache.graph_visible = graph_visible;
+        cache.graph_mode = graph_mode;
         cache.vertices.clear();
         cache.clear_rects.clear();
         cache.graph = {};
@@ -2201,10 +2237,10 @@ const OverlayGeometryCache& cached_overlay_geometry(
     if (graph_visible && cache.graph.width > 0) {
         const auto& box = cache.graph;
         OverlayQuadSink sink{nullptr, VK_NULL_HANDLE, extent,
-            blended ? &cache.vertices : nullptr, nullptr, OverlayFont::Pixel,
+            blended ? &cache.vertices : nullptr, overlay_font_atlas(font), font,
             blended ? nullptr : &cache.clear_rects};
         if (box.area) {
-            overlay_draw_area_graph(sink, graph, box.x, box.y, box.width, box.height, box.scale);
+            overlay_draw_timing_graphs(sink, graph, box.x, box.y, box.width, box.height, box.scale, true);
             // Retain painter order with one contiguous copy of the rows after
             // the graph, rather than moving the whole buffer twice per frame.
             const std::size_t remaining = kOverlayMaxQuads * kOverlayVerticesPerQuad
@@ -2212,9 +2248,7 @@ const OverlayGeometryCache& cached_overlay_geometry(
             cache.vertices.insert(cache.vertices.end(), cache.graph_tail.begin(),
                 cache.graph_tail.begin() + std::min(remaining, cache.graph_tail.size()));
         } else {
-            overlay_draw_graph(sink, graph, static_cast<int32_t>(box.x),
-                static_cast<int32_t>(box.y), static_cast<uint32_t>(box.width),
-                static_cast<uint32_t>(box.height), static_cast<uint32_t>(box.scale));
+            overlay_draw_timing_graphs(sink, graph, box.x, box.y, box.width, box.height, box.scale, false);
         }
         ++cache.generation;
     }

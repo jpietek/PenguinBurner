@@ -13,6 +13,8 @@ from overlay.config import (
     OVERLAY_DETAIL_IDS,
     OVERLAY_DETAIL_LABELS,
     OVERLAY_FONTS,
+    OVERLAY_GRAPH_MODE_LABELS,
+    OVERLAY_GRAPH_MODES,
     OVERLAY_ITEM_SECTIONS,
     OVERLAY_LAYOUTS,
     OVERLAY_POSITION_IDS,
@@ -27,6 +29,7 @@ from overlay.config import (
     set_overlay_detail,
     set_overlay_enabled,
     set_overlay_font,
+    set_overlay_graph_mode,
     set_overlay_item_enabled,
     set_overlay_layout,
     set_overlay_opacity,
@@ -350,6 +353,12 @@ class OverlayConfigPanel:
             "position", OVERLAY_POSITION_IDS, POSITION_LABELS
         )
         self.layout_combo = make_combo("layout", OVERLAY_LAYOUTS, LAYOUT_LABELS)
+        self.graph_mode_combo = make_combo("graphmode", OVERLAY_GRAPH_MODES, OVERLAY_GRAPH_MODE_LABELS)
+        self.graph_mode_combo.setToolTip(
+            "Present calls measures Vulkan API intervals. Displayed frames uses driver presentation timestamps, "
+            "including generated frames when exposed by the driver. Both shows two unsmoothed plots. "
+            "Unavailable feedback is labeled, never replaced by Present-call timing. Restart an existing game after updating the layer."
+        )
         self.font_combo = make_combo("font", OVERLAY_FONTS, FONT_LABELS)
         self.detail_combo = make_combo("detail", OVERLAY_DETAIL_IDS, OVERLAY_DETAIL_LABELS)
         self.position_combo.setToolTip(
@@ -493,6 +502,7 @@ class OverlayConfigPanel:
             ("Scale", scale_control),
             ("Background opacity", self.opacity_spin),
             ("Layout", self.layout_combo),
+            ("Frame timing graphs", self.graph_mode_combo),
             ("Font", self.font_combo),
         ]
         control_width = max(
@@ -697,6 +707,7 @@ class OverlayConfigPanel:
         self.position_combo.currentIndexChanged.connect(self._set_overlay_position)
         self.detail_combo.currentIndexChanged.connect(self._set_overlay_detail)
         self.opacity_spin.valueChanged.connect(self._set_overlay_opacity)
+        self.graph_mode_combo.currentIndexChanged.connect(self._set_overlay_graph_mode)
         self.font_combo.currentIndexChanged.connect(self._set_overlay_font)
         self.layout_combo.currentIndexChanged.connect(self._set_overlay_layout)
 
@@ -842,6 +853,12 @@ class OverlayConfigPanel:
         self.config = set_overlay_opacity(load_overlay_config(self.config_path), value / 100.0)
         self._save()
 
+    def _set_overlay_graph_mode(self, index: int) -> None:
+        if self._syncing or not 0 <= index < len(OVERLAY_GRAPH_MODES):
+            return
+        self.config = set_overlay_graph_mode(load_overlay_config(self.config_path), OVERLAY_GRAPH_MODES[index])
+        self._save()
+
     def _set_overlay_font(self, index: int) -> None:
         if self._syncing:
             return
@@ -898,6 +915,7 @@ class OverlayConfigPanel:
                 OVERLAY_DETAIL_IDS.index(normalize_overlay_detail(self.config.detail))
             )
             self.opacity_spin.setValue(round(float(self.config.opacity) * 100))
+            self.graph_mode_combo.setCurrentIndex(OVERLAY_GRAPH_MODES.index(self.config.graph_mode))
             self.font_combo.setCurrentIndex(
                 OVERLAY_FONTS.index(normalize_overlay_font(self.config.font))
             )

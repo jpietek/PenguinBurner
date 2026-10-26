@@ -61,7 +61,7 @@ GAP = 0.44
 LABEL_COL = 2.6
 RADIUS = 0.36
 GRAPH_ROWS = 2.0
-GRAPH_MIN_COLS = 10.0
+GRAPH_MIN_COLS = 18.0
 
 # overlay_level_color(), as 0-255 triples.
 LEVEL_COLORS = {
@@ -266,7 +266,7 @@ def overlay_preview_class(QtCore, QtGui, QtWidgets) -> type:
             if not rows:
                 return None
             graph = self._graph_enabled()
-            graph_h = line_h * GRAPH_ROWS if graph else 0.0
+            graph_h = line_h * (GRAPH_ROWS + 1) * (2 if getattr(config, "graph_mode", "present") == "both" else 1) if graph else 0.0
 
             label_w = line_h * LABEL_COL
             has_label = any(row.get("label") for row in rows if row["kind"] == "value")
@@ -421,6 +421,18 @@ def overlay_preview_class(QtCore, QtGui, QtWidgets) -> type:
                 y += line_h + lead
 
         def _paint_graph(self, painter, x, y, width, height, blended, line_h) -> None:
+            mode = getattr(self._config, "graph_mode", "present")
+            labels = ["Present calls"] if mode == "present" else ["Displayed (post-FG)"]
+            if mode == "both":
+                labels = ["Present calls", "Displayed (post-FG)"]
+            slot = height / len(labels)
+            for index, label in enumerate(labels):
+                top = y + index * slot
+                painter.setPen(_color(LEVEL_COLORS[CELL_DIM]))
+                painter.drawText(QtCore.QPointF(x, top + line_h * 0.8), label + " (example)")
+                self._paint_graph_trace(painter, x, top + line_h, width, slot - line_h, blended, line_h)
+
+        def _paint_graph_trace(self, painter, x, y, width, height, blended, line_h) -> None:
             """The trace, split the way the layer splits it: a filled area under
             the line for the blended pipeline, a bar per sample for the one that
             can only clear rectangles."""

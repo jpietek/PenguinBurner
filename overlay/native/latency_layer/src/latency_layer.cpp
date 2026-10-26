@@ -36,6 +36,9 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_instance(
 
     InstanceContext context{};
     context.get_instance_proc_addr = next_get_instance_proc_addr;
+    for (uint32_t i = 0; i < create_info->enabledExtensionCount; ++i)
+        if (std::strcmp(create_info->ppEnabledExtensionNames[i], VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME) == 0)
+            context.surface_capabilities2_enabled = true;
     context.destroy_instance = reinterpret_cast<PFN_vkDestroyInstance>(
         next_get_instance_proc_addr(*instance, "vkDestroyInstance"));
     context.create_device = reinterpret_cast<PFN_vkCreateDevice>(
@@ -207,6 +210,11 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_device(
         create_info,
         VK_KHR_PRESENT_ID_EXTENSION_NAME);
 
+#ifdef VK_EXT_present_timing
+    DisplayTimingDeviceSetup display_setup;
+    prepare_display_timing_device(instance, instance_context, physical_device, create_info, display_setup);
+    if (display_setup.enabled) create_info = &display_setup.info;
+#endif
     VkResult result =
         instance_context.create_device(
             physical_device,
@@ -219,6 +227,22 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_device(
 
     DeviceContext context{};
     context.device = *device;
+#ifdef VK_EXT_present_timing
+    context.owns_display_timing = display_setup.enabled;
+    if (extension_requested(create_info, VK_EXT_PRESENT_TIMING_EXTENSION_NAME)) {
+        context.set_timing_queue = reinterpret_cast<PFN_vkSetSwapchainPresentTimingQueueSizeEXT>(next_get_device_proc_addr(*device, "vkSetSwapchainPresentTimingQueueSizeEXT"));
+        context.get_timing_domains = reinterpret_cast<PFN_vkGetSwapchainTimeDomainPropertiesEXT>(next_get_device_proc_addr(*device, "vkGetSwapchainTimeDomainPropertiesEXT"));
+        context.get_past_timing = reinterpret_cast<PFN_vkGetPastPresentationTimingEXT>(next_get_device_proc_addr(*device, "vkGetPastPresentationTimingEXT"));
+    }
+    display_debug_log("create-device %p timing_req=%d id2_req=%d wait2_req=%d owns=%d set_queue=%p domains=%p past=%p",
+        reinterpret_cast<void*>(*device),
+        extension_requested(create_info, VK_EXT_PRESENT_TIMING_EXTENSION_NAME) ? 1 : 0,
+        extension_requested(create_info, VK_KHR_PRESENT_ID_2_EXTENSION_NAME) ? 1 : 0,
+        extension_requested(create_info, VK_KHR_PRESENT_WAIT_2_EXTENSION_NAME) ? 1 : 0,
+        context.owns_display_timing ? 1 : 0,
+        reinterpret_cast<void*>(context.set_timing_queue), reinterpret_cast<void*>(context.get_timing_domains),
+        reinterpret_cast<void*>(context.get_past_timing));
+#endif
     context.physical_device = physical_device;
     context.get_device_proc_addr = next_get_device_proc_addr;
     context.set_device_loader_data = set_device_loader_data;
@@ -572,6 +596,8 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_swapchain_khr(
     const VkAllocationCallbacks* allocator,
     VkSwapchainKHR* swapchain) {
     PFN_vkCreateSwapchainKHR next_create_swapchain = nullptr;
+    bool owns_display_timing = false;
+    bool has_timing_procs = false;
     VkPhysicalDevice physical_device = VK_NULL_HANDLE;
     VkInstance instance = VK_NULL_HANDLE;
     PFN_vkGetInstanceProcAddr get_instance_proc_addr = nullptr;
@@ -580,6 +606,10 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_swapchain_khr(
         auto it = g_devices.find(device);
         if (it != g_devices.end()) {
             next_create_swapchain = it->second.create_swapchain_khr;
+            owns_display_timing = it->second.owns_display_timing;
+#ifdef VK_EXT_present_timing
+            has_timing_procs = it->second.get_past_timing && it->second.get_timing_domains;
+#endif
             physical_device = it->second.physical_device;
             auto physical_it = g_physical_devices.find(physical_device);
             if (physical_it != g_physical_devices.end()) {
@@ -617,14 +647,43 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_swapchain_khr(
             create_info = &overlay_info;
         }
     }
+    uint32_t display_stage = 0;
+    bool shared_timing = false;
+#ifdef VK_EXT_present_timing
+    if (!owns_display_timing && has_timing_procs && create_info
+        && (create_info->flags & VK_SWAPCHAIN_CREATE_PRESENT_TIMING_BIT_EXT)
+        && (create_info->flags & VK_SWAPCHAIN_CREATE_PRESENT_ID_2_BIT_KHR)) {
+        display_stage = display_timing_surface_stage(instance, get_instance_proc_addr, physical_device, create_info->surface);
+        shared_timing = display_stage != 0;
+    }
+    // Existing timing consumers retain ownership of their own queue and IDs.
+    if (owns_display_timing && create_info
+        && !(create_info->flags & VK_SWAPCHAIN_CREATE_PRESENT_TIMING_BIT_EXT)) {
+        display_stage = display_timing_surface_stage(instance, get_instance_proc_addr, physical_device, create_info->surface);
+        if (display_stage) {
+            overlay_info = *create_info;
+            overlay_info.flags |= VK_SWAPCHAIN_CREATE_PRESENT_TIMING_BIT_EXT | VK_SWAPCHAIN_CREATE_PRESENT_ID_2_BIT_KHR;
+            create_info = &overlay_info;
+        }
+    }
+#else
+    (void)owns_display_timing;
+    (void)has_timing_procs;
+#endif
+    if (create_info) display_debug_log("create-swapchain flags=0x%x mode=%d images=%u owns=%d shared=%d stage=0x%x",
+        create_info->flags, static_cast<int>(create_info->presentMode), create_info->minImageCount,
+        owns_display_timing ? 1 : 0, shared_timing ? 1 : 0, display_stage);
     VkResult result =
         next_create_swapchain(device, create_info, allocator, swapchain);
+    display_debug_log("create-swapchain result=%d handle=%p", static_cast<int>(result), swapchain ? reinterpret_cast<void*>(*swapchain) : nullptr);
     const bool latency_mode_enabled = swapchain_latency_mode_enabled(create_info);
     uint64_t live_swapchain_count = 0;
     if (result == VK_SUCCESS && swapchain) {
         std::lock_guard lock(g_mutex);
         SwapchainContext context{};
         context.device = device;
+        context.display_timing.stage = display_stage;
+        context.display_timing.shared = shared_timing;
         context.swapchain_latency_mode = latency_mode_enabled;
         if (create_info) {
             context.image_format = create_info->imageFormat;
@@ -641,6 +700,9 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_swapchain_khr(
         // creation; no daemon round trip and no state file are involved.
         const auto device_entry = g_devices.find(device);
         if (device_entry != g_devices.end()) {
+#ifdef VK_EXT_present_timing
+            init_display_timing(device_entry->second, *swapchain, context.display_timing);
+#endif
             const VkPhysicalDeviceProperties& properties =
                 device_entry->second.physical_device_properties;
             context.device_facts.gpu_name = properties.deviceName;
@@ -719,9 +781,18 @@ VKAPI_ATTR void VKAPI_CALL layer_destroy_swapchain_khr(
         device_telemetry_flags(device));
 }
 
+struct PresentHookStats {
+    std::mutex mutex;
+    uint64_t count = 0, pre_sum = 0, pre_max = 0, drv_sum = 0, drv_max = 0, post_sum = 0, post_max = 0;
+};
+PresentHookStats g_present_hook_stats;
+
 VKAPI_ATTR VkResult VKAPI_CALL layer_queue_present_khr(
     VkQueue queue,
     const VkPresentInfoKHR* present_info) {
+    // Hook cost accounting, only under the debug-flow trace.
+    const bool trace = display_debug_enabled();
+    const uint64_t hook_entry_us = trace ? now_monotonic_us() : 0;
     VkDevice device = VK_NULL_HANDLE;
     PFN_vkQueuePresentKHR next_queue_present = nullptr;
     DeviceContext device_context{};
@@ -791,6 +862,9 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_queue_present_khr(
             auto swapchain_it = g_swapchains.find(swapchain);
             if (swapchain_it != g_swapchains.end()) {
                 auto& swapchain_context = swapchain_it->second;
+#ifdef VK_EXT_present_timing
+                collect_display_timing(device_context, swapchain, swapchain_context.display_timing);
+#endif
                 observation.present_count = ++swapchain_context.present_count;
                 if (vulkan_present_id) {
                     swapchain_context.last_vulkan_present_id =
@@ -807,6 +881,21 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_queue_present_khr(
                 }
                 swapchain_context.frame_cycle_start_us = swapchain_context.last_present_us;
                 swapchain_context.last_present_us = present_time_us;
+                // vkd3d switches modes per present (VkSwapchainPresentModeInfoKHR)
+                // without recreating the swapchain; keep the footer on the live mode.
+                for (auto* entry = reinterpret_cast<const VkBaseInStructure*>(present_info->pNext);
+                     entry; entry = entry->pNext) {
+                    if (entry->sType != VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_MODE_INFO_KHR) continue;
+                    const auto* modes = reinterpret_cast<const VkSwapchainPresentModeInfoKHR*>(entry);
+                    if (modes->pPresentModes && i < modes->swapchainCount
+                        && modes->pPresentModes[i] != swapchain_context.present_mode) {
+                        swapchain_context.present_mode = modes->pPresentModes[i];
+                        swapchain_context.device_facts.present_mode =
+                            overlay_present_mode_text(modes->pPresentModes[i]);
+                        swapchain_context.overlay_readout.reset();
+                    }
+                    break;
+                }
                 OverlayFrameStats overlay_stats{};
                 OverlayGraph overlay_graph{};
                 if (overlay_enabled() && observation.present_frametime_us) {
@@ -881,7 +970,81 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_queue_present_khr(
         next_present_info = &modified_present_info;
     }
 
+#ifdef VK_EXT_present_timing
+    // Query one swapchain only. Never rewrite an application's timing/ID2
+    // chain or consume its feedback. Backpressure stops queries before full.
+    VkPresentInfoKHR timed_present{};
+    VkPresentTimingInfoEXT timing_info{};
+    timing_info.sType = VK_STRUCTURE_TYPE_PRESENT_TIMING_INFO_EXT;
+    VkPresentTimingsInfoEXT timing_infos{};
+    timing_infos.sType = VK_STRUCTURE_TYPE_PRESENT_TIMINGS_INFO_EXT;
+    VkPresentId2KHR timing_id{};
+    timing_id.sType = VK_STRUCTURE_TYPE_PRESENT_ID_2_KHR;
+    uint64_t timing_id_value = 0;
+    bool submitted_timing = false;
+    bool foreign_timing = false;
+    for (auto* entry = reinterpret_cast<const VkBaseInStructure*>(next_present_info->pNext);
+         entry; entry = entry->pNext) {
+        if (entry->sType == VK_STRUCTURE_TYPE_PRESENT_TIMINGS_INFO_EXT
+            || entry->sType == VK_STRUCTURE_TYPE_PRESENT_ID_2_KHR) foreign_timing = true;
+    }
+    if (trace) {
+        static std::atomic<uint64_t> presents{0};
+        const uint64_t n = ++presents;
+        if (n <= 8 || n % 600 == 0) {
+            char chain[160]{};
+            size_t used = 0;
+            for (auto* entry = reinterpret_cast<const VkBaseInStructure*>(next_present_info->pNext);
+                 entry && used < sizeof(chain) - 16; entry = entry->pNext)
+                used += std::snprintf(chain + used, sizeof(chain) - used, "%d,", static_cast<int>(entry->sType));
+            display_debug_log("present n=%" PRIu64 " foreign=%d swapchains=%u chain=[%s]", n, foreign_timing ? 1 : 0,
+                next_present_info->swapchainCount, chain);
+        }
+    }
+    if (!foreign_timing && next_present_info->swapchainCount == 1) {
+        std::lock_guard lock(g_mutex);
+        auto it = g_swapchains.find(next_present_info->pSwapchains[0]);
+        if (it != g_swapchains.end()) {
+            auto& state = it->second.display_timing;
+            const uint32_t pending_cap = state.shared ? 8u : 32u;
+            if (state.available && (state.shared || !state.passive) && state.pending < pending_cap) {
+                // One ID per present: reuse a v1 ID already in the chain so v1
+                // and v2 never disagree; mint our own only when there is none.
+                const uint64_t chain_v1_id = observations.empty() ? 0 : observations[0].vulkan_present_id;
+                const uint64_t injected_v1 = observations.empty() ? 0 : observations[0].injected_present_id;
+                timing_id_value = chain_v1_id ? chain_v1_id : injected_v1 ? injected_v1 : ++state.next_id;
+                timing_info.timeDomainId = state.domain_id;
+                timing_info.presentStageQueries = state.stage;
+                timing_info.targetTimeDomainPresentStage = state.stage;
+                timing_infos.swapchainCount = 1;
+                timing_infos.pTimingInfos = &timing_info;
+                timing_infos.pNext = next_present_info->pNext;
+                timing_id.swapchainCount = 1;
+                timing_id.pPresentIds = &timing_id_value;
+                timing_id.pNext = &timing_infos;
+                timed_present = *next_present_info;
+                timed_present.pNext = &timing_id;
+                next_present_info = &timed_present;
+                ++state.pending;
+                submitted_timing = true;
+            }
+        }
+    }
+#endif
+    const uint64_t driver_begin_us = trace ? now_monotonic_us() : 0;
     VkResult result = next_queue_present(queue, next_present_info);
+    const uint64_t driver_end_us = trace ? now_monotonic_us() : 0;
+#ifdef VK_EXT_present_timing
+    if (submitted_timing && result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+        std::lock_guard lock(g_mutex);
+        auto it = g_swapchains.find(next_present_info->pSwapchains[0]);
+        if (it != g_swapchains.end()) {
+            auto& state = it->second.display_timing;
+            state.available = false;
+            state.count = state.index = 0;
+        }
+    }
+#endif
     if (overlay_signal != VK_NULL_HANDLE && present_info && present_info->swapchainCount == 1) {
         std::lock_guard lock(g_mutex);
         auto it = g_swapchains.find(present_info->pSwapchains[0]);
@@ -964,6 +1127,21 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_queue_present_khr(
                 swapchain,
                 present_count,
                 device_telemetry_flags(device));
+        }
+    }
+    if (trace) {
+        const uint64_t done_us = now_monotonic_us();
+        const uint64_t pre = driver_begin_us - hook_entry_us;
+        const uint64_t drv = driver_end_us - driver_begin_us;
+        const uint64_t post = done_us - driver_end_us;
+        auto& st = g_present_hook_stats;
+        std::lock_guard<std::mutex> lock(st.mutex);
+        ++st.count; st.pre_sum += pre; st.drv_sum += drv; st.post_sum += post;
+        st.pre_max = std::max(st.pre_max, pre); st.drv_max = std::max(st.drv_max, drv); st.post_max = std::max(st.post_max, post);
+        if (st.count % 600 == 0) {
+            display_debug_log("present-hook n=%" PRIu64 " layer-pre avg=%.1fus max=%" PRIu64 "us | driver avg=%.1fus max=%" PRIu64 "us | layer-post avg=%.1fus max=%" PRIu64 "us",
+                st.count, st.pre_sum / 600.0, st.pre_max, st.drv_sum / 600.0, st.drv_max, st.post_sum / 600.0, st.post_max);
+            st.pre_sum = st.drv_sum = st.post_sum = 0; st.pre_max = st.drv_max = st.post_max = 0;
         }
     }
     return result;
@@ -1223,6 +1401,12 @@ VKAPI_CALL vkGetInstanceProcAddr(VkInstance instance, const char* name) {
     if (std::strcmp(name, "vkDestroySwapchainKHR") == 0) {
         return reinterpret_cast<PFN_vkVoidFunction>(layer_destroy_swapchain_khr);
     }
+#ifdef VK_EXT_present_timing
+    if (std::strcmp(name, "vkGetPastPresentationTimingEXT") == 0) {
+        display_debug_log("proc-addr query for vkGetPastPresentationTimingEXT -> hook");
+        return reinterpret_cast<PFN_vkVoidFunction>(layer_get_past_presentation_timing_ext);
+    }
+#endif
     if (std::strcmp(name, "vkQueuePresentKHR") == 0) {
         return reinterpret_cast<PFN_vkVoidFunction>(layer_queue_present_khr);
     }
@@ -1288,6 +1472,12 @@ VKAPI_CALL vkGetDeviceProcAddr(VkDevice device, const char* name) {
     if (std::strcmp(name, "vkDestroySwapchainKHR") == 0) {
         return reinterpret_cast<PFN_vkVoidFunction>(layer_destroy_swapchain_khr);
     }
+#ifdef VK_EXT_present_timing
+    if (std::strcmp(name, "vkGetPastPresentationTimingEXT") == 0) {
+        display_debug_log("proc-addr query for vkGetPastPresentationTimingEXT -> hook");
+        return reinterpret_cast<PFN_vkVoidFunction>(layer_get_past_presentation_timing_ext);
+    }
+#endif
     if (std::strcmp(name, "vkQueuePresentKHR") == 0) {
         return reinterpret_cast<PFN_vkVoidFunction>(layer_queue_present_khr);
     }
