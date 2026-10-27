@@ -8,12 +8,8 @@ drawing. This paints the readout the way the layer does -- hero number, dim
 label column, rules, accents, footer, frametime trace -- over a stand-in game
 frame, so every control has something visible to change.
 
-The geometry constants below mirror ``overlay_draw_text`` in
-``overlay/native/latency_layer/src/overlay_render.cpp``. They are proportions
-of the line height rather than pixel counts, so the two stay comparable at any
-size; the numbers are duplicated rather than shared because the layer is C++
-and this is a Qt painter, and a preview that quietly drifted would be worse
-than one that is obviously separate.
+Geometry and colours come from overlay.style, which also generates the native
+constants. The Qt painter remains independent of the Vulkan resource lifecycle.
 
 The Qt modules arrive as arguments like everywhere else in ``ui``: the widget
 class is built on first use so importing this module never requires Qt.
@@ -21,7 +17,6 @@ class is built on first use so importing this module never requires Qt.
 
 from __future__ import annotations
 
-from overlay.config import OVERLAY_SCALE_REFERENCE
 from overlay.overlay_text import (
     CELL_ALERT,
     CELL_DIM,
@@ -30,6 +25,26 @@ from overlay.overlay_text import (
     CELL_WARN,
     format_overlay_hud_rows,
     format_overlay_text,
+)
+from overlay.style import (
+    ALERT_COLOR,
+    DIM_COLOR,
+    GAP,
+    GOOD_COLOR,
+    GRAPH_MIN_COLS,
+    GRAPH_ROWS,
+    LABEL_COL,
+    LEAD,
+    NORMAL_COLOR,
+    OVERLAY_SCALE_REFERENCE,
+    PAD_X,
+    PAD_Y,
+    PANEL_COLOR,
+    RADIUS,
+    RULE_H,
+    TIER_COLOR,
+    TRACE_COLOR,
+    WARN_COLOR,
 )
 
 # The preview draws a stand-in 1440p game frame. The overlay's own sizing is
@@ -52,28 +67,16 @@ BASE_CAP_PX = 14.0 * OVERLAY_SCALE_REFERENCE
 # by the right ratio; only the absolute size is flattering.
 PREVIEW_MAGNIFY = 3.0
 
-# Proportions of the line height, straight from the layer.
-PAD_Y = 0.42
-PAD_X = 0.52
-LEAD = 0.16
-RULE_H = 0.32
-GAP = 0.44
-LABEL_COL = 2.6
-RADIUS = 0.36
-GRAPH_ROWS = 2.0
-GRAPH_MIN_COLS = 18.0
 
-# overlay_level_color(), as 0-255 triples.
+
+# Shared colour roles, as 0-255 triples.
 LEVEL_COLORS = {
-    CELL_DIM: (154, 166, 178),
-    CELL_GOOD: (127, 211, 194),
-    CELL_WARN: (255, 194, 102),
-    CELL_ALERT: (255, 143, 124),
-    CELL_TIER: (255, 185, 119),
+    CELL_DIM: DIM_COLOR,
+    CELL_GOOD: GOOD_COLOR,
+    CELL_WARN: WARN_COLOR,
+    CELL_ALERT: ALERT_COLOR,
+    CELL_TIER: TIER_COLOR,
 }
-NORMAL_COLOR = (236, 240, 243)
-PANEL_COLOR = (10, 13, 17)
-TRACE_COLOR = (127, 211, 194)
 
 # Which family stands in for each of the layer's faces. Mono and Sans are the
 # very files the atlas is rasterised from -- including the weight, since the

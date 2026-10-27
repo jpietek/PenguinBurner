@@ -15,10 +15,12 @@ from pathlib import Path
 import pytest
 
 from overlay.config import (
+    OverlayConfig,
+)
+from overlay.metrics import (
     OVERLAY_HUD_ROWS,
     OVERLAY_ITEM_IDS,
     OVERLAY_NON_TEXT_ITEM_IDS,
-    OverlayConfig,
 )
 from overlay.overlay_text import (
     ALERT_TEMPERATURE_C,

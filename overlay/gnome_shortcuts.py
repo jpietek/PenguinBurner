@@ -9,21 +9,18 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 from integrations.launchers.host_process import run_on_host
-from overlay.shortcuts import SHORTCUT_ACTIONS, shortcut_command, shortcut_desktop
+from overlay.shortcuts import (
+    SHORTCUT_ACTIONS,
+    SHORTCUTS,
+    shortcut_command,
+    shortcut_desktop,
+)
 
 MEDIA_SCHEMA = "org.gnome.settings-daemon.plugins.media-keys"
 CUSTOM_SCHEMA = MEDIA_SCHEMA + ".custom-keybinding"
 CUSTOM_PATH = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/"
-GNOME_DEFAULTS = {
-    "--overlay-toggle": "<Alt>x",
-    "--overlay-detail-next": "<Alt>c",
-    "--overlay-graph-next": "<Alt>g",
-    "--overlay-opacity-next": "<Alt>o",
-    "--overlay-scale-down": "<Alt>bracketleft",
-    "--overlay-scale-up": "<Alt>bracketright",
-    "--overlay-position-prev": "<Alt>less",
-    "--overlay-position-next": "<Alt>greater",
-}
+GNOME_DEFAULTS = {item.flag: item.gnome_binding for item in SHORTCUTS}
+
 _STRING = re.compile(r"'((?:[^'\\]|\\.)*)'|\"((?:[^\"\\]|\\.)*)\"", re.DOTALL)
 _ESCAPES = {"a": "\a", "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t", "v": "\v", "\n": ""}
 

@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <array>
+#include "overlay_style.h"
 #include <atomic>
 #include <cerrno>
 #include <chrono>
@@ -806,19 +807,19 @@ constexpr OverlayPosition kDefaultOverlayPosition = OverlayPosition::TopRight;
 // What 1x means: the resolution-adaptive size times this. At 0.75, 1x at 1440p
 // draws ~16 px capitals, MangoHud's default text size. Kept in step with
 // OVERLAY_SCALE_REFERENCE in overlay/config.py.
-constexpr double kOverlayScaleReference = 0.75;
+constexpr double kOverlayScaleReference = kOVERLAY_SCALE_REFERENCE;
 
 struct OverlayTextConfig {
     bool enabled = true;
     std::vector<std::string> items;
     // User-selected overlay scale multiplier from overlay.toml. 1.0 keeps the
     // resolution-adaptive size; 0.5/2.0 shrink/grow it. The Python UI only
-    // writes 0.5/1.0/2.0, but the value is clamped on read for safety.
+    // offers discrete steps; hand-edited continuous values are clamped on read.
     double scale = 1.0;
     OverlayPosition position = kDefaultOverlayPosition;
     // Panel opacity, 0.0 to 1.0. Only the blended renderer can honour it: a
     // cleared rectangle writes its colour straight into the image.
-    double opacity = 1.0;
+    double opacity = kDEFAULT_OVERLAY_OPACITY;
     // false forces the historical clear-rect renderer even where a pipeline
     // would work, as a way out if blending upsets a particular game.
     bool blended_renderer = true;

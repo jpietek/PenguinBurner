@@ -22,6 +22,16 @@ Name=Cycle overlay preset
 Exec=penguin-burner-cli --overlay-detail-next
 X-KDE-Shortcuts=Alt+C
 
+[Desktop Action NextOverlayGraph]
+Name=Cycle frame timing graphs
+Exec=penguin-burner-cli --overlay-graph-next
+X-KDE-Shortcuts=Alt+G
+
+[Desktop Action NextOverlayOpacity]
+Name=Cycle background opacity
+Exec=penguin-burner-cli --overlay-opacity-next
+X-KDE-Shortcuts=Alt+O
+
 [Desktop Action SmallerOverlayText]
 Name=Decrease overlay Scale
 Exec=penguin-burner-cli --overlay-scale-down
@@ -41,13 +51,3 @@ X-KDE-Shortcuts=Alt+<
 Name=Next overlay position
 Exec=penguin-burner-cli --overlay-position-next
 X-KDE-Shortcuts=Alt+>
-
-[Desktop Action NextOverlayGraph]
-Name=Cycle frame timing graphs
-Exec=penguin-burner-cli --overlay-graph-next
-X-KDE-Shortcuts=Alt+G
-
-[Desktop Action NextOverlayOpacity]
-Name=Cycle background opacity
-Exec=penguin-burner-cli --overlay-opacity-next
-X-KDE-Shortcuts=Alt+O

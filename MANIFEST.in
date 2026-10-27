@@ -20,3 +20,7 @@ include burnerd/Cargo.toml
 include burnerd/Cargo.lock
 include burnerd/build.rs
 recursive-include burnerd/src *.rs
+
+# Reproduce the committed native metadata and packaged desktop actions.
+include scripts/generate_overlay_contract.py
+include scripts/generate_overlay_shortcuts.py

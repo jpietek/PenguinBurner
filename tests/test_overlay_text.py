@@ -3,11 +3,13 @@ from __future__ import annotations
 import pytest
 
 from overlay.config import (
-    OVERLAY_ITEM_IDS,
-    OVERLAY_NON_TEXT_ITEM_IDS,
     OverlayConfig,
     default_overlay_config,
     set_overlay_layout,
+)
+from overlay.metrics import (
+    OVERLAY_ITEM_IDS,
+    OVERLAY_NON_TEXT_ITEM_IDS,
 )
 from overlay.overlay_text import (
     SAMPLE_OVERLAY_VALUES,

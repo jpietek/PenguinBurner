@@ -1,50 +1,32 @@
 // Overlay configuration parsing and the compact overlay text string.
 #include "latency_layer_internal.h"
+#include "overlay_metrics.h"
 
 #include <cmath>
 
 namespace pblayer {
 double parse_overlay_scale(const std::string& value) {
     const std::string text = trim_ascii(value);
-    if (text.empty()) {
-        return 1.0;
-    }
+    if (text.find_first_not_of("0123456789.eE+-") != std::string::npos) return kDEFAULT_OVERLAY_SCALE;
     errno = 0;
     char* end = nullptr;
     const double parsed = std::strtod(text.c_str(), &end);
-    if (end == text.c_str() || errno != 0 || !(parsed > 0.0)) {
-        return 1.0;
+    if (end == text.c_str() || *end != '\0' || errno != 0 || !std::isfinite(parsed) || parsed <= 0.0) {
+        return kDEFAULT_OVERLAY_SCALE;
     }
-    // Guard against absurd values; the UI only offers 0.5/1.0/2.0.
-    if (parsed < 0.25) {
-        return 0.25;
-    }
-    if (parsed > 4.0) {
-        return 4.0;
-    }
-    return parsed;
+    return std::clamp(parsed, kMIN_OVERLAY_SCALE, kMAX_OVERLAY_SCALE);
 }
 
 double parse_overlay_opacity(const std::string& value) {
     const std::string text = trim_ascii(value);
-    if (text.empty()) {
-        return 1.0;
-    }
+    if (text.find_first_not_of("0123456789.eE+-") != std::string::npos) return kDEFAULT_OVERLAY_OPACITY;
     errno = 0;
     char* end = nullptr;
     const double parsed = std::strtod(text.c_str(), &end);
-    if (end == text.c_str() || errno != 0) {
-        return 1.0;
+    if (end == text.c_str() || *end != '\0' || errno != 0 || !std::isfinite(parsed)) {
+        return kDEFAULT_OVERLAY_OPACITY;
     }
-    // A fully transparent panel is indistinguishable from a broken overlay, so
-    // the floor keeps the box readable however far the slider is dragged.
-    if (parsed < 0.2) {
-        return 0.2;
-    }
-    if (parsed > 1.0) {
-        return 1.0;
-    }
-    return parsed;
+    return std::clamp(parsed, kMIN_OVERLAY_OPACITY, kMAX_OVERLAY_OPACITY);
 }
 
 std::string unquote_lower(const std::string& value) {
@@ -236,47 +218,8 @@ std::string profile_voltage_mv_from_id(const std::string& profile_id) {
     return "";
 }
 
-const std::array<const char*, 28> kOverlayItemOrder = {
-    "nr_gpu_ms",
-    "base_fps",
-    "fg_fps",
-    "latency_ms",
-    "clock_mhz",
-    "voltage_mv",
-    "power_w",
-    "profile",
-    "fps_1pct_low",
-    "frametime_p97",
-    "fps_session",
-    "frametime_graph",
-    "gpu_name",
-    "driver_version",
-    "resolution",
-    "present_mode",
-    "gpu_util_pct",
-    "cpu_util_pct",
-    "cpu_peak_thread_pct",
-    "fan_pct",
-    "temperature_c",
-    "hotspot_temperature_c",
-    "uv_offset_mv",
-    "mem_clock_mhz",
-    "vram",
-    "ram",
-    "cpu_temp_c",
-    "cpu_power_w",
-};
-
 OverlayTextConfig default_overlay_text_config(bool enabled = true) {
-    return OverlayTextConfig{enabled, {
-        "base_fps",
-        "fg_fps",
-        "latency_ms",
-        "clock_mhz",
-        "voltage_mv",
-        "power_w",
-        "profile",
-    }};
+    return OverlayTextConfig{enabled, kOverlayDefaultItems};
 }
 
 bool overlay_item_known(const std::string& item) {
@@ -367,9 +310,9 @@ OverlayTextConfig read_overlay_text_config() {
         return default_overlay_text_config(fallback_enabled);
     }
     bool enabled = fallback_enabled;
-    double scale = 1.0;
+    double scale = kDEFAULT_OVERLAY_SCALE;
     OverlayPosition position = kDefaultOverlayPosition;
-    double opacity = 1.0;
+    double opacity = kDEFAULT_OVERLAY_OPACITY;
     bool blended_renderer = true;
     OverlayFont font = kDefaultOverlayFont;
     OverlayLayout layout = kDefaultOverlayLayout;
@@ -873,76 +816,6 @@ std::string compact_profile_tier(const std::string& value) {
     return compact;
 }
 
-// How the readout breaks into rows. Kept in step with OVERLAY_ROW_GROUPS in
-// overlay/config.py: every item id belongs to exactly one group, and a group
-// with nothing enabled in it draws no row.
-const std::array<std::vector<const char*>, 8>& overlay_row_groups() {
-    static const std::array<std::vector<const char*>, 8> groups = {{
-        {"base_fps", "fg_fps", "latency_ms", "nr_gpu_ms", "profile"},
-        {"fps_1pct_low", "frametime_p97", "fps_session"},
-        {"clock_mhz", "voltage_mv", "uv_offset_mv"},
-        {"power_w", "temperature_c", "hotspot_temperature_c", "fan_pct"},
-        {"gpu_util_pct", "cpu_util_pct", "cpu_peak_thread_pct"},
-        {"mem_clock_mhz", "vram", "ram"},
-        {"cpu_temp_c", "cpu_power_w"},
-        {"gpu_name", "driver_version", "resolution", "present_mode"},
-    }};
-    return groups;
-}
-
-// One cell of the readout, or "" when this metric has nothing to show and the
-// row should close up around it.
-// The designed layout, as rows. Mirrors OVERLAY_HUD_ROWS in overlay/config.py;
-// keeping one table on each side is what stops the two from drifting.
-struct OverlayHudRow {
-    OverlayRowKind kind;
-    const char* label;
-    std::vector<const char*> items;
-};
-
-const std::vector<OverlayHudRow>& overlay_hud_rows() {
-    static const std::vector<OverlayHudRow> rows = {
-        {OverlayRowKind::Hero, "", {"base_fps"}},
-        {OverlayRowKind::Value, "fg", {"fg_fps"}},
-        {OverlayRowKind::Value, "lat", {"latency_ms"}},
-        {OverlayRowKind::Value, "dlss5 nr", {"nr_gpu_ms"}},
-        {OverlayRowKind::Value, "tier", {"profile"}},
-        {OverlayRowKind::Rule, "", {}},
-        {OverlayRowKind::Value, "gpu", {"clock_mhz", "voltage_mv"}},
-        // A blank label continues the group above rather than repeating "gpu".
-        {OverlayRowKind::Value, "", {"power_w", "temperature_c"}},
-        {OverlayRowKind::Value, "hotspot", {"hotspot_temperature_c"}},
-        {OverlayRowKind::Value, "load", {"gpu_util_pct", "fan_pct"}},
-        {OverlayRowKind::Value, "mem", {"mem_clock_mhz"}},
-        {OverlayRowKind::Value, "uv", {"uv_offset_mv"}},
-        {OverlayRowKind::Rule, "", {}},
-        {OverlayRowKind::Value, "1% low", {"fps_1pct_low"}},
-        {OverlayRowKind::Value, "p97", {"frametime_p97"}},
-        {OverlayRowKind::Value, "session", {"fps_session"}},
-        {OverlayRowKind::Value, "vram", {"vram"}},
-        {OverlayRowKind::Value, "cpu", {"cpu_util_pct", "cpu_temp_c"}},
-        // Continuation of the cpu group, the way the second gpu row continues
-        // its.
-        {OverlayRowKind::Value, "", {"cpu_peak_thread_pct", "cpu_power_w"}},
-        {OverlayRowKind::Value, "ram", {"ram"}},
-        {OverlayRowKind::Foot,
-         "",
-         {"gpu_name", "driver_version", "resolution", "present_mode"}},
-    };
-    return rows;
-}
-
-// The temperature both layouts start warning at. Earlier than the
-// point a card throttles, because this is a tuning HUD: the useful moment is
-// the one before the clocks move.
-constexpr long kOverlayHudWarnTemperatureC = 72;
-constexpr long kOverlayHudAlertTemperatureC = 80;
-// A CPU is expected to sit hotter than a card, so the same colours arrive
-// later on it. Kept in step with WARN_CPU_TEMPERATURE_C in
-// overlay/overlay_text.py.
-constexpr long kOverlayHudWarnCpuTemperatureC = 85;
-constexpr long kOverlayHudAlertCpuTemperatureC = 95;
-
 // Power is not coloured: overlay-state.txt does not publish the board limit
 // it would be measured against.
 OverlayCellLevel overlay_value_level(
@@ -969,10 +842,10 @@ OverlayCellLevel overlay_value_level(
     if (end == value.c_str() || errno != 0) {
         return OverlayCellLevel::Normal;
     }
-    const long alert = is_cpu ? kOverlayHudAlertCpuTemperatureC
-                              : kOverlayHudAlertTemperatureC;
+    const long alert = is_cpu ? kALERT_CPU_TEMPERATURE_C
+                              : kALERT_TEMPERATURE_C;
     const long warn =
-        is_cpu ? kOverlayHudWarnCpuTemperatureC : kOverlayHudWarnTemperatureC;
+        is_cpu ? kWARN_CPU_TEMPERATURE_C : kWARN_TEMPERATURE_C;
     if (celsius >= alert) {
         return OverlayCellLevel::Alert;
     }
@@ -1038,15 +911,30 @@ std::string overlay_gibibyte_pair(
     return std::string(buffer);
 }
 
+bool overlay_sensor_text(const std::string& item, const OverlayGpuState& state,
+                         bool table, std::string& result) {
+    for (const auto& spec : kOverlayMetrics) {
+        if (item != spec.id) continue;
+        const std::string suffix = std::string(spec.unit) == "%" ? "%" : std::string(" ") + spec.unit;
+        result = overlay_optional_value(state.*spec.field, suffix.c_str());
+        if (result.empty()) {
+            const char* missing = table && *spec.table_missing ? spec.table_missing : spec.missing;
+            if (*missing) result = std::string(missing) + (spec.missing_unit ? suffix : "");
+        }
+        const char* label = table ? spec.table_label : spec.hud_label;
+        if (!result.empty() && *label) result = std::string(label) + " " + result;
+        return true;
+    }
+    return false;
+}
+
 std::string overlay_item_value(
     const std::string& item,
     const OverlayFrameStats& stats,
     const OverlayDeviceFacts& facts,
     const OverlayGpuState& state) {
-    if (item == "nr_gpu_ms") {
-        const auto value = overlay_optional_value(state.nr_gpu_ms, " ms");
-        return value.empty() ? "-" : value;
-    }
+    std::string sensor;
+    if (overlay_sensor_text(item, state, false, sensor)) return sensor;
     if (item == "base_fps") {
         const std::string published = trim_ascii(state.present_fps);
         if (!published.empty()) {
@@ -1074,54 +962,15 @@ std::string overlay_item_value(
         const std::string tier = trim_ascii(state.profile_tier);
         return tier.empty() ? "Default" : tier;
     }
-    if (item == "clock_mhz") {
-        return overlay_value_or_na(state.clock_mhz) + " MHz";
-    }
-    if (item == "voltage_mv") {
-        return overlay_value_or_na(state.voltage_mv) + " mV";
-    }
-    if (item == "power_w") {
-        return overlay_value_or_na(state.power_w) + " W";
-    }
-    if (item == "temperature_c") {
-        return overlay_optional_value(state.temperature_c, " C");
-    }
-    if (item == "hotspot_temperature_c") {
-        return overlay_optional_value(state.hotspot_temperature_c, " C");
-    }
-    if (item == "gpu_util_pct") {
-        return overlay_optional_value(state.gpu_util_pct, "%");
-    }
-    if (item == "fan_pct") {
-        const std::string fan = overlay_optional_value(state.fan_pct, "%");
-        return fan.empty() ? "" : "fan " + fan;
-    }
-    if (item == "cpu_util_pct") {
-        return overlay_optional_value(state.cpu_util_pct, "%");
-    }
-    if (item == "cpu_peak_thread_pct") {
-        const std::string peak =
-            overlay_optional_value(state.cpu_peak_thread_pct, "%");
-        return peak.empty() ? "" : "peak " + peak;
-    }
     if (item == "uv_offset_mv") {
         return overlay_optional_value(
             overlay_signed_value(state.uv_offset_mv), " mV");
-    }
-    if (item == "mem_clock_mhz") {
-        return overlay_optional_value(state.mem_clock_mhz, " MHz");
     }
     if (item == "vram") {
         return overlay_gibibyte_pair(state.vram_used_mb, state.vram_total_mb);
     }
     if (item == "ram") {
         return overlay_gibibyte_pair(state.ram_used_mb, state.ram_total_mb);
-    }
-    if (item == "cpu_temp_c") {
-        return overlay_optional_value(state.cpu_temp_c, " C");
-    }
-    if (item == "cpu_power_w") {
-        return overlay_optional_value(state.cpu_power_w, " W");
     }
     if (item == "fps_1pct_low") {
         return stats.low_1pct_fps
@@ -1160,6 +1009,8 @@ std::string overlay_item_cell(
     const OverlayFrameStats& stats,
     const OverlayDeviceFacts& facts,
     const OverlayGpuState& state) {
+    std::string sensor;
+    if (overlay_sensor_text(item, state, true, sensor)) return sensor;
     const uint64_t fps = stats.median_fps;
     if (item == "gpu_name") {
         return overlay_short_gpu_name(facts.gpu_name);
@@ -1174,9 +1025,6 @@ std::string overlay_item_cell(
     }
     if (item == "present_mode") {
         return facts.present_mode;
-    }
-    if (item == "nr_gpu_ms") {
-        return "dlss5 nr " + overlay_item_value(item, stats, facts, state);
     }
     if (item == "base_fps") {
         return overlay_fps_text(fps, state);
@@ -1212,42 +1060,8 @@ std::string overlay_item_cell(
         }
         return "";
     }
-    if (item == "clock_mhz") {
-        return overlay_value_or_na(state.clock_mhz) + " MHz";
-    }
-    if (item == "voltage_mv") {
-        return overlay_value_or_na(state.voltage_mv) + " mV";
-    }
-    if (item == "power_w") {
-        return overlay_value_or_na(state.power_w) + " W";
-    }
     if (item == "profile") {
         return compact_profile_tier(state.profile_tier);
-    }
-    if (item == "gpu_util_pct") {
-        const std::string util = overlay_optional_value(state.gpu_util_pct, "%");
-        return util.empty() ? "" : "GPU " + util;
-    }
-    if (item == "cpu_util_pct") {
-        const std::string util = overlay_optional_value(state.cpu_util_pct, "%");
-        return "CPU " + (util.empty() ? "--%" : util);
-    }
-    if (item == "cpu_peak_thread_pct") {
-        const std::string util =
-            overlay_optional_value(state.cpu_peak_thread_pct, "%");
-        return "CPU-T " + (util.empty() ? "--%" : util);
-    }
-    if (item == "fan_pct") {
-        const std::string fan = overlay_optional_value(state.fan_pct, "%");
-        return fan.empty() ? "" : "Fan " + fan;
-    }
-    if (item == "temperature_c") {
-        const std::string temp = overlay_optional_value(state.temperature_c, " C");
-        return temp.empty() ? "" : "T " + temp;
-    }
-    if (item == "hotspot_temperature_c") {
-        const std::string temp = overlay_optional_value(state.hotspot_temperature_c, " C");
-        return temp.empty() ? "" : "HOT " + temp;
     }
     if (item == "latency_ms") {
         const std::string latency = overlay_optional_value(
@@ -1256,10 +1070,6 @@ std::string overlay_item_cell(
                 state.latency_source),
             " ms");
         return latency.empty() ? "" : std::string(trim_ascii(state.latency_avg_ms).empty() ? "LAT P95 " : "LAT AVG ") + latency;
-    }
-    if (item == "mem_clock_mhz") {
-        const std::string mem = overlay_optional_value(state.mem_clock_mhz, " MHz");
-        return mem.empty() ? "" : "MEM " + mem;
     }
     if (item == "vram") {
         const std::string pair =
@@ -1270,14 +1080,6 @@ std::string overlay_item_cell(
         const std::string pair =
             overlay_gibibyte_pair(state.ram_used_mb, state.ram_total_mb);
         return pair.empty() ? "" : "RAM " + pair;
-    }
-    if (item == "cpu_temp_c") {
-        const std::string value = overlay_optional_value(state.cpu_temp_c, " C");
-        return value.empty() ? "" : "CPU " + value;
-    }
-    if (item == "cpu_power_w") {
-        const std::string value = overlay_optional_value(state.cpu_power_w, " W");
-        return value.empty() ? "" : "CPU " + value;
     }
     if (item == "uv_offset_mv") {
         const std::string uv = overlay_optional_value(
@@ -1406,7 +1208,7 @@ OverlayReadout build_overlay_hud_readout(
     const OverlayGpuState& state,
     const OverlayTextConfig& config) {
     OverlayReadout readout;
-    for (const OverlayHudRow& source : overlay_hud_rows()) {
+    for (const OverlayHudRow& source : kOverlayHudRows) {
         if (source.kind == OverlayRowKind::Rule) {
             if (!readout.rows.empty()
                 && readout.rows.back().kind != OverlayRowKind::Rule) {
@@ -1531,7 +1333,7 @@ OverlayReadout build_overlay_readout(
     }
     std::vector<std::vector<std::string>> rows;
     std::vector<std::vector<OverlayCellLevel>> levels;
-    for (const std::vector<const char*>& group : overlay_row_groups()) {
+    for (const std::vector<const char*>& group : kOverlayRowGroups) {
         std::vector<std::string> cells;
         std::vector<OverlayCellLevel> cell_levels;
         for (const char* item_id : group) {

@@ -5,29 +5,53 @@ from __future__ import annotations
 import os
 import shlex
 import shutil
+from dataclasses import dataclass
 
 from common.flatpak_wrappers import running_in_flatpak
 
-SHORTCUT_ACTIONS = (
-    ("Toggle overlay", "--overlay-toggle"),
-    ("Cycle overlay preset", "--overlay-detail-next"),
-    ("Cycle frame timing graphs", "--overlay-graph-next"),
-    ("Cycle background opacity", "--overlay-opacity-next"),
-    ("Decrease overlay Scale", "--overlay-scale-down"),
-    ("Increase overlay Scale", "--overlay-scale-up"),
-    ("Previous overlay position", "--overlay-position-prev"),
-    ("Next overlay position", "--overlay-position-next"),
-)
-SHORTCUT_DEFAULTS = {
-    "--overlay-toggle": "Alt+X",
-    "--overlay-detail-next": "Alt+C",
-    "--overlay-graph-next": "Alt+G",
-    "--overlay-opacity-next": "Alt+O",
-    "--overlay-scale-down": "Alt+[",
-    "--overlay-scale-up": "Alt+]",
-    "--overlay-position-prev": "Alt+<",
-    "--overlay-position-next": "Alt+>",
-}
+
+@dataclass(frozen=True, slots=True)
+class OverlayShortcut:
+    desktop_id: str
+    label: str
+    flag: str
+    key: str
+    description: str
+
+    @property
+    def help_text(self) -> str:
+        return f"{self.description} Default shortcut: Alt+{self.key}."
+
+    @property
+    def attribute(self) -> str:
+        return self.flag.removeprefix("--").replace("-", "_")
+
+    @property
+    def gnome_binding(self) -> str:
+        key = {"[": "bracketleft", "]": "bracketright", "<": "less", ">": "greater"}.get(self.key, self.key.lower())
+        return "<Alt>" + key
+
+
+SHORTCUTS = (
+    OverlayShortcut('ToggleOverlay', 'Toggle overlay', '--overlay-toggle',
+                    'X', 'Show or hide the in-game overlay in a running game and exit. Bind this to a desktop shortcut to reach it without leaving the game; the running layer checks visibility every 50 ms.'),
+    OverlayShortcut('NextOverlayDetail', 'Cycle overlay preset', '--overlay-detail-next',
+                    'C', 'Cycle Small → Medium → Large → Biggest → Small and exit. Custom starts at Small.'),
+    OverlayShortcut('NextOverlayGraph', 'Cycle frame timing graphs', '--overlay-graph-next',
+                    'G', 'Cycle frame timing graphs: Present calls, Displayed frames, Both.'),
+    OverlayShortcut('NextOverlayOpacity', 'Cycle background opacity', '--overlay-opacity-next',
+                    'O', 'Cycle background opacity: 50, 60, 70, 75, 80, 85, 90, 95, 100 percent.'),
+    OverlayShortcut('SmallerOverlayText', 'Decrease overlay Scale', '--overlay-scale-down',
+                    '[', 'Decrease overlay scale one step (minimum 0.5x).'),
+    OverlayShortcut('LargerOverlayText', 'Increase overlay Scale', '--overlay-scale-up',
+                    ']', 'Increase overlay scale one step (maximum 2x).'),
+    OverlayShortcut('PreviousOverlayPosition', 'Previous overlay position', '--overlay-position-prev',
+                    '<', 'Cycle to the previous overlay position, wrapping.'),
+    OverlayShortcut('NextOverlayPosition', 'Next overlay position', '--overlay-position-next',
+                    '>', 'Cycle to the next overlay position, wrapping.'),
+ )
+SHORTCUT_ACTIONS = tuple((item.label, item.flag) for item in SHORTCUTS)
+SHORTCUT_DEFAULTS = {item.flag: "Alt+" + item.key for item in SHORTCUTS}
 
 
 def shortcut_command(action: str) -> str:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import tomllib
 from collections.abc import Mapping
@@ -9,6 +10,20 @@ from typing import Any, cast
 
 from common.atomic_write import atomic_write_text
 from common.penguin_burner_paths import default_user_config_dir
+from overlay.metrics import (
+    BASIC_OVERLAY_ITEM_IDS,
+    DEFAULT_ENABLED_OVERLAY_ITEM_IDS,
+    OVERLAY_ITEM_IDS,
+)
+from overlay.style import (
+    DEFAULT_OVERLAY_OPACITY,
+    DEFAULT_OVERLAY_SCALE,
+    MAX_OVERLAY_OPACITY,
+    MAX_OVERLAY_SCALE,
+    MIN_OVERLAY_OPACITY,
+    MIN_OVERLAY_SCALE,
+    OVERLAY_SCALE_OPTIONS,
+)
 from overlay.telemetry.steam_launch_check import PENGUIN_BURNER_WRAPPER
 
 OVERLAY_CONFIG_ENV = "PENGUIN_BURNER_OVERLAY_CONFIG"
@@ -41,151 +56,10 @@ STEAM_LAUNCH_OPTION_WITH_INGAME_LATENCY = steam_launch_option(
 # Backwards-compatible name.
 STEAM_LAUNCH_OPTION_WITH_TRACE_FALLBACK = STEAM_LAUNCH_OPTION_WITH_INGAME_LATENCY
 
-BASIC_OVERLAY_ITEM_IDS = (
-    "base_fps",
-    "fg_fps",
-    "latency_ms",
-    "clock_mhz",
-    "voltage_mv",
-    "power_w",
-    "profile",
-)
-ADVANCED_OVERLAY_ITEM_IDS = (
-    "fps_1pct_low",
-    "frametime_p97",
-    "fps_session",
-    "frametime_graph",
-    "gpu_name",
-    "driver_version",
-    "resolution",
-    "present_mode",
-    "nr_gpu_ms",
-    "gpu_util_pct",
-    "cpu_util_pct",
-    "cpu_peak_thread_pct",
-    "fan_pct",
-    "temperature_c",
-    "hotspot_temperature_c",
-    "uv_offset_mv",
-    "mem_clock_mhz",
-    "vram",
-    "ram",
-    "cpu_temp_c",
-    "cpu_power_w",
-)
-OVERLAY_ITEM_IDS = (
-    "nr_gpu_ms",
-    "base_fps",
-    "fg_fps",
-    "latency_ms",
-    "clock_mhz",
-    "voltage_mv",
-    "power_w",
-    "profile",
-    "fps_1pct_low",
-    "frametime_p97",
-    "fps_session",
-    "frametime_graph",
-    "gpu_name",
-    "driver_version",
-    "resolution",
-    "present_mode",
-    "gpu_util_pct",
-    "cpu_util_pct",
-    "cpu_peak_thread_pct",
-    "fan_pct",
-    "temperature_c",
-    "hotspot_temperature_c",
-    "uv_offset_mv",
-    "mem_clock_mhz",
-    "vram",
-    "ram",
-    "cpu_temp_c",
-    "cpu_power_w",
-)
-DEFAULT_ENABLED_OVERLAY_ITEM_IDS = BASIC_OVERLAY_ITEM_IDS
-# How the readout breaks into rows. Ten metrics on one line is a sentence, not
-# a HUD; grouping them by what a tuner reads together turns it into a table.
-# Every item id appears in exactly one group, and a group with nothing enabled
-# in it draws no row at all. The native layer groups them the same way.
-# Items the layer draws rather than writes, so they never produce a cell and
-# never pull a row into the readout on their own.
-OVERLAY_NON_TEXT_ITEM_IDS = ("frametime_graph",)
-# How the settings tab groups the field list. Basic/Advanced above is what the
-# detail presets are built from; this is what a reader scans, so it groups by
-# subject the way the readout itself does. Every item id appears exactly once.
-OVERLAY_ITEM_SECTIONS = (
-    (
-        "Frame rate",
-        (
-            "base_fps",
-            "fg_fps",
-            "latency_ms",
-            "nr_gpu_ms",
-            "fps_1pct_low",
-            "frametime_p97",
-            "fps_session",
-            "frametime_graph",
-        ),
-    ),
-    (
-        "GPU",
-        (
-            "clock_mhz",
-            "voltage_mv",
-            "mem_clock_mhz",
-            "power_w",
-            "temperature_c",
-            "hotspot_temperature_c",
-            "gpu_util_pct",
-            "fan_pct",
-            "vram",
-            "uv_offset_mv",
-            "profile",
-        ),
-    ),
-    (
-        "CPU and system",
-        (
-            "cpu_util_pct",
-            "cpu_peak_thread_pct",
-            "cpu_temp_c",
-            "cpu_power_w",
-            "ram",
-        ),
-    ),
-    (
-        "Device",
-        ("gpu_name", "driver_version", "resolution", "present_mode"),
-    ),
-)
 
-OVERLAY_ROW_GROUPS = (
-    ("base_fps", "fg_fps", "latency_ms", "nr_gpu_ms", "profile"),
-    ("fps_1pct_low", "frametime_p97", "fps_session"),
-    ("frametime_graph",),
-    ("clock_mhz", "voltage_mv", "uv_offset_mv"),
-    ("power_w", "temperature_c", "hotspot_temperature_c", "fan_pct"),
-    ("gpu_util_pct", "cpu_util_pct", "cpu_peak_thread_pct"),
-    ("mem_clock_mhz", "vram", "ram"),
-    ("cpu_temp_c", "cpu_power_w"),
-    ("gpu_name", "driver_version", "resolution", "present_mode"),
-)
 DEFAULT_OVERLAY_UPDATE_INTERVAL_S = 1
 MIN_OVERLAY_UPDATE_INTERVAL_S = 1
 MAX_OVERLAY_UPDATE_INTERVAL_S = 10
-# Manual overlay scale multiplier applied on top of the native overlay's
-# resolution-adaptive (1080p/1440p/4K) sizing. 1.0 keeps the adaptive default;
-# the steps either side shrink/grow it. Values are snapped to the nearest
-# offered option. The fractional steps only reach the smooth faces: the pixel
-# face is magnified by whole pixels, so it uses the nearest whole size.
-OVERLAY_SCALE_OPTIONS = (0.5, 0.75, 1.0, 1.5, 2.0)
-# What 1x means: the layer's resolution-adaptive size times this. 0.75 makes
-# 1x at 1440p draw ~16 px capitals, MangoHud's default text size; the old 1x
-# read as oversized in game. Kept in step with kOverlayScaleReference in the
-# layer.
-OVERLAY_SCALE_REFERENCE = 0.75
-DEFAULT_OVERLAY_SCALE = 1.0
 # Where the HUD box sits in the game's image. The native layer understands the
 # same five names; anything else falls back to the historical top-right.
 OVERLAY_POSITION_IDS = (
@@ -196,13 +70,8 @@ OVERLAY_POSITION_IDS = (
     "bottom_right",
 )
 DEFAULT_OVERLAY_POSITION = "top_right"
-# Panel opacity. Only the blended renderer can honour it: a cleared rectangle
-# writes its colour straight into the image, so the clear-rect fallback always
-# draws a solid box. The floor keeps a fully dragged-down slider readable
-# rather than invisible.
-MIN_OVERLAY_OPACITY = 0.2
-MAX_OVERLAY_OPACITY = 1.0
-DEFAULT_OVERLAY_OPACITY = 0.85
+
+
 OVERLAY_OPACITY_CYCLE = (0.50, 0.60, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.00)
 # "blended" uses the Vulkan pipeline where the driver gives us one, which is
 # what makes translucency and rounded corners possible. "clear_rect" forces the
@@ -233,39 +102,7 @@ OVERLAY_GRAPH_MODE_LABELS = {
 }
 DEFAULT_OVERLAY_GRAPH_MODE = "present"
 
-# The designed layout, as rows. Each entry is (kind, label, item ids); a row
-# whose items are all switched off is not drawn, and nor is a rule that would
-# end up next to nothing. Keeping one table here and the same one in the layer
-# is what stops the two renderers drifting apart.
-HERO_ROW = "hero"
-RULE_ROW = "rule"
-FOOT_ROW = "foot"
-VALUE_ROW = "value"
-OVERLAY_HUD_ROWS = (
-    (HERO_ROW, "", ("base_fps",)),
-    (VALUE_ROW, "fg", ("fg_fps",)),
-    (VALUE_ROW, "lat", ("latency_ms",)),
-    (VALUE_ROW, "dlss5 nr", ("nr_gpu_ms",)),
-    (VALUE_ROW, "tier", ("profile",)),
-    (RULE_ROW, "", ()),
-    (VALUE_ROW, "gpu", ("clock_mhz", "voltage_mv")),
-    # A blank label continues the group above rather than repeating "gpu".
-    (VALUE_ROW, "", ("power_w", "temperature_c")),
-    (VALUE_ROW, "hotspot", ("hotspot_temperature_c",)),
-    (VALUE_ROW, "load", ("gpu_util_pct", "fan_pct")),
-    (VALUE_ROW, "mem", ("mem_clock_mhz",)),
-    (VALUE_ROW, "uv", ("uv_offset_mv",)),
-    (RULE_ROW, "", ()),
-    (VALUE_ROW, "1% low", ("fps_1pct_low",)),
-    (VALUE_ROW, "p97", ("frametime_p97",)),
-    (VALUE_ROW, "session", ("fps_session",)),
-    (VALUE_ROW, "vram", ("vram",)),
-    (VALUE_ROW, "cpu", ("cpu_util_pct", "cpu_temp_c")),
-    # Continuation of the cpu group, the way the second gpu row continues its.
-    (VALUE_ROW, "", ("cpu_peak_thread_pct", "cpu_power_w")),
-    (VALUE_ROW, "ram", ("ram",)),
-    (FOOT_ROW, "", ("gpu_name", "driver_version", "resolution", "present_mode")),
-)
+
 # Named detail levels, so a player can go from "just the frame rate" to
 # everything without visiting thirteen checkboxes. "custom" is the checkbox set
 # itself and stays the default, so a config saved before detail levels existed
@@ -369,7 +206,7 @@ def load_overlay_config(path: str | Path | None = None) -> OverlayConfig:
             update_interval_s=clamp_overlay_update_interval_s(
                 payload.get("update_interval_s", DEFAULT_OVERLAY_UPDATE_INTERVAL_S)
             ),
-            scale=snap_overlay_scale(payload.get("scale", DEFAULT_OVERLAY_SCALE)),
+            scale=normalize_overlay_scale(payload.get("scale", DEFAULT_OVERLAY_SCALE)),
             position=normalize_overlay_position(
                 payload.get("position", DEFAULT_OVERLAY_POSITION)
             ),
@@ -442,7 +279,7 @@ def normalize_overlay_config(config: OverlayConfig) -> OverlayConfig:
         enabled=bool(config.enabled),
         enabled_item_ids=normalize_overlay_item_ids(items),
         update_interval_s=clamp_overlay_update_interval_s(config.update_interval_s),
-        scale=snap_overlay_scale(config.scale),
+        scale=normalize_overlay_scale(config.scale),
         position=normalize_overlay_position(config.position),
         detail=detail,
         opacity=clamp_overlay_opacity(config.opacity),
@@ -534,8 +371,12 @@ def clamp_overlay_opacity(value: object) -> float:
     if not isinstance(value, (int, float, str)):
         return DEFAULT_OVERLAY_OPACITY
     try:
+        if isinstance(value, str) and any(ch not in "0123456789.eE+-" for ch in value.strip()):
+            return DEFAULT_OVERLAY_OPACITY
         parsed = float(value)
     except ValueError:
+        return DEFAULT_OVERLAY_OPACITY
+    if not math.isfinite(parsed):
         return DEFAULT_OVERLAY_OPACITY
     return max(MIN_OVERLAY_OPACITY, min(MAX_OVERLAY_OPACITY, parsed))
 
@@ -595,19 +436,21 @@ def normalize_overlay_position(value: object) -> str:
     return text if text in OVERLAY_POSITION_IDS else DEFAULT_OVERLAY_POSITION
 
 
-def snap_overlay_scale(value: object) -> float:
-    """Snap an arbitrary scale to the nearest offered option.
-
-    The steps used to be whole multiples because the bitmap face could only be
-    magnified by whole pixels. The distance-field faces resample cleanly at any
-    size, so the ladder now carries the sizes between them as well.
-    """
+def normalize_overlay_scale(value: object) -> float:
+    """Preserve continuous saved scales; only GUI choices snap to the ladder."""
     try:
+        if isinstance(value, str) and any(ch not in "0123456789.eE+-" for ch in value.strip()):
+            return DEFAULT_OVERLAY_SCALE
         parsed = float(cast(Any, value))
     except (TypeError, ValueError):
         return DEFAULT_OVERLAY_SCALE
-    if parsed <= 0:
+    if not math.isfinite(parsed) or parsed <= 0:
         return DEFAULT_OVERLAY_SCALE
+    return max(MIN_OVERLAY_SCALE, min(MAX_OVERLAY_SCALE, parsed))
+
+
+def snap_overlay_scale(value: object) -> float:
+    parsed = normalize_overlay_scale(value)
     return min(OVERLAY_SCALE_OPTIONS, key=lambda option: abs(option - parsed))
 
 

@@ -101,22 +101,27 @@ float overlay_measure(
     return width;
 }
 
+VkClearColorValue overlay_rgb(const std::array<double, 3>& color, float alpha = 1.0f) {
+    return overlay_color(static_cast<float>(color[0] / 255.0),
+        static_cast<float>(color[1] / 255.0), static_cast<float>(color[2] / 255.0), alpha);
+}
+
 // The designed layout's palette, straight from the mockup.
 VkClearColorValue overlay_level_color(OverlayCellLevel level) {
     switch (level) {
         case OverlayCellLevel::Dim:
-            return overlay_color(0.604f, 0.651f, 0.698f, 1.0f);
+            return overlay_rgb(kDIM_COLOR);
         case OverlayCellLevel::Good:
-            return overlay_color(0.498f, 0.827f, 0.761f, 1.0f);
+            return overlay_rgb(kGOOD_COLOR);
         case OverlayCellLevel::Warn:
-            return overlay_color(1.0f, 0.761f, 0.400f, 1.0f);
+            return overlay_rgb(kWARN_COLOR);
         case OverlayCellLevel::Alert:
-            return overlay_color(1.0f, 0.561f, 0.486f, 1.0f);
+            return overlay_rgb(kALERT_COLOR);
         case OverlayCellLevel::Tier:
-            return overlay_color(1.0f, 0.725f, 0.467f, 1.0f);
+            return overlay_rgb(kTIER_COLOR);
         case OverlayCellLevel::Normal:
         default:
-            return overlay_color(0.925f, 0.941f, 0.953f, 1.0f);
+            return overlay_rgb(kNORMAL_COLOR);
     }
 }
 
@@ -774,7 +779,7 @@ void overlay_draw_area_graph(
     const float base = y + height;
     const uint32_t points = graph.count;
     const float step = width / static_cast<float>(points - 1);
-    const VkClearColorValue trace = overlay_color(0.498f, 0.827f, 0.761f, 1.0f);
+    const VkClearColorValue trace = overlay_rgb(kTRACE_COLOR);
 
     for (uint32_t i = 0; i + 1 < points; ++i) {
         const float x0 = x + static_cast<float>(i) * step;
@@ -914,10 +919,10 @@ void overlay_draw_text(
         : static_cast<uint32_t>(std::lround(kOverlayGlyphHeight * scale));
     // Spacing follows the mockup's proportions rather than the old grid's:
     // about 0.45 em of padding, a little under 0.2 em between rows.
-    const uint32_t padding_y = static_cast<uint32_t>(std::lround(line_height * 0.42f));
-    const uint32_t padding = static_cast<uint32_t>(std::lround(line_height * 0.52f));
-    const uint32_t lead = static_cast<uint32_t>(std::lround(line_height * 0.16f));
-    const uint32_t rule_height = static_cast<uint32_t>(std::lround(line_height * 0.32f));
+    const uint32_t padding_y = static_cast<uint32_t>(std::lround(line_height * kPAD_Y));
+    const uint32_t padding = static_cast<uint32_t>(std::lround(line_height * kPAD_X));
+    const uint32_t lead = static_cast<uint32_t>(std::lround(line_height * kLEAD));
+    const uint32_t rule_height = static_cast<uint32_t>(std::lround(line_height * kRULE_H));
     // The headline number is drawn at twice the body size, with its unit on
     // the same baseline beside it.
     const float hero_scale = scale * 2.0f;
@@ -934,14 +939,14 @@ void overlay_draw_text(
     const uint32_t foot_height = line_height;
     // Wide enough that "2820 MHz" and "925 mV" read as two values rather than
     // one run of characters -- the mockup gives this about 0.45 em.
-    const float gap = static_cast<float>(line_height) * 0.44f;
+    const float gap = static_cast<float>(line_height) * static_cast<float>(kGAP);
 
     // Labels share a column so the values beside them line up.
     // A floor as well as a maximum: a readout whose labels are all short still
     // wants its values off the left edge, the way the mockup's column does.
     // The mockup reserves about 3.1 em for the label column, so the values
     // start in the same place whatever the labels happen to say.
-    float label_width = static_cast<float>(line_height) * 2.6f;
+    float label_width = static_cast<float>(line_height) * static_cast<float>(kLABEL_COL);
     bool has_labels = false;
     for (const OverlayReadoutRow& row : readout.rows) {
         if (row.kind == OverlayRowKind::Value && !row.label.empty()) {
@@ -995,7 +1000,7 @@ void overlay_draw_text(
     // narrower than that -- a minimal readout is a handful of short values --
     // so the graph claims a floor of its own, the way the design does.
     if (overlay_graph_enabled() && graph.count) {
-        content_width = std::max(content_width, static_cast<float>(line_height) * 18.0f);
+        content_width = std::max(content_width, static_cast<float>(line_height) * static_cast<float>(kGRAPH_MIN_COLS));
     }
 
     // Round up, never down: a width a fraction short of the content takes the
@@ -1010,7 +1015,7 @@ void overlay_draw_text(
         return;
     }
     const bool draw_graph = overlay_graph_enabled();
-    const uint32_t graph_height = draw_graph ? line_height * 3
+    const uint32_t graph_height = draw_graph ? line_height * static_cast<uint32_t>(kGRAPH_ROWS + 1)
         * (g_overlay_graph_mode.load(std::memory_order_relaxed) == 2 ? 2 : 1) : 0;
     // The designed layout reads the trace as part of the headline -- how the
     // frame rate is behaving, right under what it currently is -- so on the
@@ -1039,9 +1044,9 @@ void overlay_draw_text(
         ? static_cast<float>(overlay_opacity())
         : 1.0f;
     const VkClearColorValue panel_color =
-        overlay_color(0.039f, 0.051f, 0.067f, panel_alpha);
+        overlay_rgb(kPANEL_COLOR, panel_alpha);
     const uint32_t radius = sink.vertices
-        ? static_cast<uint32_t>(std::lround(line_height * 0.36f))
+        ? static_cast<uint32_t>(std::lround(line_height * kRADIUS))
         : 0;
     for (const OverlayRectBand& band : overlay_rounded_panel_bands(
              x0, y0, box_width, box_height, radius)) {

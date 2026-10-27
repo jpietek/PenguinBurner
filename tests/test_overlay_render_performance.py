@@ -1,6 +1,5 @@
 """Exercise the actual CPU renderer; no timing thresholds or GPU required."""
 import os
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -8,22 +7,12 @@ import pytest
 
 
 @pytest.fixture(scope="module")
-def render_cache_probe(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    compiler = shutil.which("c++")
-    if compiler is None:
-        pytest.skip("C++ compiler unavailable")
-    root = Path(__file__).resolve().parents[1]
-    src = root / "overlay/native/latency_layer/src"
+def render_cache_probe(tmp_path_factory: pytest.TempPathFactory, build_overlay_probe) -> Path:
     target = tmp_path_factory.mktemp("overlay-cache")
     probe = target / "probe.cpp"
     probe.write_text(_SOURCE, encoding="utf-8")
     binary = target / "probe"
-    subprocess.run([
-        compiler, "-std=c++17", "-O2", "-I", str(src), str(probe),
-        str(src / "overlay_text.cpp"), str(src / "latency_state.cpp"), str(src / "frame_timing.cpp"),
-        str(src / "overlay_worker.cpp"),
-        "-o", str(binary),
-    ], check=True)
+    build_overlay_probe(probe, binary, embedded=("overlay_render.cpp",))
     return binary
 
 

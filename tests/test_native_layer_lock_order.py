@@ -10,7 +10,6 @@ vkd3d's vkCreateDevice).
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -18,41 +17,12 @@ import pytest
 
 
 @pytest.fixture(scope="module")
-def lock_order_probe(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    compiler = shutil.which("c++") or shutil.which("g++")
-    if compiler is None:
-        pytest.skip("C++ compiler unavailable")
+def lock_order_probe(tmp_path_factory: pytest.TempPathFactory, build_overlay_probe) -> Path:
     tmp_path = tmp_path_factory.mktemp("lock-order")
-    repo_root = Path(__file__).resolve().parents[1]
-    layer_src = repo_root / "overlay/native/latency_layer/src"
     source = tmp_path / "lock_order_probe.cpp"
     source.write_text(_PROBE_SOURCE, encoding="utf-8")
     output = tmp_path / "lock_order_probe"
-    subprocess.run(
-        [
-            compiler,
-            "-std=c++17",
-            "-pthread",
-            "-I",
-            str(layer_src),
-            str(source),
-            *(str(layer_src / name) for name in (
-                "overlay_render.cpp",
-                "overlay_text.cpp",
-                "latency_state.cpp",
-                "frame_timing.cpp",
-                "display_timing.cpp",
-                "overlay_worker.cpp",
-                "latency_layer.cpp",
-                "telemetry_events.cpp",
-                "marker_timing.cpp",
-            )),
-            "-o",
-            str(output),
-        ],
-        check=True,
-        cwd=repo_root,
-    )
+    build_overlay_probe(source, output, full_layer=True)
     return output
 
 

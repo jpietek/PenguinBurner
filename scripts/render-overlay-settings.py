@@ -19,10 +19,12 @@ sys.path.insert(0, str(ROOT))
 from PySide6 import QtCore, QtGui, QtWidgets  # noqa: E402
 
 from overlay.config import (  # noqa: E402
-    OVERLAY_ITEM_IDS,
-    OVERLAY_ITEM_SECTIONS,
     OverlayConfig,
     save_overlay_config,
+)
+from overlay.metrics import (  # noqa: E402
+    OVERLAY_ITEM_IDS,
+    OVERLAY_ITEM_SECTIONS,
 )
 from overlay.overlay_text import SAMPLE_OVERLAY_VALUES  # noqa: E402
 from ui.components import overlay_config  # noqa: E402

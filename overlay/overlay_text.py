@@ -1,15 +1,26 @@
 from __future__ import annotations
 
-from .config import (
+from dataclasses import dataclass
+
+from overlay.config import (
+    OverlayConfig,
+    default_overlay_config,
+    normalize_overlay_config,
+)
+from overlay.metrics import (
     FOOT_ROW,
     HERO_ROW,
+    METRICS,
     OVERLAY_HUD_ROWS,
     OVERLAY_NON_TEXT_ITEM_IDS,
     OVERLAY_ROW_GROUPS,
     RULE_ROW,
-    OverlayConfig,
-    default_overlay_config,
-    normalize_overlay_config,
+)
+from overlay.style import (
+    ALERT_CPU_TEMPERATURE_C,
+    ALERT_TEMPERATURE_C,
+    WARN_CPU_TEMPERATURE_C,
+    WARN_TEMPERATURE_C,
 )
 
 SAMPLE_OVERLAY_VALUES = {
@@ -67,10 +78,6 @@ CELL_TIER = 5
 # the clocks move.
 # A CPU is expected to sit hotter than a card, so the same colours arrive
 # later on it. These are the points a tuner starts caring, not thermal limits.
-WARN_CPU_TEMPERATURE_C = 85
-ALERT_CPU_TEMPERATURE_C = 95
-WARN_TEMPERATURE_C = 72
-ALERT_TEMPERATURE_C = 80
 
 
 def format_overlay_text(
@@ -246,7 +253,7 @@ def _gibibyte_pair(used: object, total: object) -> str:
         return ""
     if used_mb is None:
         return ""
-    return f"{used_mb / 1024.0:.1f} / {round(total_mb / 1024.0)} GiB"
+    return f"{used_mb / 1024.0:.1f} / {round(total_mb / 1024.0)}"
 
 
 def _int_or_none(value: object) -> int | None:
@@ -256,82 +263,103 @@ def _int_or_none(value: object) -> int | None:
         return None
 
 
-def format_overlay_value(item_id: str, values: dict[str, str]) -> str:
-    """One metric with no label of its own.
+@dataclass(frozen=True, slots=True)
+class MetricValue:
+    value: str
+    unit: str = ""
+    label: str = ""
 
-    The designed layout puts the label in its own dim column, so the value has
-    to arrive bare: "27 ms", not "LAT 27 ms".
-    """
-    if item_id in OVERLAY_NON_TEXT_ITEM_IDS:
-        return ""
-    if item_id == "nr_gpu_ms":
-        return _optional_value(values.get("nr_gpu_ms"), suffix=" ms") or "-"
+    @property
+    def available(self) -> bool:
+        return bool(self.value)
+
+    def text(self, *, labeled: bool = False) -> str:
+        if not self.available:
+            return ""
+        suffix = self.unit if self.unit == "%" else f" {self.unit}" if self.unit else ""
+        return f"{self.label} " * bool(labeled and self.label) + self.value + suffix
+
+
+def metric_value(item_id: str, values: dict[str, str], *, view: str = "table") -> MetricValue:
+    """Resolve a metric before presentation; labels never have to be stripped off."""
+    spec = METRICS.get(item_id)
+    if spec is None or item_id in OVERLAY_NON_TEXT_ITEM_IDS:
+        return MetricValue("")
+    raw = str(values.get(spec.telemetry_key) or "").strip()
+    raw = "" if raw.lower() == "n/a" else raw
+    unit = spec.unit
+    label = spec.hud_label if view == "hud" else spec.table_label
     if item_id == "base_fps":
-        return _value_or_na(_fps_display_value(values.get("present_fps")), suffix="")
-    if item_id == "fg_fps":
-        if not _flag_enabled(values.get("framegen_active")):
-            return ""
-        if _fps_number(values.get("framegen_fps")) is None:
-            return ""
-        return f"{_framegen_value_or_na(values.get('framegen_fps'))} fps"
-    if item_id == "latency_ms":
-        return _optional_value(_frame_latency_ms(values), suffix=" ms")
-    if item_id == "profile":
-        # The designed layout has room for the tier's real name.
-        text = str(values.get("profile_tier") or "").strip()
-        return text or "Default"
-    if item_id == "clock_mhz":
-        return _value_or_na(values.get("clock_mhz"), suffix=" MHz")
-    if item_id == "voltage_mv":
-        return _value_or_na(_requested_voltage_mv(values), suffix=" mV")
-    if item_id == "power_w":
-        return _value_or_na(values.get("power_w"), suffix=" W")
-    if item_id == "temperature_c":
-        return _optional_value(values.get("temperature_c"), suffix=" C")
-    if item_id == "hotspot_temperature_c":
-        return _optional_value(values.get("hotspot_temperature_c"), suffix=" C")
-    if item_id == "gpu_util_pct":
-        return _optional_value(values.get("gpu_util_pct"), suffix="%")
-    if item_id == "fan_pct":
-        return _optional_labeled_value("fan", values.get("fan_pct"), suffix="%")
-    if item_id == "cpu_util_pct":
-        return _optional_value(values.get("cpu_util_pct"), suffix="%")
-    if item_id == "cpu_peak_thread_pct":
-        return _optional_labeled_value(
-            "peak", values.get("cpu_peak_thread_pct"), suffix="%"
-        )
-    if item_id == "uv_offset_mv":
-        return _optional_value(_signed_value(values.get("uv_offset_mv")), suffix=" mV")
-    if item_id == "mem_clock_mhz":
-        return _optional_value(values.get("mem_clock_mhz"), suffix=" MHz")
-    if item_id == "vram":
-        return _gibibyte_pair(values.get("vram_used_mb"), values.get("vram_total_mb"))
-    if item_id == "ram":
-        return _gibibyte_pair(values.get("ram_used_mb"), values.get("ram_total_mb"))
-    if item_id == "cpu_temp_c":
-        return _optional_value(values.get("cpu_temp_c"), suffix=" C")
-    if item_id == "cpu_power_w":
-        return _optional_value(values.get("cpu_power_w"), suffix=" W")
-    if item_id == "fps_1pct_low":
-        return _optional_value(values.get("fps_1pct_low"), suffix=" fps")
-    if item_id == "frametime_p97":
-        return _optional_value(values.get("frametime_p97"), suffix=" ms")
-    if item_id == "fps_session":
-        return _session_fps_value(values).replace("min/avg/max ", "")
-    if item_id == "gpu_name":
-        return short_gpu_name(values.get("gpu_name"))
-    if item_id == "driver_version":
-        return _optional_labeled_value("driver", values.get("driver_version"), suffix="")
-    if item_id == "resolution":
-        return str(values.get("resolution") or "").strip()
-    if item_id == "present_mode":
-        return str(values.get("present_mode") or "").strip()
-    return ""
+        raw = _fps_display_value(values.get("present_fps")) or "n/a"
+        unit = "" if view == "hud" else "FPS"
+    elif item_id == "fg_fps":
+        raw = (_framegen_value_or_na(values.get("framegen_fps"))
+               if (view == "settings" or _flag_enabled(values.get("framegen_active")))
+               and _fps_number(values.get("framegen_fps")) is not None else "")
+        unit = "fps" if view == "hud" else "FG"
+    elif item_id == "latency_ms":
+        raw = _frame_latency_ms(values)
+        label = "LAT AVG" if values.get("latency_avg_ms", "").strip() else "LAT P95"
+        if view == "hud":
+            label = ""
+    elif item_id == "profile":
+        raw = (raw or "Default") if view != "table" else _compact_tier(raw)
+    elif item_id == "voltage_mv":
+        raw = _requested_voltage_mv(values).strip()
+    elif item_id == "uv_offset_mv":
+        raw = _signed_value(raw)
+    elif item_id in ("vram", "ram"):
+        raw = _gibibyte_pair(values.get(f"{item_id}_used_mb"), values.get(f"{item_id}_total_mb"))
+        unit = "GiB"
+    elif item_id == "fps_session":
+        raw = _session_fps_value(values)
+    elif item_id == "gpu_name" and view != "settings":
+        raw = short_gpu_name(raw)
+    elif item_id == "fps_1pct_low" and view == "hud":
+        unit = "fps"
+    # Inputs sometimes already carry their unit. Normalize the input, not a
+    # previously formatted label/value string.
+    suffix = unit if unit == "%" else f" {unit}" if unit else ""
+    if suffix and raw.endswith(suffix):
+        raw = raw[:-len(suffix)]
+    if not raw and view != "settings":
+        raw = (spec.table_missing if view == "table" else "") or spec.missing
+        if raw and not spec.missing_unit:
+            unit = ""
+    return MetricValue(raw, unit, label)
+
+
+def format_overlay_value(item_id: str, values: dict[str, str]) -> str:
+    return metric_value(item_id, values, view="hud").text(labeled=True)
 
 
 def format_overlay_item(item_id: str, values: dict[str, str]) -> str:
-    """Format one overlay metric using current telemetry values."""
-    return _format_overlay_item(item_id, values)
+    return metric_value(item_id, values).text(labeled=True)
+
+
+def format_settings_metric(item_id: str, values: dict[str, str]) -> str:
+    metric = metric_value(item_id, values, view="settings")
+    if not metric.available:
+        return "-"
+    value, unit = metric.value, metric.unit
+    if item_id in ("base_fps", "fg_fps", "fps_1pct_low", "fps_session"):
+        unit = "FPS"
+        value = value.replace("/", " / ")
+    if unit == "C":
+        unit = "°C"
+    if unit in ("MHz", "mV", "W") and item_id != "uv_offset_mv" and value.lstrip("+-").isdigit():
+        value = f"{int(value):,}"
+    if item_id == "uv_offset_mv":
+        value = value.replace("-", "−", 1) if value.startswith("-") else value
+    if item_id == "profile":
+        value = {"perf": "Performance", "performance": "Performance", "bal": "Balanced",
+                 "balanced": "Balanced", "eff": "Efficiency", "efficiency": "Efficiency"}.get(value.lower(), value)
+    if item_id == "resolution":
+        value = value.replace("x", " × ")
+    if item_id == "present_mode":
+        value = {"fifo": "FIFO", "fifo-relaxed": "FIFO relaxed", "mailbox": "Mailbox",
+                 "immediate": "Immediate"}.get(value, value)
+    return MetricValue(value, unit).text()
 
 
 def preview_overlay_text(
@@ -356,96 +384,6 @@ def preview_overlay_text(
     return format_overlay_text(merged, config=config)
 
 
-def _format_overlay_item(item_id: str, values: dict[str, str]) -> str:
-    if item_id in OVERLAY_NON_TEXT_ITEM_IDS:
-        # The layer draws these; they contribute nothing to the readout text.
-        return ""
-    if item_id == "nr_gpu_ms":
-        return _optional_labeled_value("dlss5 nr", values.get("nr_gpu_ms"), suffix=" ms") or "dlss5 nr -"
-    if item_id == "base_fps":
-        return _value_or_na(_fps_display_value(values.get("present_fps")), suffix=" FPS")
-    if item_id == "fg_fps":
-        if not _flag_enabled(values.get("framegen_active")):
-            return ""
-        if _fps_number(values.get("framegen_fps")) is None:
-            return ""
-        return f"{_framegen_value_or_na(values.get('framegen_fps'))} FG"
-    if item_id == "fps_1pct_low":
-        # Hidden until the layer has measured something: a 0 here would read as
-        # a catastrophic stutter rather than as "no data yet".
-        return _optional_labeled_value("1% low", values.get("fps_1pct_low"), suffix="")
-    if item_id == "frametime_p97":
-        return _optional_labeled_value("p97", values.get("frametime_p97"), suffix=" ms")
-    if item_id == "fps_session":
-        return _session_fps_value(values)
-    if item_id == "gpu_name":
-        return short_gpu_name(values.get("gpu_name"))
-    if item_id == "driver_version":
-        return _optional_labeled_value(
-            "driver", values.get("driver_version"), suffix=""
-        )
-    if item_id == "resolution":
-        return str(values.get("resolution") or "").strip()
-    if item_id == "present_mode":
-        return str(values.get("present_mode") or "").strip()
-    if item_id == "clock_mhz":
-        return _value_or_na(values.get("clock_mhz"), suffix=" MHz")
-    if item_id == "voltage_mv":
-        return _value_or_na(_requested_voltage_mv(values), suffix=" mV")
-    if item_id == "power_w":
-        return _value_or_na(values.get("power_w"), suffix=" W")
-    if item_id == "profile":
-        return _compact_tier(values.get("profile_tier"))
-    if item_id == "gpu_util_pct":
-        return _optional_labeled_value("GPU", values.get("gpu_util_pct"), suffix="%")
-    if item_id == "cpu_util_pct":
-        return _labeled_value_or_placeholder(
-            "CPU",
-            values.get("cpu_util_pct"),
-            suffix="%",
-            placeholder="--%",
-        )
-    if item_id == "cpu_peak_thread_pct":
-        return _labeled_value_or_placeholder(
-            "CPU-T",
-            values.get("cpu_peak_thread_pct"),
-            suffix="%",
-            placeholder="--%",
-        )
-    if item_id == "fan_pct":
-        return _optional_labeled_value("Fan", values.get("fan_pct"), suffix="%")
-    if item_id == "temperature_c":
-        return _optional_labeled_value("T", values.get("temperature_c"), suffix=" C")
-    if item_id == "hotspot_temperature_c":
-        return _optional_labeled_value(
-            "HOT", values.get("hotspot_temperature_c"), suffix=" C"
-        )
-    if item_id == "latency_ms":
-        return _optional_labeled_value(
-            "LAT AVG" if values.get("latency_avg_ms", "").strip() else "LAT P95",
-            _frame_latency_ms(values), suffix=" ms"
-        )
-    if item_id == "uv_offset_mv":
-        return _optional_labeled_value(
-            "UV",
-            _signed_value(values.get("uv_offset_mv")),
-            suffix=" mV",
-        )
-    if item_id == "mem_clock_mhz":
-        return _optional_labeled_value("MEM", values.get("mem_clock_mhz"), suffix=" MHz")
-    if item_id == "vram":
-        pair = _gibibyte_pair(values.get("vram_used_mb"), values.get("vram_total_mb"))
-        return f"VRAM {pair}" if pair else ""
-    if item_id == "ram":
-        pair = _gibibyte_pair(values.get("ram_used_mb"), values.get("ram_total_mb"))
-        return f"RAM {pair}" if pair else ""
-    if item_id == "cpu_temp_c":
-        return _optional_labeled_value("CPU", values.get("cpu_temp_c"), suffix=" C")
-    if item_id == "cpu_power_w":
-        return _optional_labeled_value("CPU", values.get("cpu_power_w"), suffix=" W")
-    return ""
-
-
 def _session_fps_value(values: dict[str, str]) -> str:
     """Whole-session slowest, average and fastest frame rate, as one cell.
 
@@ -458,7 +396,7 @@ def _session_fps_value(values: dict[str, str]) -> str:
         return ""
     slowest = str(values.get("fps_session_min") or "").strip() or "0"
     fastest = str(values.get("fps_session_max") or "").strip() or "0"
-    return f"min/avg/max {slowest}/{average}/{fastest}"
+    return f"{slowest}/{average}/{fastest}"
 
 
 def _requested_voltage_mv(values: dict[str, str]) -> str:
@@ -503,40 +441,12 @@ def _ms_number(value: object) -> int | None:
         return None
 
 
-def _value_or_na(value: object, *, suffix: str) -> str:
-    text = str(value or "").strip()
-    if not text or text.lower() == "n/a":
-        return f"n/a{suffix}"
-    if text.endswith(suffix):
-        return text
-    return f"{text}{suffix}"
 
 
-def _optional_value(value: object, *, suffix: str) -> str:
-    text = str(value or "").strip()
-    if not text or text.lower() == "n/a":
-        return ""
-    if text.endswith(suffix):
-        return text
-    return f"{text}{suffix}"
 
 
-def _optional_labeled_value(label: str, value: object, *, suffix: str) -> str:
-    text = _optional_value(value, suffix=suffix)
-    if not text:
-        return ""
-    return f"{label} {text}"
 
 
-def _labeled_value_or_placeholder(
-    label: str,
-    value: object,
-    *,
-    suffix: str,
-    placeholder: str,
-) -> str:
-    text = _optional_value(value, suffix=suffix)
-    return f"{label} {text or placeholder}"
 
 
 def _signed_value(value: object) -> str:

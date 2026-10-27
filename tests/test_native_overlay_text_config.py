@@ -10,14 +10,19 @@ host probe and diff it against the Python one over a shared case table.
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
-from overlay.config import OVERLAY_ITEM_IDS, OverlayConfig, save_overlay_config
+from overlay.config import (
+    OverlayConfig,
+    save_overlay_config,
+)
+from overlay.metrics import (
+    OVERLAY_ITEM_IDS,
+)
 from overlay.overlay_text import format_overlay_text
 
 
@@ -800,7 +805,7 @@ def _run_native_overlay_probe(
     ("launcher", "config_enabled"),
     [("steam", False), ("lutris", True), ("heroic", None)],
 )
-def test_native_overlay_switches_on_and_off_in_same_process(
+def test_native_overlay_switches_on_and_off_in_same_process(live_overlay_probe,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     launcher: str,
@@ -816,7 +821,7 @@ def test_native_overlay_switches_on_and_off_in_same_process(
     from integrations.launchers.wrapper_manager import ApplyResult
     from overlay.state import OVERLAY_OVERRIDE_ENV
 
-    binary = _build_live_overlay_probe(tmp_path)
+    binary = live_overlay_probe
     config_path = tmp_path / "overlay.toml"
     if config_enabled is not None:
         config_path.write_text(
@@ -912,7 +917,7 @@ def test_native_hotspot_matches_python_in_both_layouts_and_detail_modes(
 
 
 @pytest.mark.parametrize("layout", ["hud", "table"])
-def test_gui_hotspot_toggle_persists_and_updates_running_native_overlay(
+def test_gui_hotspot_toggle_persists_and_updates_running_native_overlay(live_overlay_probe,
     tmp_path, monkeypatch, qtbot, layout,
 ) -> None:
     from PySide6 import QtCore, QtWidgets
@@ -920,7 +925,7 @@ def test_gui_hotspot_toggle_persists_and_updates_running_native_overlay(
     from overlay.config import load_overlay_config
     from ui.components.overlay_config import OverlayConfigPanel
 
-    binary = _build_live_overlay_probe(tmp_path)
+    binary = live_overlay_probe
     config_path = tmp_path / "overlay.toml"
     state_path = tmp_path / "overlay-state.txt"
     monkeypatch.setenv("PENGUIN_BURNER_OVERLAY_STATE", str(state_path))
@@ -1006,27 +1011,15 @@ def test_gui_hotspot_toggle_persists_and_updates_running_native_overlay(
         assert process.wait(timeout=5) == 0
 
 
-def _build_live_overlay_probe(tmp_path: Path) -> Path:
+@pytest.fixture(scope="session")
+def live_overlay_probe(tmp_path_factory, build_overlay_probe) -> Path:
     """Build a probe that keeps formatting in one process, tick after tick.
 
     The shared ``native_overlay_probe`` fixture prints once and exits, which
     cannot show a toggle landing mid-session; this one holds the layer's
     formatter open and reformats on every line it reads from stdin.
     """
-    compiler = shutil.which("c++") or shutil.which("g++")
-    if compiler is None:
-        pytest.skip("C++ compiler unavailable")
-    repo_root = Path(__file__).resolve().parents[1]
-    source_dir = repo_root / "overlay/native/latency_layer/src"
-    headers_check = subprocess.run(
-        [compiler, "-std=c++17", "-fsyntax-only", "-x", "c++", "-"],
-        input="#include <vulkan/vk_layer.h>\n",
-        check=False,
-        text=True,
-        capture_output=True,
-    )
-    if headers_check.returncode != 0:
-        pytest.skip("Vulkan headers unavailable (install the vulkan-headers package)")
+    tmp_path = tmp_path_factory.mktemp("live-overlay-probe")
     source = tmp_path / "live_overlay_probe.cpp"
     source.write_text(
         r"""
@@ -1084,23 +1077,7 @@ int main(int argc, char**) {
         encoding="utf-8",
     )
     output = tmp_path / "live_overlay_probe"
-    subprocess.run(
-        [
-            compiler,
-            "-std=c++17",
-            "-I",
-            str(source_dir),
-            str(source),
-            str(source_dir / "overlay_text.cpp"),
-            str(source_dir / "latency_state.cpp"), str(source_dir / "frame_timing.cpp"),
-            str(source_dir / "overlay_render.cpp"),
-            str(source_dir / "overlay_worker.cpp"),
-            "-o",
-            str(output),
-        ],
-        check=True,
-        cwd=repo_root,
-    )
+    build_overlay_probe(source, output)
     return output
 
 
@@ -1141,10 +1118,10 @@ def test_native_table_gives_each_cpu_metric_its_own_label(
 
 
 @pytest.mark.parametrize("nr_value", ["2.20", "", "-"])
-def test_native_nr_gpu_format_matches_python(tmp_path, nr_value):
+def test_native_nr_gpu_format_matches_python(live_overlay_probe, tmp_path, nr_value):
     from overlay.overlay_text import format_overlay_item
 
-    binary = _build_live_overlay_probe(tmp_path)
+    binary = live_overlay_probe
     config = tmp_path / "overlay.toml"
     config.write_text('enabled = true\nlayout = "table"\nitems = ["nr_gpu_ms"]\n')
     env = {
@@ -1159,8 +1136,8 @@ def test_native_nr_gpu_format_matches_python(tmp_path, nr_value):
 
 
 @pytest.fixture(scope="module")
-def latency_probe(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return _build_live_overlay_probe(tmp_path_factory.mktemp("latency-probe"))
+def latency_probe(live_overlay_probe) -> Path:
+    return live_overlay_probe
 
 
 @pytest.mark.parametrize("average", ["80", ""])

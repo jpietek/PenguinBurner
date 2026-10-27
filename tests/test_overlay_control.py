@@ -14,7 +14,6 @@ from overlay.config import (
     OVERLAY_DETAIL_PRESETS,
     OVERLAY_POSITION_IDS,
     OVERLAY_PRESET_CYCLE,
-    OVERLAY_SCALE_OPTIONS,
     OverlayConfig,
     default_overlay_config,
     load_overlay_config,
@@ -31,6 +30,9 @@ from overlay.control import (
     toggle_overlay_visibility,
 )
 from overlay.state import read_overlay_override
+from overlay.style import (
+    OVERLAY_SCALE_OPTIONS,
+)
 
 
 def test_first_toggle_hides_an_overlay_the_config_shows(tmp_path: Path) -> None:

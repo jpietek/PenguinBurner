@@ -301,7 +301,18 @@ int print_origin(char** argv) {
 }
 }  // namespace
 
+namespace pblayer {
+double parse_overlay_scale(const std::string&);
+double parse_overlay_opacity(const std::string&);
+}
+
 int main(int argc, char** argv) {
+    if (argc > 3 && std::string(argv[1]) == "--config-numbers") {
+        std::cout << pblayer::parse_overlay_scale(argv[2]) << ' '
+                  << pblayer::parse_overlay_opacity(argv[3]) << '\n';
+        return 0;
+    }
+
     if (argc > 1 && std::string(argv[1]) == "--config-watch") {
         uint64_t now_us;
         while (std::cin >> now_us) {

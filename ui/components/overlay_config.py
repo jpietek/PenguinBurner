@@ -2,23 +2,22 @@ from __future__ import annotations
 
 import html
 import importlib
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from integrations.launchers.host_process import start_on_host
 from overlay.config import (
-    MAX_OVERLAY_OPACITY,
     MAX_OVERLAY_UPDATE_INTERVAL_S,
-    MIN_OVERLAY_OPACITY,
     MIN_OVERLAY_UPDATE_INTERVAL_S,
     OVERLAY_DETAIL_IDS,
     OVERLAY_DETAIL_LABELS,
     OVERLAY_FONTS,
     OVERLAY_GRAPH_MODE_LABELS,
     OVERLAY_GRAPH_MODES,
-    OVERLAY_ITEM_SECTIONS,
     OVERLAY_LAYOUTS,
     OVERLAY_POSITION_IDS,
-    OVERLAY_SCALE_OPTIONS,
+    OverlayConfig,
     default_overlay_config_path,
     load_overlay_config,
     normalize_overlay_detail,
@@ -45,9 +44,18 @@ from overlay.live_preview import (
     live_preview_command,
     live_preview_env,
 )
-from overlay.overlay_text import SAMPLE_OVERLAY_VALUES, format_overlay_item
+from overlay.metrics import (
+    METRICS,
+    OVERLAY_ITEM_SECTIONS,
+)
+from overlay.overlay_text import SAMPLE_OVERLAY_VALUES, format_settings_metric
 from overlay.shortcuts import shortcut_desktop, shortcut_settings_command
 from overlay.state import read_overlay_state
+from overlay.style import (
+    MAX_OVERLAY_OPACITY,
+    MIN_OVERLAY_OPACITY,
+    OVERLAY_SCALE_OPTIONS,
+)
 from ui.dialogs.overlay_shortcuts import overlay_shortcuts_dialog
 
 from .overlay_preview import overlay_preview_class
@@ -76,187 +84,11 @@ POSITION_LABELS = {
     "bottom_right": "Bottom right",
 }
 
-ITEM_LABELS = {
-    "base_fps": "Base frame rate",
-    "fg_fps": "FPS after frame generation",
-    "latency_ms": "Frame latency",
-    "nr_gpu_ms": "DLSS 5 neural rendering GPU time",
-    "fps_1pct_low": "1% low frame rate",
-    "frametime_p97": "Frame time · 97th percentile",
-    "fps_session": "Session minimum / average / maximum",
-    "frametime_graph": "Frame time graph",
-    "clock_mhz": "GPU clock",
-    "voltage_mv": "GPU voltage",
-    "mem_clock_mhz": "Memory clock",
-    "power_w": "Power draw",
-    "temperature_c": "GPU temperature",
-    "hotspot_temperature_c": "Hotspot temperature",
-    "gpu_util_pct": "GPU usage",
-    "fan_pct": "Fan speed",
-    "vram": "Video memory",
-    "uv_offset_mv": "Undervolt offset",
-    "profile": "Active profile",
-    "cpu_util_pct": "CPU usage",
-    "cpu_peak_thread_pct": "Busiest CPU thread",
-    "cpu_temp_c": "CPU temperature",
-    "cpu_power_w": "CPU power draw",
-    "ram": "System memory",
-    "gpu_name": "Graphics card",
-    "driver_version": "Driver version",
-    "resolution": "Resolution",
-    "present_mode": "Presentation mode",
-}
 
-ITEM_TELEMETRY_KEYS = {
-    "nr_gpu_ms": "nr_gpu_ms",
-    "clock_mhz": "clock_mhz",
-    "voltage_mv": "voltage_mv",
-    "power_w": "power_w",
-    "profile": "profile_tier",
-    "gpu_util_pct": "gpu_util_pct",
-    "cpu_util_pct": "cpu_util_pct",
-    "cpu_peak_thread_pct": "cpu_peak_thread_pct",
-    "fan_pct": "fan_pct",
-    "temperature_c": "temperature_c",
-    "hotspot_temperature_c": "hotspot_temperature_c",
-    "uv_offset_mv": "uv_offset_mv",
-    "mem_clock_mhz": "mem_clock_mhz",
-    "cpu_temp_c": "cpu_temp_c",
-    "cpu_power_w": "cpu_power_w",
-}
 
-ITEM_TOOLTIPS = {
-    "nr_gpu_ms": (
-        "Average GPU elapsed time per DLSS 5 neural-rendering model evaluation, "
-        "in milliseconds. This excludes surrounding injector work and is not "
-        "added input latency. Enable before launching the game; restart an "
-        "already running game to start capture. Missing measurements display a dash."
-    ),
-    "base_fps": (
-        "Exact base present FPS published by PenguinBurner. This is the "
-        "pre-frame-generation present_fps headline, not the output FG cadence."
-    ),
-    "fg_fps": (
-        "Frame-generation output FPS. It is shown only when PenguinBurner marks "
-        "frame generation as active."
-    ),
-    "clock_mhz": "Current GPU graphics clock in MHz.",
-    "voltage_mv": "Current live GPU voltage in mV.",
-    "power_w": "Current GPU board power draw in watts.",
-    "profile": "Active profile tier reported by the runtime.",
-    "fps_1pct_low": (
-        "Frame rate of the slowest one per cent of recent frames, averaged. "
-        "This is the number that moves when an undervolt starts costing you "
-        "stutter: a tier that holds 1% low while dropping voltage is a good "
-        "tier, and the headline FPS will not tell you that. Measured inside "
-        "the game by the overlay layer over its last 120 presents, so it is "
-        "blank until a wrapped game is running."
-    ),
-    "frametime_p97": (
-        "The frametime 97% of recent frames came in under, in milliseconds. "
-        "A tail measure like the 1% low, expressed as time rather than rate: "
-        "useful when you care how long the worst frames took, not how many "
-        "frames per second that implies. Measured in-game by the overlay "
-        "layer."
-    ),
-    "fps_session": (
-        "Slowest, average and fastest frame rate since the game started. The "
-        "average is taken over the session's total frame time, so a burst of "
-        "cheap frames cannot drag it upwards. The extremes are single frames "
-        "and will look spiky -- one alt-tab or shader compile sets the "
-        "minimum for the rest of the session."
-    ),
-    "frametime_graph": (
-        "Draws the last frames as bars under the readout, newest on the right, "
-        "with a rule across the window's median frametime. Bars that reach "
-        "twice the median turn amber, so a stutter is visible without reading "
-        "any number. The bars are scaled against the worse of the window's "
-        "slowest frame or twice its median, which keeps a smooth run looking "
-        "flat instead of amplifying noise. Drawn by the overlay layer inside "
-        "the game."
-    ),
-    "gpu_name": (
-        "The GPU the game is actually rendering on, as its driver reports it. "
-        "Read inside the game by the overlay layer, so on a multi-GPU machine "
-        "it shows the card the game picked rather than the one the desktop app "
-        "is tuning."
-    ),
-    "driver_version": (
-        "Graphics driver version, decoded the way the card's vendor packs it. "
-        "Read inside the game by the overlay layer."
-    ),
-    "resolution": (
-        "Size of the game's Vulkan presentation surface. Upscaling may render "
-        "the scene at a different internal resolution."
-    ),
-    "present_mode": (
-        "Presentation mode requested when the game creates its Vulkan swapchain. "
-        "FIFO waits for display refresh; Mailbox keeps the newest pending frame; "
-        "Immediate does not wait for refresh. This readout does not change VSync "
-        "or establish the monitor's final VRR behavior. Per-present mode changes "
-        "may not be reflected."
-    ),
-    "gpu_util_pct": "Current GPU utilization (0-100%) from NVML. Missing data is hidden.",
-    "cpu_util_pct": (
-        "Current game process CPU usage from procfs, normalized to total system "
-        "CPU capacity so it stays in the 0-100% range. Missing process data is "
-        "hidden."
-    ),
-    "cpu_peak_thread_pct": (
-        "Busiest game thread over the last overlay interval, normalized to one "
-        "logical CPU. Values near 100% indicate a likely single-thread or main "
-        "thread bottleneck. This is not tied to one fixed core because the "
-        "scheduler may migrate the thread."
-    ),
-    "fan_pct": "Current reported GPU fan speed percentage. Missing fan data is hidden.",
-    "temperature_c": "Current GPU temperature in C. Missing temperature data is hidden.",
-    "hotspot_temperature_c": (
-        "Hottest GPU sensor temperature in C, when supported by the GPU and driver. "
-        "Missing hotspot data is hidden."
-    ),
-    "latency_ms": (
-        "Average frame latency over the last 3 seconds, from input/simulation "
-        "or render submission to the driver-reported GPU completion. A ~ prefix "
-        "marks an estimate. Without Reflex markers, the Vulkan overlay pairs "
-        "the previous Present call with this frame's GPU completion, including "
-        "GPU queueing. That frame-cycle proxy can miss engine/input work, "
-        "especially with asynchronous rendering or frame generation. "
-        "P95 is shown instead with older daemons that do not publish the average. "
-        "This is not measured mouse-to-screen latency; input sampling waits, "
-        "presentation and monitor response are not fully covered. Driver timing "
-        "accuracy under Proton/frame generation still needs validation."
-    ),
-    "uv_offset_mv": (
-        "Current voltage delta from the stock VF point for the nearest active "
-        "operating point. Missing VF data is hidden."
-    ),
-    "mem_clock_mhz": (
-        "Current memory clock from NVML, published by the daemon beside the "
-        "core clock. Hidden when the card does not report one."
-    ),
-    "vram": (
-        "Video memory in use and the card's total, as the driver counts it -- "
-        "so it includes whatever else is on the GPU, not just this game. "
-        "Published by the daemon; hidden when the card reports no memory info."
-    ),
-    "ram": (
-        'System memory in use and installed. "Used" is total minus available, '
-        "not total minus free: Linux lends nearly all idle memory to the page "
-        "cache, so total-minus-free would read as a full machine at all times."
-    ),
-    "cpu_temp_c": (
-        "CPU package temperature, read by the daemon from the kernel's hwmon "
-        "sensors. Colours later than the GPU's: a CPU is expected to run "
-        "hotter. Hidden on a box whose sensor driver we do not recognise -- a "
-        "missing row is honest, a wrong number is not."
-    ),
-    "cpu_power_w": (
-        "CPU package power, averaged over the interval since the last refresh "
-        "from the kernel's RAPL energy counter. The first reading after a "
-        "start has no interval to average over, so it is blank. Hidden "
-        "entirely on a box without RAPL."
-    ),
-}
+
+
+
 
 
 _WIDGET_CLASSES: dict[int, tuple[type, type]] = {}
@@ -590,13 +422,13 @@ class OverlayConfigPanel:
             for key in items:
                 checkbox = QtWidgets.QCheckBox()
                 checkbox.setObjectName(f"overlayItemCheckbox_{key}")
-                checkbox.setToolTip(_wrapped_tooltip(ITEM_TOOLTIPS[key]))
+                checkbox.setToolTip(_wrapped_tooltip(METRICS[key].tooltip))
                 self.item_checkboxes[key] = checkbox
                 checkbox.toggled.connect(
                     lambda checked, item=key: self._set_item_enabled(item, checked)
                 )
                 checkbox.setText("")
-                checkbox.setAccessibleName(ITEM_LABELS[key])
+                checkbox.setAccessibleName(METRICS[key].label)
                 checkbox.setSizePolicy(
                     QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed
                 )
@@ -627,11 +459,11 @@ class OverlayConfigPanel:
                 layout.setContentsMargins(14, 12, 14, 12)
                 layout.setSpacing(14)
                 layout.addWidget(checkbox)
-                metric_label = MetricLabel(ITEM_LABELS[key], checkbox)
+                metric_label = MetricLabel(METRICS[key].label, checkbox)
                 self.item_title_labels[key] = metric_label
                 layout.addWidget(metric_label, 1)
                 layout.addWidget(sample, 0)
-                info = self._info_button(ITEM_TOOLTIPS[key])
+                info = self._info_button(METRICS[key].tooltip)
                 info.setFixedSize(16, 16)
                 self.metric_infos[key] = info
                 layout.addWidget(info)
@@ -826,44 +658,30 @@ class OverlayConfigPanel:
         self.live_button.setText(LIVE_PREVIEW_START)
         self._show_status(MISSING_EXECUTABLE_MESSAGE)
 
-    def _set_overlay_enabled(self, checked: bool) -> None:
+    def _update_setting(self, setter: Callable[..., OverlayConfig], value: Any) -> None:
         if self._syncing:
             return
-        # A desktop shortcut may have changed settings since the last refresh.
-        self.config = set_overlay_enabled(load_overlay_config(self.config_path), bool(checked))
-        self.enabled_state_label.setText(toggle_state_text(bool(checked)))
+        self.config = setter(load_overlay_config(self.config_path), value)
         self._save()
-        self.refresh_preview()
+
+    def _update_choice(self, setter, choices, index: int) -> None:
+        if 0 <= index < len(choices):
+            self._update_setting(setter, choices[index])
+
+    def _set_overlay_enabled(self, checked: bool) -> None:
+        self._update_setting(set_overlay_enabled, bool(checked))
 
     def _set_update_interval(self, value: int) -> None:
-        if self._syncing:
-            return
-        self.config = set_overlay_update_interval_s(load_overlay_config(self.config_path), value)
-        self._save()
+        self._update_setting(set_overlay_update_interval_s, value)
 
     def _set_overlay_scale(self, index: int) -> None:
-        if self._syncing:
-            return
-        if not 0 <= index < len(OVERLAY_SCALE_OPTIONS):
-            return
-        self.config = set_overlay_scale(load_overlay_config(self.config_path), OVERLAY_SCALE_OPTIONS[index])
-        self._save()
+        self._update_choice(set_overlay_scale, OVERLAY_SCALE_OPTIONS, index)
 
     def _set_overlay_detail(self, index: int) -> None:
-        if self._syncing:
-            return
-        if not 0 <= index < len(OVERLAY_DETAIL_IDS):
-            return
-        self.config = set_overlay_detail(load_overlay_config(self.config_path), OVERLAY_DETAIL_IDS[index])
-        self._save()
+        self._update_choice(set_overlay_detail, OVERLAY_DETAIL_IDS, index)
 
     def _set_overlay_position(self, index: int) -> None:
-        if self._syncing:
-            return
-        if not 0 <= index < len(OVERLAY_POSITION_IDS):
-            return
-        self.config = set_overlay_position(load_overlay_config(self.config_path), OVERLAY_POSITION_IDS[index])
-        self._save()
+        self._update_choice(set_overlay_position, OVERLAY_POSITION_IDS, index)
 
     def _show_opacity_value(self, percent: int) -> None:
         self.opacity_value_label.setText(f"{percent}%")
@@ -872,32 +690,16 @@ class OverlayConfigPanel:
 
     def _set_overlay_opacity(self, value: int) -> None:
         self._show_opacity_value(value)
-        if self._syncing:
-            return
-        self.config = set_overlay_opacity(load_overlay_config(self.config_path), value / 100.0)
-        self._save()
+        self._update_setting(set_overlay_opacity, value / 100.0)
 
     def _set_overlay_graph_mode(self, index: int) -> None:
-        if self._syncing or not 0 <= index < len(OVERLAY_GRAPH_MODES):
-            return
-        self.config = set_overlay_graph_mode(load_overlay_config(self.config_path), OVERLAY_GRAPH_MODES[index])
-        self._save()
+        self._update_choice(set_overlay_graph_mode, OVERLAY_GRAPH_MODES, index)
 
     def _set_overlay_font(self, index: int) -> None:
-        if self._syncing:
-            return
-        if not 0 <= index < len(OVERLAY_FONTS):
-            return
-        self.config = set_overlay_font(load_overlay_config(self.config_path), OVERLAY_FONTS[index])
-        self._save()
+        self._update_choice(set_overlay_font, OVERLAY_FONTS, index)
 
     def _set_overlay_layout(self, index: int) -> None:
-        if self._syncing:
-            return
-        if not 0 <= index < len(OVERLAY_LAYOUTS):
-            return
-        self.config = set_overlay_layout(load_overlay_config(self.config_path), OVERLAY_LAYOUTS[index])
-        self._save()
+        self._update_choice(set_overlay_layout, OVERLAY_LAYOUTS, index)
 
     def _save(self) -> None:
         # Normalize the renderer only on an explicit edit. Opening the page or
@@ -983,101 +785,20 @@ def _preview_values(telemetry: dict[str, str]) -> dict[str, str]:
 
 
 def _sample_text(item_id: str, telemetry: dict[str, str]) -> str:
-    """Settings values retain the native measurements, with readable captions.
-
-    Only values unavailable outside the game use examples. Missing live
-    sensors remain unavailable, so the desktop never invents telemetry.
-    """
-    demo = SAMPLE_OVERLAY_VALUES
-    if item_id in ("base_fps", "fg_fps"):
-        key = "present_fps" if item_id == "base_fps" else "framegen_fps"
-        return f"{_live_value(telemetry, key) or demo[key]} FPS"
-    if item_id == "latency_ms":
-        live = _live_value(telemetry, "latency_avg_ms") or _live_value(
-            telemetry, "latency_ms"
-        )
-        return (
-            format_overlay_item(item_id, telemetry if live else demo) or "-"
-        ).removeprefix("LAT AVG ").removeprefix("LAT P95 ")
+    """Only game-local measurements use examples; missing live sensors stay missing."""
     if item_id == "frametime_graph":
         return "Graph"
-    examples = {
-        "fps_1pct_low",
-        "frametime_p97",
-        "fps_session",
-        "gpu_name",
-        "driver_version",
-        "resolution",
-        "present_mode",
-    }
-    if item_id in examples:
-        values = demo
-    else:
-        key = ITEM_TELEMETRY_KEYS.get(item_id)
-        if item_id in ("vram", "ram"):
-            key = "vram_used_mb" if item_id == "vram" else "ram_used_mb"
-        if not key or not _live_value(telemetry, key):
-            return "-"
+    spec = METRICS[item_id]
+    live = _live_value(telemetry, spec.telemetry_key)
+    if item_id == "latency_ms":
+        live = _live_value(telemetry, "latency_avg_ms") or live
+    if spec.example or (not live and item_id in ("base_fps", "fg_fps", "latency_ms")):
+        values = SAMPLE_OVERLAY_VALUES
+    elif live:
         values = telemetry
-    text = format_overlay_item(item_id, values) or "-"
-    if item_id == "profile":
-        tier = str(values.get("profile_tier") or "").strip()
-        return {
-            "perf": "Performance",
-            "performance": "Performance",
-            "bal": "Balanced",
-            "balanced": "Balanced",
-            "eff": "Efficiency",
-            "efficiency": "Efficiency",
-        }.get(tier.lower(), tier) or "-"
-    prefixes = {
-        "mem_clock_mhz": "MEM ",
-        "temperature_c": "T ",
-        "hotspot_temperature_c": "HOT ",
-        "gpu_util_pct": "GPU ",
-        "cpu_util_pct": "CPU ",
-        "cpu_peak_thread_pct": "CPU-T ",
-        "fan_pct": "Fan ",
-        "uv_offset_mv": "UV ",
-        "nr_gpu_ms": "NR GPU ",
-        "fps_1pct_low": "1% low ",
-        "frametime_p97": "p97 ",
-        "fps_session": "min/avg/max ",
-        "ram": "RAM ",
-        "vram": "VRAM ",
-        "cpu_temp_c": "CPU ",
-        "cpu_power_w": "CPU ",
-        "driver_version": "driver ",
-    }
-    text = text.removeprefix(prefixes.get(item_id, ""))
-    if item_id in ("temperature_c", "hotspot_temperature_c", "cpu_temp_c"):
-        text = text.removesuffix(" C") + " °C" if text != "-" else text
-    if item_id in (
-        "clock_mhz",
-        "mem_clock_mhz",
-        "voltage_mv",
-        "power_w",
-        "cpu_power_w",
-    ):
-        number, space, unit = text.partition(" ")
-        if number.lstrip("+-").isdigit():
-            text = f"{int(number):,}{space}{unit}"
-    if item_id in ("fps_1pct_low", "fps_session") and text != "-":
-        text = text.replace("/", " / ") + " FPS"
-    if item_id == "uv_offset_mv" and text.startswith("-") and text != "-":
-        text = "−" + text[1:]
-    if item_id == "gpu_name":
-        text = str(values.get("gpu_name") or "-")
-    if item_id == "resolution":
-        text = text.replace("x", " × ")
-    if item_id == "present_mode":
-        text = {
-            "fifo": "FIFO",
-            "fifo-relaxed": "FIFO relaxed",
-            "mailbox": "Mailbox",
-            "immediate": "Immediate",
-        }.get(text, text)
-    return text
+    else:
+        return "-"
+    return format_settings_metric(item_id, values)
 
 
 def _live_value(telemetry: dict[str, str], key: str) -> str:

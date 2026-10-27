@@ -5,18 +5,11 @@ from dataclasses import replace
 from pathlib import Path
 
 from overlay.config import (
-    ADVANCED_OVERLAY_ITEM_IDS,
-    BASIC_OVERLAY_ITEM_IDS,
     OVERLAY_DETAIL_IDS,
     OVERLAY_DETAIL_PRESETS,
     OVERLAY_FONTS,
-    OVERLAY_ITEM_IDS,
-    OVERLAY_NON_TEXT_ITEM_IDS,
     OVERLAY_POSITION_IDS,
     OVERLAY_RENDERERS,
-    OVERLAY_ROW_GROUPS,
-    OVERLAY_SCALE_OPTIONS,
-    OVERLAY_SCALE_REFERENCE,
     OverlayConfig,
     clamp_overlay_opacity,
     load_overlay_config,
@@ -35,7 +28,18 @@ from overlay.config import (
     set_overlay_update_interval_s,
     snap_overlay_scale,
 )
+from overlay.metrics import (
+    ADVANCED_OVERLAY_ITEM_IDS,
+    BASIC_OVERLAY_ITEM_IDS,
+    OVERLAY_ITEM_IDS,
+    OVERLAY_NON_TEXT_ITEM_IDS,
+    OVERLAY_ROW_GROUPS,
+)
 from overlay.overlay_text import SAMPLE_OVERLAY_VALUES
+from overlay.style import (
+    OVERLAY_SCALE_OPTIONS,
+    OVERLAY_SCALE_REFERENCE,
+)
 
 
 def test_overlay_config_defaults_to_hidden_base_items() -> None:
@@ -106,9 +110,10 @@ def test_hotspot_is_opt_in_and_round_trips(tmp_path) -> None:
 
 
 def test_hotspot_panel_displays_live_reading_or_unavailable() -> None:
-    from ui.components.overlay_config import ITEM_LABELS, _sample_text
+    from overlay.metrics import METRICS
+    from ui.components.overlay_config import _sample_text
 
-    assert ITEM_LABELS["hotspot_temperature_c"] == "Hotspot temperature"
+    assert METRICS["hotspot_temperature_c"].label == "Hotspot temperature"
     assert _sample_text("hotspot_temperature_c", {"hotspot_temperature_c": "79"}) == "79 °C"
     assert _sample_text("hotspot_temperature_c", {}) == "-"
 
@@ -511,8 +516,8 @@ def test_the_layer_and_the_preview_agree_on_what_1x_means() -> None:
     # stop showing the size the game draws.
     header = (
         Path(__file__).resolve().parents[1]
-        / "overlay/native/latency_layer/src/latency_layer_internal.h"
+        / "overlay/native/latency_layer/src/overlay_style.h"
     ).read_text(encoding="utf-8")
-    match = re.search(r"kOverlayScaleReference = ([0-9.]+);", header)
+    match = re.search(r"kOVERLAY_SCALE_REFERENCE = ([0-9.]+);", header)
     assert match is not None
     assert float(match.group(1)) == OVERLAY_SCALE_REFERENCE == 0.75

@@ -10,14 +10,18 @@ import pytest
 from overlay.config import (
     OVERLAY_DETAIL_IDS,
     OVERLAY_DETAIL_PRESETS,
-    OVERLAY_ITEM_IDS,
-    OVERLAY_ITEM_SECTIONS,
-    OVERLAY_SCALE_OPTIONS,
     OverlayConfig,
     load_overlay_config,
     save_overlay_config,
     set_overlay_detail,
     set_overlay_item_enabled,
+)
+from overlay.metrics import (
+    OVERLAY_ITEM_IDS,
+    OVERLAY_ITEM_SECTIONS,
+)
+from overlay.style import (
+    OVERLAY_SCALE_OPTIONS,
 )
 
 

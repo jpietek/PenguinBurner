@@ -1671,9 +1671,11 @@ def test_overlay_tab_hides_runs_panel_and_scrolls_options(monkeypatch) -> None:
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     _ = app
 
+    from overlay.metrics import (
+        METRICS,
+        OVERLAY_ITEM_SECTIONS,
+    )
     from ui.window import MainWindow
-    from overlay.config import OVERLAY_ITEM_SECTIONS
-    from ui.components.overlay_config import ITEM_LABELS
 
     monkeypatch.setattr(MainWindow, "_load_profiles", lambda self: None)
     qt_modules = (QtCore, QtGui, QtWidgets, pytest.importorskip("pyqtgraph"))
@@ -1714,7 +1716,7 @@ def test_overlay_tab_hides_runs_panel_and_scrolls_options(monkeypatch) -> None:
     assert {title for title, _ids in OVERLAY_ITEM_SECTIONS}.issubset(headings)
     for title, item_ids in OVERLAY_ITEM_SECTIONS:
         labels = [panel.item_title_labels[item].text() for item in item_ids]
-        assert labels == [ITEM_LABELS[item] for item in item_ids]
+        assert labels == [METRICS[item].label for item in item_ids]
         assert all(panel.item_checkboxes[item].isHidden() for item in item_ids)
         panel.section_edit_buttons[title].click()
         assert all(not panel.item_checkboxes[item].isHidden() for item in item_ids)
@@ -1765,7 +1767,12 @@ def test_overlay_panel_saves_manual_scale(tmp_path, qtbot) -> None:
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     _ = app
 
-    from overlay.config import OVERLAY_SCALE_OPTIONS, load_overlay_config
+    from overlay.config import (
+        load_overlay_config,
+    )
+    from overlay.style import (
+        OVERLAY_SCALE_OPTIONS,
+    )
     from ui.components.overlay_config import OverlayConfigPanel
 
     config_path = tmp_path / "overlay.toml"

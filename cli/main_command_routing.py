@@ -18,6 +18,7 @@ from overlay.control import (
     step_overlay_scale,
     toggle_overlay_visibility,
 )
+from overlay.shortcuts import SHORTCUTS
 from overlay.telemetry.steam_launch_check import rewrite_launch_options
 from profiles.gpu_identity import profile_gpu_uuid
 from profiles.uv.profile_store import (
@@ -246,19 +247,7 @@ def _overlay_control_result(args) -> OverlayControlResult | None:
     """
     requested = [
         name
-        for name in (
-            "overlay_toggle",
-            "overlay_visible",
-            "overlay_detail_next",
-            "overlay_graph_next",
-            "overlay_opacity_next",
-            "overlay_graph",
-            "overlay_detail",
-            "overlay_scale_down",
-            "overlay_scale_up",
-            "overlay_position_prev",
-            "overlay_position_next",
-        )
+        for name in (*(item.attribute for item in SHORTCUTS), "overlay_visible", "overlay_graph", "overlay_detail")
         if getattr(args, name, None)
     ]
     if not requested:

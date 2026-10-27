@@ -13,6 +13,7 @@ from common.penguin_burner_paths import default_runtime_config_path
 from integrations.afterburner.policy import MAX_AFTERBURNER_MEM_OFFSET_MHZ
 from overlay.config import OVERLAY_DETAIL_IDS
 from overlay.control import VISIBILITY_MODES
+from overlay.shortcuts import SHORTCUTS
 from runtime.support.runtime_service import DEFAULT_JOURNAL_HOURS
 from stability.q2rtx.resolution import Q2RTX_SCAN_RESOLUTIONS
 
@@ -198,15 +199,8 @@ def parse_arguments(argv):
             "seconds; equivalent to PENGUIN_BURNER_AUTO_UV_FINAL_SECONDS."
         ),
     )
-    overlay_group.add_argument(
-        "--overlay-toggle",
-        action="store_true",
-        help=(
-            "Show or hide the in-game overlay in a running game and exit. Bind "
-            "this to a desktop shortcut to reach it without leaving the game; "
-            "the running layer checks visibility every 50 ms."
-        ),
-    )
+    for shortcut in SHORTCUTS:
+        overlay_group.add_argument(shortcut.flag, action="store_true", help=shortcut.help_text)
     overlay_group.add_argument(
         "--overlay-visible",
         choices=VISIBILITY_MODES,
@@ -216,29 +210,12 @@ def parse_arguments(argv):
         ),
     )
     overlay_group.add_argument(
-        "--overlay-detail-next",
-        action="store_true",
-        help=(
-            "Cycle Small → Medium → Large → Biggest → Small and exit. "
-            "Custom starts at Small. Default desktop shortcut: Alt+C."
-        ),
-    )
-    overlay_group.add_argument(
         "--overlay-detail",
         choices=OVERLAY_DETAIL_IDS,
         help=("Set the overlay preset and exit: minimal=Small, standard=Medium, "
               "detailed=Large, full=Biggest; custom restores your selected fields."),
     )
     parser.add_argument("--overlay-graph", choices=("present", "display", "both"), help="Select frame timing graphs; displayed timing requires driver feedback.")
-    for flag, help_text in (
-        ("--overlay-scale-down", "Decrease overlay scale one step (minimum 0.5x). Default shortcut: Alt+[."),
-        ("--overlay-scale-up", "Increase overlay scale one step (maximum 2x). Default shortcut: Alt+]."),
-        ("--overlay-position-prev", "Cycle to the previous overlay position, wrapping. Default shortcut: Alt+<."),
-        ("--overlay-opacity-next", "Cycle background opacity: 50, 60, 70, 75, 80, 85, 90, 95, 100 percent. Default shortcut: Alt+O."),
-        ("--overlay-graph-next", "Cycle frame timing graphs: Present calls, Displayed frames, Both. Default shortcut: Alt+G."),
-        ("--overlay-position-next", "Cycle to the next overlay position, wrapping. Default shortcut: Alt+>."),
-    ):
-        overlay_group.add_argument(flag, action="store_true", help=help_text)
     steam_group.add_argument(
         "--set-steam-overlay-launch",
         metavar="APPID",

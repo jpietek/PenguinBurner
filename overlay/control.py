@@ -21,7 +21,6 @@ from overlay.config import (
     OVERLAY_GRAPH_MODES,
     OVERLAY_OPACITY_CYCLE,
     OVERLAY_POSITION_IDS,
-    OVERLAY_SCALE_OPTIONS,
     OverlayConfig,
     load_overlay_config,
     next_overlay_detail,
@@ -32,11 +31,15 @@ from overlay.config import (
     set_overlay_opacity,
     set_overlay_position,
     set_overlay_scale,
+    snap_overlay_scale,
 )
 from overlay.state import (
     clear_overlay_override,
     read_overlay_override,
     write_overlay_override,
+)
+from overlay.style import (
+    OVERLAY_SCALE_OPTIONS,
 )
 
 VISIBILITY_MODES = ("on", "off", "auto")
@@ -156,7 +159,7 @@ def step_overlay_scale(
     if direction not in (-1, 1):
         raise ValueError("overlay scale direction must be -1 or 1")
     config = load_overlay_config(config_path)
-    index = OVERLAY_SCALE_OPTIONS.index(config.scale)
+    index = OVERLAY_SCALE_OPTIONS.index(snap_overlay_scale(config.scale))
     index = max(0, min(len(OVERLAY_SCALE_OPTIONS) - 1, index + direction))
     updated = set_overlay_scale(config, OVERLAY_SCALE_OPTIONS[index])
     save_overlay_config(updated, config_path)

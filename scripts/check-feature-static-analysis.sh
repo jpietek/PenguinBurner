@@ -64,6 +64,8 @@ echo "PenguinBurner feature static-analysis routine"
 echo "reports: $report_dir"
 
 run git diff --check
+run python3 scripts/generate_overlay_contract.py --check
+run python3 scripts/generate_overlay_shortcuts.py --check
 
 echo
 echo "==> stale moved-package import scan"

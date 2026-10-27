@@ -442,3 +442,22 @@ daemon socket, alongside Reflex records. It does not read injector logs or wait
 for GPU completion on the game thread. Each device has a bounded query pool;
 exhausted or unsafe replay recordings are skipped. Concurrent producers are not
 averaged together: the newest producer supplies the displayed reading.
+
+### Shared overlay definitions
+
+Metric labels, units and row ordering live in `overlay/metrics.py`. Visual
+constants live in `overlay/style.py`; both the settings preview and native
+layer use them. Regenerate the committed C++ headers after editing these files:
+
+```bash
+python scripts/generate_overlay_contract.py
+```
+
+Shortcut names, default keys and CLI help live in `overlay/shortcuts.py`.
+Regenerate the native and Flatpak desktop actions with
+`python scripts/generate_overlay_shortcuts.py`. Both generators accept
+`--check` to detect stale output.
+
+The GUI offers discrete scale steps, while hand-edited continuous scales are
+preserved within 0.25–4.0. Invalid scales use 1.0; invalid opacity uses 85%.
+Python and the native layer apply the same limits and defaults.

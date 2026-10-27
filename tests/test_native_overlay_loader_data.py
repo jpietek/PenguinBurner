@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -9,8 +8,8 @@ import pytest
 
 
 @pytest.fixture(scope="module")
-def loader_data_probe(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return _build_loader_data_probe(tmp_path_factory.mktemp("loader-data"))
+def loader_data_probe(tmp_path_factory: pytest.TempPathFactory, build_overlay_probe) -> Path:
+    return _build_loader_data_probe(tmp_path_factory.mktemp("loader-data"), build_overlay_probe)
 
 
 @pytest.mark.parametrize("callback_first", [False, True])
@@ -67,36 +66,11 @@ def _run_probe(
     return result.stdout.strip()
 
 
-def _build_loader_data_probe(tmp_path: Path) -> Path:
-    compiler = shutil.which("c++") or shutil.which("g++")
-    if compiler is None:
-        pytest.skip("C++ compiler unavailable")
-    repo_root = Path(__file__).resolve().parents[1]
+def _build_loader_data_probe(tmp_path: Path, build_overlay_probe) -> Path:
     source = tmp_path / "loader_data_probe.cpp"
     source.write_text(_PROBE_SOURCE, encoding="utf-8")
     output = tmp_path / "loader_data_probe"
-    layer_src = repo_root / "overlay/native/latency_layer/src"
-    subprocess.run(
-        [
-            compiler,
-            "-std=c++17",
-            "-I",
-            str(layer_src),
-            str(source),
-            str(layer_src / "overlay_render.cpp"),
-            str(layer_src / "overlay_worker.cpp"),
-            str(layer_src / "overlay_text.cpp"),
-            str(layer_src / "latency_state.cpp"), str(layer_src / "frame_timing.cpp"),
-            str(layer_src / "display_timing.cpp"),
-            str(layer_src / "latency_layer.cpp"),
-            str(layer_src / "telemetry_events.cpp"),
-            str(layer_src / "marker_timing.cpp"),
-            "-o",
-            str(output),
-        ],
-        check=True,
-        cwd=repo_root,
-    )
+    build_overlay_probe(source, output, full_layer=True)
     return output
 
 

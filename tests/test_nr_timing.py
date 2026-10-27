@@ -52,15 +52,16 @@ def test_nr_gui_toggle_persists_and_drives_independent_capture(tmp_path, monkeyp
 
     from overlay import launcher
     from overlay.config import OVERLAY_CONFIG_ENV, load_overlay_config
+    from overlay.metrics import METRICS
     from overlay.overlay_text import format_overlay_item
-    from ui.components.overlay_config import ITEM_LABELS, OverlayConfigPanel
+    from ui.components.overlay_config import OverlayConfigPanel
 
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     path = tmp_path / "overlay.toml"
     panel = OverlayConfigPanel(QtCore=QtCore, QtWidgets=QtWidgets, config_path=path)
     checkbox = panel.item_checkboxes["nr_gpu_ms"]
-    assert ITEM_LABELS["nr_gpu_ms"] == "DLSS 5 neural rendering GPU time"
+    assert METRICS["nr_gpu_ms"].label == "DLSS 5 neural rendering GPU time"
     checkbox.setChecked(True)
     app.processEvents()
     assert "nr_gpu_ms" in load_overlay_config(path).enabled_item_ids
