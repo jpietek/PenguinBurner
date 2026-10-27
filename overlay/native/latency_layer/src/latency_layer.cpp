@@ -886,10 +886,12 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_queue_present_khr(
                 swapchain_context.last_present_us = present_time_us;
                 // vkd3d switches modes per present (VkSwapchainPresentModeInfoKHR)
                 // without recreating the swapchain; keep the footer on the live mode.
+                // The EXT names alias the KHR ones in current headers and are the
+                // only ones the older distro headers (manylinux_2_28) provide.
                 for (auto* entry = reinterpret_cast<const VkBaseInStructure*>(present_info->pNext);
                      entry; entry = entry->pNext) {
-                    if (entry->sType != VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_MODE_INFO_KHR) continue;
-                    const auto* modes = reinterpret_cast<const VkSwapchainPresentModeInfoKHR*>(entry);
+                    if (entry->sType != VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_MODE_INFO_EXT) continue;
+                    const auto* modes = reinterpret_cast<const VkSwapchainPresentModeInfoEXT*>(entry);
                     if (modes->pPresentModes && i < modes->swapchainCount
                         && modes->pPresentModes[i] != swapchain_context.present_mode) {
                         swapchain_context.present_mode = modes->pPresentModes[i];
