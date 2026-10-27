@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import site
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -60,6 +61,8 @@ def _isolate_user_home(monkeypatch, tmp_path_factory):
     """
     home = tmp_path_factory.mktemp("penguin-burner-home")
     monkeypatch.setenv("PENGUIN_BURNER_HOME", str(home))
+    # The KDE shortcut repair rewrites the pip --user desktop entry.
+    monkeypatch.setattr(site, "getuserbase", lambda: str(home / "userbase"))
 
 
 @pytest.fixture(autouse=True)

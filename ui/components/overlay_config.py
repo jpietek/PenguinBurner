@@ -39,6 +39,7 @@ from overlay.config import (
     set_overlay_update_interval_s,
     snap_overlay_scale,
 )
+from overlay.kde_shortcuts import repair_user_desktop_entry
 from overlay.live_preview import (
     MISSING_EXECUTABLE_MESSAGE,
     live_preview_command,
@@ -715,13 +716,18 @@ class OverlayConfigPanel:
     def _show_shortcuts(self):
         error = ""
         if shortcut_desktop() == "kde":
-            command = shortcut_settings_command()
-            if command and start_on_host(command):
-                return
-            error = (
-                "Could not open KDE shortcut settings. Try again below, or open "
-                "System Settings → Keyboard → Shortcuts and select PenguinBurner."
-            )
+            try:
+                repair_user_desktop_entry()
+            except OSError as exc:
+                error = f"Could not update the PenguinBurner shortcut commands: {exc}"
+            else:
+                command = shortcut_settings_command()
+                if command and start_on_host(command):
+                    return
+                error = (
+                    "Could not open KDE shortcut settings. Try again below, or open "
+                    "System Settings → Keyboard → Shortcuts and select PenguinBurner."
+                )
         self._shortcuts_dialog = overlay_shortcuts_dialog(
             QtCore=self.QtCore, QtWidgets=self.QtWidgets, parent=self.widget,
             error=error,
