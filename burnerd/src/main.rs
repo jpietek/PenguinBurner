@@ -1,6 +1,7 @@
 mod api;
 mod argvspec;
 mod delete;
+mod frame_history;
 mod gpu;
 mod gpu_rpc;
 mod logging;

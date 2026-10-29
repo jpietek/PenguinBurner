@@ -446,7 +446,9 @@ std::string overlay_optional_value(const std::string& value, const char* suffix)
 
 // Render latency plus the optional present->scanout display tail, as one number.
 // When the display field is absent (display-latency capture not enabled via the
-// Steam params), this collapses to the render latency alone.
+// Steam params), this collapses to the render latency alone. A display tail
+// with no marker latency renders nothing: scanout timing alone is not a
+// latency figure (mirrors overlay_text.py).
 std::string overlay_combined_latency_value(
     const std::string& render_ms,
     const std::string& display_ms) {

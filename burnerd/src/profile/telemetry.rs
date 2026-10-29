@@ -363,15 +363,11 @@ impl OverlayStatePublisher {
 
     /// Build the `OverlayState` for one tick and write it (the loop gates
     /// cadence). `now_ns` is the wall-clock stamp (injectable for tests).
-    pub fn publish(
-        &mut self,
-        backend: &dyn GpuBackend,
-        latency_snapshot: Option<&LatencySnapshot>,
-        now_ns: i64,
-    ) -> std::io::Result<()> {
-        let state = self.build_state(backend, latency_snapshot, now_ns);
+    /// Write an already-built state (the loop builds once and shares it with
+    /// the frame-history recorder).
+    pub fn write_state(&self, state: &OverlayState) -> std::io::Result<()> {
         let path = self.path.clone().unwrap_or_else(overlay_state_path);
-        write_overlay_state(&state, &path)
+        write_overlay_state(state, &path)
     }
 
     pub fn build_state(
@@ -570,7 +566,17 @@ impl OverlayStatePublisher {
             self.last_latency_ns = Some(now_ns);
             return (latency_ms, display_latency_ms);
         }
-        let matches = self.last_latency_ms.is_some()
+        if !display_latency_ms.is_empty() {
+            // Non-Reflex games have no marker latency, but the present-wait
+            // display tail is a real measurement — surface it on its own
+            // instead of discarding it with the empty marker value.
+            self.last_latency_ms = None;
+            self.last_display_latency_ms = Some(display_latency_ms.clone());
+            self.last_latency_pid = latency_pid;
+            self.last_latency_ns = Some(now_ns);
+            return (String::new(), display_latency_ms);
+        }
+        let matches = (self.last_latency_ms.is_some() || self.last_display_latency_ms.is_some())
             && self.last_latency_pid.is_some()
             && latency_pid.is_some()
             && self.last_latency_pid == latency_pid;

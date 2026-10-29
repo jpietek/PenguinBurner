@@ -110,11 +110,12 @@ def _combined_latency_ms(values: dict[str, str]) -> str:
 
     The two metrics are kept separate upstream (receiver/state); the overlay
     sums them into one click-to-photon number. When the display tail is absent
-    (no VK_KHR_present_wait data), this collapses to the render latency alone,
-    exactly as before.
+    (no VK_KHR_present_wait data), this collapses to the render latency alone.
     """
     render = _ms_number(values.get("latency_ms"))
     if render is None:
+        # A display tail alone is scanout timing (often ~1 ms off-vsync) —
+        # showing it as LAT reads as garbage. No marker latency, no LAT.
         return ""
     display = _ms_number(values.get("display_latency_ms"))
     total = render if display is None else render + display

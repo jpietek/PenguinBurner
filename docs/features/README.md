@@ -12,6 +12,8 @@
   [Multi-GPU behavior](profile-multi-gpu.md)
 - **[Overlay](overlay.md)** — configure the in-game HUD.
   [Latency and FPS details](latency-fg.md)
+- **[Game Perf Profile](game-perf-profile.md)** — per-game telemetry fingerprint
+  and frametime graph over the last 30 minutes of play.
 - **[Curve editors](curve-editor.md)** — edit V/F and fan curves manually.
 - **[Silent fan curve](silent-fan-curve.md)** — generate quieter cooling settings.
 - **[Laptop deep sleep](deep-sleep.md)** — let an idle NVIDIA GPU power down.

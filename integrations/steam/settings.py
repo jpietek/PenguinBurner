@@ -33,6 +33,9 @@ class SteamGameSetting:
     enabled: bool = False
     mode: str = GAME_MODE_ADAPTIVE
     overlay: bool = False
+    # Frame-history capture (Game Perf Profile). On by default: the daemon records a
+    # rolling window for every enabled game unless the user opts out.
+    telemetry: bool = True
     #: Launch-line read-back for marker capture. Managed writes derive this
     #: from the mode: Adaptive enables it and fixed modes do not. Keeping the
     #: field readable preserves old settings and exact raw-line parsing.
@@ -85,6 +88,7 @@ def load_steam_game_settings(
                 ),
                 mode=mode,
                 overlay=bool(entry.get("overlay")),
+                telemetry=bool(entry.get("telemetry", True)),
                 # Falls back to the launch line for settings written before
                 # this key existed, so a hand-added opt-in is not read as off.
                 ingame_latency=bool(
@@ -190,6 +194,7 @@ def _write_settings(
                         "enabled": setting.enabled,
                         "mode": setting.mode,
                         "overlay": setting.overlay,
+                        "telemetry": setting.telemetry,
                         "ingame_latency": setting.ingame_latency,
                         **(
                             {"target_fps": setting.target_fps}

@@ -47,6 +47,7 @@ from runtime.support.adaptive_target_fps import (
 from .. import theme
 from ..assets import asset_image_path
 from ..dialogs.form_rows import wrapped_tooltip
+from .game_perf_profile_badge import GamePerfProfileBadge
 from .preference_rows import (
     GROUP_SPACING,
     full_width_row,
@@ -573,6 +574,15 @@ class GameLibraryPanel:
         self.metadata_label.setWordWrap(True)
         info_column.addWidget(self.metadata_label)
         hero.addLayout(info_column, 1)
+        # Perf Profile sits beside Play, which keeps the header's corner.
+        # Disabled, with a tooltip saying why, until the game has telemetry.
+        self.perf_profile_badge = GamePerfProfileBadge(
+            QtCore=self.QtCore,
+            QtGui=self.QtGui,
+            QtWidgets=self.QtWidgets,
+            parent=page_widget,
+        )
+        hero.addWidget(self.perf_profile_badge.button, 0, self.QtCore.Qt.AlignTop)
         self.play_button = self.QtWidgets.QPushButton("Play")
         self.play_button.setObjectName("gamePlayButton")
         self.play_button.setProperty("playState", "idle")
@@ -720,6 +730,30 @@ class GameLibraryPanel:
             title="Overlay",
             subtitle="Draw the PenguinBurner overlay in this game.",
             control=self.overlay_switch,
+        )
+        self.telemetry_switch = make_toggle_switch(
+            QtCore=self.QtCore,
+            QtGui=self.QtGui,
+            QtWidgets=self.QtWidgets,
+            object_name="gameTelemetry",
+        )
+        self.telemetry_switch.toggled.connect(
+            lambda checked: self._on_telemetry(checked)
+        )
+        self.telemetry_switch.setToolTip(
+            wrapped_tooltip(
+                "Record a rolling 30-minute window of frametimes, clocks, power, "
+                "and the active tier while this game's profile runs. On by "
+                "default; turning it off stops new capture from the next launch."
+            )
+        )
+        preference_row(
+            QtWidgets=self.QtWidgets,
+            QtCore=self.QtCore,
+            rows_layout=ingame_rows,
+            title="Capture telemetry",
+            subtitle="Feeds this game's Game Perf Profile.",
+            control=self.telemetry_switch,
         )
         page.addWidget(self._ingame_group)
 
@@ -1440,6 +1474,7 @@ class GameLibraryPanel:
                 self._set_gated(False)
                 self.enable_switch.setEnabled(False)
                 self._sync_fields(None)
+                self.perf_profile_badge.sync()
                 return
             setting = getattr(game.detail, "setting", None)
             self.title_label.setText(game.name)
@@ -1472,13 +1507,26 @@ class GameLibraryPanel:
             self.gpu_combo.setCurrentIndex(max(0, gpu_index))
 
             self.overlay_switch.setChecked(bool(getattr(setting, "overlay", False)))
+            self.telemetry_switch.setChecked(bool(getattr(setting, "telemetry", True)))
             self._sync_write_state(game)
             self._sync_fields(game)
 
             self._sync_adaptive_availability(getattr(setting, "gpu_uuid", "") or "")
             self._sync_play_button(game)
+            self._sync_perf_profile_badge(game)
         finally:
             self._syncing = False
+
+    def _sync_perf_profile_badge(self, game: LibraryGame | None) -> None:
+        if game is None:
+            self.perf_profile_badge.sync()
+            return
+        setting = getattr(game.detail, "setting", None)
+        self.perf_profile_badge.sync(
+            game_key(game),
+            game_name=game.name,
+            target_fps=getattr(setting, "target_fps", None),
+        )
 
     def _sync_adaptive_availability(self, gpu_uuid: str) -> None:
         """Adaptive needs a supported renderer and an available GPU tier."""
@@ -1801,6 +1849,13 @@ class GameLibraryPanel:
             return
         self._write_async(
             self._selected_game(), "set_game_overlay", bool(overlay)
+        )
+
+    def _on_telemetry(self, telemetry: bool) -> None:
+        if self._syncing:
+            return
+        self._write_async(
+            self._selected_game(), "set_game_telemetry", bool(telemetry)
         )
 
     # -- library-wide actions -------------------------------------------------
@@ -2617,6 +2672,8 @@ class GameLibraryPanel:
                     track.warning = ""
                     track.note = "Game status is unconfirmed. Refresh status before launching again."
         self._sync_play_button(self._selected_game())
+        # A running game's ring grows while its row stays unchanged.
+        self._sync_perf_profile_badge(self._selected_game())
 
     def _state_message(self, key: str, event: str) -> None:
         game = self._game_for_key(key)

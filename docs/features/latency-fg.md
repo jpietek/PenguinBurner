@@ -110,7 +110,11 @@ The render latency and display tail are kept separate internally.
   `VK_KHR_present_wait` and `VK_KHR_present_id` are available.
 
 The overlay sums those two values into the single `LAT` number. If the display
-tail is unavailable, `LAT` falls back to render/game latency alone.
+tail is unavailable, `LAT` falls back to render/game latency alone. For
+non-Reflex games there is no render/game latency at all — no markers ever
+exist to measure it — so `LAT` stays hidden. The display tail on its own is
+present-to-scanout timing, not input-to-photon latency: the
+simulate/render/queue portion of the frame is invisible without markers.
 
 Set this to hide the display tail:
 

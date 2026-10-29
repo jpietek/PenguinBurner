@@ -14,6 +14,7 @@ from ui.commands import scan_command
 from ui.components.auto_uv_tier_progress import AutoUvTierProgress
 from ui.components.curve_plot import CurvePlot
 from ui.components.game_library_panel import GameLibraryPanel
+from ui.components.game_perf_profile_panel import GamePerfProfilePanel
 from ui.components.log_view import LogView
 from ui.components.overlay_config import OverlayConfigPanel
 from ui.components.profile_list import ProfileList
@@ -191,6 +192,13 @@ class MainWindow(ProfileActionsMixin):
             >= 1,
             gpu_choices=detected_gpu_choices,
         )
+        self.game_perf_profile_panel = GamePerfProfilePanel(
+            QtCore=self.QtCore,
+            QtGui=self.QtGui,
+            QtWidgets=self.QtWidgets,
+            pg=self.pg,
+        )
+        self.game_library_panel.perf_profile_badge.on_open = self.show_game_perf_profile
 
         self.tabs = self.QtWidgets.QTabWidget()
         self.tabs.setIconSize(self.QtCore.QSize(18, 18))
@@ -217,6 +225,11 @@ class MainWindow(ProfileActionsMixin):
             self.overlay_config.widget,
             tab_icon("tab-overlay.png"),
             "In-Game Overlay",
+        )
+        self.game_perf_profile_tab_index = self.tabs.addTab(
+            self.game_perf_profile_panel.widget,
+            tab_icon("tab-game-perf-profile.png"),
+            "Game Perf Profile",
         )
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self._close_dynamic_tab)
@@ -298,6 +311,15 @@ class MainWindow(ProfileActionsMixin):
         # Run environment checks after the window paints, so a first launch or
         # a post-upgrade launch guides the user instead of failing later.
         self.QtCore.QTimer.singleShot(0, self._run_startup_checks)
+
+    def show_game_perf_profile(
+        self, game_key: str, game_name: str = "", target_fps: float | None = None
+    ) -> None:
+        """Open the Game Perf Profile tab for a game (the library badge's click path)."""
+        self.game_perf_profile_panel.select_game(
+            game_key, game_name=game_name, target_fps=target_fps
+        )
+        self.tabs.setCurrentIndex(self.game_perf_profile_tab_index)
 
     def _run_startup_checks(self) -> None:
         self._check_gpu_supported_on_startup()

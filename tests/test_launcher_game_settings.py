@@ -60,6 +60,7 @@ def test_a_stored_setting_reads_back(tmp_path) -> None:
         enabled=True,
         mode="balanced",
         overlay=True,
+        telemetry=False,
         original_command="gamemoderun",
         injected_command="PENGUIN_BURNER --pb-overlay=1 gamemoderun",
         target_fps=90.0,
@@ -70,6 +71,15 @@ def test_a_stored_setting_reads_back(tmp_path) -> None:
     STORE.store("27", setting, path=path)
 
     assert STORE.get("27", path=path) == setting
+
+
+def test_telemetry_capture_defaults_on_for_records_written_before_it(tmp_path) -> None:
+    path = _path(tmp_path)
+    path.write_text(json.dumps({"games": {"27": {"enabled": True, "mode": "adaptive"}}}))
+
+    setting = STORE.get("27", path=path)
+
+    assert setting is not None and setting.telemetry is True
 
 
 def test_an_unreadable_file_reads_as_no_settings_rather_than_failing(tmp_path) -> None:

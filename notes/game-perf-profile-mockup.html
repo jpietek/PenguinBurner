@@ -1,0 +1,639 @@
+<title>Frame DNA — per-game telemetry for the Steam tab</title>
+<style>
+  :root{
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --plane:#f4f4f1; --surface:#fcfcfb; --surface-2:#f0efea;
+    --ink:#0b0b0b; --ink-2:#52514e; --muted:#8a8880;
+    --grid:#e4e3dc; --axis:#c8c7bf; --border:rgba(11,11,11,.11); --border-strong:rgba(11,11,11,.20);
+    --t-eff:#1baf7a; --t-bal:#2a78d6; --t-perf:#eb6834; --t-stock:#8a8880;
+    --seq-a:#a9cef6; --seq-b:#123f7d;
+    --warn:#e0932a; --crit:#d03b3b;
+    --shadow: 0 1px 2px rgba(11,11,11,.05), 0 8px 28px -18px rgba(11,11,11,.28);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --plane:#0c0c0c; --surface:#171716; --surface-2:#201f1d;
+      --ink:#ffffff; --ink-2:#c3c2b7; --muted:#8a8880;
+      --grid:#2a2a28; --axis:#3a3a36; --border:rgba(255,255,255,.10); --border-strong:rgba(255,255,255,.18);
+      --t-eff:#199e70; --t-bal:#3987e5; --t-perf:#d95926; --t-stock:#8a8880;
+      --seq-a:#1c5cab; --seq-b:#b7d3f6;
+      --warn:#fab219; --crit:#e05656;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 34px -20px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="light"]{
+    --plane:#f4f4f1; --surface:#fcfcfb; --surface-2:#f0efea;
+    --ink:#0b0b0b; --ink-2:#52514e; --muted:#8a8880;
+    --grid:#e4e3dc; --axis:#c8c7bf; --border:rgba(11,11,11,.11); --border-strong:rgba(11,11,11,.20);
+    --t-eff:#1baf7a; --t-bal:#2a78d6; --t-perf:#eb6834; --t-stock:#8a8880;
+    --seq-a:#a9cef6; --seq-b:#123f7d; --warn:#e0932a; --crit:#d03b3b;
+    --shadow: 0 1px 2px rgba(11,11,11,.05), 0 8px 28px -18px rgba(11,11,11,.28);
+  }
+  :root[data-theme="dark"]{
+    --plane:#0c0c0c; --surface:#171716; --surface-2:#201f1d;
+    --ink:#ffffff; --ink-2:#c3c2b7; --muted:#8a8880;
+    --grid:#2a2a28; --axis:#3a3a36; --border:rgba(255,255,255,.10); --border-strong:rgba(255,255,255,.18);
+    --t-eff:#199e70; --t-bal:#3987e5; --t-perf:#d95926; --t-stock:#8a8880;
+    --seq-a:#1c5cab; --seq-b:#b7d3f6; --warn:#fab219; --crit:#e05656;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 34px -20px rgba(0,0,0,.7);
+  }
+
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--plane); color:var(--ink); font-family:var(--sans); font-size:16px; line-height:1.6; -webkit-font-smoothing:antialiased; }
+  .wrap{ max-width:920px; margin:0 auto; padding:clamp(20px,4vw,56px) clamp(16px,4vw,40px) 96px; }
+
+  .eyebrow{ font-family:var(--mono); font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); margin:0; }
+  h1{ font-size:clamp(28px,5vw,44px); line-height:1.08; letter-spacing:-.02em; font-weight:680; text-wrap:balance; margin:.35em 0 .3em; }
+  h2{ font-size:clamp(21px,3vw,27px); line-height:1.15; letter-spacing:-.015em; font-weight:660; margin:0; text-wrap:balance; }
+  h3{ font-size:14px; font-weight:640; margin:0 0 2px; letter-spacing:-.005em; }
+  p{ margin:0 0 1em; color:var(--ink-2); max-width:66ch; }
+  .lede{ font-size:clamp(17px,2.2vw,19px); color:var(--ink-2); max-width:64ch; }
+  strong{ color:var(--ink); font-weight:640; }
+  em{ font-style:italic; }
+  code, .k{ font-family:var(--mono); font-size:.85em; background:var(--surface-2); border:1px solid var(--border); padding:.06em .38em; border-radius:5px; color:var(--ink-2); white-space:nowrap; }
+
+  header.top{ border-bottom:1px solid var(--border); padding-bottom:28px; margin-bottom:34px; }
+  .contract{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:1px; background:var(--border); border:1px solid var(--border); border-radius:12px; overflow:hidden; margin-top:26px; }
+  .contract .cell{ background:var(--surface); padding:14px 16px; }
+  .contract .ck{ font-family:var(--mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); }
+  .contract .cv{ font-size:20px; font-weight:660; margin-top:3px; letter-spacing:-.01em; }
+  .contract .cs{ font-size:12.5px; color:var(--ink-2); margin-top:1px; }
+
+  .concept{ background:var(--surface); border:1px solid var(--border); border-radius:16px; box-shadow:var(--shadow); padding:clamp(18px,3vw,30px); margin:22px 0; }
+  .concept-head{ display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin-bottom:4px; }
+  .codename{ font-family:var(--mono); font-size:12px; letter-spacing:.12em; color:var(--muted); border:1px solid var(--border); border-radius:6px; padding:2px 8px; text-transform:uppercase; white-space:nowrap; }
+  .thesis{ font-size:16px; color:var(--ink-2); margin:8px 0 2px; max-width:70ch; }
+  .thesis b{ color:var(--ink); }
+
+  .figure{ margin:16px 0 6px; border:1px solid var(--border); border-radius:12px; background:var(--surface); padding:10px 10px 4px; overflow:hidden; }
+  .figcap{ font-size:12.5px; color:var(--muted); font-family:var(--mono); padding:2px 6px 8px; letter-spacing:.01em; line-height:1.5; }
+  svg{ display:block; width:100%; height:auto; }
+  svg text{ font-family:var(--mono); }
+
+  .spec{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px 22px; margin-top:16px; border-top:1px solid var(--border); padding-top:16px; }
+  .spec dt{ font-family:var(--mono); font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin-bottom:3px; }
+  .spec dd{ margin:0; font-size:13.5px; color:var(--ink-2); line-height:1.5; }
+  .spec dd b{ color:var(--ink); font-weight:600; }
+
+  .legend{ display:flex; flex-wrap:wrap; gap:6px 16px; align-items:center; padding:2px 6px 10px; }
+  .legend .li{ display:inline-flex; align-items:center; gap:7px; font-size:12.5px; color:var(--ink-2); font-family:var(--mono); }
+  .legend .sw{ width:11px; height:11px; border-radius:3px; }
+
+  .axkey{ display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:6px 18px; margin:6px 6px 12px; }
+  .axkey .ax{ display:flex; gap:9px; align-items:baseline; font-size:12.5px; color:var(--ink-2); }
+  .axkey .axc{ font-family:var(--mono); font-weight:640; color:var(--ink); min-width:34px; letter-spacing:.03em; }
+
+  /* steam tab mock */
+  .steam{ border:1px solid var(--border); border-radius:12px; overflow:hidden; background:var(--surface); }
+  .steam-hd{ font-family:var(--mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); padding:10px 14px; border-bottom:1px solid var(--border); background:var(--surface-2); display:flex; justify-content:space-between; }
+  .srow{ display:flex; align-items:center; gap:12px; padding:9px 14px; border-bottom:1px solid var(--border); cursor:pointer; transition:background .12s; }
+  .srow:last-child{ border-bottom:0; }
+  .srow:hover{ background:var(--surface-2); }
+  .srow.sel{ background:color-mix(in srgb, var(--t-bal) 12%, var(--surface)); }
+  .srow .mini{ width:30px; height:30px; flex:none; }
+  .srow .snm{ font-size:14px; font-weight:560; letter-spacing:-.01em; }
+  .srow .ssub{ font-family:var(--mono); font-size:11px; color:var(--muted); }
+  .srow .stier{ margin-left:auto; font-family:var(--mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; padding:2px 8px; border-radius:999px; border:1px solid var(--border); display:inline-flex; align-items:center; gap:6px; }
+  .srow .stier .dot{ width:7px; height:7px; border-radius:50%; }
+  .srow .chev{ color:var(--muted); font-size:15px; margin-left:4px; }
+  .srow.warming{ cursor:default; opacity:.7; }
+  .srow.warming:hover{ background:transparent; }
+
+  .rec{ background:var(--surface); border:1px solid var(--border-strong); border-radius:16px; padding:clamp(20px,3vw,32px); margin-top:30px; }
+  .rec ol{ margin:.4em 0 0; padding-left:1.2em; } .rec li{ margin:.5em 0; color:var(--ink-2); } .rec li b{ color:var(--ink); }
+  .callout{ border-left:2px solid var(--axis); padding:2px 0 2px 16px; margin:18px 0; color:var(--ink-2); font-size:14.5px; }
+  .callout.good{ border-color:var(--t-eff); }
+
+  table.vol{ width:100%; border-collapse:collapse; margin:12px 0 4px; font-size:13px; }
+  table.vol th, table.vol td{ text-align:left; padding:7px 10px; border-bottom:1px solid var(--border); }
+  table.vol th{ font-family:var(--mono); font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); font-weight:500; }
+  table.vol td.n{ font-family:var(--mono); font-variant-numeric:tabular-nums; text-align:right; color:var(--ink); }
+  pre.fmt{ font-family:var(--mono); font-size:12px; line-height:1.55; background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:14px 16px; overflow-x:auto; color:var(--ink-2); margin:14px 0; }
+  pre.fmt b{ color:var(--ink); font-weight:640; }
+
+  .sectlabel{ font-family:var(--mono); font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); margin:44px 0 6px; display:flex; align-items:center; gap:12px; }
+  .sectlabel::after{ content:""; height:1px; background:var(--border); flex:1; }
+  footer{ margin-top:48px; padding-top:22px; border-top:1px solid var(--border); color:var(--muted); font-size:13px; font-family:var(--mono); }
+
+  .tt{ position:fixed; z-index:50; pointer-events:none; opacity:0; transform:translateY(-3px); transition:opacity .1s ease; background:var(--surface); color:var(--ink); border:1px solid var(--border-strong); border-radius:9px; box-shadow:var(--shadow); padding:9px 11px; font-family:var(--mono); font-size:12px; line-height:1.5; max-width:250px; }
+  .tt .tname{ font-weight:660; margin-bottom:4px; font-size:12.5px; }
+  .tt .trow{ display:flex; justify-content:space-between; gap:14px; color:var(--ink-2); } .tt .trow b{ color:var(--ink); font-weight:600; }
+  .tt.on{ opacity:1; transform:translateY(0); }
+  .hit{ cursor:default; }
+
+  .dna-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; }
+  .dna-cell{ border:1px solid var(--border); border-radius:12px; padding:8px 8px 6px; background:var(--surface); }
+  .dna-title{ display:flex; align-items:center; gap:8px; padding:2px 4px 0; }
+  .dna-title .dot{ width:9px; height:9px; border-radius:50%; flex:none; }
+  .dna-title .nm{ font-size:13px; font-weight:620; letter-spacing:-.01em; }
+  .dna-title .tr{ font-family:var(--mono); font-size:10.5px; color:var(--muted); margin-left:auto; text-transform:uppercase; letter-spacing:.06em; }
+  .dna-read{ font-family:var(--mono); font-size:10.5px; color:var(--muted); padding:4px 5px 0; line-height:1.4; } .dna-read b{ color:var(--ink-2); font-weight:600; }
+
+  .detail-hd{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:2px 0 4px; }
+  .detail-hd .dsel{ font-family:var(--mono); font-size:12px; color:var(--muted); }
+  .detail-hd .dsel b{ color:var(--ink); }
+  .twocol{ display:grid; grid-template-columns:1fr 1fr; gap:16px; } @media (max-width:720px){ .twocol{ grid-template-columns:1fr; } }
+
+  /* game detail header + hover popover */
+  .gameview{ display:flex; align-items:center; gap:20px; flex-wrap:wrap; border:1px solid var(--border); border-radius:14px; padding:18px 20px; background:var(--surface); }
+  .gv-left{ flex:1 1 240px; min-width:220px; }
+  .gv-title{ font-size:22px; font-weight:680; letter-spacing:-.02em; }
+  .gv-meta{ font-family:var(--mono); font-size:12px; color:var(--muted); margin-top:6px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .gv-meta .dot{ width:8px; height:8px; border-radius:50%; }
+  .gv-actions{ display:flex; gap:10px; margin-top:15px; }
+  .gv-btn{ font-family:var(--sans); font-size:13px; font-weight:600; border:1px solid var(--border); background:var(--surface-2); color:var(--ink); border-radius:8px; padding:8px 16px; cursor:pointer; }
+  .gv-btn.play{ background:#3aa76d; border-color:#3aa76d; color:#fff; }
+  .gv-right{ display:flex; flex-direction:column; align-items:center; gap:6px; }
+  .gv-dna{ width:86px; height:86px; padding:5px; border:1px solid var(--border); border-radius:12px; cursor:pointer; background:var(--surface); transition:border-color .12s, box-shadow .12s; }
+  .gv-dna:hover, .gv-dna:focus-visible{ border-color:var(--t-bal); box-shadow:0 0 0 3px color-mix(in srgb,var(--t-bal) 18%,transparent); outline:none; }
+  .gv-hint{ font-family:var(--mono); font-size:10px; color:var(--muted); letter-spacing:.02em; }
+
+  .dna-pop{ position:fixed; z-index:60; opacity:0; pointer-events:none; transform:translateY(6px); transition:opacity .13s ease, transform .13s ease;
+    width:min(880px,94vw); background:var(--surface); border:1px solid var(--border-strong); border-radius:14px; box-shadow:var(--shadow); padding:14px 16px; }
+  .dna-pop.on{ opacity:1; pointer-events:auto; transform:translateY(0); }
+  .pop-hd{ display:flex; align-items:center; gap:9px; font-size:13px; font-weight:640; margin-bottom:10px; }
+  .pop-hd .dot{ width:9px; height:9px; border-radius:50%; }
+  .pop-hd .pin{ margin-left:auto; font-family:var(--mono); font-size:10.5px; color:var(--muted); font-weight:400; }
+  .pop-body{ display:grid; grid-template-columns:150px 1fr; gap:16px; align-items:start; }
+  @media (max-width:640px){ .pop-body{ grid-template-columns:1fr; } .dna-pop{ width:96vw; } }
+  .pop-charts{ display:flex; flex-direction:column; gap:10px; min-width:0; }
+  .pop-charts h4{ margin:0 0 2px; font-family:var(--mono); font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); font-weight:500; }
+  .pop-note{ font-family:var(--mono); font-size:11px; color:var(--ink-2); margin-top:12px; border-top:1px solid var(--border); padding-top:9px; }
+  .pop-note b{ color:var(--ink); }
+
+  /* compact hover peek (Option B) */
+  .dna-pop.peek{ width:344px; }
+  .peek-body{ display:grid; grid-template-columns:130px 1fr; gap:12px; align-items:center; }
+  .peek-stats{ display:flex; flex-direction:column; gap:6px; }
+  .peek-stats .r{ display:flex; justify-content:space-between; gap:12px; font-family:var(--mono); font-size:12px; color:var(--ink-2); }
+  .peek-stats .r b{ color:var(--ink); font-weight:600; }
+  .peek-open{ width:100%; margin-top:12px; font-family:var(--sans); font-size:12.5px; font-weight:600; border:1px solid var(--border-strong); background:var(--surface-2); color:var(--ink); border-radius:8px; padding:9px 10px; cursor:pointer; }
+  .peek-open:hover{ border-color:var(--t-bal); }
+
+  /* fake tab bar (Option A) */
+  .tabbar{ display:flex; gap:2px; border-bottom:1px solid var(--border); margin:-4px -6px 14px; padding:0 2px; overflow-x:auto; }
+  .tabbar .tab{ font-family:var(--mono); font-size:12px; letter-spacing:.02em; color:var(--muted); padding:9px 14px; border-bottom:2px solid transparent; white-space:nowrap; }
+  .tabbar .tab.active{ color:var(--ink); border-bottom-color:var(--t-bal); font-weight:600; }
+  .tab-top{ display:grid; grid-template-columns:230px 1fr; gap:18px; align-items:center; margin-bottom:6px; }
+  @media (max-width:640px){ .tab-top{ grid-template-columns:1fr; } }
+  .tab-stats{ display:flex; flex-wrap:wrap; gap:10px 26px; }
+  .tab-stats .r{ font-family:var(--mono); font-size:13px; color:var(--ink-2); }
+  .tab-stats .r b{ color:var(--ink); font-weight:600; }
+  .tabflash{ animation:flash 1.2s ease; }
+  @keyframes flash{ 0%{ box-shadow:0 0 0 3px color-mix(in srgb,var(--t-bal) 45%,transparent); } 100%{ box-shadow:var(--shadow); } }
+
+  @media (prefers-reduced-motion:no-preference){ .concept{ animation:rise .5s cubic-bezier(.2,.7,.2,1) both; } .tt{ transition:opacity .1s ease, transform .1s ease; } }
+  @keyframes rise{ from{ opacity:0; transform:translateY(10px); } to{ opacity:1; transform:none; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <p class="eyebrow">PenguinBurner · Steam tab · feature concept v3</p>
+    <h1>Frame DNA in the library, frametimes on click</h1>
+    <p class="lede">A tiny fingerprint rides every game row. Click one and it opens a per-game detail: a <em>MangoHUD-style
+      frametime graph</em> and the <em>operating orbit</em>. Recorded by the daemon into one small binary ring — all metrics,
+      plus every frame's frametime, over a rolling 30&nbsp;minutes.</p>
+
+    <div class="contract">
+      <div class="cell"><div class="ck">Window</div><div class="cv">30&nbsp;min</div><div class="cs">rolling ring, oldest drops — never lifetime</div></div>
+      <div class="cell"><div class="ck">Records</div><div class="cv">all + frametimes</div><div class="cs">1&nbsp;Hz full state · every frame's frametime</div></div>
+      <div class="cell"><div class="ck">Writer</div><div class="cv">burnerd (Rust)</div><div class="cs">frame-rate append; Qt only reads</div></div>
+      <div class="cell"><div class="ck">Ring size</div><div class="cv">~0.3–0.5&nbsp;MB</div><div class="cs">per game · ~0.15&nbsp;MB zstd on disk</div></div>
+    </div>
+  </header>
+
+  <p style="max-width:66ch">All charts use <b>synthetic-but-plausible</b> telemetry so you can judge the encoding.
+    <b>Hover the fingerprint</b> below (or click to pin). Switch games in the library further down.</p>
+
+  <!-- ============ GAME VIEW — DNA by the Play button ============ -->
+  <div class="sectlabel">Option B — hybrid: badge in the header, compact peek on hover</div>
+  <section class="concept">
+    <div class="concept-head"><span class="codename">Hybrid</span><h2>Small badge, quick peek, tab for the rest</h2></div>
+    <p class="thesis">The fingerprint sits by the title and <b>Play</b> as a small live badge. <b>Hover it</b> for a compact
+      peek — the enlarged DNA plus the numbers that matter (median, 1%-low, power, bottleneck) — with an <b>Open Frame DNA
+      tab →</b> button for the full plots. Fast to glance, never blankets the page. (Everything-on-hover was tried and is too
+      much — that's what the tab is for.)</p>
+    <div class="gameview">
+      <div class="gv-left">
+        <div class="gv-title" id="gv-title">Cyberpunk 2077</div>
+        <div class="gv-meta" id="gv-meta"></div>
+        <div class="gv-actions"><button class="gv-btn play">▶ Play</button><button class="gv-btn">Configure</button></div>
+      </div>
+      <div class="gv-right">
+        <div class="gv-dna" id="gv-dna" tabindex="0" role="button" aria-label="Frame DNA — hover for detail"></div>
+        <div class="gv-hint">hover · click to pin</div>
+      </div>
+    </div>
+    <div class="figcap" style="padding-top:10px"><b>hover the badge</b> for the peek · click to pin · <b>Open Frame DNA tab →</b> jumps to Option A · switch games in the library below and everything follows</div>
+  </section>
+
+  <!-- ============ STEAM TAB MOCK ============ -->
+  <div class="sectlabel">In the Steam tab — a fingerprint per row</div>
+  <section class="concept">
+    <div class="concept-head"><span class="codename">Library</span><h2>The icon that says how a game runs</h2></div>
+    <p class="thesis">At 30&nbsp;px the fingerprint isn't for reading exact values — it's a <b>shape you recognise</b>: a fat
+      lopsided kite is a heavy GPU-bound game, a thin spike is something CPU-bound and light. It sorts and scans at a glance,
+      and it's the click target into the detail.</p>
+    <div class="steam" id="steam-list" role="list"></div>
+    <div class="figcap" style="padding-top:10px">click a row to load its detail below · a game under 5&nbsp;min of capture stays "warming up"</div>
+  </section>
+
+  <!-- ============ DNA fingerprints ============ -->
+  <div class="sectlabel">The fingerprint up close — six axes</div>
+  <section class="concept">
+    <div class="concept-head"><span class="codename">Frame DNA</span><h2>Six spokes, each against your own hardware</h2></div>
+    <p class="thesis">Power only for demand (clock tracks it, so it's stored but not drawn). The working pair is
+      <b>GPU load vs CPU hot-thread</b> — together they show <b>where the bottleneck lives</b>.</p>
+    <div class="axkey" id="dna-key"></div>
+    <div class="figure">
+      <div class="dna-grid" id="chart-dna"></div>
+      <div class="figcap">radius · normalised to your card's limit or the game's target · hover a vertex for the raw value · read spokes, not blob area</div>
+    </div>
+  </section>
+
+  <!-- ============ DETAIL ============ -->
+  <div class="sectlabel">Option A — a dedicated Frame DNA tab</div>
+  <section class="concept" id="tab-section">
+    <div class="tabbar"><span class="tab">Library</span><span class="tab">Profiles</span><span class="tab">Overlay</span><span class="tab active">Frame DNA</span></div>
+    <div class="detail-hd">
+      <span class="codename">Tab</span>
+      <span class="dsel">showing&nbsp; <b id="detail-name">Cyberpunk 2077</b></span>
+    </div>
+    <p class="thesis" style="margin-bottom:12px">Room to breathe: fingerprint, frametime and orbit at full size, interactive,
+      no flicker. This is where two plots actually belong — the compact hover (Option B) just links here.</p>
+
+    <div class="tab-top">
+      <div class="figure" style="margin:0"><div id="chart-tabdna"></div></div>
+      <div class="tab-stats" id="tab-stats"></div>
+    </div>
+
+    <div class="figure">
+      <h3 style="padding:2px 6px 0">Frametime — like MangoHUD, in milliseconds</h3>
+      <div class="legend" id="ft-legend"></div>
+      <div id="chart-frametime"></div>
+      <div class="figcap">every frame's frametime over 30&nbsp;min · flat &amp; low = smooth · red = stutter (&gt; 1.6× median) · lines: median &amp; 1%-low (p99)</div>
+    </div>
+
+    <div class="figure">
+      <h3 style="padding:2px 6px 0">Operating orbit — the V/F path (secondary)</h3>
+      <div class="legend" id="orbit-legend"></div>
+      <div id="chart-orbit"></div>
+      <div class="figcap">every 1&nbsp;Hz sample · power × core clock · <b>coloured by the active profile</b> — green Efficiency · blue Balanced · red Performance · clock zoomed to the operating band</div>
+    </div>
+
+    <dl class="spec">
+      <div><dt>Frametime, not FPS</dt><dd>Milliseconds expose <b>stutter</b> an FPS average smooths away. The 1%-low is just the <b>p99 frametime</b>.</dd></div>
+      <div><dt>Why keep clock</dt><dd>Off the fingerprint, but the <b>power↔clock path</b> is the only place undervolt/adaptive shows.</dd></div>
+      <div><dt>Cost</dt><dd>Frametime graph wants the <b>raw frame ring</b>; orbit wants the 1&nbsp;Hz ring. Both already recorded.</dd></div>
+    </dl>
+  </section>
+
+  <!-- ============ STORAGE / BINARY ============ -->
+  <div class="sectlabel">The recorder — binary layout &amp; volume</div>
+  <div class="rec">
+    <h2 style="margin-bottom:.4em">One ring file per game, written by burnerd</h2>
+    <p>Two fixed-stride rings behind a small header. The 1&nbsp;Hz record carries every published metric plus that second's
+      frametime percentiles; the frame ring is one companded byte per frame.</p>
+
+    <pre class="fmt">FILE = <b>header(64B)</b> + <b>metrics_ring[1800]</b> + <b>frametime_ring[N]</b>
+
+<b>metrics record — 32 B/s</b>      <b>frametime entry — 1 B/frame</b>
+  clock        u16              u8 companded, 0.25 ms step
+  mem_clock    u16              range 0–63.75 ms; spikes clamp
+  voltage      u16              (exact tail kept in ft_p999)
+  power        u16
+  gpu_util     u8            <b>volume, 30 min @ 1 Hz + per frame</b>
+  cpu_util     u8              metrics  1800 × 32 B  =  56 KB
+  cpu_thread   u8              frames @120fps  ×1 B  = 216 KB
+  fan          u8              frames @240fps  ×1 B  = 432 KB
+  temp         u8              ─────────────────────────────
+  uv_offset    i16             TOTAL   ~0.27 MB  →  ~0.48 MB
+  present_fps  u16 (0.1)       on disk, zstd        ~0.15 MB
+  framegen_fps u16 (0.1)
+  latency      u16 (0.05ms)  <b>20 games</b>  ~6–10 MB live · ~3 MB disk
+  disp_latency u16
+  flags        u8  (fg/adaptive + tier nibble)
+  ft_p50/p99/p999  u16×3   ← 1%-low &amp; 0.1%-low, exact</pre>
+
+    <table class="vol">
+      <thead><tr><th>What grows it</th><th>Lever</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr><td>Per-frame frametimes</td><td class="n">1 B companded</td><td class="n">dominates — but tiny</td></tr>
+        <tr><td>High refresh (240 Hz)</td><td class="n">more frames</td><td class="n">~0.48 MB/game</td></tr>
+        <tr><td>Persisting to disk</td><td class="n">zstd on exit</td><td class="n">~3× smaller</td></tr>
+        <tr><td>Don't want raw frames</td><td class="n">keep only p50/p99/p999</td><td class="n">collapses to ~56 KB</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout good"><b>burnerd owns the write — and it's essentially forced.</b> Python only sees the 1&nbsp;Hz
+      snapshot; it can't observe per-frame frametimes without re-plumbing the socket. The daemon already holds frame markers
+      at frame rate and already knows game start/stop, so it opens, appends, and rotates the ring. Keep it a <b>dumb fast
+      recorder</b> — all interpretation (DNA normalisation, graph rendering) stays in Qt, which just mmaps and reads.</div>
+
+    <div class="callout"><b>Cold start.</b> A never-run game has no ring — no fingerprint, "warming up" until <b>5&nbsp;min</b> of
+      our own capture. ProtonDB is the only estimate for un-run games — a separate feature, out of scope here.</div>
+  </div>
+
+  <footer>Synthetic data · signals mirror the live overlay state · palette CVD-validated · theme-aware · click-to-select.</footer>
+</div>
+
+<div class="dna-pop peek" id="dna-pop" role="dialog" aria-label="Frame DNA peek">
+  <div class="pop-hd"><span class="dot" id="pop-dot"></span><span id="pop-name">Cyberpunk 2077</span>&nbsp;· Frame DNA<span class="pin" id="pop-pin">hover</span></div>
+  <div class="peek-body">
+    <div id="pop-dna"></div>
+    <div class="peek-stats" id="pop-stats"></div>
+  </div>
+  <button class="peek-open" id="pop-open">Open Frame DNA tab →</button>
+</div>
+
+<div class="tt" id="tt" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  "use strict";
+  const NS="http://www.w3.org/2000/svg";
+  const $=(id)=>document.getElementById(id);
+  const tt=$("tt");
+  function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+  function gauss(rng){ let u=0,v=0; while(!u)u=rng(); while(!v)v=rng(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+  const cv=(n)=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  function pal(){ return {
+    eff:cv('--t-eff'),bal:cv('--t-bal'),perf:cv('--t-perf'),stock:cv('--t-stock'),
+    ink:cv('--ink'),ink2:cv('--ink-2'),muted:cv('--muted'),
+    grid:cv('--grid'),axis:cv('--axis'),surface:cv('--surface'),surf2:cv('--surface-2'),
+    seqA:cv('--seq-a'),seqB:cv('--seq-b'),warn:cv('--warn'),crit:cv('--crit') }; }
+  const tierColor=(t,p)=>({eff:p.eff,bal:p.bal,perf:p.perf,stock:p.stock}[t]||p.muted);
+  const tierLabel=(t)=>({eff:'Efficiency',bal:'Balanced',perf:'Performance',stock:'Stock'}[t]||t);
+  function el(tag,attrs,kids){ const e=document.createElementNS(NS,tag); if(attrs)for(const k in attrs)e.setAttribute(k,attrs[k]); if(kids)for(const c of kids)e.appendChild(c); return e; }
+  function lerpHex(a,b,t){ const pa=[parseInt(a.slice(1,3),16),parseInt(a.slice(3,5),16),parseInt(a.slice(5,7),16)]; const pb=[parseInt(b.slice(1,3),16),parseInt(b.slice(3,5),16),parseInt(b.slice(5,7),16)]; return "#"+pa.map((v,i)=>Math.round(v+(pb[i]-v)*t).toString(16).padStart(2,"0")).join(""); }
+  const sc=(d0,d1,r0,r1)=>(v)=>r0+(v-d0)/(d1-d0)*(r1-r0);
+  function bind(node,html){ node.classList.add("hit"); node.addEventListener("mousemove",(e)=>{ tt.innerHTML=html; tt.classList.add("on"); const pad=14,w=tt.offsetWidth,h=tt.offsetHeight; let x=e.clientX+pad,y=e.clientY+pad; if(x+w>innerWidth-8)x=e.clientX-w-pad; if(y+h>innerHeight-8)y=e.clientY-h-pad; tt.style.left=x+"px"; tt.style.top=y+"px"; }); node.addEventListener("mouseleave",()=>tt.classList.remove("on")); }
+  const row=(k,v)=>`<div class="trow"><span>${k}</span><b>${v}</b></div>`;
+
+  const GAMES=[
+    {name:"Cyberpunk 2077",        tier:"perf", power:298, powerP95:335, fps:78,  low:52,  util:99, cpu:66, clock:2610, volt:1010, temp:71, fan:63, lat:34, dlat:19, target:120, runtime:"Proton · FG", mins:47, stutter:1.9},
+    {name:"The Talos Principle 2", tier:"perf", power:262, powerP95:300, fps:88,  low:63,  util:97, cpu:54, clock:2580, volt:995,  temp:69, fan:58, lat:24, dlat:14, target:80,  runtime:"Proton · FG", mins:52, stutter:1.3},
+    {name:"Baldur's Gate 3",       tier:"bal",  power:214, powerP95:255, fps:96,  low:71,  util:92, cpu:84, clock:2550, volt:965,  temp:66, fan:52, lat:22, dlat:12, target:120, runtime:"Proton",      mins:63, stutter:1.5},
+    {name:"Counter-Strike 2",      tier:"bal",  power:188, powerP95:243, fps:210, low:138, util:88, cpu:92, clock:2620, volt:960,  temp:64, fan:49, lat:8,  dlat:5,  target:240, runtime:"Native",      mins:55, stutter:1.2},
+    {name:"Elden Ring",            tier:"bal",  power:176, powerP95:210, fps:60,  low:54,  util:74, cpu:68, clock:2400, volt:940,  temp:61, fan:47, lat:26, dlat:15, target:60,  runtime:"Proton",      mins:38, stutter:2.4, capped:true},
+    {name:"Hades II",              tier:"eff",  power:96,  powerP95:128, fps:142, low:118, util:58, cpu:46, clock:2100, volt:890,  temp:52, fan:33, lat:12, dlat:8,  target:144, runtime:"Native",      mins:71, stutter:1.1},
+    {name:"Vampire Survivors",     tier:"eff",  power:58,  powerP95:74,  fps:165, low:150, util:31, cpu:79, clock:1650, volt:840,  temp:47, fan:26, lat:9,  dlat:6,  target:165, runtime:"Native",      mins:29, stutter:1.2},
+    {name:"INDIKA",                tier:"bal",  power:150, powerP95:180, fps:90,  low:70,  util:80, cpu:60, clock:2450, volt:950,  temp:60, fan:45, lat:20, dlat:12, target:120, runtime:"Proton",      mins:3,  stutter:1.4, warming:true},
+  ];
+  const byName=(n)=>GAMES.find(g=>g.name===n);
+  let sel="Cyberpunk 2077";
+
+  const AX=[
+    ["PWR","Power draw",     g=>g.power+" W",   g=>Math.min(1,g.power/350)],
+    ["GPU","GPU load",       g=>g.util+"%",     g=>g.util/100],
+    ["CPU","CPU hot thread", g=>g.cpu+"%",      g=>g.cpu/100],
+    ["FPS","Median FPS",     g=>g.fps+" fps",   g=>Math.min(1,g.fps/240)],
+    ["LOW","Fluency floor",  g=>Math.round(g.low/g.fps*100)+"% of median", g=>g.low/g.fps],
+    ["LAT","Input latency",  g=>g.lat+" ms",    g=>Math.min(1,g.lat/40)],
+  ];
+
+  // shared fingerprint drawer
+  function fingerprint(g,S,opts,p){
+    opts=opts||{};
+    const c=S/2, R=S*(opts.labels?0.33:0.42), col=tierColor(g.tier,p);
+    const svg=el("svg",{viewBox:`0 0 ${S} ${S}`,role:"img","aria-label":g.name+" fingerprint"});
+    const rings=opts.labels?[0.33,0.66,1]:[1];
+    for(const f of rings) svg.appendChild(el("circle",{cx:c,cy:c,r:R*f,fill:"none",stroke:p.grid,"stroke-width":1}));
+    const n=AX.length,pts=[];
+    AX.forEach((a,i)=>{
+      const ang=-Math.PI/2+i/n*2*Math.PI, t=Math.max(0,Math.min(1,a[3](g))), rr=R*(0.1+0.9*t);
+      pts.push([c+Math.cos(ang)*rr,c+Math.sin(ang)*rr]);
+      if(opts.labels){
+        svg.appendChild(el("line",{x1:c,y1:c,x2:c+Math.cos(ang)*R,y2:c+Math.sin(ang)*R,stroke:p.grid,"stroke-width":1}));
+        svg.appendChild(el("text",{x:c+Math.cos(ang)*(R+14),y:c+Math.sin(ang)*(R+14)+3.5,fill:p.muted,"font-size":9.5,"text-anchor":"middle"},[document.createTextNode(a[0])]));
+      }
+    });
+    svg.appendChild(el("polygon",{points:pts.map(q=>q.map(v=>v.toFixed(1)).join(",")).join(" "),fill:col,"fill-opacity":opts.labels?.18:.3,stroke:col,"stroke-width":opts.labels?2:1.6,"stroke-linejoin":"round"}));
+    if(opts.dots) pts.forEach((q,i)=>{ const dot=el("circle",{cx:q[0],cy:q[1],r:3.6,fill:col,stroke:p.surface,"stroke-width":1.5}); bind(dot,`<div class="tname">${g.name} · ${AX[i][0]}</div>${row(AX[i][1],AX[i][2](g))}`); svg.appendChild(dot); });
+    return svg;
+  }
+
+  const containers=[];
+  const reg=(id,fn)=>containers.push({id,fn});
+
+  // ---------- STEAM LIST ----------
+  reg("steam-list",(host,p)=>{
+    for(const g of GAMES){
+      const rrow=document.createElement("div");
+      rrow.className="srow"+(g.name===sel?" sel":"")+(g.warming?" warming":"");
+      rrow.setAttribute("role","listitem");
+      const mini=document.createElement("div"); mini.className="mini";
+      if(g.warming){ const s=el("svg",{viewBox:"0 0 30 30"}); s.appendChild(el("circle",{cx:15,cy:15,r:11,fill:"none",stroke:p.grid,"stroke-width":1,"stroke-dasharray":"3 3"})); mini.appendChild(s); }
+      else mini.appendChild(fingerprint(g,30,{labels:false,dots:false},p));
+      const info=document.createElement("div");
+      info.innerHTML=`<div class="snm">${g.name}</div><div class="ssub">${g.warming?"capturing · "+g.mins+" min":g.runtime+" · "+g.mins+" min"}</div>`;
+      const tier=document.createElement("span"); tier.className="stier";
+      tier.innerHTML=g.warming?`<span class="dot" style="background:var(--muted)"></span>warming up`:`<span class="dot" style="background:${tierColor(g.tier,p)}"></span>${tierLabel(g.tier)}`;
+      const chev=document.createElement("span"); chev.className="chev"; chev.textContent=g.warming?"":"›";
+      rrow.appendChild(mini); rrow.appendChild(info); rrow.appendChild(tier); rrow.appendChild(chev);
+      if(!g.warming) rrow.addEventListener("click",()=>{ sel=g.name; renderAll(); });
+      host.appendChild(rrow);
+    }
+  });
+
+  // ---------- DNA small multiples ----------
+  reg("chart-dna",(host,p)=>{
+    const pick=["Cyberpunk 2077","Counter-Strike 2","Vampire Survivors","Hades II"];
+    const reads={
+      "Cyberpunk 2077":"<b>GPU-bound heavyweight</b> — pins the card, laggy, mid frames.",
+      "Counter-Strike 2":"<b>CPU-thread bound</b> — one core maxed, but fast &amp; low-latency.",
+      "Vampire Survivors":"<b>CPU-bound, light GPU</b> — trivial to draw, one thread hammered.",
+      "Hades II":"<b>Comfortable</b> — moderate load, high &amp; steady frames.",
+    };
+    for(const nm of pick){
+      const g=byName(nm),col=tierColor(g.tier,p);
+      const cell=document.createElement("div"); cell.className="dna-cell";
+      const head=document.createElement("div"); head.className="dna-title";
+      head.innerHTML=`<span class="dot" style="background:${col}"></span><span class="nm">${g.name}</span><span class="tr">${tierLabel(g.tier)}</span>`;
+      cell.appendChild(head);
+      cell.appendChild(fingerprint(g,200,{labels:true,dots:true},p));
+      const rd=document.createElement("div"); rd.className="dna-read"; rd.innerHTML=reads[nm]||""; cell.appendChild(rd);
+      host.appendChild(cell);
+    }
+    const key=$("dna-key"); key.innerHTML="";
+    for(const a of AX){ const d=document.createElement("div"); d.className="ax"; d.innerHTML=`<span class="axc">${a[0]}</span><span>${a[1]}</span>`; key.appendChild(d); }
+  });
+
+  // ---------- FRAMETIME (MangoHUD-style) ----------
+  reg("chart-frametime",(host,p)=>{
+    const g=byName(sel);
+    const W=880,H=250,m={l:44,r:16,t:16,b:36};
+    const pw=W-m.l-m.r,ph=H-m.t-m.b;
+    const medMs=1000/g.fps, p99Ms=1000/g.low, col=tierColor(g.tier,p);
+    const ymax=Math.max(20, Math.ceil(Math.max(medMs*2.4,p99Ms*1.85)/5)*5);
+    const step = ymax<=25?5 : ymax<=50?10 : 20;
+    const x=sc(0,1,m.l,m.l+pw), y=sc(0,ymax,m.t+ph,m.t), base=m.t+ph;
+    const svg=el("svg",{viewBox:`0 0 ${W} ${H}`,role:"img","aria-label":sel+" frametime graph"});
+    for(let t=0;t<=ymax;t+=step){
+      svg.appendChild(el("line",{x1:m.l,y1:y(t),x2:m.l+pw,y2:y(t),stroke:p.grid,"stroke-width":1}));
+      svg.appendChild(el("text",{x:m.l-8,y:y(t)+4,fill:p.muted,"font-size":11,"text-anchor":"end"},[document.createTextNode(t)]));
+    }
+    svg.appendChild(el("text",{x:14,y:m.t+ph/2,fill:p.ink2,"font-size":11,"text-anchor":"middle",transform:`rotate(-90 14 ${m.t+ph/2})`},[document.createTextNode("FRAMETIME (ms) →")]));
+    svg.appendChild(el("text",{x:m.l+pw/2,y:H-4,fill:p.ink2,"font-size":11,"text-anchor":"middle"},[document.createTextNode("← 30 min ago            time →            now")]));
+
+    // synthesize per-column frametime trace
+    const NB=280, rng=mulberry32(sel.length*131+g.fps), thr=medMs*1.6;
+    const ft=new Float64Array(NB); let roughUntil=0;
+    for(let i=0;i<NB;i++){
+      let v=medMs*(1+0.045*gauss(rng));
+      if(rng()<0.018) roughUntil=i+3+Math.floor(rng()*6);
+      if(i<roughUntil) v=medMs*(1.2+0.4*Math.abs(gauss(rng)));
+      if(rng()<0.04*g.stutter) v=medMs*(1.7+g.stutter*Math.abs(gauss(rng)));
+      ft[i]=Math.max(medMs*0.72,v);
+    }
+    // area + line trace (the smooth frametime floor)
+    let area=`M ${x(0).toFixed(1)} ${base}`, line="";
+    for(let i=0;i<NB;i++){ const X=x((i+0.5)/NB), Y=y(Math.min(ft[i],ymax)); area+=` L ${X.toFixed(1)} ${Y.toFixed(1)}`; line+=(i?" L ":"M ")+X.toFixed(1)+" "+Y.toFixed(1); }
+    area+=` L ${x(1).toFixed(1)} ${base} Z`;
+    svg.appendChild(el("path",{d:area,fill:col,"fill-opacity":.15}));
+    svg.appendChild(el("path",{d:line,fill:"none",stroke:col,"stroke-width":1.3,"stroke-opacity":.85,"stroke-linejoin":"round"}));
+    // red needles for stutter frames, on top
+    for(let i=0;i<NB;i++){ if(ft[i]<thr) continue; const X=x((i+0.5)/NB), Yt=y(Math.min(ft[i],ymax));
+      const nd=el("line",{x1:X.toFixed(1),y1:base,x2:X.toFixed(1),y2:Yt.toFixed(1),stroke:p.crit,"stroke-width":Math.max(1.4,pw/NB*0.8).toFixed(1)});
+      bind(nd,`<div class="tname">${sel} · stutter</div>${row("Frametime",ft[i].toFixed(1)+" ms")}${row("≈ FPS",Math.round(1000/ft[i]))}${ft[i]>ymax?row("","clipped"):""}`);
+      svg.appendChild(nd);
+    }
+    // reference lines
+    for(const [val,lab,em] of [[medMs,"median "+medMs.toFixed(1)+" ms",false],[p99Ms,"1%-low "+p99Ms.toFixed(1)+" ms",true]]){
+      if(val>ymax) continue;
+      svg.appendChild(el("line",{x1:m.l,y1:y(val),x2:m.l+pw,y2:y(val),stroke:em?p.ink2:p.axis,"stroke-width":em?1.5:1.2}));
+      svg.appendChild(el("text",{x:m.l+pw-4,y:y(val)-4,fill:p.ink2,"font-size":10,"text-anchor":"end"},[document.createTextNode(lab)]));
+    }
+    // summary hover strip
+    const hit=el("rect",{x:m.l,y:m.t,width:pw,height:ph,fill:"transparent"});
+    bind(hit,`<div class="tname">${sel}</div>${row("Median",medMs.toFixed(1)+" ms")}${row("1%-low (p99)",p99Ms.toFixed(1)+" ms")}${row("Frames / 30 min","~"+Math.round(g.fps*1800/1000)+"k")}`);
+    svg.appendChild(hit);
+    host.appendChild(svg);
+
+    const lg=$("ft-legend"); lg.innerHTML="";
+    const a=document.createElement("span"); a.className="li"; a.innerHTML=`<span class="sw" style="background:${col};opacity:.6"></span>frametime`;
+    const b=document.createElement("span"); b.className="li"; b.innerHTML=`<span class="sw" style="width:4px;background:${p.crit}"></span>stutter &gt; 1.6× median`;
+    lg.appendChild(a); lg.appendChild(b);
+  });
+
+  // ---------- ORBIT (power × clock, coloured by active profile tier) ----------
+  reg("chart-orbit",(host,p)=>{
+    const g=byName(sel);
+    const W=880,H=250,m={l:50,r:14,t:14,b:34};
+    const pw=W-m.l-m.r,ph=H-m.t-m.b;
+
+    // three tier operating centroids + dwell weights (how long the game sat in each)
+    const cent={
+      eff: {pw:g.power*0.60,     clk:g.clock-330},
+      bal: {pw:g.power*0.92,     clk:g.clock-150},
+      perf:{pw:g.powerP95*0.99,  clk:g.clock+20},
+    };
+    const wt={ eff: g.tier==='eff'?0.60:g.tier==='bal'?0.20:0.12,
+               bal: g.tier==='bal'?0.56:0.30,
+               perf:g.tier==='perf'?0.60:g.tier==='eff'?0.10:0.30 };
+    const wsum=wt.eff+wt.bal+wt.perf, cum=[['eff',wt.eff/wsum],['bal',(wt.eff+wt.bal)/wsum],['perf',1]];
+
+    // sample first so we can auto-fit the clock axis to the real operating band
+    const rng=mulberry32(sel.length*17+7), N=380, pts=[];
+    let clkMin=1e9, clkMax=-1e9, powMin=1e9, powMax=-1e9;
+    for(let i=0;i<N;i++){
+      const r=rng(); const tier = r<cum[0][1]?'eff': r<cum[1][1]?'bal':'perf'; const c=cent[tier];
+      const pw_=c.pw+gauss(rng)*(g.power*0.05), clk=c.clk+gauss(rng)*26;
+      pts.push({pw:pw_,clk,tier});
+      if(clk<clkMin)clkMin=clk; if(clk>clkMax)clkMax=clk; if(pw_<powMin)powMin=pw_; if(pw_>powMax)powMax=pw_;
+    }
+    // clock axis: focus on the operating MHz band, finer scale (grid /100, labels /200)
+    const cy0=Math.max(0,Math.floor((clkMin-50)/100)*100), cy1=Math.ceil((clkMax+50)/100)*100;
+    const px0=Math.floor((powMin-12)/10)*10, px1=Math.ceil((powMax+12)/10)*10;
+    const x=sc(px0,px1,m.l,m.l+pw), y=sc(cy0,cy1,m.t+ph,m.t);
+    const svg=el("svg",{viewBox:`0 0 ${W} ${H}`,role:"img","aria-label":sel+" power vs clock by tier"});
+
+    for(let gx=px0; gx<=px1; gx+=Math.max(20,Math.round((px1-px0)/6/10)*10)){
+      svg.appendChild(el("line",{x1:x(gx),y1:m.t,x2:x(gx),y2:m.t+ph,stroke:p.grid,"stroke-width":1}));
+      svg.appendChild(el("text",{x:x(gx),y:m.t+ph+18,fill:p.muted,"font-size":11,"text-anchor":"middle"},[document.createTextNode(gx)]));
+    }
+    for(let gy=cy0; gy<=cy1; gy+=100){                     // gridline every 100 MHz
+      svg.appendChild(el("line",{x1:m.l,y1:y(gy),x2:m.l+pw,y2:y(gy),stroke:p.grid,"stroke-width":1}));
+      if(gy%200===0) svg.appendChild(el("text",{x:m.l-8,y:y(gy)+4,fill:p.muted,"font-size":11,"text-anchor":"end"},[document.createTextNode(gy)]));
+    }
+    svg.appendChild(el("text",{x:m.l+pw/2,y:H-4,fill:p.ink2,"font-size":11,"text-anchor":"middle"},[document.createTextNode("POWER (W) →")]));
+    svg.appendChild(el("text",{x:14,y:m.t+ph/2,fill:p.ink2,"font-size":11,"text-anchor":"middle",transform:`rotate(-90 14 ${m.t+ph/2})`},[document.createTextNode("CLOCK (MHz) →")]));
+
+    for(const s of pts){
+      const cx=x(Math.max(px0,Math.min(px1,s.pw))), cyv=y(Math.max(cy0,Math.min(cy1,s.clk)));
+      svg.appendChild(el("circle",{cx,cy:cyv,r:3.1,fill:tierColor(s.tier,p),"fill-opacity":.62}));
+    }
+    host.appendChild(svg);
+
+    const lg=$("orbit-legend"); lg.innerHTML="";
+    for(const [t,l] of [["eff","Efficiency"],["bal","Balanced"],["perf","Performance"]]){
+      const s=document.createElement("span"); s.className="li";
+      s.innerHTML=`<span class="sw" style="border-radius:50%;background:${tierColor(t,p)}"></span>${l}`; lg.appendChild(s);
+    }
+  });
+
+  // ---------- game-view small DNA badge + tab fingerprint ----------
+  reg("gv-dna",(host,p)=>{ host.appendChild(fingerprint(byName(sel),84,{labels:false,dots:false},p)); });
+  reg("chart-tabdna",(host,p)=>{ host.appendChild(fingerprint(byName(sel),200,{labels:true,dots:true},p)); });
+  const bottleneck=(g)=> g.util-g.cpu>=12?"GPU-bound": g.cpu-g.util>=12?"CPU-bound":"balanced";
+
+  // ---------- hover / pin popover ----------
+  const popState={open:false,pinned:false}; let popHideT=null;
+  function popPos(){
+    const pop=$("dna-pop"), card=document.querySelector(".gameview"); if(!card) return;
+    const r=card.getBoundingClientRect(), pw=pop.offsetWidth, phh=pop.offsetHeight;
+    let left=Math.max(10, Math.min(r.left, innerWidth-pw-10));
+    let top=r.bottom+8; if(top+phh>innerHeight-10) top=Math.max(10, r.top-phh-8);
+    pop.style.left=left+"px"; pop.style.top=top+"px";
+  }
+  function popFill(){
+    const p=pal(), g=byName(sel);
+    $("pop-name").textContent=g.name; $("pop-dot").style.background=tierColor(g.tier,p);
+    $("pop-dna").innerHTML=""; $("pop-dna").appendChild(fingerprint(g,124,{labels:false,dots:true},p));
+    $("pop-stats").innerHTML =
+      `<div class="r"><span>Median</span><b>${(1000/g.fps).toFixed(1)} ms</b></div>`+
+      `<div class="r"><span>1%-low</span><b>${(1000/g.low).toFixed(1)} ms</b></div>`+
+      `<div class="r"><span>Power</span><b>${g.power} W</b></div>`+
+      `<div class="r"><span>Bottleneck</span><b>${bottleneck(g)}</b></div>`;
+  }
+  function popShow(){ clearTimeout(popHideT); popFill(); $("dna-pop").classList.add("on"); popState.open=true; popPos(); }
+  function popHide(){ if(popState.pinned) return; popHideT=setTimeout(()=>{ $("dna-pop").classList.remove("on"); popState.open=false; },130); }
+  function popSetup(){
+    const dna=$("gv-dna"), pop=$("dna-pop"), pin=$("pop-pin");
+    dna.addEventListener("mouseenter",popShow);
+    dna.addEventListener("focus",popShow);
+    dna.addEventListener("mouseleave",popHide);
+    pop.addEventListener("mouseenter",()=>clearTimeout(popHideT));
+    pop.addEventListener("mouseleave",popHide);
+    dna.addEventListener("click",()=>{ popState.pinned=!popState.pinned; pin.textContent=popState.pinned?"pinned · click to release":"hover"; if(popState.pinned) popShow(); else popHide(); });
+    $("pop-open").addEventListener("click",()=>{ popState.pinned=false; pin.textContent="hover"; $("dna-pop").classList.remove("on"); popState.open=false;
+      const t=$("tab-section"); t.scrollIntoView({behavior:"smooth",block:"center"}); t.classList.remove("tabflash"); void t.offsetWidth; t.classList.add("tabflash"); });
+    addEventListener("keydown",(e)=>{ if(e.key==="Escape"){ popState.pinned=false; pin.textContent="hover"; $("dna-pop").classList.remove("on"); popState.open=false; } });
+    addEventListener("scroll",()=>{ if(popState.open) popPos(); },{passive:true});
+    if(location.hash==="#popopen"){ popState.pinned=true; pin.textContent="pinned"; popShow(); }
+  }
+
+  function renderAll(){
+    const p=pal();
+    const dn=$("detail-name"); if(dn) dn.textContent=sel;
+    const g=byName(sel);
+    const gt=$("gv-title"); if(gt) gt.textContent=g.name;
+    const gm=$("gv-meta"); if(gm) gm.innerHTML=`<span class="dot" style="background:${tierColor(g.tier,p)}"></span>${tierLabel(g.tier)} profile · ${g.runtime} · ${g.mins} min captured`;
+    const ts=$("tab-stats"); if(ts) ts.innerHTML=
+      `<div class="r"><span style="color:var(--muted)">MEDIAN</span> <b>${g.fps} fps · ${(1000/g.fps).toFixed(1)} ms</b></div>`+
+      `<div class="r"><span style="color:var(--muted)">1%-LOW</span> <b>${g.low} fps · ${(1000/g.low).toFixed(1)} ms</b></div>`+
+      `<div class="r"><span style="color:var(--muted)">POWER</span> <b>${g.power} W</b></div>`+
+      `<div class="r"><span style="color:var(--muted)">GPU / CPU-thread</span> <b>${g.util}% / ${g.cpu}%</b></div>`+
+      `<div class="r"><span style="color:var(--muted)">BOTTLENECK</span> <b>${bottleneck(g)}</b></div>`+
+      `<div class="r"><span style="color:var(--muted)">LATENCY</span> <b>${g.lat} ms</b></div>`;
+    for(const c of containers){ const host=$(c.id); if(!host) continue; host.innerHTML=""; c.fn(host,p); }
+    if(popState.open) popFill();
+  }
+  renderAll();
+  popSetup();
+  new MutationObserver(renderAll).observe(document.documentElement,{attributes:true,attributeFilter:["data-theme","class"]});
+  if(window.matchMedia){ const mq=window.matchMedia("(prefers-color-scheme: dark)"); (mq.addEventListener?mq.addEventListener.bind(mq,"change"):mq.addListener.bind(mq))(renderAll); }
+  let rt; addEventListener("resize",()=>{ clearTimeout(rt); rt=setTimeout(renderAll,180); });
+})();
+</script>
