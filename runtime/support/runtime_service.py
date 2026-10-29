@@ -59,6 +59,17 @@ DAEMON_LIBEXEC_DIRECTORY = DAEMON_PRODUCT_DIRECTORY / "libexec"
 DAEMON_BINARY = DAEMON_LIBEXEC_DIRECTORY / "penguin-burnerd"
 NATIVE_PACKAGE_DAEMON_BINARY = Path("/usr/libexec/penguin-burnerd")
 SELINUX_ENFORCE_PATH = Path("/sys/fs/selinux/enforce")
+# systemd (init_t) may execute bin_t. SELinux policies before Fedora 42 / EL10
+# have no /var/opt -> /opt equivalence, so restorecon labels the daemon var_t
+# and the unit fails with 203/EXEC. This local file-context module labels only
+# the libexec directory bin_t; it is installed only where the policy's own
+# label is wrong.
+DAEMON_SELINUX_EXEC_TYPE = "bin_t"
+DAEMON_SELINUX_MODULE_NAME = "penguin_burner"
+DAEMON_SELINUX_MODULE_CIL = (
+    f'(filecon "{DAEMON_LIBEXEC_DIRECTORY}(/.*)?" any '
+    f"(system_u object_r {DAEMON_SELINUX_EXEC_TYPE} ((s0) (s0))))\n"
+)
 
 
 def parse_runtime_flags(argv, *, default_journal_hours=DEFAULT_JOURNAL_HOURS):
@@ -299,6 +310,16 @@ def _flatpak_host_user_env_assignments() -> list[str]:
     ]
 
 
+def _require_daemon_allowed_uid() -> None:
+    """Refuse to write a unit whose daemon would reject every client."""
+    if not daemon_allowed_uid_assignment():
+        raise RuntimeError(
+            "cannot tell which desktop user may use the PenguinBurner hardware "
+            "service: run the setup from the PenguinBurner app, or through "
+            "sudo so SUDO_UID is set"
+        )
+
+
 def daemon_allowed_uid_assignment() -> str:
     uid = (
         os.environ.get("PENGUIN_BURNER_Q2RTX_UID", "").strip()
@@ -506,7 +527,37 @@ def _selinux_is_active() -> bool:
     return result.returncode == 0
 
 
-def _restore_daemon_selinux_context(product_directory: Path) -> None:
+def selinux_context_type(context: str) -> str:
+    """The type field of an SELinux context such as ``u:r:bin_t:s0``."""
+    parts = context.strip().strip("\x00").split(":")
+    return parts[2] if len(parts) >= 3 else ""
+
+
+def _selinux_file_type(path: Path) -> str:
+    try:
+        raw = os.getxattr(path, "security.selinux")
+    except OSError:
+        return ""
+    return selinux_context_type(raw.decode("utf-8", errors="replace"))
+
+
+def _install_daemon_selinux_module(binary: Path, label: str) -> None:
+    semodule = shutil.which("semodule")
+    if not semodule:
+        raise RuntimeError(
+            f"SELinux labels {binary} as {label}, which systemd cannot execute, "
+            "and semodule is unavailable to add PenguinBurner's file-context rule"
+        )
+    with tempfile.TemporaryDirectory(prefix="penguin-burner-selinux.") as directory:
+        module = Path(directory) / f"{DAEMON_SELINUX_MODULE_NAME}.cil"
+        module.write_text(DAEMON_SELINUX_MODULE_CIL, encoding="utf-8")
+        run_checked_subprocess([semodule, "-i", str(module)])
+
+
+def _restore_daemon_selinux_context(
+    product_directory: Path,
+    binary: Path = DAEMON_BINARY,
+) -> None:
     if not _selinux_is_active():
         return
     restorecon = shutil.which("restorecon")
@@ -516,6 +567,19 @@ def _restore_daemon_selinux_context(product_directory: Path) -> None:
             "label the PenguinBurner hardware service"
         )
     run_checked_subprocess([restorecon, "-RF", str(product_directory)])
+    label = _selinux_file_type(binary)
+    # An unreadable label cannot be judged; keep the policy's own result.
+    if not label or label == DAEMON_SELINUX_EXEC_TYPE:
+        return
+    _install_daemon_selinux_module(binary, label)
+    run_checked_subprocess([restorecon, "-RF", str(product_directory)])
+    label = _selinux_file_type(binary)
+    if label and label != DAEMON_SELINUX_EXEC_TYPE:
+        raise RuntimeError(
+            f"SELinux still labels {binary} as {label} after installing the "
+            f"{DAEMON_SELINUX_MODULE_NAME} file-context module; systemd cannot "
+            "start the PenguinBurner hardware service"
+        )
 
 
 def _read_daemon_install_source(source: Path) -> bytes:
@@ -1039,7 +1103,29 @@ class _DaemonServiceInstallTransaction:
                 rollback_errors.append(f"{description}: {exc}")
 
         if states:
+            unit_paths = {
+                path.name: path
+                for path in (
+                    daemon_systemd_service_unit_path(),
+                    legacy_systemd_service_unit_path(),
+                )
+            }
             for unit_name in states:
+                unit_path = unit_paths.get(unit_name)
+                if unit_path is not None and not unit_path.exists():
+                    # Setup already removed this unit file (the legacy unit
+                    # migration): there is nothing to disable, and systemctl
+                    # would fail. Its snapshot below restores the file.
+                    subprocess.run(
+                        [SYSTEMCTL, "stop", unit_name],
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        env=stable_subprocess_env(),
+                        check=False,
+                    )
+                    continue
                 attempt(
                     f"could not stop and disable {unit_name}",
                     lambda unit_name=unit_name: run_checked_subprocess(
@@ -1136,6 +1222,10 @@ def reexec_daemon_lifecycle_with_root(argv: list[str]) -> int:
         escalator,
         *env_command_prefix(),
         f"SUDO_USER={_invoking_user_name()}",
+        # pkexec, unlike sudo, sets no SUDO_UID: without it the root step
+        # cannot name the desktop user the daemon must accept.
+        f"SUDO_UID={os.getuid()}",
+        f"SUDO_GID={os.getgid()}",
         "PYTHONPATH=" + os.pathsep.join(pythonpath_entries),
         sys.executable,
         str(Path(sys.argv[0]).resolve()),
@@ -1151,6 +1241,7 @@ def install_systemd_service(program_file, argv, *, journal_hours, log):
         raise RuntimeError(
             "systemd service install requires root privileges. Re-run with sudo."
         )
+    _require_daemon_allowed_uid()
 
     unit_path = daemon_systemd_service_unit_path()
     with _DaemonServiceInstallTransaction(log=log) as transaction:
@@ -1200,6 +1291,7 @@ def migrate_to_daemon_service(program_file, *, socket_path=DEFAULT_DAEMON_SOCKET
             "PenguinBurner daemon service migration requires root privileges. "
             "Re-run with sudo."
         )
+    _require_daemon_allowed_uid()
 
     legacy_state = read_legacy_service_state()
     raw_argv = (
@@ -1462,6 +1554,7 @@ def daemonize_with_systemd(program_file, argv, *, journal_hours, log):
             "automatic systemd daemon mode requires root privileges. "
             "Re-run PenguinBurner with sudo."
         )
+    _require_daemon_allowed_uid()
 
     unit_changed = False
     with _DaemonServiceInstallTransaction(log=log) as transaction:

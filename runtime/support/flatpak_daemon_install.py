@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import shlex
 from typing import Literal
 
 from runtime.support.runtime_service import (
     DAEMON_BINARY,
     DAEMON_INSTALL_BASE,
     DAEMON_PRODUCT_DIRECTORY,
+    DAEMON_SELINUX_EXEC_TYPE,
+    DAEMON_SELINUX_MODULE_CIL,
+    DAEMON_SELINUX_MODULE_NAME,
     LAST_RUNTIME_STATE_PATH,
 )
 
@@ -109,6 +113,9 @@ unit=/etc/systemd/system/penguin-burnerd.service
         + f"daemon_product_dir={DAEMON_PRODUCT_DIRECTORY}\n"
         + f"daemon_dir={DAEMON_BINARY.parent}\n"
         + f'daemon_target="{DAEMON_BINARY}"\n'
+        + f"daemon_selinux_exec_type={DAEMON_SELINUX_EXEC_TYPE}\n"
+        + f"daemon_selinux_module={DAEMON_SELINUX_MODULE_NAME}\n"
+        + f"daemon_selinux_cil={shlex.quote(DAEMON_SELINUX_MODULE_CIL.strip())}\n"
         + r"""
 daemon_tmp=
 unit_tmp=
@@ -254,6 +261,17 @@ selinux_is_active() {
     return 1
 }
 
+selinux_file_type() {
+    stat -c %C -- "$1" 2>/dev/null | cut -d: -f3
+}
+
+daemon_label_is_executable() {
+    case "$1" in
+        ""|"?"|"$daemon_selinux_exec_type") return 0 ;;
+    esac
+    return 1
+}
+
 restore_daemon_context() {
     if ! selinux_is_active; then return 0; fi
     if ! command -v restorecon >/dev/null 2>&1; then
@@ -261,6 +279,27 @@ restore_daemon_context() {
         return 1
     fi
     restorecon -RF "$daemon_product_dir"
+    # Policies before Fedora 42 / EL10 label /var/opt var_t, which systemd
+    # cannot execute; add PenguinBurner's file-context module only then.
+    daemon_label="$(selinux_file_type "$daemon_target")"
+    if daemon_label_is_executable "$daemon_label"; then return 0; fi
+    if ! command -v semodule >/dev/null 2>&1; then
+        echo "SELinux labels $daemon_target as $daemon_label, which systemd cannot execute, and semodule is unavailable." >&2
+        return 1
+    fi
+    module_dir="$(mktemp -d)"
+    printf '%s\n' "$daemon_selinux_cil" > "$module_dir/$daemon_selinux_module.cil"
+    if ! semodule -i "$module_dir/$daemon_selinux_module.cil"; then
+        rm -rf -- "$module_dir"
+        echo "Could not install the $daemon_selinux_module SELinux file-context module." >&2
+        return 1
+    fi
+    rm -rf -- "$module_dir"
+    restorecon -RF "$daemon_product_dir"
+    daemon_label="$(selinux_file_type "$daemon_target")"
+    if daemon_label_is_executable "$daemon_label"; then return 0; fi
+    echo "SELinux still labels $daemon_target as $daemon_label; systemd cannot start penguin-burnerd." >&2
+    return 1
 }
 
 trap finish_daemon_install EXIT
