@@ -1,4 +1,4 @@
-//! Hidden NVAPI (`libnvidia-api.so.1`) FFI for core-voltage and per-point VF
+//! Hidden NVAPI (`libnvidia-api.so.1`) FFI for telemetry and per-point VF
 //! curve control. Reached only through the single exported
 //! `nvapi_QueryInterface(u32) -> *mut c_void`, casting each returned pointer to
 //! a typed `extern "C"` fn. Every version-tagged `#[repr(C)]` struct carries a
@@ -12,6 +12,9 @@ use std::mem::size_of;
 use std::os::raw::{c_char, c_int};
 
 use libloading::{Library, Symbol};
+
+mod thermal;
+use thermal::HotspotReader;
 
 use super::{
     decode_cstr, vf_editable_core_points, vf_find_nearest, vf_summary_of, voltage_uv_in_window,
@@ -278,20 +281,25 @@ fn select_gpu(
 }
 
 // ------------------------------------------------------------------------
-// Voltage reader (`HiddenNvapiVoltageReader`).
+// Telemetry reader (voltage and optional hotspot share one driver session).
 // ------------------------------------------------------------------------
-pub(crate) struct NvapiVoltageSession {
+pub(crate) struct NvapiTelemetrySession {
     _lib: Library,
     gpu: NvapiHandle,
     unload: UnloadFn,
     get_err: GetErrMsgFn,
-    get_voltage: GetVoltageFn,
+    get_voltage: Option<GetVoltageFn>,
+    hotspot: Option<HotspotReader>,
     last_raw_uv: Cell<Option<i64>>,
     initialized: bool,
 }
 
-impl NvapiVoltageSession {
-    pub(crate) fn open(gpu_index: u32, pci_bus_id: &str) -> Result<Self, GpuError> {
+impl NvapiTelemetrySession {
+    pub(crate) fn open(
+        gpu_index: u32,
+        pci_bus_id: &str,
+        architecture: Option<u32>,
+    ) -> Result<Self, GpuError> {
         let requested_bus = pci_bus_number_from_bus_id(pci_bus_id);
         // SAFETY: trusted system soname; the resolved query fn is used to bind
         // the entry points to their declared signatures below.
@@ -312,7 +320,7 @@ impl NvapiVoltageSession {
             let get_err: GetErrMsgFn = query_interface(query, Q_GET_ERROR_MESSAGE)?;
             let enum_fn: EnumGpusFn = query_interface(query, Q_ENUM_PHYSICAL_GPUS)?;
             let get_bus: Option<GetBusIdFn> = try_query_interface(query, Q_GET_BUS_ID);
-            let get_voltage: GetVoltageFn = query_interface(query, Q_VOLTAGE)?;
+            let get_voltage: Option<GetVoltageFn> = try_query_interface(query, Q_VOLTAGE);
             (init, unload, get_err, enum_fn, get_bus, get_voltage)
         };
 
@@ -336,12 +344,15 @@ impl NvapiVoltageSession {
             }
         };
 
+        // SAFETY: the library stays loaded and `gpu` belongs to this session.
+        let hotspot = unsafe { HotspotReader::open(query, gpu, architecture) };
         Ok(Self {
             _lib: lib,
             gpu,
             unload,
             get_err,
             get_voltage,
+            hotspot,
             last_raw_uv: Cell::new(None),
             initialized: true,
         })
@@ -349,13 +360,16 @@ impl NvapiVoltageSession {
 
     /// Raw microvolts (propagates on failure, like `read_raw_microvolts`).
     fn read_raw_microvolts(&self) -> GpuResult<i64> {
+        let get_voltage = self
+            .get_voltage
+            .ok_or_else(|| GpuError::other("NVAPI voltage query unavailable", 0))?;
         let mut data: NvApiVoltage =
             // SAFETY: every field is a POD integer; all-zero is a valid value.
             unsafe { std::mem::zeroed() };
         data.version = make_version(size_of::<NvApiVoltage>(), 1);
         // SAFETY: `gpu` is a valid handle; `data` is a correctly-sized,
         // version-tagged struct.
-        let rc = unsafe { (self.get_voltage)(self.gpu, &mut data) };
+        let rc = unsafe { get_voltage(self.gpu, &mut data) };
         if rc != 0 {
             return Err(GpuError::nvapi(
                 "NvAPI voltage query",
@@ -376,9 +390,14 @@ impl NvapiVoltageSession {
             _ => None,
         }
     }
+
+    pub(crate) fn read_hotspot_c(&self) -> Option<f64> {
+        // SAFETY: the reader's functions and this handle share the live library.
+        unsafe { self.hotspot.as_ref()?.read(self.gpu) }
+    }
 }
 
-impl Drop for NvapiVoltageSession {
+impl Drop for NvapiTelemetrySession {
     fn drop(&mut self) {
         if self.initialized {
             // SAFETY: `unload` pairs with the `init` performed in `open`.

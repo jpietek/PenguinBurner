@@ -2,7 +2,8 @@
 the user docs must still exist in the argument parser.
 
 Scoped to the flag families PenguinBurner owns (``--auto-uv-*``, ``--auto-oc-*``,
-``--adaptive-*``, ``--lact-*``) so third-party flags in the docs (pip, gamescope)
+``--adaptive-*``, ``--lact-*``, ``--overlay-*``) so third-party flags in the docs
+(pip, gamescope)
 do not cause false failures.
 """
 from __future__ import annotations
@@ -18,7 +19,7 @@ DOC_FILES = [
     REPO / "docs" / "install.md",
     *(REPO / "docs" / "features").glob("*.md"),
 ]
-OWNED_PREFIXES = ("--auto-uv-", "--auto-oc-", "--adaptive-", "--lact-")
+OWNED_PREFIXES = ("--auto-uv-", "--auto-oc-", "--adaptive-", "--lact-", "--overlay-")
 FLAG_RE = re.compile(r"--[a-z][a-z0-9-]+")
 
 

@@ -126,7 +126,9 @@ fn runtime_state_file_is_published_with_the_overlay_hud_off() {
     // An adaptive run reports its initial tier in the immutable job spec
     // forever, so without this the running-profile line stays wrong for the
     // whole session on every host that keeps the in-game HUD switched off.
-    let mock = MockGpu::new();
+    let mut mock = MockGpu::new();
+    mock.temperature_c = 67.0;
+    mock.hotspot_temperature_c = Some(79.25);
     let mut fan_config = FanConfig::defaults();
     fan_config.poll_interval_s = 0.0;
     let mut publisher = loop_test_publisher();
@@ -157,6 +159,8 @@ fn runtime_state_file_is_published_with_the_overlay_hud_off() {
         .expect("the runtime loop must publish its state file with the HUD off");
     assert!(published.contains("version=1"));
     assert!(published.contains("gpu_index=0"));
+    assert!(published.contains("\ntemperature_c=67\n"));
+    assert!(published.contains("\nhotspot_temperature_c=79\n"));
     let _ = std::fs::remove_file(&state_path);
 }
 

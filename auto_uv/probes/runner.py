@@ -120,13 +120,14 @@ class AutoUvProbeRunner:
         summarize_saturated_tail: bool,
         use_power_limit_floor: bool,
         use_companion_load: bool,
+        config_override: Q2RTXStabilityConfig | None = None,
     ) -> VoltageProbeOutcome:
         config_builder = (
             q2rtx_cuda_probe_config_for_voltage_band
             if bool(use_companion_load)
             else q2rtx_only_probe_config_for_voltage_band
         )
-        config = config_builder(
+        config = config_override or config_builder(
             self.q2rtx_config,
             initial_target_voltage_mv=int(self.start_voltage_mv),
             candidate_voltage_mv=int(candidate.voltage_mv),

@@ -32,6 +32,10 @@ def _args(**overrides):
         "auto_uv_voltage_scan": False,
         "silent_fan_curve": False,
         "auto_uv_mode": None,
+        "overlay_toggle": False,
+        "overlay_visible": None,
+        "overlay_detail_next": False,
+        "overlay_detail": None,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -157,6 +161,97 @@ def test_main_command_routing_updates_main_gpu_without_loading_config(
     assert result.handled is True
     assert calls["main_gpu"] == [expected_uuid]
     assert calls["prints"][0][0] == (expected_text,)
+
+
+def test_main_command_routing_controls_the_overlay_without_loading_config(
+    monkeypatch,
+    tmp_path,
+):
+    # A key binding fires these at a running game; loading the runtime config
+    # would be pointless work on a path that has to answer in milliseconds.
+    monkeypatch.setenv("PENGUIN_BURNER_OVERLAY_CONFIG", str(tmp_path / "overlay.toml"))
+    monkeypatch.setenv(
+        "PENGUIN_BURNER_OVERLAY_OVERRIDE", str(tmp_path / "overlay-override")
+    )
+    deps, calls = _deps(
+        load_config=lambda _path: (_ for _ in ()).throw(
+            AssertionError("config should not be loaded")
+        )
+    )
+
+    result = route_main_command(
+        args=_args(overlay_toggle=True),
+        argv=["--overlay-toggle"],
+        explicit_cli_args=True,
+        interactive=False,
+        dependencies=deps,
+    )
+
+    assert result.handled is True
+    # No overlay.toml means the game launched with the overlay hidden, so the
+    # first press shows it.
+    assert calls["prints"][0][0] == ("Overlay shown.",)
+    assert (tmp_path / "overlay-override").read_text(encoding="ascii") == "1"
+
+
+def test_main_command_routing_sets_the_overlay_detail_level(monkeypatch, tmp_path):
+    monkeypatch.setenv("PENGUIN_BURNER_OVERLAY_CONFIG", str(tmp_path / "overlay.toml"))
+    deps, calls = _deps()
+
+    result = route_main_command(
+        args=_args(overlay_detail="detailed"),
+        argv=["--overlay-detail", "detailed"],
+        explicit_cli_args=True,
+        interactive=False,
+        dependencies=deps,
+    )
+
+    assert result.handled is True
+    assert calls["prints"][0][0] == ("Overlay preset: Large.",)
+
+
+@pytest.mark.parametrize("flag, expected", [
+    ("overlay_scale_down", "Overlay scale: 0.75x."),
+    ("overlay_scale_up", "Overlay scale: 1.5x."),
+    ("overlay_position_prev", "Overlay position: top center."),
+    ("overlay_position_next", "Overlay position: bottom left."),
+])
+def test_overlay_scale_and_position_route_without_runtime_config(monkeypatch, tmp_path, flag, expected):
+    monkeypatch.setenv("PENGUIN_BURNER_OVERLAY_CONFIG", str(tmp_path / "overlay.toml"))
+    deps, calls = _deps(load_config=lambda _: pytest.fail("runtime config must not be loaded"))
+    result = route_main_command(
+        args=parse_arguments(["--" + flag.replace("_", "-")]),
+        argv=["--" + flag.replace("_", "-")],
+        explicit_cli_args=True, interactive=False, dependencies=deps,
+    )
+    assert result.handled is True
+    assert calls["prints"][0][0] == (expected,)
+
+
+def test_main_command_routing_rejects_two_overlay_actions_at_once(tmp_path):
+    deps, _calls = _deps()
+
+    with pytest.raises(NvmlError, match="choose only one of --overlay-toggle"):
+        route_main_command(
+            args=_args(overlay_toggle=True, overlay_detail_next=True),
+            argv=["--overlay-toggle", "--overlay-detail-next"],
+            explicit_cli_args=True,
+            interactive=False,
+            dependencies=deps,
+        )
+
+
+def test_main_command_routing_reports_an_unknown_detail_level_as_an_error(tmp_path):
+    deps, _calls = _deps()
+
+    with pytest.raises(NvmlError, match="overlay control failed"):
+        route_main_command(
+            args=_args(overlay_detail="extreme"),
+            argv=["--overlay-detail", "extreme"],
+            explicit_cli_args=True,
+            interactive=False,
+            dependencies=deps,
+        )
 
 
 def test_main_command_routing_rejects_set_and_clear_main_gpu_together():

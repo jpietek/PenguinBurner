@@ -20,6 +20,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -186,15 +187,19 @@ def make_daemon(tmp_path, monkeypatch, write_desktop_rtd3_tree):
 
 @pytest.fixture
 def rpc_spy(monkeypatch):
-    """Record every (request, result) round-trip while still using the REAL
+    """Record the test thread's (request, result) round-trips using the REAL
     socket transport -- the daemon's echoed ``mock_ops`` prove which backend
     ops it executed for each write."""
     calls: list[tuple[dict, dict]] = []
     real = daemon_client.daemon_payload_request
+    test_thread = threading.get_ident()
 
     def spy(request, **kwargs):
         result = real(request, **kwargs)
-        calls.append((request, result))
+        # GUI polling from other tests can still complete in worker threads.
+        # It is unrelated to the synchronous GPU writes asserted here.
+        if threading.get_ident() == test_thread:
+            calls.append((request, result))
         return result
 
     monkeypatch.setattr(daemon_client, "daemon_payload_request", spy)
@@ -244,6 +249,7 @@ def test_typed_gpu_read_snapshots_route_through_daemon(make_daemon, rpc_spy):
     assert capabilities["gpu_count"] == 1
     assert capabilities["supported_core_clock_steps_mhz"] == [1800, 1900, 2000, 2100]
     assert telemetry["temperature_c"] == 55.0
+    assert telemetry["hotspot_temperature_c"] == 68.25
     assert telemetry["fan_speeds_pct"] == [42, 43]
     assert telemetry["voltage_mv"] == 900
     assert vf_snapshot["points"] == [
@@ -273,6 +279,16 @@ def test_daemon_capability_gate_rejects_missing_feature(make_daemon):
         match="missing required capabilities: future-feature-v9",
     ):
         daemon_client.require_daemon_capabilities("future-feature-v9")
+
+
+def test_hotspot_query_failure_leaves_socket_telemetry_usable(make_daemon):
+    make_daemon(mock_fail="hotspot_temperature_c")
+
+    telemetry = DaemonGpuClient(0).telemetry(refresh=True)
+
+    assert telemetry.hotspot_temperature_c is None
+    assert telemetry.temperature_c == 55.0
+    assert telemetry.voltage_mv == 900.0
 
 
 def test_apply_power_limit_routes_watts_through_daemon(make_daemon, rpc_spy):

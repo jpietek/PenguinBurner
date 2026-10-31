@@ -75,6 +75,7 @@ jobs:
                 glibc-devel.i686 libstdc++-devel.i686 libgcc.i686 \
                 gcc-toolset-14-libstdc++-devel.i686
             fi
+            bash {project}/scripts/prepare-manylinux-mingw.sh
             export RUSTUP_HOME=/opt/rust/rustup CARGO_HOME=/opt/rust/cargo
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.82.0 --no-modify-path
         run: python -m cibuildwheel --platform linux --output-dir dist

@@ -6,12 +6,12 @@ from auto_uv.domain.types import TelemetrySample
 from auto_uv.domain.user_options import (
     AUTO_UV_STALL_TUNING,
 )
-from auto_uv.probes.runtime_guardrails import (
-    probe_failure_should_mark_voltage_unsafe,
-)
 from auto_uv.probes.live_abort import (
     selected_nvidia_gpu_idle_abort_reason,
     telemetry_live_abort_reason,
+)
+from auto_uv.probes.runtime_guardrails import (
+    probe_failure_should_mark_voltage_unsafe,
 )
 
 
@@ -90,18 +90,21 @@ def test_selected_gpu_idle_failure_does_not_blacklist_voltage() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_selected_gpu_idle_skips_when_elapsed_below_min() -> None:
+@pytest.mark.parametrize("elapsed_s", [0.0, 23.0, 97.0])
+def test_selected_gpu_idle_waits_for_measurement_event(elapsed_s: float) -> None:
     samples = [_sample(float(i), gpu_util_pct=0.0, power_w=4.5) for i in range(5, 24)]
     state = {
-        "elapsed_s": AUTO_UV_STALL_TUNING.selected_gpu_idle_min_s - 1.0,
+        "elapsed_s": elapsed_s,
+        "running": "q2rtx",
+        "benchmark_phase": "startup",
         "telemetry_samples": samples,
     }
 
     assert selected_nvidia_gpu_idle_abort_reason(state) is None
 
 
-def test_selected_gpu_idle_skips_with_too_few_warmed_samples() -> None:
-    # Only a couple of post-warmup samples -> below selected_gpu_idle_min_samples.
+def test_selected_gpu_idle_skips_with_too_few_measured_samples() -> None:
+    # A couple of measured samples cannot establish sustained idle rendering.
     samples = [_sample(float(i), gpu_util_pct=0.0, power_w=4.5) for i in range(6, 9)]
     state = {"elapsed_s": 30.0, "telemetry_samples": samples}
 

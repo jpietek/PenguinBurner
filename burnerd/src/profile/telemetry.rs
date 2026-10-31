@@ -7,6 +7,7 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use tempfile::NamedTempFile;
 
@@ -15,6 +16,7 @@ use crate::paths;
 
 use super::cpu::ProcessCpuUsageSampler;
 use super::floor_div;
+use super::host::{self, CpuPowerSampler};
 use super::runtime_spec::profile_tier_label;
 use super::LatencySnapshot;
 
@@ -57,22 +59,46 @@ pub struct OverlayState {
     pub voltage_mv: Option<i64>,
     pub power_w: Option<i64>,
     pub gpu_util_pct: Option<i64>,
+    /// VRAM in whole mebibytes. The formatter decides whether to show GiB with
+    /// a decimal; keeping the state file integral keeps it diffable.
+    pub vram_used_mb: Option<i64>,
+    pub vram_total_mb: Option<i64>,
+    pub mem_clock_mhz: Option<i64>,
     pub cpu_util_pct: Option<i64>,
     pub cpu_peak_thread_pct: Option<i64>,
+    /// System memory, in the same mebibytes as the card's VRAM.
+    pub ram_used_mb: Option<i64>,
+    pub ram_total_mb: Option<i64>,
+    /// CPU package temperature and power. Absent on a box whose sensors we do
+    /// not recognise, which makes the overlay omit the row.
+    pub cpu_temp_c: Option<i64>,
+    pub cpu_power_w: Option<i64>,
     pub fan_pct: Option<i64>,
     pub temperature_c: Option<i64>,
+    pub hotspot_temperature_c: Option<i64>,
     pub uv_offset_mv: Option<i64>,
     pub present_fps: String,
     pub fps_source: String,
     pub framegen_fps: String,
     pub framegen_active: bool,
+    /// Legacy field retains p95; newer overlays prefer latency_avg_ms.
     pub latency_ms: String,
+    pub nr_gpu_ms: String,
+    pub latency_avg_ms: String,
+    pub latency_source: String,
     pub display_latency_ms: String,
     pub profile_tier: String,
     pub profile_tier_key: String,
     pub profile_id: String,
     pub adaptive: bool,
     pub updated_unix_ns: i64,
+}
+
+/// Whole mebibytes, rounded to nearest. NVML's byte counts are exact, so the
+/// rounding is the only lossy step and it happens once, here.
+fn bytes_to_mib(bytes: u64) -> i64 {
+    const MIB: u64 = 1024 * 1024;
+    ((bytes + MIB / 2) / MIB) as i64
 }
 
 fn escape_value(value: &str) -> String {
@@ -83,7 +109,7 @@ fn value_text(value: Option<i64>) -> String {
     value.map(|v| v.to_string()).unwrap_or_default()
 }
 
-/// Render the file body (all 22 keys, exact order, `key=value\n`).
+/// Render the file body (all 32 keys, exact order, `key=value\n`).
 pub fn render_overlay_state(state: &OverlayState) -> String {
     let updated = if state.updated_unix_ns > 0 {
         state.updated_unix_ns
@@ -91,7 +117,7 @@ pub fn render_overlay_state(state: &OverlayState) -> String {
         super::now_unix_ns()
     };
     let bool_text = |b: bool| if b { "1" } else { "0" };
-    let pairs: [(&str, String); 22] = [
+    let pairs: [(&str, String); 32] = [
         ("version", "1".to_string()),
         ("updated_unix_ns", updated.to_string()),
         ("gpu_index", state.gpu_index.to_string()),
@@ -99,10 +125,21 @@ pub fn render_overlay_state(state: &OverlayState) -> String {
         ("voltage_mv", value_text(state.voltage_mv)),
         ("power_w", value_text(state.power_w)),
         ("gpu_util_pct", value_text(state.gpu_util_pct)),
+        ("vram_used_mb", value_text(state.vram_used_mb)),
+        ("vram_total_mb", value_text(state.vram_total_mb)),
+        ("mem_clock_mhz", value_text(state.mem_clock_mhz)),
         ("cpu_util_pct", value_text(state.cpu_util_pct)),
         ("cpu_peak_thread_pct", value_text(state.cpu_peak_thread_pct)),
+        ("ram_used_mb", value_text(state.ram_used_mb)),
+        ("ram_total_mb", value_text(state.ram_total_mb)),
+        ("cpu_temp_c", value_text(state.cpu_temp_c)),
+        ("cpu_power_w", value_text(state.cpu_power_w)),
         ("fan_pct", value_text(state.fan_pct)),
         ("temperature_c", value_text(state.temperature_c)),
+        (
+            "hotspot_temperature_c",
+            value_text(state.hotspot_temperature_c),
+        ),
         ("uv_offset_mv", value_text(state.uv_offset_mv)),
         ("present_fps", state.present_fps.clone()),
         ("fps_source", state.fps_source.clone()),
@@ -112,6 +149,8 @@ pub fn render_overlay_state(state: &OverlayState) -> String {
             bool_text(state.framegen_active).to_string(),
         ),
         ("latency_ms", state.latency_ms.clone()),
+        ("latency_avg_ms", state.latency_avg_ms.clone()),
+        ("latency_source", state.latency_source.clone()),
         ("display_latency_ms", state.display_latency_ms.clone()),
         ("profile_tier", state.profile_tier.clone()),
         ("profile_tier_key", state.profile_tier_key.clone()),
@@ -123,6 +162,11 @@ pub fn render_overlay_state(state: &OverlayState) -> String {
         text.push_str(key);
         text.push('=');
         text.push_str(&escape_value(value));
+        text.push('\n');
+    }
+    if !state.nr_gpu_ms.is_empty() {
+        text.push_str("nr_gpu_ms=");
+        text.push_str(&escape_value(&state.nr_gpu_ms));
         text.push('\n');
     }
     text
@@ -273,6 +317,24 @@ fn hold_ns_from_interval(interval_s: f64, min_hold_s: f64) -> i64 {
     super::round_half_even(hold_s * 1_000_000_000.0) as i64
 }
 
+/// The procfs and sysfs trees the host readings are taken from.
+#[derive(Debug, Clone)]
+pub struct HostSources {
+    pub meminfo: PathBuf,
+    pub hwmon_root: PathBuf,
+    pub powercap_root: PathBuf,
+}
+
+impl Default for HostSources {
+    fn default() -> Self {
+        HostSources {
+            meminfo: PathBuf::from("/proc/meminfo"),
+            hwmon_root: PathBuf::from("/sys/class/hwmon"),
+            powercap_root: PathBuf::from("/sys/class/powercap"),
+        }
+    }
+}
+
 pub struct OverlayStatePublisher {
     pub gpu_index: i64,
     pub enabled: bool,
@@ -283,6 +345,11 @@ pub struct OverlayStatePublisher {
     pub adaptive: bool,
     pub path: Option<PathBuf>,
     process_cpu_sampler: Option<ProcessCpuUsageSampler>,
+    /// Where the host readings come from. Real paths in production, temporary
+    /// directories under test -- the sensors cannot be faked any other way.
+    pub host_sources: HostSources,
+    cpu_power: CpuPowerSampler,
+    last_host_sample_ns: Option<i64>,
 
     last_cpu_util_pct: Option<i64>,
     last_cpu_peak_thread_pct: Option<i64>,
@@ -299,6 +366,8 @@ pub struct OverlayStatePublisher {
     last_fps_ns: Option<i64>,
 
     last_latency_ms: Option<String>,
+    last_latency_avg_ms: Option<String>,
+    last_latency_source: Option<String>,
     last_display_latency_ms: Option<String>,
     last_latency_pid: Option<String>,
     last_latency_ns: Option<i64>,
@@ -326,6 +395,9 @@ impl OverlayStatePublisher {
             adaptive,
             path: None,
             process_cpu_sampler,
+            host_sources: HostSources::default(),
+            cpu_power: CpuPowerSampler::new(),
+            last_host_sample_ns: None,
             last_cpu_util_pct: None,
             last_cpu_peak_thread_pct: None,
             last_cpu_metric_ns: None,
@@ -339,6 +411,8 @@ impl OverlayStatePublisher {
             last_fps_pid: None,
             last_fps_ns: None,
             last_latency_ms: None,
+            last_latency_avg_ms: None,
+            last_latency_source: None,
             last_display_latency_ms: None,
             last_latency_pid: None,
             last_latency_ns: None,
@@ -387,6 +461,14 @@ impl OverlayStatePublisher {
         let gpu_util_pct = backend.gpu_utilization_pct().map(i64::from);
         self.last_published_gpu_util_pct = gpu_util_pct;
 
+        // VRAM and the memory clock. NVML reports bytes; a HUD wants whole
+        // mebibytes, and a card that does not report one of these omits the
+        // row rather than showing a zero that reads like a real measurement.
+        let memory = backend.memory_info();
+        let vram_used_mb = memory.as_ref().map(|m| bytes_to_mib(m.used_bytes));
+        let vram_total_mb = memory.as_ref().map(|m| bytes_to_mib(m.total_bytes));
+        let mem_clock_mhz = backend.clock_info_mhz(ClockType::Memory).map(i64::from);
+
         // CPU metrics (need a pid from the latency snapshot).
         let mut cpu_util_pct = None;
         let mut cpu_peak_thread_pct = None;
@@ -402,6 +484,24 @@ impl OverlayStatePublisher {
         self.last_published_cpu_util_pct = cpu_util_pct;
         self.last_published_cpu_peak_thread_pct = cpu_peak_thread_pct;
 
+        // Host readings. Power is energy over time, so it needs the gap since
+        // the previous tick; the first tick after start reports none.
+        let memory = host::read_memory(&self.host_sources.meminfo);
+        let ram_used_mb = memory.map(|m| m.used_mb);
+        let ram_total_mb = memory.map(|m| m.total_mb);
+        let cpu_temp_c = host::read_cpu_temperature_c(&self.host_sources.hwmon_root)
+            .map(|t| super::round_half_even(t) as i64);
+        let elapsed = self
+            .last_host_sample_ns
+            .filter(|previous| now_ns > *previous)
+            .map(|previous| Duration::from_nanos((now_ns - previous) as u64))
+            .unwrap_or_default();
+        self.last_host_sample_ns = Some(now_ns);
+        let cpu_power_w = self
+            .cpu_power
+            .sample(&self.host_sources.powercap_root, elapsed)
+            .map(|w| super::round_half_even(w) as i64);
+
         let fan_count = backend.fan_count().unwrap_or(0);
         let fan_pct = backend.reported_fan_speeds(fan_count).and_then(|speeds| {
             if speeds.is_empty() {
@@ -414,6 +514,9 @@ impl OverlayStatePublisher {
         let temperature_c = backend
             .temperature_c()
             .ok()
+            .map(|t| super::round_half_even(t) as i64);
+        let hotspot_temperature_c = backend
+            .hotspot_temperature_c()
             .map(|t| super::round_half_even(t) as i64);
         let voltage_mv = backend
             .read_voltage_uv()
@@ -436,10 +539,11 @@ impl OverlayStatePublisher {
 
         let (present_fps, fps_source, framegen_fps, framegen_active) =
             self.overlay_fps_values(latency_snapshot, now_ns);
-        let (latency_ms, display_latency_ms) = match latency_snapshot {
-            Some(snapshot) => self.overlay_latency_values(snapshot, now_ns),
-            None => (String::new(), String::new()),
-        };
+        let (latency_avg_ms, latency_ms, latency_source, display_latency_ms) =
+            match latency_snapshot {
+                Some(snapshot) => self.overlay_latency_values(snapshot, now_ns),
+                None => (String::new(), String::new(), String::new(), String::new()),
+            };
 
         OverlayState {
             gpu_index: self.gpu_index,
@@ -447,16 +551,31 @@ impl OverlayStatePublisher {
             voltage_mv,
             power_w,
             gpu_util_pct,
+            vram_used_mb,
+            vram_total_mb,
+            mem_clock_mhz,
             cpu_util_pct,
             cpu_peak_thread_pct,
+            ram_used_mb,
+            ram_total_mb,
+            cpu_temp_c,
+            cpu_power_w,
             fan_pct,
             temperature_c,
+            hotspot_temperature_c,
             uv_offset_mv: uv,
             present_fps,
             fps_source,
             framegen_fps,
             framegen_active,
             latency_ms,
+            nr_gpu_ms: latency_snapshot
+                .and_then(|s| s.nr_gpu_ms)
+                .filter(|v| v.is_finite() && *v > 0.0)
+                .map(|v| format!("{v:.2}"))
+                .unwrap_or_default(),
+            latency_avg_ms,
+            latency_source,
             display_latency_ms,
             profile_tier: label,
             profile_tier_key: self.profile_tier_key.clone(),
@@ -559,18 +678,27 @@ impl OverlayStatePublisher {
         &mut self,
         snapshot: &LatencySnapshot,
         now_ns: i64,
-    ) -> (String, String) {
+    ) -> (String, String, String, String) {
         let latency_pid = identity_from_snapshot(snapshot);
+        let latency_avg_ms = rounded_text(snapshot.latency_avg_ms);
         let latency_ms = rounded_text(snapshot.latency_p95_ms);
+        let latency_source = snapshot.latency_source.clone().unwrap_or_default();
         let display_latency_ms = rounded_text(snapshot.display_latency_p95_ms);
-        if !latency_ms.is_empty() {
+        if !latency_avg_ms.is_empty() {
+            self.last_latency_avg_ms = Some(latency_avg_ms.clone());
             self.last_latency_ms = Some(latency_ms.clone());
+            self.last_latency_source = Some(latency_source.clone());
             self.last_display_latency_ms = Some(display_latency_ms.clone());
             self.last_latency_pid = latency_pid;
             self.last_latency_ns = Some(now_ns);
-            return (latency_ms, display_latency_ms);
+            return (
+                latency_avg_ms,
+                latency_ms,
+                latency_source,
+                display_latency_ms,
+            );
         }
-        let matches = self.last_latency_ms.is_some()
+        let matches = self.last_latency_avg_ms.is_some()
             && self.last_latency_pid.is_some()
             && latency_pid.is_some()
             && self.last_latency_pid == latency_pid;
@@ -579,15 +707,19 @@ impl OverlayStatePublisher {
         });
         if matches && fresh {
             return (
+                self.last_latency_avg_ms.clone().unwrap_or_default(),
                 self.last_latency_ms.clone().unwrap_or_default(),
+                self.last_latency_source.clone().unwrap_or_default(),
                 self.last_display_latency_ms.clone().unwrap_or_default(),
             );
         }
+        self.last_latency_avg_ms = None;
         self.last_latency_ms = None;
+        self.last_latency_source = None;
         self.last_display_latency_ms = None;
         self.last_latency_pid = None;
         self.last_latency_ns = None;
-        (String::new(), String::new())
+        (String::new(), String::new(), String::new(), String::new())
     }
 }
 
@@ -649,16 +781,27 @@ mod tests {
             voltage_mv: Some(925),
             power_w: Some(318),
             gpu_util_pct: Some(97),
+            vram_used_mb: Some(9626),
+            vram_total_mb: Some(16376),
+            mem_clock_mhz: Some(10501),
             cpu_util_pct: Some(32),
             cpu_peak_thread_pct: Some(98),
+            ram_used_mb: Some(14540),
+            ram_total_mb: Some(32768),
+            cpu_temp_c: Some(61),
+            cpu_power_w: Some(88),
             fan_pct: Some(62),
             temperature_c: Some(67),
+            hotspot_temperature_c: Some(79),
             uv_offset_mv: Some(-75),
             present_fps: "119".into(),
             fps_source: "native".into(),
             framegen_fps: "176".into(),
             framegen_active: true,
-            latency_ms: "23".into(),
+            latency_ms: "30".into(),
+            latency_avg_ms: "23".into(),
+            latency_source: "simulation-to-gpu".into(),
+            nr_gpu_ms: String::new(),
             display_latency_ms: "4".into(),
             profile_tier: "Balanced".into(),
             profile_tier_key: "balanced".into(),
@@ -666,7 +809,7 @@ mod tests {
             adaptive: false,
             updated_unix_ns: 1751889600123456789,
         };
-        let expected = "version=1\nupdated_unix_ns=1751889600123456789\ngpu_index=0\nclock_mhz=2820\nvoltage_mv=925\npower_w=318\ngpu_util_pct=97\ncpu_util_pct=32\ncpu_peak_thread_pct=98\nfan_pct=62\ntemperature_c=67\nuv_offset_mv=-75\npresent_fps=119\nfps_source=native\nframegen_fps=176\nframegen_active=1\nlatency_ms=23\ndisplay_latency_ms=4\nprofile_tier=Balanced\nprofile_tier_key=balanced\nprofile_id=uv_925mv_2820mhz\nadaptive=0\n";
+        let expected = "version=1\nupdated_unix_ns=1751889600123456789\ngpu_index=0\nclock_mhz=2820\nvoltage_mv=925\npower_w=318\ngpu_util_pct=97\nvram_used_mb=9626\nvram_total_mb=16376\nmem_clock_mhz=10501\ncpu_util_pct=32\ncpu_peak_thread_pct=98\nram_used_mb=14540\nram_total_mb=32768\ncpu_temp_c=61\ncpu_power_w=88\nfan_pct=62\ntemperature_c=67\nhotspot_temperature_c=79\nuv_offset_mv=-75\npresent_fps=119\nfps_source=native\nframegen_fps=176\nframegen_active=1\nlatency_ms=30\nlatency_avg_ms=23\nlatency_source=simulation-to-gpu\ndisplay_latency_ms=4\nprofile_tier=Balanced\nprofile_tier_key=balanced\nprofile_id=uv_925mv_2820mhz\nadaptive=0\n";
         assert_eq!(render_overlay_state(&state), expected);
     }
 
@@ -684,8 +827,19 @@ mod tests {
             updated_unix_ns: 1751889600123456789,
             ..Default::default()
         };
-        let expected = "version=1\nupdated_unix_ns=1751889600123456789\ngpu_index=0\nclock_mhz=210\nvoltage_mv=\npower_w=15\ngpu_util_pct=0\ncpu_util_pct=\ncpu_peak_thread_pct=\nfan_pct=30\ntemperature_c=41\nuv_offset_mv=\npresent_fps=\nfps_source=\nframegen_fps=\nframegen_active=0\nlatency_ms=\ndisplay_latency_ms=\nprofile_tier=Balanced\nprofile_tier_key=balanced\nprofile_id=\nadaptive=0\n";
+        let expected = "version=1\nupdated_unix_ns=1751889600123456789\ngpu_index=0\nclock_mhz=210\nvoltage_mv=\npower_w=15\ngpu_util_pct=0\nvram_used_mb=\nvram_total_mb=\nmem_clock_mhz=\ncpu_util_pct=\ncpu_peak_thread_pct=\nram_used_mb=\nram_total_mb=\ncpu_temp_c=\ncpu_power_w=\nfan_pct=30\ntemperature_c=41\nhotspot_temperature_c=\nuv_offset_mv=\npresent_fps=\nfps_source=\nframegen_fps=\nframegen_active=0\nlatency_ms=\nlatency_avg_ms=\nlatency_source=\ndisplay_latency_ms=\nprofile_tier=Balanced\nprofile_tier_key=balanced\nprofile_id=\nadaptive=0\n";
         assert_eq!(render_overlay_state(&state), expected);
+    }
+
+    #[test]
+    fn mebibytes_round_to_nearest() {
+        assert_eq!(bytes_to_mib(0), 0);
+        assert_eq!(bytes_to_mib(1024 * 1024), 1);
+        // 1.5 MiB rounds up, 1.4 rounds down: the state file carries whole
+        // mebibytes and the rounding happens once, here.
+        assert_eq!(bytes_to_mib(1024 * 1024 * 3 / 2), 2);
+        assert_eq!(bytes_to_mib(1024 * 1024 * 7 / 5), 1);
+        assert_eq!(bytes_to_mib(16_101_146_624), 15355);
     }
 
     #[test]
@@ -694,10 +848,87 @@ mod tests {
     }
 
     #[test]
+    fn publisher_clears_hotspot_when_sensor_becomes_unavailable() {
+        let mut backend = crate::gpu::mock::MockGpu::new();
+        backend.temperature_c = 67.0;
+        backend.hotspot_temperature_c = Some(79.25);
+        let mut publisher = OverlayStatePublisher::new(
+            0,
+            true,
+            1.0,
+            String::new(),
+            String::new(),
+            String::new(),
+            false,
+            None,
+        );
+        let state = publisher.build_state(&backend, None, 1);
+        assert_eq!(state.hotspot_temperature_c, Some(79));
+        assert!(render_overlay_state(&state).contains("hotspot_temperature_c=79\n"));
+        backend.hotspot_temperature_c = None;
+        let state = publisher.build_state(&backend, None, 2);
+        assert_eq!(state.temperature_c, Some(67));
+        assert_eq!(state.hotspot_temperature_c, None);
+        assert!(render_overlay_state(&state).contains("hotspot_temperature_c=\n"));
+    }
+
+    #[test]
     fn telemetry_number_parses() {
         let text = "temp=67.0C fan=62% gpu_clock=2820MHz voltage=925mV";
         assert_eq!(telemetry_number(text, "gpu_clock", "MHz"), Some(2820.0));
         assert_eq!(telemetry_number(text, "voltage", "mV"), Some(925.0));
         assert_eq!(telemetry_number(text, "missing", "MHz"), None);
+    }
+
+    #[test]
+    fn latency_provenance_survives_hold_and_clears_with_its_value() {
+        let mut publisher = OverlayStatePublisher::new(
+            0,
+            true,
+            1.0,
+            String::new(),
+            String::new(),
+            String::new(),
+            false,
+            None,
+        );
+        let mut snapshot = LatencySnapshot {
+            session_id: Some("session".into()),
+            latency_avg_ms: Some(80.0),
+            latency_p95_ms: Some(100.0),
+            latency_source: Some("simulation-to-gpu".into()),
+            display_latency_p95_ms: Some(4.0),
+            ..Default::default()
+        };
+        let measured = (
+            "80".into(),
+            "100".into(),
+            "simulation-to-gpu".into(),
+            "4".into(),
+        );
+        assert_eq!(publisher.overlay_latency_values(&snapshot, 1), measured);
+        snapshot.latency_avg_ms = None;
+        snapshot.latency_p95_ms = None;
+        snapshot.latency_source = None;
+        assert_eq!(
+            publisher.overlay_latency_values(&snapshot, 1_000_000_001),
+            measured
+        );
+        assert_eq!(
+            publisher.overlay_latency_values(&snapshot, 4_000_000_001),
+            (String::new(), String::new(), String::new(), String::new()),
+        );
+        snapshot.latency_avg_ms = Some(20.0);
+        snapshot.latency_p95_ms = Some(25.0);
+        snapshot.latency_source = Some("marker-estimate".into());
+        assert_eq!(
+            publisher.overlay_latency_values(&snapshot, 5_000_000_001),
+            (
+                "20".into(),
+                "25".into(),
+                "marker-estimate".into(),
+                "4".into()
+            ),
+        );
     }
 }

@@ -30,4 +30,10 @@ def telemetry_sample_is_busy(sample, busy_power_floor_w: float | None) -> bool:
 def probe_failure_should_mark_voltage_unsafe(reason: str) -> bool:
     if controlled_failure_reason(reason):
         return False
-    return not str(reason).startswith(("q2rtx-selected-nvidia-gpu-idle", "user-stop-requested", "busy core-clock telemetry missing"))
+    return not str(reason).startswith((
+        "benchmark-companion-start-missing",
+        "benchmark-startup-timeout",
+        "q2rtx-selected-nvidia-gpu-idle",
+        "user-stop-requested",
+        "busy core-clock telemetry missing",
+    ))

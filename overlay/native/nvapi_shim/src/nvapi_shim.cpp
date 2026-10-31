@@ -33,6 +33,7 @@
 #endif
 #include <windows.h>
 
+#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -40,6 +41,8 @@
 #include <fcntl.h>
 #include <io.h>
 #include <sys/stat.h>
+#include "nr_telemetry.h"
+#include "reflex_report.h"
 
 namespace {
 
@@ -130,7 +133,7 @@ NvU64 qpc_us() {
 // samples beat a frozen game -- and a diagnostic line reports the drop count
 // once the output drains again.
 constexpr int kRingSlots = 256;  // ~3.4 s of markers at ~75 lines/s
-constexpr int kSlotBytes = 192;  // >= emit_marker's buffer; lines are ~90 B
+constexpr int kSlotBytes = pb_reflex::kLineBytes;
 char g_ring[kRingSlots][kSlotBytes];
 int g_ring_len[kRingSlots];
 int g_ring_head = 0;  // producer: next slot to fill
@@ -216,6 +219,17 @@ DWORD WINAPI writer_main(LPVOID) {
 }
 
 void start_writer_thread() {
+    // A caller may query NVAPI during DLL_PROCESS_ATTACH and immediately
+    // FreeLibrary its probe handle (OptiScaler does this). The new thread
+    // cannot run until the loader lock is released, so it could otherwise
+    // start after our code and globals have already been unmapped. The writer
+    // lives until process exit; keep its DLL alive for that same lifetime.
+    HMODULE pinned = nullptr;
+    if (!GetModuleHandleExA(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+            reinterpret_cast<LPCSTR>(&writer_main), &pinned)) {
+        return;  // No background thread may outlive an unpinned module.
+    }
     g_wake = CreateEventA(nullptr, FALSE, FALSE, nullptr);
     if (g_wake == nullptr) {
         return;  // emit_raw falls back to direct writes
@@ -311,6 +325,8 @@ BOOL CALLBACK init_once(PINIT_ONCE, PVOID, PVOID*) {
     g_pid = GetCurrentProcessId();
     open_output();
     start_writer_thread();
+    const char* nr_timing = std::getenv("PENGUIN_BURNER_NR_TIMING");
+    if (nr_timing && std::strcmp(nr_timing, "1") == 0) start_nr_telemetry(emit_raw);
     bool ok = load_real();
     char banner[256];
     int len = std::snprintf(
@@ -345,12 +361,18 @@ void ensure_init() {
 //     benign status instead of dereferencing null.
 //   * We never block the caller: emits go through the ring buffer above, and a
 //     stalled output pipe drops lines instead of stalling the frame loop.
+void poll_latency_report(void* dev, ULONGLONG now);
+
 NvAPI_Status __cdecl wrap_set_latency_marker(void* dev, NvLatencyMarkerParams* p) {
     PfnSetLatencyMarker real = g_real_set_marker;
     if (p && !IsBadReadPtr(p, kMarkerReadBytes)) {
         emit_marker(p->frameID, p->markerType);
     }
-    return real ? real(dev, p) : 0;
+    const auto status = real ? real(dev, p) : 0;
+    if (real && status == 0 && p && !IsBadReadPtr(p, kMarkerReadBytes)
+        && p->version == (sizeof(NvLatencyMarkerParams) | (1u << 16))
+        && p->markerType == 5) poll_latency_report(dev, GetTickCount64());
+    return status;
 }
 
 NvAPI_Status __cdecl wrap_async_frame_marker(void* queue, NvAsyncFrameMarkerParams* p) {
@@ -361,9 +383,47 @@ NvAPI_Status __cdecl wrap_async_frame_marker(void* queue, NvAsyncFrameMarkerPara
     return real ? real(queue, p) : 0;
 }
 
+void emit_latency_report(void* dev, void* p, NvAPI_Status status) {
+    // Observe only successful V1 results after the driver has filled them.
+    // Unknown versions, failures and empty warm-up histories remain untouched.
+    if (status == 0 && p && !IsBadReadPtr(p, sizeof(uint32_t))
+        && *static_cast<const uint32_t*>(p) == pb_reflex::kVersion
+        && !IsBadReadPtr(p, sizeof(pb_reflex::LatencyResults))) {
+        char line[pb_reflex::kLineBytes];
+        const int length = pb_reflex::format_latest(
+            *static_cast<const pb_reflex::LatencyResults*>(p), g_pid,
+            reinterpret_cast<uintptr_t>(dev), line, sizeof(line));
+        if (length > 0) emit_raw(line, length);
+    }
+}
+
 NvAPI_Status __cdecl wrap_get_latency(void* dev, void* p) {
     PfnGetLatency real = g_real_get_latency;
-    return real ? real(dev, p) : 0;
+    if (!real) return 0;
+    const NvAPI_Status status = real(dev, p);
+    emit_latency_report(dev, p, status);
+    return status;
+}
+
+std::atomic<ULONGLONG> g_next_report_poll{0};
+void poll_latency_report(void* dev, ULONGLONG now) {
+    // Some games submit Reflex markers but never request the report history
+    // during frame generation. Query at most ten times per second, on the
+    // existing device call thread so no device pointer outlives its caller.
+    static thread_local bool polling = false;
+    if (!dev || polling) return;
+    auto next = g_next_report_poll.load(std::memory_order_relaxed);
+    if (now < next || !g_next_report_poll.compare_exchange_strong(next, now + 100,
+            std::memory_order_relaxed)) return;
+    PfnGetLatency real = g_real_get_latency;
+    if (!real && g_real_qi) real = reinterpret_cast<PfnGetLatency>(g_real_qi(kIdGetLatency));
+    if (!real) return;
+    polling = true;
+    pb_reflex::LatencyResults report{};
+    report.version = pb_reflex::kVersion;
+    const auto status = real(dev, &report);
+    emit_latency_report(dev, &report, status);
+    polling = false;
 }
 
 NvAPI_Status __cdecl wrap_set_sleep_mode(void* dev, void* p) {

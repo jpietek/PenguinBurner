@@ -11,6 +11,9 @@ from auto_uv.domain.user_options import AUTO_UV_DEFAULTS
 from auto_uv.scan_mode.auto_uv_mode import ADAPTIVE_TIER_MODES, AUTO_UV_MODES
 from common.penguin_burner_paths import default_runtime_config_path
 from integrations.afterburner.policy import MAX_AFTERBURNER_MEM_OFFSET_MHZ
+from overlay.config import OVERLAY_DETAIL_IDS
+from overlay.control import VISIBILITY_MODES
+from overlay.shortcuts import SHORTCUTS
 from runtime.support.runtime_service import DEFAULT_JOURNAL_HOURS
 from stability.q2rtx.resolution import Q2RTX_SCAN_RESOLUTIONS
 
@@ -36,6 +39,7 @@ def parse_arguments(argv):
 
     auto_uv_group = parser.add_argument_group("Auto-UV")
     steam_group = parser.add_argument_group("Steam overlay setup")
+    overlay_group = parser.add_argument_group("In-game overlay control")
     daemon_group = parser.add_argument_group("Runtime and daemon essentials")
     runtime_group = parser.add_argument_group("Runtime tuning")
     advanced_group = parser.add_argument_group("Advanced/debug")
@@ -195,6 +199,23 @@ def parse_arguments(argv):
             "seconds; equivalent to PENGUIN_BURNER_AUTO_UV_FINAL_SECONDS."
         ),
     )
+    for shortcut in SHORTCUTS:
+        overlay_group.add_argument(shortcut.flag, action="store_true", help=shortcut.help_text)
+    overlay_group.add_argument(
+        "--overlay-visible",
+        choices=VISIBILITY_MODES,
+        help=(
+            "Show, hide, or hand the overlay back to the game's launch setting "
+            "('auto'), then exit."
+        ),
+    )
+    overlay_group.add_argument(
+        "--overlay-detail",
+        choices=OVERLAY_DETAIL_IDS,
+        help=("Set the overlay preset and exit: minimal=Small, standard=Medium, "
+              "detailed=Large, full=Biggest; custom restores your selected fields."),
+    )
+    parser.add_argument("--overlay-graph", choices=("present", "display", "both"), help="Select frame timing graphs; displayed timing requires driver feedback.")
     steam_group.add_argument(
         "--set-steam-overlay-launch",
         metavar="APPID",

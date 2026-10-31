@@ -36,7 +36,7 @@ CIBW_ARCHS_LINUX=x86_64 \
 CIBW_BUILD=cp312-manylinux_x86_64 \
 CIBW_ENVIRONMENT="PENGUIN_BURNER_REQUIRE_NATIVE_LAYER=1 PENGUIN_BURNER_REQUIRE_NATIVE_LAYER32=1 PENGUIN_BURNER_REQUIRE_NVAPI_SHIM=1 PENGUIN_BURNER_REQUIRE_DAEMON=1 CARGO_HOME=/opt/rust/cargo RUSTUP_HOME=/opt/rust/rustup PATH=/opt/rust/cargo/bin:\$PATH" \
 CIBW_MANYLINUX_X86_64_IMAGE=manylinux_2_28 \
-CIBW_BEFORE_ALL_LINUX=$'if command -v dnf >/dev/null 2>&1; then\n  dnf install -y epel-release\n  dnf install -y vulkan-headers mingw64-gcc-c++ mingw64-winpthreads-static glibc-devel.i686 libstdc++-devel.i686 libgcc.i686 gcc-toolset-14-libstdc++-devel.i686\nelse\n  yum install -y epel-release\n  yum install -y vulkan-headers mingw64-gcc-c++ mingw64-winpthreads-static glibc-devel.i686 libstdc++-devel.i686 libgcc.i686 gcc-toolset-14-libstdc++-devel.i686\nfi\nexport RUSTUP_HOME=/opt/rust/rustup CARGO_HOME=/opt/rust/cargo\ncurl --proto \'=https\' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.82.0 --no-modify-path' \
+CIBW_BEFORE_ALL_LINUX=$'if command -v dnf >/dev/null 2>&1; then\n  dnf install -y epel-release\n  dnf install -y vulkan-headers mingw64-gcc-c++ mingw64-winpthreads-static glibc-devel.i686 libstdc++-devel.i686 libgcc.i686 gcc-toolset-14-libstdc++-devel.i686\nelse\n  yum install -y epel-release\n  yum install -y vulkan-headers mingw64-gcc-c++ mingw64-winpthreads-static glibc-devel.i686 libstdc++-devel.i686 libgcc.i686 gcc-toolset-14-libstdc++-devel.i686\nfi\nbash {project}/scripts/prepare-manylinux-mingw.sh\nexport RUSTUP_HOME=/opt/rust/rustup CARGO_HOME=/opt/rust/cargo\ncurl --proto \'=https\' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.82.0 --no-modify-path' \
     python3 -m cibuildwheel --platform linux --output-dir "$outdir"
 python3 -m twine check "$outdir"/*
 
@@ -85,6 +85,11 @@ for wheel in wheels:
             matches = [name for name in names if name.endswith(suffix)]
             if len(matches) != 1 or not archive.read(matches[0]).startswith(magic):
                 raise SystemExit(f"error: {wheel.name} has no valid {label} payload")
+        # The shim is copied into every fronted Proton prefix: an unstripped
+        # static build carries ~10 MB of libstdc++ DWARF it never needs.
+        shim = next(name for name in names if name.endswith("overlay/nvapi_shim/nvapi64.dll"))
+        if b".debug_info" in archive.read(shim):
+            raise SystemExit(f"error: {wheel.name} ships an unstripped NVAPI shim")
     print(
         f"verified {wheel.name}: wrapper, 64/32-bit Vulkan layers, NVAPI shim, and burnerd"
     )

@@ -88,7 +88,9 @@ def test_main_cli_help_removes_old_compat_flags(capsys):
         "--auto-uv-final-seconds",
         "--auto-uv-short-seconds",
         "--install-q2rtx",
-        "--overlay-toggle",
+        # --overlay-toggle is back on purpose: it is how a desktop shortcut
+        # reaches the overlay in a running game. --overlay-enable/-disable
+        # stay gone; --overlay-visible on|off|auto replaced the pair.
         "--overlay-enable",
         "--overlay-disable",
         "--check-latency-layer",
@@ -135,7 +137,6 @@ def test_main_cli_help_hides_internal_profile_verification_flags(capsys):
         ["--auto-uv-final-seconds", "600"],
         ["--auto-uv-short-seconds", "10"],
         ["--install-q2rtx"],
-        ["--overlay-toggle"],
         ["--overlay-enable"],
         ["--overlay-disable"],
         ["--check-latency-layer"],
@@ -146,6 +147,20 @@ def test_removed_main_cli_flags_are_rejected(argv):
     with pytest.raises(SystemExit) as exc:
         parse_arguments(argv)
     assert exc.value.code == 2
+
+
+def test_overlay_control_flags_are_accepted():
+    assert parse_arguments(["--overlay-toggle"]).overlay_toggle is True
+    assert parse_arguments(["--overlay-visible", "auto"]).overlay_visible == "auto"
+    assert parse_arguments(["--overlay-detail-next"]).overlay_detail_next is True
+    assert parse_arguments(["--overlay-detail", "full"]).overlay_detail == "full"
+
+
+def test_overlay_control_flags_reject_unknown_values():
+    for argv in (["--overlay-visible", "maybe"], ["--overlay-detail", "extreme"]):
+        with pytest.raises(SystemExit) as exc:
+            parse_arguments(argv)
+        assert exc.value.code == 2
 
 
 def test_auto_uv_power_limit_flag_is_accepted():

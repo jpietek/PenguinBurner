@@ -1,5 +1,5 @@
 Name:           penguin-burner
-Version:        0.8.3
+Version:        0.8.4
 Release:        1%{?dist}
 Summary:        Automatic NVIDIA GPU undervolting, overclocking, and per-game tuning
 
@@ -73,8 +73,8 @@ stock loaded clock at 272 W instead of 341 W.
  * The Game Library brings Steam, Lutris, Heroic and Faugus games into one list, each
    with its own GPU profile, adaptive FPS target, and overlay setting, applied
    at launch and restored on exit.
- * The in-game Vulkan overlay shows base FPS, frame-generation FPS, PC latency,
-   clocks, power, temperatures, and the active tier.
+ * The in-game Vulkan overlay shows base FPS, frame-generation FPS, frame
+   latency estimates, clocks, power, temperatures, and the active tier.
  * Manual V/F and fan curve editors, an automatic silent fan curve, MSI
    Afterburner profile import, and LACT config export.
  * A Qt desktop UI and a CLI, both driving one root systemd service
@@ -140,6 +140,10 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/io.github.jpietek.Pen
 %{_datadir}/penguin-burner/penguin_burner.sh
 
 %changelog
+* Sat Oct 31 2026 PenguinBurner contributors <noreply@github.com> - 0.8.4-1
+- Redesign the overlay with hotspot telemetry, display timing and shortcuts.
+- Improve latency capture, Auto-UV verification and Game Library defaults.
+
 * Mon Oct 12 2026 PenguinBurner contributors <noreply@github.com> - 0.8.3-1
 - Add Faugus support, improve Auto-UV recovery and multi-GPU selection.
 - Refresh Game Library artwork, documentation, and packaging.
