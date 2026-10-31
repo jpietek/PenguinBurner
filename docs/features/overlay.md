@@ -150,7 +150,8 @@ tab has, so the whole list is reachable without resizing the window:
 | Frame latency | Memory clock | CPU temperature | Resolution |
 | 1% low frame rate | Power draw | CPU power draw | Presentation mode |
 | Frame time · 97th percentile | GPU temperature | System memory |  |
-| Session minimum / average / maximum |  |  |  |
+| Session minimum / average / maximum | Hotspot temperature |  |  |
+| DLSS 5 neural rendering GPU time |  |  |  |
 | Frame time graph | GPU usage |  |  |
 |  | Fan speed |  |  |
 |  | Video memory |  |  |
@@ -185,6 +186,8 @@ to use, per game, with everything that implies for anti-cheat.
 
 | Default key | Command | What it does |
 | --- | --- | --- |
+| Alt+G | `penguin-burner-cli --overlay-graph-next` | Present calls → Displayed frames → Both |
+| Alt+O | `penguin-burner-cli --overlay-opacity-next` | Cycle background opacity |
 | Alt+C | `penguin-burner-cli --overlay-detail-next` | Small → Medium → Large → Biggest → Small |
 | Alt+[ | `penguin-burner-cli --overlay-scale-down` | Decrease Scale, stopping at 50% |
 | Alt+] | `penguin-burner-cli --overlay-scale-up` | Increase Scale, stopping at 200% |
@@ -309,7 +312,7 @@ In the Overlay tab's **GPU** section, enable **Hotspot C** to show the hottest
 GPU sensor separately from **Temp C**. The **HUD** layout gives it a `hotspot`
 row with a value such as `79 C`; **Table** shows `HOT 79 C` beside the core
 temperature. Both the desktop preview and the running overlay follow the saved
-toggle. It is off by default; the **Everything** detail preset includes it.
+toggle. It is off by default; the **Biggest** detail preset includes it.
 
 Support depends on the NVIDIA GPU and driver. Unsupported or temporarily
 unavailable readings are hidden, including in the preview when live telemetry
@@ -404,9 +407,17 @@ disables capture; `PENGUIN_BURNER_LATENCY_DISPLAY=0` disables only the independe
 presentation-wait diagnostic, which is never added to the frame-latency value.
 See [latency measurement](latency-fg.md) for endpoint and frame-generation limits.
 
-## DLSS5 neural-rendering GPU time
+<a id="dlss5-neural-rendering-gpu-time"></a>
 
-Enable **DLSS5 NR GPU time** in the Overlay tab, then launch or restart the
+## DLSS 5 neural-rendering GPU time
+
+DLSS 5 through OptiScaler works alongside the PenguinBurner overlay, so you
+can keep the HUD visible while using neural rendering. Configure DLSS 5 in
+your compatible OptiScaler setup; PenguinBurner also offers an optional
+NR GPU-time readout through the supported interfaces described below.
+
+To measure NR GPU time, enable the overlay and **DLSS 5 neural rendering GPU time**
+in the Overlay tab, then launch or restart the
 wrapped game. The overlay displays **dlss5 nr 2.20 ms**, for example. The setting
 is also available as `nr_gpu_ms` in the overlay configuration's `items` list.
 Changing visibility applies live; starting capture requires a game restart.

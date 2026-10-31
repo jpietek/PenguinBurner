@@ -15,6 +15,19 @@ python scripts/render-auto-uv-qt-demo.py \
   --live-game-library --select-game "Diablo III" --screenshots-dir docs/assets
 ```
 
+The README demo was refreshed from the installed **0.8.4** release. To reproduce
+that boundary after installing the released wheel, run:
+
+```bash
+python scripts/render-auto-uv-qt-demo.py --installed \
+  --live-game-library --select-game "Diablo III"
+```
+
+`--installed` loads the installed distribution's Qt UI and prints its version
+and module path. Without that flag, the renderer uses the checkout. The tour
+includes the redesigned overlay settings, DLSS 5 NR timing, hotspot temperature,
+and both frame-timing graphs, with a longer hold on the overlay screen.
+
 The scan and overlay telemetry are simulated; profiles use fixed example
 results. No scan or GPU write occurs. `--screenshots-dir` also refreshes the
 scan, profiles and overlay PNGs. Rendering requires PySide6, pyqtgraph and

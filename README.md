@@ -17,7 +17,9 @@
   <a href="https://pepy.tech/project/penguin-burner"><img alt="PyPI downloads" src="https://img.shields.io/pepy/dt/penguin-burner?style=flat-square&logo=pypi&logoColor=white&label=PyPI%20downloads"></a>
 </p>
 
-![PenguinBurner Auto-UV demo, profiles, Steam, Lutris, Heroic and Faugus Game Library, and overlay](docs/assets/auto-uv-full-scan-demo.gif)
+![PenguinBurner 0.8.4 demo: Auto-UV, profiles, Game Library and redesigned overlay](docs/assets/auto-uv-full-scan-demo.gif)
+
+*Captured from the installed 0.8.4 UI; scan and overlay readings are illustrative.*
 
 PenguinBurner is an open-source NVIDIA GPU tuning app for Linux with
 automatic undervolting, overclocking and adaptive per-game profiles for
@@ -185,6 +187,21 @@ power, temperatures, and the active tier while playing. Enable **Overlay** for
 a game in Game Library and select fields in the Overlay tab. Latency requires
 usable timing endpoints from the game. Estimates are marked with `~` and do not
 measure full mouse-to-screen delay.
+
+Customize the HUD or table layout, font, scale, position, background opacity,
+and metric presets. Show NVIDIA hotspot temperature and separate graphs for
+Present calls and displayed frames where supported.
+
+Use desktop keyboard shortcuts while playing: **Alt+X** toggles visibility,
+**Alt+C** cycles presets, **Alt+G** cycles graphs, **Alt+O** cycles opacity,
+**Alt+[ / Alt+]** changes scale, and **Alt+< / Alt+>** changes position.
+Configure bindings through **Keyboard shortcuts…** in the Overlay tab; KDE and
+GNOME setup is supported.
+
+**DLSS 5 through OptiScaler works alongside the PenguinBurner overlay.** For an
+optional NR GPU-time readout, enable the overlay and its neural-rendering timing
+field before launching the game. See the [supported capture interfaces and
+requirements](docs/features/overlay.md#dlss-5-neural-rendering-gpu-time).
 
 ![Performance overlay](docs/assets/overlay.png)
 

@@ -13,4 +13,4 @@
 - [Release process](releasing.md)
 - [NVAPI latency shim](nvapi-shim.md)
 - [Auto-UV algorithm and verification](https://jpietek.github.io/PenguinBurner/auto-uv-cookbook/)
-- [0.8.2 release notes](release-notes-0.8.2.md) · [Older releases](releases/)
+- [0.8.4 release notes](release-notes-0.8.4.md) · [Older releases](releases/)

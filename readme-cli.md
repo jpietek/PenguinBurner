@@ -322,6 +322,25 @@ Enable optional dxvk-nvapi in-game latency marker parsing:
 PB_INGAME_LATENCY=1 PENGUIN_BURNER %command%
 ```
 
+Change overlay settings while a wrapped game is running:
+
+| Command | Default desktop shortcut |
+| --- | --- |
+| `penguin-burner-cli --overlay-toggle` | Alt+X |
+| `penguin-burner-cli --overlay-detail-next` | Alt+C |
+| `penguin-burner-cli --overlay-graph-next` | Alt+G |
+| `penguin-burner-cli --overlay-opacity-next` | Alt+O |
+| `penguin-burner-cli --overlay-scale-down` / `--overlay-scale-up` | Alt+[ / Alt+] |
+| `penguin-burner-cli --overlay-position-prev` / `--overlay-position-next` | Alt+< / Alt+> |
+
+Set up desktop bindings through **Keyboard shortcuts…** in the Overlay tab.
+See the [overlay guide](docs/features/overlay.md#changing-the-overlay-without-leaving-the-game)
+for KDE/GNOME setup, direct settings commands, and visibility overrides.
+
+DLSS 5 through OptiScaler works alongside the PenguinBurner overlay. The optional
+NR GPU-time readout requires the overlay and its timing field enabled before
+launch; see [NR timing](docs/features/overlay.md#dlss-5-neural-rendering-gpu-time).
+
 ## Debugging
 
 Write a diagnostic log for the current operation:
