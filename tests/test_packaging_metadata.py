@@ -905,6 +905,9 @@ def test_pypi_release_builds_manylinux_native_layer_wheel() -> None:
         assert "CIBW_MANYLINUX_X86_64_IMAGE" in text
         assert "manylinux_2_28" in text
         assert "vulkan-headers" in text
+        # CI and the release runner must prepare the same D3D12-capable
+        # MinGW headers; EPEL 8's headers cannot build the NR collector.
+        assert "bash {project}/scripts/prepare-manylinux-mingw.sh" in text
 
 
 def test_desktop_icons_are_transparent_and_large_enough() -> None:

@@ -35,6 +35,9 @@ to publish the remaining channels using the retained artifacts.
 The runner uses a clean clone so untracked local files do not enter artifacts.
 Python build tools live in a release-specific virtual environment. Podman is
 preferred when available; `CIBW_CONTAINER_ENGINE` overrides that choice.
+The manylinux build uses `scripts/prepare-manylinux-mingw.sh` to install
+checksum-pinned MinGW headers when the container lacks Direct3D 12 declarations
+needed by the NVAPI shim. This keeps the existing manylinux glibc baseline.
 
 ## Package checks
 

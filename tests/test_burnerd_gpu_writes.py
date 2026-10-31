@@ -20,6 +20,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -186,15 +187,19 @@ def make_daemon(tmp_path, monkeypatch, write_desktop_rtd3_tree):
 
 @pytest.fixture
 def rpc_spy(monkeypatch):
-    """Record every (request, result) round-trip while still using the REAL
+    """Record the test thread's (request, result) round-trips using the REAL
     socket transport -- the daemon's echoed ``mock_ops`` prove which backend
     ops it executed for each write."""
     calls: list[tuple[dict, dict]] = []
     real = daemon_client.daemon_payload_request
+    test_thread = threading.get_ident()
 
     def spy(request, **kwargs):
         result = real(request, **kwargs)
-        calls.append((request, result))
+        # GUI polling from other tests can still complete in worker threads.
+        # It is unrelated to the synchronous GPU writes asserted here.
+        if threading.get_ident() == test_thread:
+            calls.append((request, result))
         return result
 
     monkeypatch.setattr(daemon_client, "daemon_payload_request", spy)

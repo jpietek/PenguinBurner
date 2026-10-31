@@ -1,5 +1,5 @@
 Name:           penguin-burner
-Version:        0.8.3
+Version:        0.8.4
 Release:        1%{?dist}
 Summary:        Automatic NVIDIA GPU undervolting, overclocking, and per-game tuning
 
@@ -140,6 +140,10 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/io.github.jpietek.Pen
 %{_datadir}/penguin-burner/penguin_burner.sh
 
 %changelog
+* Sat Oct 31 2026 PenguinBurner contributors <noreply@github.com> - 0.8.4-1
+- Redesign the overlay with hotspot telemetry, display timing and shortcuts.
+- Improve latency capture, Auto-UV verification and Game Library defaults.
+
 * Mon Oct 12 2026 PenguinBurner contributors <noreply@github.com> - 0.8.3-1
 - Add Faugus support, improve Auto-UV recovery and multi-GPU selection.
 - Refresh Game Library artwork, documentation, and packaging.
