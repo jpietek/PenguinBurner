@@ -3,8 +3,7 @@
 Pure axis math over a ``FrameHistorySummary`` plus QPainter rendering of the
 radar (badge and labeled sizes), the warming-up placeholder, and the hover
 peek popover. Everything is drawn natively — geometry, colors, and alpha
-follow the approved mockup (``notes/game-perf-profile-mockup.html``) via the
-``theme.PERF_PROFILE_*`` palette.
+follow the approved mockup via the ``theme.PERF_PROFILE_*`` palette.
 """
 
 from __future__ import annotations

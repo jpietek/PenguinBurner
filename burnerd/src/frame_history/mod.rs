@@ -12,8 +12,8 @@
 //! The module is fully self-contained — the engine, supervisor, and latency
 //! receiver each touch it through a single call (`record_metrics`,
 //! `session_start`/`session_end`, `record_frame`). The byte layout is format
-//! v1 from `notes/game-perf-profile-plan.md` and must stay in lockstep with the
-//! Python reader in `runtime/frame_history.py`.
+//! v1 and must stay in lockstep with the Python reader in
+//! `runtime/frame_history.py`.
 
 use std::fs;
 use std::fs::File;

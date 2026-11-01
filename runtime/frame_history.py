@@ -11,7 +11,7 @@ pure pack/unpack helpers over ``bytes``, an edge reader that swallows I/O and
 corruption into ``None``, a canonical writer (synthetic rings, tests, tools),
 and the lookup that falls back to the daemon's archive once the game exits.
 
-Format constants here and in ``burnerd/src/profile/frame_history.rs`` must
+Format constants here and in ``burnerd/src/frame_history/mod.rs`` must
 stay in lockstep; ``FRAME_HISTORY_FORMAT_VERSION`` gates both sides.
 """
 
