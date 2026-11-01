@@ -87,6 +87,24 @@ struct VfPointStatusV3 {
 }
 const _: () = assert!(size_of::<VfPointStatusV3>() == 348);
 
+impl VfPointStatusV3 {
+    fn base_values(&self) -> (i64, i64) {
+        // Turing drivers can leave the optional base tuple empty. Preserve
+        // populated base components and use the reported point for missing ones.
+        let freq = if self.vf_tuple_base.freq_khz > 0 {
+            self.vf_tuple_base.freq_khz
+        } else {
+            self.freq_khz
+        };
+        let voltage = if self.vf_tuple_base.voltage_uv > 0 {
+            self.vf_tuple_base.voltage_uv
+        } else {
+            self.voltage_uv
+        };
+        (i64::from(freq), i64::from(voltage))
+    }
+}
+
 /// `ClockClientClkVfPointsStatusV3` (88844 bytes; points at offset 104).
 #[repr(C)]
 struct VfPointsStatusV3 {
@@ -572,14 +590,15 @@ impl NvapiVfSession {
             let info_p = &info.vf_points[i];
             let st = &status.vf_points[i];
             let ct = &control.vf_points[i];
+            let (base_freq_khz, base_voltage_uv) = st.base_values();
             points.push(VfPoint {
                 index: idx,
                 type_: info_p.type_,
                 voltage_based: u32::from(info_p.b_voltage_based),
                 freq_khz: i64::from(st.freq_khz),
                 voltage_uv: i64::from(st.voltage_uv),
-                base_freq_khz: i64::from(st.vf_tuple_base.freq_khz),
-                base_voltage_uv: i64::from(st.vf_tuple_base.voltage_uv),
+                base_freq_khz,
+                base_voltage_uv,
                 current_offset_khz: i64::from(ct.data.prog_freq_offset_khz),
             });
         }
@@ -635,6 +654,29 @@ impl Drop for NvapiVfSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_base_tuple_components_use_reported_point() {
+        // SAFETY: this driver status structure contains only integer POD fields.
+        let mut point: VfPointStatusV3 = unsafe { std::mem::zeroed() };
+        point.freq_khz = 405_000;
+        point.voltage_uv = 450_000;
+        for (freq, voltage, expected) in [
+            (0, 0, (405_000, 450_000)),
+            (390_000, 440_000, (390_000, 440_000)),
+            (390_000, 0, (390_000, 450_000)),
+            (0, 440_000, (405_000, 440_000)),
+        ] {
+            point.vf_tuple_base.freq_khz = freq;
+            point.vf_tuple_base.voltage_uv = voltage;
+            assert_eq!(point.base_values(), expected);
+        }
+        point.freq_khz = 0;
+        point.voltage_uv = 0;
+        point.vf_tuple_base.freq_khz = 0;
+        point.vf_tuple_base.voltage_uv = 0;
+        assert_eq!(point.base_values(), (0, 0));
+    }
 
     #[test]
     fn bus_number_from_standard_bus_id() {
