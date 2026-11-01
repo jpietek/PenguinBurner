@@ -17,7 +17,7 @@
 
 use std::fs;
 use std::fs::File;
-use std::os::unix::fs::{FileExt, PermissionsExt};
+use std::os::unix::fs::{fchown, FileExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -197,8 +197,11 @@ impl Recorder {
         let total =
             HEADER_SIZE as u64 + u64::from(METRICS_CAP) * RECORD_SIZE as u64 + u64::from(FRAME_CAP);
         file.set_len(total)?;
-        // The GUI runs unprivileged and reads the live ring directly.
-        let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o644));
+        // The GUI runs unprivileged as the player and reads the live ring directly.
+        let owner = fs::metadata(format!("/proc/{pid}"))
+            .ok()
+            .map(|meta| (meta.uid(), meta.gid()));
+        give_to_player(&file, owner);
         let header = HeaderState {
             app_id,
             pid,
@@ -537,21 +540,33 @@ fn recover_orphans() {
     }
 }
 
+/// Make a ring readable only by the player who owns the game process. Without
+/// a known owner it stays world-readable, so the GUI can still show it.
+fn give_to_player(file: &File, owner: Option<(u32, u32)>) {
+    let private = owner.is_some_and(|(uid, gid)| fchown(file, Some(uid), Some(gid)).is_ok());
+    let mode = if private { 0o600 } else { 0o644 };
+    let _ = file.set_permissions(fs::Permissions::from_mode(mode));
+}
+
 /// Rebuild a live ring as a compact archive (caps trimmed to the data) at
-/// `<archive_dir>/<stem>.ring`, world-readable, atomically.
+/// `<archive_dir>/<stem>.ring`, owned like the live ring, atomically.
 fn archive_ring_file(path: &Path, stem: &str) -> std::io::Result<()> {
     let data = fs::read(path)?;
     let Some(compact) = compact_ring(&data) else {
         return Ok(());
     };
+    let live_owner = fs::metadata(path)?;
     let dir = archive_dir();
     fs::create_dir_all(&dir)?;
-    let _ = fs::set_permissions(&dir, fs::Permissions::from_mode(0o755));
+    // Traversable but not listable: readers open `<stem>.ring` by name, and
+    // other users cannot enumerate which games were played.
+    let _ = fs::set_permissions(&dir, fs::Permissions::from_mode(0o711));
     let target = dir.join(format!("{stem}.ring"));
     let temp = tempfile::NamedTempFile::new_in(&dir)?;
     temp.as_file().write_all_at(&compact, 0)?;
     let persisted = temp.persist(&target).map_err(|e| e.error)?;
-    persisted.set_permissions(fs::Permissions::from_mode(0o644))?;
+    let owner = (live_owner.mode() & 0o777 == 0o600).then(|| (live_owner.uid(), live_owner.gid()));
+    give_to_player(&persisted, owner);
     Ok(())
 }
 
@@ -817,6 +832,28 @@ mod tests {
             HEADER_SIZE + 2 * RECORD_SIZE + 79,
             "archive is compact"
         );
+        drop(guard);
+    }
+
+    #[test]
+    fn rings_belong_to_the_player_and_archives_are_not_listable() {
+        let guard = pin_dir();
+        // This test process stands in for the game: the ring goes to its owner.
+        let pid = std::process::id();
+        session_start(pid, "steam:620");
+        let live = live_dir().join(format!("{pid}.steam%3A620.ring"));
+        let meta = fs::metadata(&live).expect("live ring");
+        assert_eq!(meta.mode() & 0o777, 0o600);
+        let me = fs::metadata(format!("/proc/{pid}")).expect("own proc entry");
+        assert_eq!((meta.uid(), meta.gid()), (me.uid(), me.gid()));
+        record_metrics(&overlay_state("balanced"), None, None);
+
+        session_end(pid);
+        let archived = fs::metadata(archive_dir().join("steam%3A620.ring")).expect("archive");
+        assert_eq!(archived.mode() & 0o777, 0o600);
+        assert_eq!(archived.uid(), me.uid());
+        let dir = fs::metadata(archive_dir()).expect("archive dir");
+        assert_eq!(dir.mode() & 0o777, 0o711);
         drop(guard);
     }
 

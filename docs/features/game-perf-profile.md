@@ -82,3 +82,7 @@ characters escaped, e.g. `steam%3A620.ring` or `heroic%3AFall%20Guys.ring`. Fram
 (~2 % resolution, 1–250 ms range); exact per-second p50/p99/p99.9 percentiles
 preserve the stutter tail. Only the newest window is kept — Game Perf Profile never
 accumulates lifetime history.
+
+Ring files belong to the user who ran the game and are readable only by them.
+The archive directory cannot be listed, so other local users cannot see which
+games were played.

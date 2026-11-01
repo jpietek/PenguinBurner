@@ -43,7 +43,7 @@ FRAME_HISTORY_FORMAT_VERSION = 1
 # overlay_state_path / daemon socket resolution).
 FRAME_HISTORY_LIVE_DIR = "/run/penguin-burner/frame-history"
 FRAME_HISTORY_LIVE_DIR_ENV = "PENGUIN_BURNER_FRAME_HISTORY_DIR"
-# The daemon archives a finished session per app id, world-readable.
+# The daemon archives a finished session per game, readable by its player.
 FRAME_HISTORY_SYSTEM_ARCHIVE_DIR = "/var/lib/penguin-burner/frame-history"
 FRAME_HISTORY_SYSTEM_ARCHIVE_DIR_ENV = "PENGUIN_BURNER_FRAME_HISTORY_SYSTEM_DIR"
 
