@@ -143,7 +143,6 @@ struct HeaderState {
     pid: u32,
     gpu_index: u16,
     power_limit_w: u16,
-    max_boost_mhz: u16,
     metrics_head: u32,
     metrics_count: u32,
     frame_head: u32,
@@ -162,7 +161,7 @@ fn pack_header(state: &HeaderState) -> [u8; HEADER_SIZE] {
     buf[12..16].copy_from_slice(&state.pid.to_le_bytes());
     buf[16..18].copy_from_slice(&state.gpu_index.to_le_bytes());
     buf[18..20].copy_from_slice(&state.power_limit_w.to_le_bytes());
-    buf[20..22].copy_from_slice(&state.max_boost_mhz.to_le_bytes());
+    // max_boost_mhz u16 at 20..22 is reserved and stays zero.
     buf[22] = 1; // sample_hz
     buf[24..26].copy_from_slice(&WINDOW_S.to_le_bytes());
     buf[26..28].copy_from_slice(&(state.metrics_cap as u16).to_le_bytes());
@@ -205,7 +204,6 @@ impl Recorder {
             pid,
             gpu_index: 0,
             power_limit_w: 0,
-            max_boost_mhz: 0,
             metrics_head: 0,
             metrics_count: 0,
             frame_head: 0,

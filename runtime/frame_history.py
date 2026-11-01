@@ -123,6 +123,7 @@ class FrameHistoryHeader:
     pid: int
     gpu_index: int
     power_limit_w: int
+    # Reserved: the daemon always writes 0 and nothing reads it.
     max_boost_mhz: int
     sample_hz: int
     window_s: int

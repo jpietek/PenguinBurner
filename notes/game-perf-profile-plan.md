@@ -71,7 +71,7 @@ FILE = header(64 B) + metrics_ring[metrics_cap Ã— 36 B] + frame_ring[frame_cap Ã
 | 12 | pid | `u32` | game session pid |
 | 16 | gpu_index | `u16` | daemon's GPU index |
 | 18 | power_limit_w | `u16` | board power limit (PWR spoke denominator) |
-| 20 | max_boost_mhz | `u16` | informational |
+| 20 | max_boost_mhz | `u16` | reserved, always 0 |
 | 22 | sample_hz | `u8` | 1 |
 | 23 | reserved | `u8` | 0 |
 | 24 | window_s | `u16` | 1800 |
