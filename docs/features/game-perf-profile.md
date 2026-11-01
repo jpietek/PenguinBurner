@@ -48,9 +48,11 @@ bottleneck when FPS misses its target and simply full use when it does not, so
 its dot stays neutral.
 
 Latency has no spoke: it is not reliably measurable for games without Reflex
-markers, so it never shapes the fingerprint. When marker latency exists it
-appears as a **LATENCY** number in the tab's stat row; the 1%-low consistency
-figure is likewise textual (**1%-LOW** in the stat row) rather than a spoke.
+markers, so it never shapes the fingerprint. When the overlay has a latency
+reading it appears as a **LATENCY** number in the tab's stat row: the session
+median of the same average the in-game `LAT` shows, which is an estimate for
+games without Reflex markers (see [Latency and frame-generation FPS](latency-fg.md)).
+The 1%-low consistency figure is likewise textual (**1%-LOW** in the stat row) rather than a spoke.
 
 Read the spokes, not the blob's area — the shape is the signature. A fat kite
 leaning into PWR/GPU is a heavyweight; a tall CPU spike with a small GPU spoke

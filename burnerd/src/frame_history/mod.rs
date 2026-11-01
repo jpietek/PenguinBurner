@@ -319,7 +319,12 @@ impl Recorder {
             22,
             c16(parse_metric(&state.framegen_fps) * 10.0),
         );
-        put16(&mut record, 24, c16(parse_metric(&state.latency_ms) * 20.0));
+        // The average, not the p95 `latency_ms`, so the ring matches the overlay's LAT.
+        put16(
+            &mut record,
+            24,
+            c16(parse_metric(&state.latency_avg_ms) * 20.0),
+        );
         put16(
             &mut record,
             26,
@@ -711,6 +716,7 @@ mod tests {
             framegen_fps: "156.4".to_string(),
             framegen_active: true,
             latency_ms: "34.1".to_string(),
+            latency_avg_ms: "28.0".to_string(),
             display_latency_ms: "19.0".to_string(),
             profile_tier: "Performance".to_string(),
             profile_tier_key: tier.to_string(),
@@ -784,6 +790,8 @@ mod tests {
         // p99 of [12.8ms x78, 42ms] is the worst frame.
         let p99 = f64::from(u16::from_le_bytes([record[30], record[31]])) / 20.0;
         assert!((p99 - 42.0).abs() < 0.06, "p99 was {p99}");
+        // Latency is the overlay's LAT average (28.0), not the p95 (34.1).
+        assert_eq!(u16::from_le_bytes([record[24], record[25]]), 560);
         // Header carries the board power limit for the PWR spoke.
         assert_eq!(u16::from_le_bytes([data[18], data[19]]), 360);
 
