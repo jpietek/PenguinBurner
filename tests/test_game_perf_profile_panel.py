@@ -10,7 +10,6 @@ from profiles.uv.profile_tiers import (
     PROFILE_TIER_PERFORMANCE,
 )
 from runtime.frame_history import (
-    FRAME_HISTORY_ARCHIVE_DIR_ENV,
     FRAME_HISTORY_LIVE_DIR_ENV,
     FRAME_HISTORY_SYSTEM_ARCHIVE_DIR_ENV,
     MetricsSample,
@@ -77,7 +76,6 @@ def _write_ring(
 ) -> dict[str, str]:
     env = {
         FRAME_HISTORY_LIVE_DIR_ENV: str(tmp_path / "live"),
-        FRAME_HISTORY_ARCHIVE_DIR_ENV: str(tmp_path / "arch"),
         FRAME_HISTORY_SYSTEM_ARCHIVE_DIR_ENV: str(tmp_path / "sys-arch"),
     }
     frametimes = []
@@ -86,7 +84,7 @@ def _write_ring(
     stem = frame_history_file_stem(f"steam:{app_id}")
     target = (
         tmp_path / "live" / f"4242.{stem}.ring" if live
-        else tmp_path / "arch" / f"{stem}.ring.gz"
+        else tmp_path / "sys-arch" / f"{stem}.ring"
     )
     assert write_frame_history(
         target,
@@ -148,7 +146,6 @@ def _make_panel(env):
 def test_panel_empty_and_missing_states(qtbot, tmp_path: Path) -> None:
     env = {
         FRAME_HISTORY_LIVE_DIR_ENV: str(tmp_path / "live"),
-        FRAME_HISTORY_ARCHIVE_DIR_ENV: str(tmp_path / "arch"),
         FRAME_HISTORY_SYSTEM_ARCHIVE_DIR_ENV: str(tmp_path / "sys-arch"),
     }
     panel = _make_panel(env)
@@ -313,11 +310,10 @@ def test_panel_latency_cell_hidden_without_any_source(qtbot, tmp_path: Path) -> 
 def test_panel_reads_archived_rings_too(qtbot, tmp_path: Path) -> None:
     env = {
         FRAME_HISTORY_LIVE_DIR_ENV: str(tmp_path / "live"),
-        FRAME_HISTORY_ARCHIVE_DIR_ENV: str(tmp_path / "arch"),
         FRAME_HISTORY_SYSTEM_ARCHIVE_DIR_ENV: str(tmp_path / "sys-arch"),
     }
     assert write_frame_history(
-        tmp_path / "arch" / "steam%3A1089130.ring.gz",
+        tmp_path / "sys-arch" / "steam%3A1089130.ring",
         samples=[_sample(i, tier=PROFILE_TIER_EFFICIENCY) for i in range(400)],
         frametimes_ms=[12.8] * 2000,
         app_id=1089130,

@@ -217,10 +217,10 @@ records self-timed either way).
 ### New
 | Path | Contents |
 |------|----------|
-| `runtime/frame_history.py` | format constants + struct strings; `FrameHistoryHeader` / `FrameHistoryRecord` / `FrameHistory` dataclasses; log-companding encode/decode (LUT); pure `pack_*`/`unpack_*` over bytes; `frame_history_dir(env)`; `read_frame_history(path)`; `write_frame_history(...)` (canonical Python writer — synthetic rings, tests, future tools); `summarize(history) -> FrameHistorySummary` (medians, p99, bottleneck, modal tier, minutes); archive helpers `archive_ring(src, app_id)` / `read_archived(app_id)` (gzip, XDG dir) |
+| `runtime/frame_history.py` | format constants + struct strings; `FrameHistoryHeader` / `FrameHistoryRecord` / `FrameHistory` dataclasses; log-companding encode/decode (LUT); pure `pack_*`/`unpack_*` over bytes; `frame_history_dir(env)`; `read_frame_history(path)`; `write_frame_history(...)` (canonical Python writer — synthetic rings, tests, future tools); `summarize(history) -> FrameHistorySummary` (medians, p99, bottleneck, modal tier, minutes); `read_frame_history_for_game(game_key)` (live ring, then the daemon's /var/lib archive; no Python-side archive) |
 | `ui/components/frame_dna.py` | `dna_axes(summary, target_fps, power_limit)` pure math; `FrameDnaWidget` (radar paintEvent, tier color, warming-up dashed state); `dna_pixmap(...)` for the badge/tab; peek tooltip HTML builder |
 | `ui/components/frame_dna_panel.py` | the tab: game selector state (`select_app`), big DNA + stats row, frametime plot (overview + live-zoom toggle), orbit plot (`ScatterPlotItem`, tier brushes); `pg is None` placeholder; empty/warming states |
-| `tests/test_frame_history.py` | struct sizes (64/36), pack/unpack round-trip, ring wrap, companding round-trip accuracy (≤2.3 % rel err), gate/minutes, summarize, archive round-trip, missing/corrupt file → None |
+| `tests/test_frame_history.py` | struct sizes (64/36), pack/unpack round-trip, ring wrap, companding round-trip accuracy (≤2.3 % rel err), gate/minutes, summarize, archive fallback, missing/corrupt file → None |
 | `tests/test_frame_dna.py` | axes values on a hand-built summary; warming state; pixmap renders non-empty; peek HTML contains stats |
 | `tests/test_frame_dna_panel.py` | builds with synthetic ring; plots populated; select_app switches; placeholder when `pg is None` |
 

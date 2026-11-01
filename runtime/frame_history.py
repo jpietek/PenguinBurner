@@ -9,7 +9,7 @@ of one 36-byte metrics record per second, and a ring of one log-companded byte
 per rendered frame. This module is the Python side of that format contract —
 pure pack/unpack helpers over ``bytes``, an edge reader that swallows I/O and
 corruption into ``None``, a canonical writer (synthetic rings, tests, tools),
-and the per-user archive that outlives the tmpfs ring.
+and the lookup that falls back to the daemon's archive once the game exits.
 
 Format constants here and in ``burnerd/src/profile/frame_history.rs`` must
 stay in lockstep; ``FRAME_HISTORY_FORMAT_VERSION`` gates both sides.
@@ -44,8 +44,6 @@ FRAME_HISTORY_LIVE_DIR_ENV = "PENGUIN_BURNER_FRAME_HISTORY_DIR"
 # The daemon archives a finished session per app id, world-readable.
 FRAME_HISTORY_SYSTEM_ARCHIVE_DIR = "/var/lib/penguin-burner/frame-history"
 FRAME_HISTORY_SYSTEM_ARCHIVE_DIR_ENV = "PENGUIN_BURNER_FRAME_HISTORY_SYSTEM_DIR"
-# Optional per-user archives written by this process (tools/tests).
-FRAME_HISTORY_ARCHIVE_DIR_ENV = "PENGUIN_BURNER_FRAME_HISTORY_ARCHIVE_DIR"
 
 _HEADER_FORMAT = "<4sHHIIHHHBBHHHHIIIQ12x"
 _RECORD_FORMAT = "<HHHHHHBBBBBBhHHHHHHHBx"
@@ -227,16 +225,6 @@ def frame_history_system_archive_dir(env: Mapping[str, str] | None = None) -> Pa
     if explicit:
         return Path(explicit).expanduser()
     return Path(FRAME_HISTORY_SYSTEM_ARCHIVE_DIR)
-
-
-def frame_history_archive_dir(env: Mapping[str, str] | None = None) -> Path:
-    resolved_env = os.environ if env is None else env
-    explicit = str(resolved_env.get(FRAME_HISTORY_ARCHIVE_DIR_ENV) or "").strip()
-    if explicit:
-        return Path(explicit).expanduser()
-    data_home = str(resolved_env.get("XDG_DATA_HOME") or "").strip()
-    base = Path(data_home).expanduser() if data_home else Path.home() / ".local/share"
-    return base / "penguin-burner" / "frame-history"
 
 
 def _pack_u16(value: float) -> int:
@@ -535,36 +523,6 @@ def _live_ring_stem(path: Path) -> str:
     return rest[: -len(".ring")]
 
 
-def archive_frame_history(
-    live_path: str | Path,
-    game_key: str,
-    *,
-    env: Mapping[str, str] | None = None,
-) -> bool:
-    """Archive a live ring per-user as ``<stem>.ring.gz``."""
-    stem = frame_history_file_stem(game_key)
-    history = read_frame_history(live_path)
-    if not stem or history is None or not history.samples:
-        return False
-    header = history.header
-    target = frame_history_archive_dir(env) / f"{stem}.ring.gz"
-    return write_frame_history(
-        target,
-        samples=history.samples,
-        frametimes_ms=history.frametimes_ms,
-        app_id=header.app_id,
-        pid=header.pid,
-        gpu_index=header.gpu_index,
-        power_limit_w=header.power_limit_w,
-        max_boost_mhz=header.max_boost_mhz,
-        sample_hz=header.sample_hz,
-        window_s=header.window_s,
-        metrics_cap=header.metrics_cap,
-        frame_cap=header.frame_cap,
-        started_unix=header.started_unix,
-    )
-
-
 def read_frame_history_for_game(
     game_key: str,
     *,
@@ -573,7 +531,7 @@ def read_frame_history_for_game(
     """The freshest history for a game: live ring, then archives.
 
     Live rings are ``<pid>.<stem>.ring``; the newest session wins. Fallbacks:
-    the daemon's system archive under /var/lib, then the per-user archive.
+    the daemon's archive under /var/lib.
     """
     stem = frame_history_file_stem(game_key)
     if not stem:
@@ -598,7 +556,7 @@ def read_frame_history_for_game(
         history = read_frame_history(system_dir / name)
         if history is not None:
             return history
-    return read_frame_history(frame_history_archive_dir(env) / f"{stem}.ring.gz")
+    return None
 
 
 def _percentile(values: Sequence[float], fraction: float) -> float:

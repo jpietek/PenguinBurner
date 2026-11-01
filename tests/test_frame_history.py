@@ -1,4 +1,3 @@
-import gzip
 import struct
 from pathlib import Path
 from unittest import mock
@@ -14,19 +13,18 @@ from runtime.frame_history import (
     BOTTLENECK_CPU,
     BOTTLENECK_GPU,
     BOTTLENECK_MIXED,
-    FRAME_HISTORY_ARCHIVE_DIR_ENV,
     FRAME_HISTORY_LIVE_DIR_ENV,
     FRAME_HISTORY_MAGIC,
+    FRAME_HISTORY_SYSTEM_ARCHIVE_DIR_ENV,
     FRAME_TIME_MAX_MS,
     HEADER_SIZE,
     RECORD_SIZE,
     FrameHistoryHeader,
     MetricsSample,
-    archive_frame_history,
     decode_frametime_ms,
     encode_frametime_ms,
-    frame_history_archive_dir,
     frame_history_live_dir,
+    frame_history_system_archive_dir,
     nibble_from_tier,
     pack_header,
     pack_metrics_sample,
@@ -331,25 +329,19 @@ def test_summarize_medians_bottleneck_and_modal_tier() -> None:
 def test_dir_helpers_honor_env_overrides(tmp_path: Path) -> None:
     env = {
         FRAME_HISTORY_LIVE_DIR_ENV: str(tmp_path / "live"),
-        FRAME_HISTORY_ARCHIVE_DIR_ENV: str(tmp_path / "arch"),
+        FRAME_HISTORY_SYSTEM_ARCHIVE_DIR_ENV: str(tmp_path / "arch"),
     }
     assert frame_history_live_dir(env) == tmp_path / "live"
-    assert frame_history_archive_dir(env) == tmp_path / "arch"
+    assert frame_history_system_archive_dir(env) == tmp_path / "arch"
     assert frame_history_live_dir({}) == Path("/run/penguin-burner/frame-history")
-    xdg_env = {"XDG_DATA_HOME": str(tmp_path / "data")}
-    assert (
-        frame_history_archive_dir(xdg_env)
-        == tmp_path / "data" / "penguin-burner" / "frame-history"
+    assert frame_history_system_archive_dir({}) == Path(
+        "/var/lib/penguin-burner/frame-history"
     )
 
 
 def test_for_game_prefers_the_newest_matching_live_ring(tmp_path: Path) -> None:
     live = tmp_path / "live"
-    arch = tmp_path / "arch"
-    env = {
-        FRAME_HISTORY_LIVE_DIR_ENV: str(live),
-        FRAME_HISTORY_ARCHIVE_DIR_ENV: str(arch),
-    }
+    env = {FRAME_HISTORY_LIVE_DIR_ENV: str(live)}
     write_frame_history(
         live / "100.lutris%3A777.ring", samples=[_sample(0)], frametimes_ms=[],
         started_unix=1000, metrics_cap=4, frame_cap=8,
@@ -377,10 +369,10 @@ def test_for_game_prefers_the_newest_matching_live_ring(tmp_path: Path) -> None:
     assert read_frame_history_for_game("not-a-key", env=env) is None
 
 
-def test_for_game_falls_back_to_the_archive(tmp_path: Path) -> None:
+def test_for_game_falls_back_to_a_gzipped_archive(tmp_path: Path) -> None:
     env = {
         FRAME_HISTORY_LIVE_DIR_ENV: str(tmp_path / "live"),
-        FRAME_HISTORY_ARCHIVE_DIR_ENV: str(tmp_path / "arch"),
+        FRAME_HISTORY_SYSTEM_ARCHIVE_DIR_ENV: str(tmp_path / "arch"),
     }
     write_frame_history(
         tmp_path / "arch" / "heroic%3AFall%20Guys.ring.gz",
@@ -395,39 +387,10 @@ def test_for_game_falls_back_to_the_archive(tmp_path: Path) -> None:
     assert found.live is False  # an archive is a finished session
 
 
-def test_archive_frame_history_names_the_archive_by_game_key(tmp_path: Path) -> None:
-    live_ring = tmp_path / "4242.faugus%3A12.ring"
-    env = {FRAME_HISTORY_ARCHIVE_DIR_ENV: str(tmp_path / "arch")}
-    write_frame_history(
-        live_ring,
-        samples=[_sample(i) for i in range(10)],
-        frametimes_ms=[12.0] * 40,
-        pid=4242,
-        power_limit_w=360,
-        metrics_cap=16,
-        frame_cap=64,
-    )
-    assert archive_frame_history(live_ring, "faugus:12", env=env)
-    target = tmp_path / "arch" / "faugus%3A12.ring.gz"
-    assert target.exists()
-    with gzip.open(target, "rb") as fh:
-        assert fh.read(4) == FRAME_HISTORY_MAGIC
-    archived = read_frame_history(target)
-    assert archived is not None
-    assert archived.header.pid == 4242
-    assert len(archived.samples) == 10
-    assert len(archived.frametimes_ms) == 40
-    assert not archive_frame_history(tmp_path / "missing.ring", "faugus:1", env=env)
-    assert not archive_frame_history(live_ring, "not-a-key", env=env)
-
-
 def test_for_game_reads_the_daemon_system_archive(tmp_path: Path) -> None:
-    from runtime.frame_history import FRAME_HISTORY_SYSTEM_ARCHIVE_DIR_ENV
-
     env = {
         FRAME_HISTORY_LIVE_DIR_ENV: str(tmp_path / "live"),
         FRAME_HISTORY_SYSTEM_ARCHIVE_DIR_ENV: str(tmp_path / "system"),
-        FRAME_HISTORY_ARCHIVE_DIR_ENV: str(tmp_path / "user"),
     }
     # An uncompressed daemon archive (the Rust side writes .ring, no gzip).
     write_frame_history(
@@ -442,16 +405,6 @@ def test_for_game_reads_the_daemon_system_archive(tmp_path: Path) -> None:
     assert found is not None
     assert found.header.app_id == 3764200
     assert len(found.samples) == 7
-    # The user archive is only the last resort.
-    write_frame_history(
-        tmp_path / "user" / "lutris%3A42.ring.gz",
-        samples=[_sample(0)],
-        frametimes_ms=[],
-        metrics_cap=4,
-        frame_cap=8,
-    )
-    fallback = read_frame_history_for_game("lutris:42", env=env)
-    assert fallback is not None and len(fallback.samples) == 1
 
 
 def test_summarize_derives_fps_from_frametimes_when_estimator_is_silent() -> None:
