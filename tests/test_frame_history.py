@@ -1,6 +1,5 @@
 import struct
 from pathlib import Path
-from unittest import mock
 
 from profiles.uv.profile_tiers import (
     PROFILE_TIER_BALANCED,
@@ -446,36 +445,34 @@ def test_reader_trims_frames_to_the_advertised_window(tmp_path: Path) -> None:
     assert len(history.frametimes_ms) < 2000  # actually trimmed
 
 
-def test_reader_decodes_only_the_window_of_a_wrapped_ring(tmp_path: Path) -> None:
-    """A long session must cost its window, not its length.
-
-    The frame ring holds hours while only the rolling window is ever shown, and
-    a live view re-reads it every second — so the decode stops at the window
-    instead of walking the whole ring and trimming afterwards.
-    """
+def test_reader_keeps_the_newest_window_of_a_wrapped_ring_in_order(
+    tmp_path: Path,
+) -> None:
+    """The window is the newest frames whose time, summed newest-first, fits."""
     path = tmp_path / "wrapped.ring"
-    calls: list[int] = []
+    written = [5.0 + (index * 7) % 36 for index in range(8192)]  # 5-40 ms, varied
     assert write_frame_history(
         path,
         samples=[_sample(i) for i in range(20)],
-        frametimes_ms=[10.0] * 8192,  # fully wraps the 4096-frame ring
+        frametimes_ms=written,  # fully wraps the 4096-frame ring
         window_s=10,
         metrics_cap=32,
         frame_cap=4096,
     )
-    real_decode = frame_history.decode_frametime_ms
-
-    def counting_decode(value: int) -> float:
-        calls.append(value)
-        return real_decode(value)
-
-    with mock.patch.object(frame_history, "decode_frametime_ms", counting_decode):
-        history = read_frame_history(path)
+    history = read_frame_history(path)
     assert history is not None
-    assert 1000 <= len(history.frametimes_ms) <= 1007  # the newest ~10 s
-    # One decode per kept frame, plus the single frame that overran the budget.
-    assert len(calls) <= len(history.frametimes_ms) + 1
-    assert len(calls) < 4096  # never walks the whole ring
+    # Reference: the per-frame newest-first walk the reader used to run.
+    stored = [decode_frametime_ms(encode_frametime_ms(ft)) for ft in written[-4096:]]
+    expected: list[float] = []
+    total = 0.0
+    for frametime in reversed(stored):
+        total += frametime
+        if total > 10_000.0:
+            break
+        expected.append(frametime)
+    expected.reverse()
+    assert 0 < len(expected) < 4096
+    assert history.frametimes_ms == tuple(expected)
 
 
 def test_every_launchers_game_key_names_a_safe_ring_file() -> None:

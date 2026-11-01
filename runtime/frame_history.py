@@ -22,9 +22,11 @@ import math
 import os
 import statistics
 import struct
+from bisect import bisect_right
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from itertools import accumulate
 from pathlib import Path
 
 from profiles.uv.profile_tiers import (
@@ -403,26 +405,27 @@ def _decode_frames_in_window(
 
     The frame ring's byte capacity outlives the metrics window on long
     sessions, so a live ring holds the whole session while only the rolling
-    window is ever shown. Decoding all of it and trimming afterwards makes
-    every refresh cost the session's full length — a 1 M-frame ring costs
-    ~150 ms, which a live view repeats every second. Walking newest-first and
-    stopping once the window is covered bounds the work to what is displayed.
+    window is ever shown. Only the newest frames whose summed time (added
+    newest-first) fits the window are kept.
 
-    The slot order is ``_unwrap``'s, just consumed backwards, so summaries and
-    the graph still describe the same span the metrics do.
+    The slot order is ``_unwrap``'s, so summaries and the graph still describe
+    the same span the metrics do.
     """
+    cap = header.frame_cap
+    ring = data[frames_offset : frames_offset + cap]
+    if frame_count < cap:
+        ordered = ring[:frame_count]
+    else:
+        start = header.frame_head % cap
+        ordered = ring[start:] + ring[:start]
+    # LUT map + accumulate + bisect run in C; a per-frame Python loop cost
+    # ~60 ms for a 30-minute 240 fps window, repeated every live refresh.
+    frametimes = list(map(_FT_DECODE_MS.__getitem__, ordered))
     budget_ms = float(header.window_s) * 1000.0
-    newest_first: list[float] = []
-    total = 0.0
-    for slot in reversed(_unwrap(frame_count, header.frame_cap, header.frame_head)):
-        frametime = decode_frametime_ms(data[frames_offset + (slot % header.frame_cap)])
-        if budget_ms > 0.0:
-            total += frametime
-            if total > budget_ms:
-                break
-        newest_first.append(frametime)
-    newest_first.reverse()
-    return tuple(newest_first)
+    if budget_ms <= 0.0:
+        return tuple(frametimes)
+    keep = bisect_right(list(accumulate(reversed(frametimes))), budget_ms)
+    return tuple(frametimes[len(frametimes) - keep :])
 
 
 def write_frame_history(
