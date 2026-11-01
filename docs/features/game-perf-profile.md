@@ -16,10 +16,10 @@ demanding a game is, where its bottleneck lives, and how fluent its
 
 - **Game Library tab** — a **Perf Profile** button sits beside **Play** in the
   header of the selected game, whichever launcher it comes from (Steam, Lutris,
-  Heroic, Faugus). **Hover** it for a quick peek (median and 1%-low frametimes,
-  power, bottleneck); **click** it to open the full detail. Until the game has
-  recorded telemetry the button is greyed out and its tooltip says how to
-  record some. Each game has a
+  Heroic, Faugus). **Hover** it for a quick peek (fingerprint, median and 1%-low
+  frametimes, power draw, latency); **click** it to open the full detail. Until
+  the game has recorded telemetry the button is greyed out and its tooltip says
+  how to record some. Each game has a
   **Capture telemetry** switch under *In game* (on by default); turning it off
   stops new capture from the next launch.
 - **Game Perf Profile tab** — the full view: the large fingerprint, a stat row, and a

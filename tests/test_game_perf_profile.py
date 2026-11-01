@@ -211,7 +211,12 @@ def test_peek_popover_populates_and_positions(qapp) -> None:
         assert peek._stat_values["Latency"].text() == "22 ms"
         assert peek._stat_values["Latency"].isVisibleTo(peek.widget)
         assert peek.profile_label.pixmap() is not None
-        assert "Game Perf Profile tab" in peek.hint.text()
+        assert peek.hint.text() == "Click Perf Profile to open the full view"
+        # Same row titles as the tab's stat cards.
+        assert [peek._stat_keys[key].text() for key in ("1%-low", "Power")] == [
+            "1% low",
+            "Power draw",
+        ]
     finally:
         peek.hide()
     assert not peek.widget.isVisible()

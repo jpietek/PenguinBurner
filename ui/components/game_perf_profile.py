@@ -364,8 +364,8 @@ def _draw_ring_scale(QtCore, QtGui, painter, center, radius, count, size):
 class GamePerfProfilePeek:
     """The hover popover: enlarged fingerprint plus the numbers that matter.
 
-    A frameless tool-tip window drawn entirely with Qt widgets and the mock
-    palette; the badge click (not this popover) opens the Game Perf Profile tab.
+    A frameless tool-tip window in the Game Perf Profile tab's app-theme
+    language; clicking the Perf Profile button (not this popover) opens the tab.
     """
 
     def __init__(self, *, QtCore, QtGui, QtWidgets, parent=None) -> None:
@@ -383,25 +383,22 @@ class GamePerfProfilePeek:
         self.widget.setStyleSheet(
             f"""
             QFrame#gamePerfProfilePeek {{
-                background: {theme.PERF_PROFILE_SURFACE};
-                border: 1px solid {theme.PERF_PROFILE_BORDER_STRONG};
-                border-radius: 9px;
+                background: {theme.SURFACE_BG};
+                border: 1px solid {theme.BORDER_STRONG};
+                border-radius: 6px;
             }}
             QLabel#gamePerfProfilePeekKey {{
-                font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
-                color: {theme.PERF_PROFILE_TEXT_DIM}; font-size: 11px;
+                color: {theme.TEXT_STRONG}; font-size: 12px; font-weight: 600;
                 background: transparent; border: none;
             }}
             QLabel#gamePerfProfilePeekValue {{
-                font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
-                color: {theme.PERF_PROFILE_TEXT}; font-size: 11px; font-weight: 600;
+                color: {theme.TEXT_MUTED}; font-size: 12px;
                 background: transparent; border: none;
             }}
             QLabel#gamePerfProfilePeekHint {{
-                font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
-                color: {theme.PERF_PROFILE_TEXT_MUTED}; font-size: 10px;
+                color: {theme.TEXT_DISABLED}; font-size: 11px;
                 background: transparent; border: none;
-                border-top: 1px solid {theme.PERF_PROFILE_BORDER};
+                border-top: 1px solid {theme.BORDER_STRONG};
                 padding-top: 6px;
             }}
             """
@@ -422,10 +419,15 @@ class GamePerfProfilePeek:
         self._stat_values: dict[str, Any] = {}
         self._stat_keys: dict[str, Any] = {}
         # Latency rides fifth, and only for games with a real marker source.
-        for row, key in enumerate(
-            ("Median", "1%-low", "Power", "Latency")
+        for row, (key, title) in enumerate(
+            (
+                ("Median", "Median"),
+                ("1%-low", "1% low"),
+                ("Power", "Power draw"),
+                ("Latency", "Latency"),
+            )
         ):
-            key_label = QtWidgets.QLabel(key)
+            key_label = QtWidgets.QLabel(title)
             key_label.setObjectName("gamePerfProfilePeekKey")
             value_label = QtWidgets.QLabel("")
             value_label.setObjectName("gamePerfProfilePeekValue")
@@ -440,7 +442,7 @@ class GamePerfProfilePeek:
         stats.setRowStretch(5, 1)
         body.addLayout(stats, 1)
         layout.addLayout(body)
-        self.hint = QtWidgets.QLabel("Click the badge to open the Game Perf Profile tab")
+        self.hint = QtWidgets.QLabel("Click Perf Profile to open the full view")
         self.hint.setObjectName("gamePerfProfilePeekHint")
         layout.addWidget(self.hint)
 

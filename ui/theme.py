@@ -71,14 +71,11 @@ TIER_CURVE_PERFORMANCE = "#e05c5c"
 # Game Perf Profile: the approved mockup's dark palette.
 # These are deliberately the mock's values, not the TIER_CURVE_* pastels, so
 # the shipped feature matches the design that was signed off.
-PERF_PROFILE_SURFACE = "#171716"
 PERF_PROFILE_TEXT = "#ffffff"
 PERF_PROFILE_TEXT_DIM = "#c3c2b7"
 PERF_PROFILE_TEXT_MUTED = "#8a8880"
 PERF_PROFILE_GRID = "#2a2a28"
 PERF_PROFILE_AXIS = "#3a3a36"
-PERF_PROFILE_BORDER = "rgba(255, 255, 255, 26)"
-PERF_PROFILE_BORDER_STRONG = "rgba(255, 255, 255, 46)"
 PERF_PROFILE_TIER_EFFICIENCY = "#199e70"
 PERF_PROFILE_TIER_BALANCED = "#3987e5"
 PERF_PROFILE_TIER_PERFORMANCE = "#d95926"
