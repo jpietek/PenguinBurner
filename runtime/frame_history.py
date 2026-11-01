@@ -48,7 +48,7 @@ FRAME_HISTORY_SYSTEM_ARCHIVE_DIR_ENV = "PENGUIN_BURNER_FRAME_HISTORY_SYSTEM_DIR"
 FRAME_HISTORY_ARCHIVE_DIR_ENV = "PENGUIN_BURNER_FRAME_HISTORY_ARCHIVE_DIR"
 
 _HEADER_FORMAT = "<4sHHIIHHHBBHHHHIIIQ12x"
-_RECORD_FORMAT = "<HHHHHHBBBBBBhHHHHHHH2x"
+_RECORD_FORMAT = "<HHHHHHBBBBBBhHHHHHHHBx"
 HEADER_SIZE = struct.calcsize(_HEADER_FORMAT)
 RECORD_SIZE = struct.calcsize(_RECORD_FORMAT)
 
@@ -162,6 +162,8 @@ class MetricsSample:
     ft_p50_ms: float
     ft_p99_ms: float
     ft_p999_ms: float
+    # latency_ms is not an input-to-gpu measurement (the overlay's `~`).
+    latency_estimated: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,6 +210,7 @@ class FrameHistorySummary:
     median_display_latency_ms: float = 0.0
     median_temperature_c: float = 0.0
     median_fan_pct: float = 0.0
+    latency_estimated: bool = False
 
 
 def frame_history_live_dir(env: Mapping[str, str] | None = None) -> Path:
@@ -321,13 +324,15 @@ def pack_metrics_sample(sample: MetricsSample) -> bytes:
         _pack_u16(sample.ft_p50_ms * _MS_SCALE),
         _pack_u16(sample.ft_p99_ms * _MS_SCALE),
         _pack_u16(sample.ft_p999_ms * _MS_SCALE),
+        int(sample.latency_estimated),
     )
 
 
 def unpack_metrics_sample(data: bytes, offset: int) -> MetricsSample:
     (t_rel, frame_count, clock, mem_clock, voltage, power, gpu_util, cpu_util,
      cpu_thread, fan, temp, flags, uv_offset, present_fps, framegen_fps,
-     latency, display_latency, ft_p50, ft_p99, ft_p999) = struct.unpack_from(
+     latency, display_latency, ft_p50, ft_p99, ft_p999,
+     latency_estimated) = struct.unpack_from(
         _RECORD_FORMAT, data, offset
     )
     return MetricsSample(
@@ -354,6 +359,7 @@ def unpack_metrics_sample(data: bytes, offset: int) -> MetricsSample:
         ft_p50_ms=ft_p50 / _MS_SCALE,
         ft_p99_ms=ft_p99 / _MS_SCALE,
         ft_p999_ms=ft_p999 / _MS_SCALE,
+        latency_estimated=bool(latency_estimated),
     )
 
 
@@ -657,4 +663,7 @@ def summarize(history: FrameHistory) -> FrameHistorySummary | None:
         ),
         median_fan_pct=statistics.median(s.fan_pct for s in samples),
         framegen_seen=any(s.framegen_active for s in samples),
+        latency_estimated=any(
+            s.latency_estimated for s in samples if s.latency_ms > 0
+        ),
     )

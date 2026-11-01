@@ -98,6 +98,11 @@ def _spoke_reach(radius: float, fraction: float) -> float:
     return radius * (_POINT_FLOOR + (1 - _POINT_FLOOR) * _clamp(fraction))
 
 
+def latency_text(summary: FrameHistorySummary) -> str:
+    """The session latency the way the overlay writes LAT: `~` marks an estimate."""
+    return f"{'~' if summary.latency_estimated else ''}{summary.latency_ms:.0f} ms"
+
+
 def tier_color(tier: str) -> str:
     return PERF_PROFILE_TIER_COLORS.get(tier, theme.PERF_PROFILE_TIER_NONE)
 
@@ -472,7 +477,7 @@ class GamePerfProfilePeek:
         # Absence of data is absence of the row — never a placeholder.
         has_latency = summary.latency_ms > 0
         self._stat_values["Latency"].setText(
-            f"{summary.latency_ms:.0f} ms" if has_latency else ""
+            latency_text(summary) if has_latency else ""
         )
         self._stat_values["Latency"].setVisible(has_latency)
         self._stat_keys["Latency"].setVisible(has_latency)

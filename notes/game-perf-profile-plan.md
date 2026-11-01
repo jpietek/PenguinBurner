@@ -105,11 +105,13 @@ Struct format: `"<4sHHIIHHHBBHHHHIIIQ12x"` — assert `calcsize == 64` in tests.
 | uv_offset_mv | `i16` | signed |
 | present_fps | `u16` | ×0.1 — pre-frame-gen (base) fps |
 | framegen_fps | `u16` | ×0.1 — presented fps |
-| latency_ms | `u16` | ×0.05 ms |
+| latency_ms | `u16` | ×0.05 ms — the overlay's LAT average (`latency_avg_ms`) |
 | display_latency_ms | `u16` | ×0.05 ms |
 | ft_p50 / ft_p99 / ft_p999 | `u16`×3 | ×0.05 ms — exact per-second percentiles (1%-low = p99) |
+| latency_estimated | `u8` | 1 when latency_ms is not an `input-to-gpu` measurement (the overlay's `~`) |
+| reserved | `u8` | |
 
-Struct format: `"<HHHHHHBBBBBBhHHHHHHH"` — assert `calcsize == 36`.
+Struct format: `"<HHHHHHBBBBBBhHHHHHHHBx"` — assert `calcsize == 36`.
 
 **Tier nibble** (matches `PROFILE_TIERS` ordering and burnerd's `tier_index`):
 `0 = none/stock · 1 = efficiency · 2 = balanced · 3 = performance`.

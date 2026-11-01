@@ -217,6 +217,23 @@ def test_peek_popover_populates_and_positions(qapp) -> None:
     assert not peek.widget.isVisible()
 
 
+def test_peek_popover_marks_estimated_latency_like_the_overlay(qapp) -> None:
+    from dataclasses import replace
+
+    QtCore, QtGui, QtWidgets, _pg = import_qt()
+    peek = GamePerfProfilePeek(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
+    peek.show_for(
+        summary=replace(_summary(), latency_estimated=True),
+        target_fps=144.0,
+        power_limit_w=360,
+        global_pos=QtCore.QPoint(100, 100),
+    )
+    try:
+        assert peek._stat_values["Latency"].text() == "~22 ms"
+    finally:
+        peek.hide()
+
+
 def test_peek_popover_hides_latency_without_a_marker_source(qapp) -> None:
     QtCore, QtGui, QtWidgets, _pg = import_qt()
     peek = GamePerfProfilePeek(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)

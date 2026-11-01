@@ -21,6 +21,7 @@ from runtime.frame_history import (
 )
 from ui import theme
 from ui.components.game_perf_profile import (
+    latency_text,
     perf_profile_axes,
     perf_profile_pixmap,
     tier_color,
@@ -675,12 +676,12 @@ class GamePerfProfilePanel:
         self._render_frametime(history, summary)
 
     def _update_latency_cell(self, summary: FrameHistorySummary) -> None:
-        """Latency is numeric-only and appears only when a marker source
-        actually measured it. The present→scanout display tail is recorded in
+        """Latency appears only when the overlay had a reading; estimates
+        carry the overlay's `~`. The present→scanout display tail is recorded in
         the ring but never displayed — a bare scanout time reads as garbage."""
         if summary.latency_ms > 0:
             self._latency_key.setText("Latency")
-            self._stat_values["LATENCY"].setText(f"{summary.latency_ms:.0f} ms")
+            self._stat_values["LATENCY"].setText(latency_text(summary))
             self._latency_cell.setVisible(True)
         else:
             self._latency_cell.setVisible(False)

@@ -333,6 +333,10 @@ impl Recorder {
         put16(&mut record, 28, c16(p50 * 20.0));
         put16(&mut record, 30, c16(p99 * 20.0));
         put16(&mut record, 32, c16(p999 * 20.0));
+        // Same rule as the overlay's `~`: only input-to-gpu is a measurement.
+        record[34] = u8::from(
+            !state.latency_avg_ms.trim().is_empty() && state.latency_source != "input-to-gpu",
+        );
 
         let slot = self.header.metrics_head % self.header.metrics_cap;
         let offset = HEADER_SIZE as u64 + u64::from(slot) * RECORD_SIZE as u64;
@@ -717,6 +721,7 @@ mod tests {
             framegen_active: true,
             latency_ms: "34.1".to_string(),
             latency_avg_ms: "28.0".to_string(),
+            latency_source: "simulation-to-gpu".to_string(),
             display_latency_ms: "19.0".to_string(),
             profile_tier: "Performance".to_string(),
             profile_tier_key: tier.to_string(),
@@ -792,6 +797,7 @@ mod tests {
         assert!((p99 - 42.0).abs() < 0.06, "p99 was {p99}");
         // Latency is the overlay's LAT average (28.0), not the p95 (34.1).
         assert_eq!(u16::from_le_bytes([record[24], record[25]]), 560);
+        assert_eq!(record[34], 1, "simulation-to-gpu is an estimate");
         // Header carries the board power limit for the PWR spoke.
         assert_eq!(u16::from_le_bytes([data[18], data[19]]), 360);
 

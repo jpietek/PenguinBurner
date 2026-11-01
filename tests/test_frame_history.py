@@ -125,6 +125,32 @@ def test_metrics_sample_pack_unpack_roundtrip() -> None:
     assert abs(decoded.ft_p99_ms - sample.ft_p99_ms) <= 0.025
 
 
+def test_latency_estimate_flag_roundtrips_and_marks_the_summary() -> None:
+    from dataclasses import replace
+
+    from runtime.frame_history import FrameHistory
+
+    estimated = replace(_sample(1), latency_estimated=True)
+    assert unpack_metrics_sample(pack_metrics_sample(estimated), 0).latency_estimated
+    assert not unpack_metrics_sample(pack_metrics_sample(_sample(0)), 0).latency_estimated
+    header = FrameHistoryHeader(
+        version=1, app_id=1, pid=1, gpu_index=0, power_limit_w=360, max_boost_mhz=0,
+        sample_hz=1, window_s=1800, metrics_cap=1800, metrics_head=3, metrics_count=3,
+        frame_cap=1024, frame_head=0, frame_count=0, started_unix=0,
+    )
+
+    def summary_of(*samples: MetricsSample):
+        summary = summarize(FrameHistory(header=header, samples=samples, frametimes_ms=()))
+        assert summary is not None
+        return summary
+
+    assert not summary_of(_sample(0), _sample(1)).latency_estimated
+    assert summary_of(_sample(0), estimated).latency_estimated
+    # An estimate flag without a latency value does not mark the session.
+    blank = replace(estimated, latency_ms=0.0)
+    assert not summary_of(_sample(0), blank).latency_estimated
+
+
 def test_write_read_roundtrip_and_qualify_gate(tmp_path: Path) -> None:
     path = tmp_path / "1234.ring"
     samples = [_sample(i) for i in range(299)]
