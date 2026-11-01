@@ -72,6 +72,8 @@ class AutoUvProbeSummary:
     # Exact applied geometry belonging to these measurements. Selection must
     # not reconstruct another curve from the voltage/clock label.
     tested_plan: list[dict] | None = None
+    comparison_runs: int = 0
+    comparison_duration_s: int = 0
 
 
 @dataclass(slots=True)

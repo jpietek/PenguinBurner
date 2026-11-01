@@ -9,7 +9,6 @@ import pytest
 
 from runtime.support import runtime_service
 
-
 CANONICAL_DAEMON_BINARY = (
     "/var/opt/penguin-burner/libexec/penguin-burnerd"
 )
@@ -58,6 +57,10 @@ def _no_live_daemon_runtime_calls(monkeypatch):
 
     monkeypatch.setattr(runtime_service, "ROOT_UID", os.getuid())
     monkeypatch.setattr(runtime_service, "ROOT_GID", os.getgid())
+    # Real root steps always name the desktop user (sudo, or the GUI and CLI
+    # pkexec hops); keep that true when the suite itself runs as root.
+    if not os.environ.get("SUDO_UID", "").strip():
+        monkeypatch.setenv("SUDO_UID", "1000")
     monkeypatch.setattr(
         runtime_service._ManagedFileRollback,
         "capture",
@@ -299,6 +302,146 @@ def test_daemon_install_has_no_restorecon_dependency_without_selinux(
     )
 
     runtime_service._restore_daemon_selinux_context(product_root)
+
+
+def _selinux_install_harness(monkeypatch, labels, *, semodule=True):
+    """Fake restorecon/semodule; the binary's label is read from ``labels``."""
+    calls: list[list[str]] = []
+    modules: list[str] = []
+    monkeypatch.setattr(runtime_service, "_selinux_is_active", lambda: True)
+    monkeypatch.setattr(
+        runtime_service.shutil,
+        "which",
+        lambda command: {
+            "restorecon": "/sbin/restorecon",
+            "semodule": "/sbin/semodule" if semodule else None,
+        }.get(command),
+    )
+
+    def fake_run(args):
+        call = list(args)
+        calls.append(call)
+        if call[0] == "/sbin/semodule":
+            modules.append(Path(call[2]).read_text(encoding="utf-8"))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(runtime_service, "run_checked_subprocess", fake_run)
+    remaining = list(labels)
+    monkeypatch.setattr(
+        runtime_service, "_selinux_file_type", lambda _path: remaining.pop(0)
+    )
+    return calls, modules
+
+
+def test_selinux_context_type_reads_the_type_field() -> None:
+    assert (
+        runtime_service.selinux_context_type("system_u:object_r:var_t:s0\x00")
+        == "var_t"
+    )
+    assert runtime_service.selinux_context_type("unlabeled") == ""
+
+
+def test_daemon_install_keeps_policy_label_that_systemd_can_execute(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    product_root = tmp_path / "penguin-burner"
+    calls, modules = _selinux_install_harness(monkeypatch, ["bin_t"])
+
+    runtime_service._restore_daemon_selinux_context(
+        product_root, tmp_path / "penguin-burnerd"
+    )
+
+    # Fedora 42+ / EL10 already map /var/opt like /opt: no local module.
+    assert calls == [["/sbin/restorecon", "-RF", str(product_root)]]
+    assert modules == []
+
+
+def test_daemon_install_adds_file_context_module_when_policy_labels_var_t(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    product_root = tmp_path / "penguin-burner"
+    calls, modules = _selinux_install_harness(monkeypatch, ["var_t", "bin_t"])
+
+    runtime_service._restore_daemon_selinux_context(
+        product_root, tmp_path / "penguin-burnerd"
+    )
+
+    # Older policies (RED OS 8, EL9, Fedora 41) label it var_t and systemd
+    # fails with 203/EXEC (issue #138).
+    assert [call[0] for call in calls] == [
+        "/sbin/restorecon",
+        "/sbin/semodule",
+        "/sbin/restorecon",
+    ]
+    assert calls[1][1] == "-i"
+    assert Path(calls[1][2]).name == "penguin_burner.cil"
+    assert modules == [
+        (
+            '(filecon "/var/opt/penguin-burner/libexec(/.*)?" any '
+            "(system_u object_r bin_t ((s0) (s0))))\n"
+        )
+    ]
+
+
+def test_daemon_install_fails_clearly_when_relabel_does_not_take(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _selinux_install_harness(monkeypatch, ["var_t", "var_t"])
+
+    with pytest.raises(RuntimeError, match="still labels .* as var_t"):
+        runtime_service._restore_daemon_selinux_context(
+            tmp_path / "penguin-burner", tmp_path / "penguin-burnerd"
+        )
+
+
+def test_daemon_install_names_missing_semodule(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _selinux_install_harness(monkeypatch, ["var_t"], semodule=False)
+
+    with pytest.raises(RuntimeError, match="var_t.*semodule is unavailable"):
+        runtime_service._restore_daemon_selinux_context(
+            tmp_path / "penguin-burner", tmp_path / "penguin-burnerd"
+        )
+
+
+@pytest.mark.parametrize("operation", ["install", "migrate", "daemonize"])
+def test_service_setup_refuses_unit_without_allowed_desktop_uid(
+    tmp_path: Path,
+    monkeypatch,
+    operation: str,
+) -> None:
+    # A root step with no SUDO_UID would write a unit whose daemon rejects
+    # every client, then roll back after the readiness timeout (issue #138).
+    monkeypatch.setattr(runtime_service, "systemd_is_available", lambda: True)
+    monkeypatch.setattr(runtime_service.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(runtime_service.os, "getuid", lambda: 0)
+    monkeypatch.delenv("SUDO_UID", raising=False)
+    monkeypatch.delenv("PENGUIN_BURNER_Q2RTX_UID", raising=False)
+    monkeypatch.setattr(
+        runtime_service,
+        "install_daemon_binary",
+        lambda *_a, **_k: pytest.fail("installed a binary before the uid check"),
+    )
+    program = tmp_path / "penguin_burner.py"
+
+    with pytest.raises(RuntimeError, match="which desktop user"):
+        if operation == "install":
+            runtime_service.install_systemd_service(
+                program, [], journal_hours=4, log=lambda _message: None
+            )
+        elif operation == "migrate":
+            runtime_service.migrate_to_daemon_service(
+                program, log=lambda _message: None
+            )
+        else:
+            runtime_service.daemonize_with_systemd(
+                program, [], journal_hours=4, log=lambda _message: None
+            )
 
 
 def test_daemon_install_rejects_noexec_target_mount(
@@ -714,12 +857,14 @@ def test_install_readiness_failure_restores_previous_binary_units_and_state(
         "--now",
         "penguin-burnerd.service",
     ] in actions
-    assert [
-        "/bin/systemctl",
-        "disable",
-        "--now",
-        "PenguinBurner.service",
-    ] in actions
+    # Install removed the legacy unit file before readiness failed. Real
+    # systemctl refuses to disable a missing unit (issue #138), so rollback
+    # only stops it and lets the snapshot restore the file.
+    legacy_disable = ["/bin/systemctl", "disable", "--now", "PenguinBurner.service"]
+    rollback = actions[actions.index(["/bin/systemctl", "stop", "PenguinBurner.service"]) :]
+    # The only legacy disable is setup's own, made while the file existed.
+    assert actions.count(legacy_disable) == 1
+    assert legacy_disable not in rollback
     assert readiness_checks["count"] == 2
     assert not list(daemon_binary.parent.glob("*.rollback.*"))
 
@@ -752,9 +897,8 @@ def test_install_transaction_reports_original_and_rollback_failures(
 
     monkeypatch.setattr(transaction, "_rollback", fail_rollback)
 
-    with pytest.raises(RuntimeError) as exc_info:
-        with transaction:
-            raise RuntimeError("injected readiness failure")
+    with pytest.raises(RuntimeError) as exc_info, transaction:
+        raise RuntimeError("injected readiness failure")
 
     message = str(exc_info.value)
     assert "injected readiness failure" in message
@@ -807,9 +951,8 @@ def test_install_transaction_reports_failed_service_stop_during_rollback(
     monkeypatch.setattr(runtime_service, "SYSTEMCTL", "/bin/systemctl")
     monkeypatch.setattr(runtime_service, "run_checked_subprocess", fail_daemon_stop)
 
-    with pytest.raises(RuntimeError) as exc_info:
-        with transaction:
-            raise RuntimeError("injected readiness failure")
+    with pytest.raises(RuntimeError) as exc_info, transaction:
+        raise RuntimeError("injected readiness failure")
 
     message = str(exc_info.value)
     assert "injected readiness failure" in message
@@ -1287,9 +1430,8 @@ def test_stop_existing_runtime_does_not_disable_persistent_service(monkeypatch, 
     assert any("before foreground Auto-UV scan" in message for message in logs)
 
 
-@pytest.mark.parametrize("job_type, own_child", [
-    ("auto_uv_scan", True), ("auto_uv_scan", False), ("profile_verification", False),
-])
+@pytest.mark.parametrize("job_type", ["auto_uv_scan", "profile_verification"])
+@pytest.mark.parametrize("own_child", [True, False])
 def test_scan_handoff_preserves_own_daemon_child_and_refuses_other_work(monkeypatch, job_type, own_child):
     monkeypatch.setattr(runtime_service, "daemon_status", lambda **_: {
         "active_job": {"type": job_type, "pid": os.getpid() if own_child else -1, "returncode": None}
@@ -1298,8 +1440,22 @@ def test_scan_handoff_preserves_own_daemon_child_and_refuses_other_work(monkeypa
     if own_child:
         runtime_service.stop_existing_penguin_burner_runtime(log=lambda _: None)
     else:
-        with pytest.raises(RuntimeError, match="another scan or profile verification"):
+        with pytest.raises(RuntimeError, match="another scan or profile verification") as exc:
             runtime_service.stop_existing_penguin_burner_runtime(log=lambda _: None)
+        assert f"type={job_type}" in str(exc.value)
+        assert "pid=-1" in str(exc.value)
+        assert f"caller_pid={os.getpid()}" in str(exc.value)
+
+
+@pytest.mark.parametrize("job_type", ["auto_uv_scan", "profile_verification"])
+@pytest.mark.parametrize("returncode", [0, 1, -15])
+def test_scan_handoff_ignores_completed_jobs(monkeypatch, job_type, returncode):
+    monkeypatch.setattr(runtime_service, "daemon_status", lambda **_: {
+        "active_job": {"type": job_type, "pid": -1, "returncode": returncode}
+    })
+    monkeypatch.setattr(runtime_service, "stop_runtime_profile", lambda **_: pytest.fail("must not clear session"))
+
+    runtime_service.stop_existing_penguin_burner_runtime(log=lambda _: None)
 
 
 def test_scan_handoff_propagates_wedged_profile_failure(monkeypatch):
@@ -1833,6 +1989,8 @@ def test_reexec_daemon_lifecycle_builds_pkexec_command(monkeypatch) -> None:
     entry_script = "/home/user/.local/bin/penguin-burner-cli"
     monkeypatch.setattr(runtime_service.sys, "argv", [entry_script])
     monkeypatch.setenv("SUDO_USER", "tester")
+    monkeypatch.setattr(runtime_service.os, "getuid", lambda: 1000)
+    monkeypatch.setattr(runtime_service.os, "getgid", lambda: 1000)
     import_root = str(Path(runtime_service.__file__).resolve().parents[2])
     monkeypatch.setenv(
         "PYTHONPATH",
@@ -1851,6 +2009,8 @@ def test_reexec_daemon_lifecycle_builds_pkexec_command(monkeypatch) -> None:
                 "/usr/bin/pkexec",
                 "/usr/bin/env",
                 "SUDO_USER=tester",
+                "SUDO_UID=1000",
+                "SUDO_GID=1000",
                 "PYTHONPATH=" + os.pathsep.join([import_root, "/extra/site"]),
                 runtime_service.sys.executable,
                 str(Path(entry_script).resolve()),

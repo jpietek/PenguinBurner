@@ -299,7 +299,7 @@ class GameLibraryPanel:
         self._gpu_choices: tuple[object, ...] = ()
         self._games: tuple[LibraryGame, ...] = ()
         self._selected_key = ""
-        self._sort_mode = SORT_ALPHABETICAL
+        self._sort_mode = SORT_RECENT
         self._syncing = False
         self._scanned = False
         self._badges: dict[tuple[str, float], Any] = {}
@@ -496,6 +496,7 @@ class GameLibraryPanel:
         self.sort_combo.setObjectName("librarySort")
         for label, key in _SORT_LABELS:
             self.sort_combo.addItem(label, key)
+        self.sort_combo.setCurrentIndex(self.sort_combo.findData(self._sort_mode))
         self.sort_combo.currentIndexChanged.connect(
             lambda _index: self._on_sort_changed()
         )
@@ -1415,7 +1416,7 @@ class GameLibraryPanel:
             self._sync_selection(None)
 
     def _on_sort_changed(self) -> None:
-        self._sort_mode = str(self.sort_combo.currentData() or SORT_ALPHABETICAL)
+        self._sort_mode = str(self.sort_combo.currentData() or SORT_RECENT)
         # Re-sorted, not re-read: the selection is kept so the row under the
         # cursor does not change identity when the order does.
         self._games = self._sorted_games(self._games)

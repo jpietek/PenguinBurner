@@ -10,12 +10,17 @@ include overlay/native/nvapi_shim/build.sh
 recursive-include docs *.md *.png *.svg
 recursive-include packaging/icons *.png *.svg
 recursive-include ui/assets *.png
-recursive-include tests *.py
+recursive-include tests *.py *.cpp
 recursive-include overlay/native/latency_layer/src *.cpp *.h *.hpp
-recursive-include overlay/native/nvapi_shim/src *.cpp
+recursive-include overlay/native/nvapi_shim/src *.cpp *.h
+recursive-include overlay/native/nvapi_shim/third_party *.c *.h *.txt UPSTREAM
 # Rust daemon (penguin-burnerd) crate: ship sources + committed lockfile so a
 # `pip install` from the sdist can cargo-build the daemon into the wheel.
 include burnerd/Cargo.toml
 include burnerd/Cargo.lock
 include burnerd/build.rs
 recursive-include burnerd/src *.rs
+
+# Reproduce the committed native metadata and packaged desktop actions.
+include scripts/generate_overlay_contract.py
+include scripts/generate_overlay_shortcuts.py

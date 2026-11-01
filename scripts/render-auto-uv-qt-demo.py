@@ -27,24 +27,28 @@ os.environ.setdefault("QT_SCALE_FACTOR", "1")
 os.environ.setdefault("QT_AUTO_SCREEN_SCALE_FACTOR", "0")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
+if "--installed" in sys.argv:
+    # Resolve production modules from the installed distribution, never this checkout.
+    sys.path[:] = [entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT]
+elif str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-import ui.components.overlay_config as overlay_config_mod
-import ui.window as window_mod
-from integrations.launchers.library import SORT_RECENT, LibraryGame
-from integrations.steam.library import InstalledSteamGame
-from integrations.steam.manager import SteamGameRow
-from integrations.steam.settings import SteamGameSetting
-from overlay.config import OverlayConfig
-from ui.components.game_library_panel import game_key
+# Select checkout or installed modules before importing the UI.
+import ui.components.overlay_config as overlay_config_mod  # noqa: E402
+import ui.window as window_mod  # noqa: E402
+from integrations.launchers.library import SORT_RECENT, LibraryGame  # noqa: E402
+from integrations.steam.library import InstalledSteamGame  # noqa: E402
+from integrations.steam.manager import SteamGameRow  # noqa: E402
+from integrations.steam.settings import SteamGameSetting  # noqa: E402
+from overlay.config import OverlayConfig  # noqa: E402
+from ui.components.game_library_panel import game_key  # noqa: E402
 from ui.features.tuning.gpu_selection import GpuChoice  # noqa: E402
-from ui.main import APP_DISPLAY_NAME
-from ui.qt import apply_dark_palette, import_qt
-from ui.window import MainWindow
+from ui.main import APP_DISPLAY_NAME  # noqa: E402
+from ui.qt import apply_dark_palette, import_qt  # noqa: E402
+from ui.window import MainWindow  # noqa: E402
 
 FPS = 7
-DURATION_S = 24.0
+DURATION_S = 28.0
 # Mobile-miniature intro: how long the completed three-curve payoff holds as
 # the GIF's opening (and therefore its static preview frame).
 PAYOFF_HOLD_S = 1.3
@@ -258,6 +262,9 @@ DEMO_OVERLAY_CONFIG = OverlayConfig(
         "base_fps",
         "fg_fps",
         "latency_ms",
+        "nr_gpu_ms",
+        "hotspot_temperature_c",
+        "frametime_graph",
         "clock_mhz",
         "voltage_mv",
         "power_w",
@@ -266,13 +273,17 @@ DEMO_OVERLAY_CONFIG = OverlayConfig(
         "cpu_peak_thread_pct",
     ),
     update_interval_s=1,
-    scale=0.5,
+    scale=0.75,
+    opacity=0.85,
+    graph_mode="both",
 )
 
 DEMO_OVERLAY_STATE = {
     "present_fps": "125.0",
     "framegen_fps": "238.4",
     "latency_ms": "31.7",
+    "nr_gpu_ms": "2.20",
+    "hotspot_temperature_c": "79",
     "clock_mhz": "2912",
     "voltage_mv": "915",
     "power_w": "310",
@@ -951,7 +962,7 @@ def render(
                 overlay_revealed = True
                 window.overlay_config.refresh_preview()
                 window.header.set_candidate(
-                    "Overlay: base FPS · frame generation · PC latency"
+                    "Overlay: DLSS 5 NR timing · hotspot · frame-timing graphs"
                 )
                 window.controls.set_status_text(
                     "In-Game Overlay — simulated telemetry."
@@ -1025,7 +1036,20 @@ def main() -> int:
         "--screenshots-dir", type=Path,
         help="Also save the scan, profiles and overlay screenshots here.",
     )
+    parser.add_argument(
+        "--installed", action="store_true",
+        help="Capture the installed PenguinBurner UI instead of checkout modules.",
+    )
     args = parser.parse_args()
+    if args.installed:
+        from importlib.metadata import distribution
+
+        installed = distribution("penguin-burner")
+        installed_root = Path(installed.locate_file("")).resolve()
+        module_path = Path(window_mod.__file__).resolve()
+        if not module_path.is_relative_to(installed_root) or module_path.is_relative_to(REPO_ROOT):
+            parser.error(f"UI did not resolve to the installed distribution: {module_path}")
+        print(f"Installed capture: PenguinBurner {installed.version}, {module_path}")
     render(
         args.output.resolve(),
         live_game_library=args.live_game_library,

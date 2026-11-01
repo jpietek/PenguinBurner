@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import site
 import sys
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -60,6 +60,8 @@ def _isolate_user_home(monkeypatch, tmp_path_factory):
     """
     home = tmp_path_factory.mktemp("penguin-burner-home")
     monkeypatch.setenv("PENGUIN_BURNER_HOME", str(home))
+    # The KDE shortcut repair rewrites the pip --user desktop entry.
+    monkeypatch.setattr(site, "getuserbase", lambda: str(home / "userbase"))
 
 
 @pytest.fixture(autouse=True)
@@ -74,6 +76,20 @@ def _no_detached_launch_processes(monkeypatch):
     monkeypatch.setattr(
         launcher, "spawn_detached_drainer", lambda env, path, session_pid=None: None
     )
+
+
+@pytest.fixture(scope="session")
+def build_overlay_probe(tmp_path_factory):
+    from native_build import OverlayProbeBuilder
+
+    return OverlayProbeBuilder(REPO_ROOT, tmp_path_factory.mktemp("overlay-objects"))
+
+
+@pytest.fixture(scope="session")
+def native_overlay_probe(tmp_path_factory, build_overlay_probe) -> Path:
+    source = REPO_ROOT / "overlay/native/latency_layer/tools/overlay_text_probe.cpp"
+    output = tmp_path_factory.mktemp("native-overlay-probe") / "overlay_text_probe"
+    return build_overlay_probe(source, output)
 
 
 @pytest.fixture(autouse=True)

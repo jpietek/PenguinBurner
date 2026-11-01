@@ -117,6 +117,8 @@ def probe_voltage_candidate(
         live_voltage_mv = nvml_session.read_live_voltage_mv()
 
         parts = [f"elapsed={elapsed_s:.1f}s"]
+        if state.get("benchmark_phase") == "startup":
+            parts.append("phase=startup")
         if show_candidate_target:
             parts.insert(0, f"target={lock_clock_mhz}MHz")
             parts.insert(0, f"candidate={candidate_voltage_mv}mV")

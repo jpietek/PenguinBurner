@@ -278,25 +278,6 @@ def _prepare_log_path(log_dir: Path) -> Path:
     return log_dir / f"q2rtx-stability-{timestamp}.log"
 
 
-def _benchmark_window_telemetry_samples(
-    telemetry_samples: list[TelemetrySample],
-    benchmark_summary: Q2RTXBenchmarkSummary | None,
-) -> list[TelemetrySample]:
-    if benchmark_summary is None:
-        return []
-    if benchmark_summary.measure_start_elapsed_s is None:
-        return []
-    if benchmark_summary.measured_s <= 0.0:
-        return []
-    start_s = max(0.0, float(benchmark_summary.measure_start_elapsed_s))
-    end_s = start_s + float(benchmark_summary.measured_s)
-    return [
-        sample
-        for sample in telemetry_samples
-        if float(sample.elapsed_s) >= start_s and float(sample.elapsed_s) <= end_s
-    ]
-
-
 def _scan_fatal_patterns_in_lines(lines: list[str] | deque[str]) -> list[str]:
     text = "\n".join(str(line) for line in lines)
     normalized_text = text.casefold()
@@ -554,7 +535,7 @@ def _run_companion_process(
                     "workload_name": workload_name,
                     "elapsed_s": float(wall_elapsed_s),
                     "net_elapsed_s": float(pass_elapsed_s),
-                    "progress_elapsed_s": float(wall_elapsed_s),
+                    "progress_elapsed_s": float(pass_elapsed_s),
                     "command": list(command),
                     "log_path": log_path,
                     "latest_sample": (
@@ -718,6 +699,8 @@ def _run_benchmark_process(
     benchmark_event_errors: list[str] = []
     benchmark_summary: Q2RTXBenchmarkSummary | None = None
     benchmark_telemetry_samples: list[TelemetrySample] = []
+    measurement_start_monotonic: float | None = None
+    benchmark_phase = "startup"
     frame_watchdog = _FrameProgressWatchdog(config.hang_watchdog_s)
     output_tail: deque[str] = deque(maxlen=80)
     fatal_output_matches_seen: set[str] = set()
@@ -738,6 +721,7 @@ def _run_benchmark_process(
             launch_command = _q2rtx_command_with_event_fd(command, event_write_fd)
 
             def _handle_event_line(line: str) -> None:
+                nonlocal measurement_start_monotonic, benchmark_phase
                 stripped = str(line).strip()
                 if not stripped:
                     return
@@ -755,7 +739,17 @@ def _run_benchmark_process(
                     )
                     return
                 benchmark_events.append(event)
-                frame_watchdog.note_event(event, time.monotonic())
+                event_received_at = time.monotonic()
+                frame_watchdog.note_event(event, event_received_at)
+                if (
+                    event.get("event") == "phase"
+                    and event.get("name") == "measure_start"
+                    and measurement_start_monotonic is None
+                ):
+                    measurement_start_monotonic = event_received_at
+                    benchmark_phase = "measure"
+                elif event.get("event") == "done":
+                    benchmark_phase = "done"
 
             def _handle_output_line(line: str) -> None:
                 text = str(line).rstrip("\r")
@@ -766,12 +760,7 @@ def _run_benchmark_process(
 
             def _refresh_benchmark_state() -> None:
                 nonlocal benchmark_summary
-                nonlocal benchmark_telemetry_samples
                 benchmark_summary = _benchmark_summary_from_events(benchmark_events)
-                benchmark_telemetry_samples = _benchmark_window_telemetry_samples(
-                    telemetry_samples,
-                    benchmark_summary,
-                )
 
             log_file.write(f"\n=== {section_name} start {section_started_at} ===\n")
             if child_user_name is not None:
@@ -810,26 +799,6 @@ def _run_benchmark_process(
             if process.stdout is not None:
                 os.set_blocking(process.stdout.fileno(), False)
 
-            if config.companion_command is not None and config.companion_concurrent:
-                # The companion writes to its own log so its output never
-                # interleaves with the benchmark's; fatal-pattern scanning
-                # reads that file separately.
-                companion_log_file = companion_log_path.open(
-                    "a", encoding="utf-8", errors="replace"
-                )
-                companion_env = dict(os.environ)
-                companion_env["PYTHONUNBUFFERED"] = "1"
-                concurrent_companion = subprocess.Popen(
-                    _wrap_command_for_live_output(list(config.companion_command)),
-                    stdout=companion_log_file,
-                    stderr=subprocess.STDOUT,
-                    env=companion_env,
-                    start_new_session=True,
-                )
-                log_file.write(f"# cuda_companion_log={companion_log_path}\n")
-                log_file.write("# cuda_companion_mode=concurrent\n")
-                log_file.flush()
-
             while True:
                 now_monotonic = time.monotonic()
                 pass_elapsed_s = now_monotonic - run_start_monotonic
@@ -846,7 +815,38 @@ def _run_benchmark_process(
                         on_line=_handle_output_line,
                     )
                 _refresh_benchmark_state()
+                net_elapsed_s = 0.0
+                if measurement_start_monotonic is not None:
+                    net_elapsed_s = (
+                        float(benchmark_summary.measured_s)
+                        if benchmark_summary is not None
+                        else max(0.0, now_monotonic - measurement_start_monotonic)
+                    )
                 process_exit_code = process.poll()
+                if (
+                    config.companion_command is not None
+                    and config.companion_concurrent
+                    and concurrent_companion is None
+                    and benchmark_phase == "measure"
+                    and process_exit_code is None
+                ):
+                    # Start combined load only once rendering begins. A cold
+                    # shader cache must not consume the CUDA companion's run.
+                    companion_log_file = companion_log_path.open(
+                        "a", encoding="utf-8", errors="replace"
+                    )
+                    companion_env = dict(os.environ)
+                    companion_env["PYTHONUNBUFFERED"] = "1"
+                    concurrent_companion = subprocess.Popen(
+                        _wrap_command_for_live_output(list(config.companion_command)),
+                        stdout=companion_log_file,
+                        stderr=subprocess.STDOUT,
+                        env=companion_env,
+                        start_new_session=True,
+                    )
+                    log_file.write(f"# cuda_companion_log={companion_log_path}\n")
+                    log_file.write("# cuda_companion_mode=concurrent\n")
+                    log_file.flush()
                 if concurrent_companion is not None:
                     companion_exit_code = concurrent_companion.poll()
                     if companion_exit_code not in (None, 0):
@@ -906,11 +906,20 @@ def _run_benchmark_process(
                     observed_duration_s = pass_elapsed_s
                     break
 
-                if pass_elapsed_s >= float(config.single_pass_timeout_s):
+                timeout_elapsed_s = now_monotonic - (
+                    measurement_start_monotonic
+                    if measurement_start_monotonic is not None
+                    else run_start_monotonic
+                )
+                if timeout_elapsed_s >= float(config.single_pass_timeout_s):
                     _terminate_process_group(process)
                     process_exit_code = process.returncode
                     observed_duration_s = time.monotonic() - run_start_monotonic
-                    exit_reason = "benchmark-timeout"
+                    exit_reason = (
+                        "benchmark-startup-timeout"
+                        if measurement_start_monotonic is None
+                        else "benchmark-timeout"
+                    )
                     break
 
                 if now_monotonic >= next_sample_monotonic:
@@ -921,37 +930,31 @@ def _run_benchmark_process(
                     if sample is not None:
                         sample.elapsed_s = pass_elapsed_s
                         telemetry_samples.append(sample)
+                        # Both boundaries come from the event pipe. The child
+                        # event clock starts later than the host process clock,
+                        # so comparing their elapsed timestamps mixes domains.
+                        if benchmark_phase == "measure":
+                            benchmark_telemetry_samples.append(sample)
                         if (
                             concurrent_companion is not None
                             and concurrent_companion.poll() is None
                         ):
                             cuda_telemetry_samples.append(sample)
-                    benchmark_summary = _benchmark_summary_from_events(benchmark_events)
-                    benchmark_telemetry_samples = _benchmark_window_telemetry_samples(
-                        telemetry_samples,
-                        benchmark_summary,
-                    )
                     fatal_output_matches = sorted(fatal_output_matches_seen)
-                    net_elapsed_s = (
-                        float(benchmark_summary.measured_s)
-                        if benchmark_summary is not None
-                        else 0.0
-                    )
                     progress_state = {
                         "section_name": section_name,
                         "workload_name": workload_name,
                         "started_at": section_started_dt,
                         "elapsed_s": float(pass_elapsed_s),
                         "net_elapsed_s": float(net_elapsed_s),
-                        "progress_elapsed_s": float(pass_elapsed_s),
+                        "progress_elapsed_s": float(net_elapsed_s),
+                        "benchmark_phase": benchmark_phase,
                         "command": list(command),
                         "workdir": workdir,
                         "log_path": log_path,
                         "process_pid": int(process.pid),
-                        "latest_sample": telemetry_samples[-1]
-                        if telemetry_samples
-                        else None,
-                        "telemetry_samples": list(telemetry_samples),
+                        "latest_sample": sample,
+                        "telemetry_samples": list(benchmark_telemetry_samples),
                         "running": "q2rtx",
                         "fatal_output_matches": list(fatal_output_matches),
                         "benchmark_events": list(benchmark_events),
@@ -1038,6 +1041,15 @@ def _run_benchmark_process(
                     exit_reason = (
                         f"cuda-bruteforce-failed exit={int(companion_exit_code)}"
                     )
+            elif (
+                config.companion_concurrent
+                and config.companion_command is not None
+                and process_exit_code == 0
+                and exit_reason == "completed"
+            ):
+                # Never silently replace a missed combined-load run with
+                # serial CUDA after Q2RTX has already finished.
+                exit_reason = "benchmark-companion-start-missing"
             elif (
                 process_exit_code == 0
                 and exit_reason == "completed"

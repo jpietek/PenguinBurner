@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -9,8 +8,8 @@ import pytest
 
 
 @pytest.fixture(scope="module")
-def loader_data_probe(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return _build_loader_data_probe(tmp_path_factory.mktemp("loader-data"))
+def loader_data_probe(tmp_path_factory: pytest.TempPathFactory, build_overlay_probe) -> Path:
+    return _build_loader_data_probe(tmp_path_factory.mktemp("loader-data"), build_overlay_probe)
 
 
 @pytest.mark.parametrize("callback_first", [False, True])
@@ -37,9 +36,20 @@ def test_device_creation_without_loader_callback(loader_data_probe: Path) -> Non
     )
 
 
-def _run_probe(binary: Path, fail_at: int, callback_first: bool) -> str:
+@pytest.mark.parametrize("mode", ["ready", "failure", "destroy", "solid", "pipeline", "pipeline_destroy"])
+def test_present_does_not_wait_for_resource_preparation(
+    loader_data_probe: Path, mode: str,
+) -> None:
+    assert _run_probe(loader_data_probe, 1 if mode == "failure" else 0, True, mode) == (
+        "async initialization and cleanup passed"
+    )
+
+
+def _run_probe(
+    binary: Path, fail_at: int, callback_first: bool, mode: str | None = None,
+) -> str:
     result = subprocess.run(
-        [str(binary), str(fail_at), str(int(callback_first))],
+        [str(binary), str(fail_at), str(int(callback_first)), *([mode] if mode else [])],
         check=True,
         text=True,
         capture_output=True,
@@ -48,40 +58,19 @@ def _run_probe(binary: Path, fail_at: int, callback_first: bool) -> str:
             "PATH": os.environ.get("PATH", ""),
             "PB_OVERLAY": "1",
             "PENGUIN_BURNER_OVERLAY_OVERRIDE": str(binary.parent / "no-override"),
+            "PENGUIN_BURNER_OVERLAY_CONFIG": str(binary.parent / "missing"),
+            "PENGUIN_BURNER_OVERLAY_STATE": str(binary.parent / "missing"),
             "XDG_RUNTIME_DIR": str(binary.parent),
         },
     )
     return result.stdout.strip()
 
 
-def _build_loader_data_probe(tmp_path: Path) -> Path:
-    compiler = shutil.which("c++") or shutil.which("g++")
-    if compiler is None:
-        pytest.skip("C++ compiler unavailable")
-    repo_root = Path(__file__).resolve().parents[1]
+def _build_loader_data_probe(tmp_path: Path, build_overlay_probe) -> Path:
     source = tmp_path / "loader_data_probe.cpp"
     source.write_text(_PROBE_SOURCE, encoding="utf-8")
     output = tmp_path / "loader_data_probe"
-    layer_src = repo_root / "overlay/native/latency_layer/src"
-    subprocess.run(
-        [
-            compiler,
-            "-std=c++17",
-            "-I",
-            str(layer_src),
-            str(source),
-            str(layer_src / "overlay_render.cpp"),
-            str(layer_src / "overlay_text.cpp"),
-            str(layer_src / "latency_state.cpp"),
-            str(layer_src / "latency_layer.cpp"),
-            str(layer_src / "telemetry_events.cpp"),
-            str(layer_src / "marker_timing.cpp"),
-            "-o",
-            str(output),
-        ],
-        check=True,
-        cwd=repo_root,
-    )
+    build_overlay_probe(source, output, full_layer=True)
     return output
 
 
@@ -93,8 +82,10 @@ _PROBE_SOURCE = r'''
 #include "latency_layer_internal.h"
 
 namespace pblayer {
+std::array<uint8_t, 8> overlay_glyph_rows(char);
 VKAPI_ATTR VkResult VKAPI_CALL layer_create_device(
     VkPhysicalDevice, const VkDeviceCreateInfo*, const VkAllocationCallbacks*, VkDevice*);
+VKAPI_ATTR void VKAPI_CALL layer_destroy_device(VkDevice, const VkAllocationCallbacks*);
 bool init_overlay_resources(
     const DeviceContext& device_context,
     VkSwapchainKHR swapchain,
@@ -113,6 +104,14 @@ int g_fail_at = 0;
 VkDevice g_device = VK_NULL_HANDLE;
 std::vector<VkCommandBuffer> g_buffers;
 std::unordered_set<uint64_t> g_live_objects;
+bool g_block_init = false;
+bool g_block_pipeline = false;
+uint32_t g_cache_creations = 0;
+std::unordered_map<VkDeviceMemory, std::vector<uint8_t>> g_memory;
+std::promise<void> g_init_entered;
+std::promise<void> g_release_init;
+std::shared_future<void> g_release = g_release_init.get_future().share();
+const std::thread::id g_present_thread = std::this_thread::get_id();
 
 template <typename Handle>
 Handle fake_handle() {
@@ -184,6 +183,11 @@ pblayer::DeviceContext create_device(bool callback_first) {
 VKAPI_ATTR VkResult VKAPI_CALL get_swapchain_images(
     VkDevice, VkSwapchainKHR, uint32_t* count, VkImage* images) {
     if (images == nullptr) {
+        if (g_block_init) {
+            assert(std::this_thread::get_id() != g_present_thread);
+            g_init_entered.set_value();
+            g_release.wait();
+        }
         *count = kImageCount;
         return VK_SUCCESS;
     }
@@ -298,21 +302,228 @@ pblayer::DeviceContext make_device_context(bool callback_first) {
     return context;
 }
 
+template <typename Handle>
+VKAPI_ATTR void VKAPI_CALL memory_requirements(VkDevice, Handle, VkMemoryRequirements* out) {
+    *out = {4 * 1024 * 1024, 4, 1};
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL allocate_memory(
+    VkDevice device, const VkMemoryAllocateInfo* info, const VkAllocationCallbacks* allocator,
+    VkDeviceMemory* memory) {
+    auto result = create_object<VkDeviceMemory>(device, info, allocator, memory);
+    g_memory[*memory].resize(info->allocationSize);
+    return result;
+}
+
+VKAPI_ATTR void VKAPI_CALL free_memory(VkDevice device, VkDeviceMemory memory,
+    const VkAllocationCallbacks* allocator) {
+    assert(g_memory.erase(memory) == 1);
+    destroy_object(device, memory, allocator);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL create_cache(VkDevice device,
+    const VkPipelineCacheCreateInfo* info, const VkAllocationCallbacks* allocator,
+    VkPipelineCache* cache) {
+    ++g_cache_creations;
+    return create_object(device, info, allocator, cache);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL create_pipeline(VkDevice device, VkPipelineCache cache,
+    uint32_t count, const VkGraphicsPipelineCreateInfo* info,
+    const VkAllocationCallbacks* allocator, VkPipeline* pipeline) {
+    assert(std::this_thread::get_id() != g_present_thread);
+    assert(cache != VK_NULL_HANDLE && count == 1);
+    if (g_block_pipeline) {
+        g_init_entered.set_value();
+        g_release.wait();
+    }
+    return create_object(device, info, allocator, pipeline);
+}
+
+void enable_pipeline(pblayer::DeviceContext& c) {
+    c.physical_device_memory_properties.memoryTypeCount = 1;
+    c.physical_device_memory_properties.memoryTypes[0].propertyFlags =
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+        | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    c.create_pipeline_cache = create_cache;
+    c.destroy_pipeline_cache = destroy_object<VkPipelineCache>;
+    c.create_shader_module = create_object<VkShaderModule, VkShaderModuleCreateInfo>;
+    c.destroy_shader_module = destroy_object<VkShaderModule>;
+    c.create_pipeline_layout = create_object<VkPipelineLayout, VkPipelineLayoutCreateInfo>;
+    c.destroy_pipeline_layout = destroy_object<VkPipelineLayout>;
+    c.create_graphics_pipelines = create_pipeline;
+    c.destroy_pipeline = destroy_object<VkPipeline>;
+    c.create_buffer = create_object<VkBuffer, VkBufferCreateInfo>;
+    c.destroy_buffer = destroy_object<VkBuffer>;
+    c.get_buffer_memory_requirements = memory_requirements<VkBuffer>;
+    c.allocate_memory = allocate_memory;
+    c.free_memory = free_memory;
+    c.bind_buffer_memory = [](VkDevice, VkBuffer, VkDeviceMemory, VkDeviceSize) { return VK_SUCCESS; };
+    c.map_memory = [](VkDevice, VkDeviceMemory m, VkDeviceSize, VkDeviceSize, VkMemoryMapFlags, void** p) {
+        *p = g_memory.at(m).data(); return VK_SUCCESS;
+    };
+    c.unmap_memory = [](VkDevice, VkDeviceMemory) {};
+    c.cmd_bind_pipeline = [](VkCommandBuffer, VkPipelineBindPoint, VkPipeline) {};
+    c.cmd_bind_vertex_buffers = [](VkCommandBuffer, uint32_t, uint32_t, const VkBuffer*, const VkDeviceSize*) {};
+    c.cmd_set_viewport = [](VkCommandBuffer, uint32_t, uint32_t, const VkViewport*) {};
+    c.cmd_set_scissor = [](VkCommandBuffer, uint32_t, uint32_t, const VkRect2D*) {};
+    c.cmd_draw = [](VkCommandBuffer, uint32_t, uint32_t, uint32_t, uint32_t) {};
+    c.create_image = create_object<VkImage, VkImageCreateInfo>;
+    c.destroy_image = destroy_object<VkImage>;
+    c.get_image_memory_requirements = memory_requirements<VkImage>;
+    c.bind_image_memory = [](VkDevice, VkImage, VkDeviceMemory, VkDeviceSize) { return VK_SUCCESS; };
+    c.create_sampler = create_object<VkSampler, VkSamplerCreateInfo>;
+    c.destroy_sampler = destroy_object<VkSampler>;
+    c.create_descriptor_set_layout = create_object<VkDescriptorSetLayout, VkDescriptorSetLayoutCreateInfo>;
+    c.destroy_descriptor_set_layout = destroy_object<VkDescriptorSetLayout>;
+    c.create_descriptor_pool = create_object<VkDescriptorPool, VkDescriptorPoolCreateInfo>;
+    c.destroy_descriptor_pool = destroy_object<VkDescriptorPool>;
+    c.allocate_descriptor_sets = [](VkDevice, const VkDescriptorSetAllocateInfo*, VkDescriptorSet* set) {
+        *set = fake_handle<VkDescriptorSet>(); return VK_SUCCESS;
+    };
+    c.update_descriptor_sets = [](VkDevice, uint32_t, const VkWriteDescriptorSet*, uint32_t, const VkCopyDescriptorSet*) {};
+    c.cmd_bind_descriptor_sets = [](VkCommandBuffer, VkPipelineBindPoint, VkPipelineLayout,
+        uint32_t, uint32_t, const VkDescriptorSet*, uint32_t, const uint32_t*) {};
+    c.cmd_copy_buffer_to_image = [](VkCommandBuffer, VkBuffer, VkImage, VkImageLayout, uint32_t, const VkBufferImageCopy*) {};
+    c.cmd_pipeline_barrier = [](VkCommandBuffer, VkPipelineStageFlags, VkPipelineStageFlags,
+        VkDependencyFlags, uint32_t, const VkMemoryBarrier*, uint32_t,
+        const VkBufferMemoryBarrier*, uint32_t, const VkImageMemoryBarrier*) {};
+}
+
 pblayer::SwapchainContext make_swapchain_context() {
     pblayer::SwapchainContext context{};
     context.image_format = VK_FORMAT_B8G8R8A8_UNORM;
     context.image_extent = {1920, 1080};
+    // No background rebuilds: the probe drives snapshots with build_now().
+    context.overlay_worker = std::make_unique<pblayer::OverlayWorker>(false);
     context.image_array_layers = 1;
     context.image_usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     return context;
 }
 
+void test_async(pblayer::DeviceContext& device, const std::string& mode) {
+    const bool pipeline_mode = mode == "pipeline" || mode == "pipeline_destroy";
+    if (pipeline_mode) enable_pipeline(device);
+    auto context = make_swapchain_context();
+    const auto swapchain = fake_handle<VkSwapchainKHR>();
+    const auto queue = fake_handle<VkQueue>();
+    const auto semaphore = fake_handle<VkSemaphore>();
+    uint32_t image = 0;
+    VkPresentInfoKHR present{};
+    present.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    present.swapchainCount = 1;
+    present.pSwapchains = &swapchain;
+    present.pImageIndices = &image;
+    present.waitSemaphoreCount = 1;
+    present.pWaitSemaphores = &semaphore;
+    pblayer::QueueContext queue_context{};
+    queue_context.queue_family_index = 0;
+    queue_context.queue_flags = VK_QUEUE_GRAPHICS_BIT;
+    const auto submit = [&] {
+        return pblayer::submit_overlay_locked(device, swapchain, context,
+            queue_context, queue, image, &present, {}, {});
+    };
+    // A submit posts this frame's inputs; the worker then has a snapshot to draw.
+    const auto catch_up = [&] {
+        submit();
+        context.overlay_worker->build_now();
+        if (mode == "solid") pblayer::g_overlay_blended_renderer = false;
+    };
+    if (mode == "solid") pblayer::g_overlay_blended_renderer = false;
+    g_block_init = !pipeline_mode;
+    g_block_pipeline = pipeline_mode;
+    assert(submit() == VK_NULL_HANDLE);
+    assert(g_init_entered.get_future().wait_for(std::chrono::seconds(2))
+        == std::future_status::ready);
+    for (int i = 0; i < 20; ++i) {
+        assert(submit() == VK_NULL_HANDLE);
+        assert(present.pWaitSemaphores == &semaphore);
+    }
+    if (mode == "destroy" || mode == "pipeline_destroy") {
+        auto teardown = std::async(std::launch::async, [&] {
+            pblayer::destroy_overlay_resources(device, context);
+        });
+        assert(teardown.wait_for(std::chrono::milliseconds(10)) == std::future_status::timeout);
+        g_release_init.set_value();
+        teardown.get();
+    } else {
+        g_release_init.set_value();
+        context.overlay_preparation.wait();
+        catch_up();
+        const auto signal = submit();
+        if (mode == "failure") {
+            assert(signal == VK_NULL_HANDLE && !context.overlay.ready);
+            assert(context.overlay.attempted && !context.overlay_preparation.valid());
+            assert(submit() == VK_NULL_HANDLE && !context.overlay_preparation.valid());
+        } else {
+            assert(signal != VK_NULL_HANDLE && context.overlay.ready);
+            assert(context.overlay.submit_pending[0]);
+            if (pipeline_mode) {
+                assert(context.overlay.blended_ready && context.overlay.atlas_uploaded);
+                auto* mapping = static_cast<uint8_t*>(context.overlay.vertex_mappings[0]);
+                const auto first_byte = mapping[0];
+                mapping[0] ^= 0xff;
+                assert(submit() != VK_NULL_HANDLE && mapping[0] != first_byte);
+                // A reused image skips the upload; another image still gets its own copy.
+                image = 1;
+                assert(submit() != VK_NULL_HANDLE);
+                assert(context.overlay.vertex_generations[0] == context.overlay.vertex_generations[1]);
+                image = 0;
+                // A fresh worker snapshot is new geometry: it uploads again.
+                context.overlay_worker->build_now();
+                assert(submit() != VK_NULL_HANDLE && mapping[0] == first_byte);
+                assert(context.overlay.vertex_generations[0] > context.overlay.vertex_generations[1]);
+            }
+            if (mode == "solid") {
+                assert(!context.overlay.blended_attempted);
+                pblayer::g_overlay_blended_renderer = true;
+                assert(submit() != VK_NULL_HANDLE);
+                assert(context.pipeline_preparation.valid());
+                context.pipeline_preparation.wait();
+                // This stub driver has no blended pipeline functions: fallback stays usable.
+                assert(submit() != VK_NULL_HANDLE);
+                assert(context.overlay.blended_attempted && !context.overlay.blended_ready);
+            }
+        }
+        pblayer::destroy_overlay_resources(device, context);
+    }
+    if (pipeline_mode) {
+        assert(g_cache_creations == 1 && g_live_objects.size() == 1 && g_memory.empty());
+        if (mode == "pipeline") {
+            // Swapchain recreation reuses the device's cache and frees its own resources.
+            g_block_pipeline = false;
+            g_stamped = 0;
+            g_buffers.clear();
+            context = make_swapchain_context();
+            assert(submit() == VK_NULL_HANDLE);
+            context.overlay_preparation.wait();
+            catch_up();
+            assert(submit() != VK_NULL_HANDLE && g_cache_creations == 1);
+            pblayer::destroy_overlay_resources(device, context);
+        }
+        pblayer::g_devices[g_device] = device;
+        pblayer::layer_destroy_device(g_device, nullptr);
+    }
+    assert(g_live_objects.empty() && g_memory.empty());
+    std::puts("async initialization and cleanup passed");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
-    assert(argc == 3);
+    assert(argc == 3 || argc == 4);
+    if (std::string(argv[1]) == "--glyph") {
+        for (const auto row : pblayer::overlay_glyph_rows(argv[2][0])) {
+            std::printf("%u ", static_cast<unsigned>(row));
+        }
+        return 0;
+    }
     g_fail_at = std::atoi(argv[1]);
     pblayer::DeviceContext device_context = make_device_context(std::atoi(argv[2]) != 0);
+    if (argc == 4) {
+        test_async(device_context, argv[3]);
+        return 0;
+    }
     pblayer::SwapchainContext swapchain_context = make_swapchain_context();
     const bool ready = pblayer::init_overlay_resources(
         device_context,
@@ -335,3 +546,18 @@ int main(int argc, char** argv) {
     return 0;
 }
 '''
+
+
+def test_estimated_latency_glyph_is_visible(loader_data_probe: Path) -> None:
+    def glyph(character: str) -> list[int]:
+        result = subprocess.run(
+            [str(loader_data_probe), "--glyph", character],
+            check=True, text=True, capture_output=True, timeout=10,
+        )
+        return [int(row) for row in result.stdout.split()]
+
+    estimate = glyph("~")
+    assert len(estimate) == 8
+    assert any(estimate)
+    assert estimate != glyph("-")
+    assert estimate != glyph(" ")

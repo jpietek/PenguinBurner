@@ -16,7 +16,7 @@ from .models import (
 
 
 def _format_live_progress_state(state: dict, *, prefix: str) -> str:
-    elapsed_s = float(state.get("elapsed_s", 0.0))
+    elapsed_s = float(state.get("progress_elapsed_s", state.get("elapsed_s", 0.0)))
     workload_name = str(state.get("workload_name") or "?")
     latest_sample = state.get("latest_sample")
     running = str(state.get("running") or "q2rtx").strip().lower()
@@ -31,6 +31,8 @@ def _format_live_progress_state(state: dict, *, prefix: str) -> str:
         f"running={running}",
         f"elapsed={elapsed_s:.1f}s",
     ]
+    if state.get("benchmark_phase") == "startup":
+        parts.append("phase=startup")
     if latest_sample is not None and latest_sample.power_w is not None:
         parts.append(f"power={float(latest_sample.power_w):.1f}W")
     if latest_sample is not None and latest_sample.core_clock_mhz is not None:

@@ -81,6 +81,7 @@ def _telemetry(gpu_index: int = 0, *, voltage_uv: int = 912_000) -> dict:
             "video": 1_800,
         },
         "temperature_c": 61.5,
+        "hotspot_temperature_c": 74.25,
         "fan_speeds_pct": [40, 42],
         "voltage_uv": voltage_uv,
         "throttle_reason_mask": 0x4,
@@ -120,6 +121,7 @@ def test_snapshot_is_typed_and_reuses_both_cached_daemon_reads(monkeypatch) -> N
     assert snapshot.capabilities.features.vf_curve is True
     assert snapshot.capabilities.vf.editable_core_points == 1
     assert snapshot.telemetry.clocks.graphics_mhz == 2100
+    assert snapshot.telemetry.hotspot_temperature_c == 74.25
     assert snapshot.telemetry.clocks.memory_mhz == 10500
     assert snapshot.telemetry.fan_speeds_pct == (40.0, 42.0)
     assert client.snapshot() is not snapshot
@@ -218,6 +220,20 @@ def test_perf_cap_reason_formats_known_and_unknown_bits() -> None:
         daemon_gpu.format_perf_cap_reason_mask(0x4 | 0x80 | 0x8000)
         == "sw-power+hw-power-brake+unknown-0x8000"
     )
+
+
+@pytest.mark.parametrize("include_field", [False, True])
+def test_hotspot_is_optional_for_older_or_unsupported_daemons(monkeypatch, include_field):
+    payload = _telemetry()
+    payload.pop("hotspot_temperature_c")
+    if include_field:
+        payload["hotspot_temperature_c"] = None
+    monkeypatch.setattr(daemon_gpu, "gpu_telemetry", lambda _index: payload)
+
+    sample = DaemonGpuClient(0).telemetry()
+
+    assert sample.hotspot_temperature_c is None
+    assert sample.temperature_c == 61.5
 
 
 def test_q2rtx_sample_uses_one_daemon_telemetry_snapshot(monkeypatch) -> None:

@@ -119,6 +119,15 @@ service setup, the installer atomically copies the current wheel-bundled
 `/usr/libexec/penguin-burnerd` source into that fixed path. Failed startup or
 socket readiness restores the previous binary, unit, and service state.
 
+On SELinux systems the installer relabels that directory with `restorecon`.
+Older policies (Fedora 41 and earlier, RHEL 9 and similar distributions such as
+AlmaLinux 9 and RED OS 8) label `/var/opt` `var_t`, which systemd may not
+execute, so the service would fail with `203/EXEC`. There the installer adds a
+small local file-context module, `penguin_burner`, that labels only
+`/var/opt/penguin-burner/libexec` as `bin_t`. Newer policies already label it
+correctly and get no module. Uninstalling the service leaves the binary and
+this module in place; `sudo semodule -r penguin_burner` removes the module.
+
 ## Recovery: getting back to stock
 
 Applied tuning persists across reboots only while **Apply on startup** is

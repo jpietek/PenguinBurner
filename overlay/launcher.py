@@ -7,7 +7,7 @@ import stat
 import sys
 from pathlib import Path
 
-from .config import OVERLAY_CONFIG_ENV, default_overlay_config_path
+from .config import OVERLAY_CONFIG_ENV, default_overlay_config_path, load_overlay_config
 from .native_layer import LATENCY_LAYER_NAME, native_layer_dirs
 from .shim_deploy import (
     deploy_nvapi_shim,
@@ -137,7 +137,7 @@ def main(argv: list[str] | None = None) -> int:
             spawn_refront_watcher(
                 _session_helper_environment(env, session_helper_pythonpath)
             )
-        if ingame_latency_enabled(env):
+        if ingame_latency_enabled(env) or env.get("PENGUIN_BURNER_NR_TIMING") == "1":
             # The FIFO must always have a drainer for as long as it can have
             # writers, or the 64 KB pipe fills and the shim's marker write (and any
             # stderr write) blocks the game. The drainer's lifetime is tied to this
@@ -363,8 +363,11 @@ def configure_penguin_burner_environment(
     env.setdefault(DXVK_NVAPI_ENABLE_ENV, "1")
     env.setdefault("PROTON_ENABLE_NVAPI", "1")
     env.setdefault("PROTON_HIDE_NVIDIA_GPU", "0")
+    config = load_overlay_config(env[OVERLAY_CONFIG_ENV])
+    nr_enabled = _overlay_enabled(env) and "nr_gpu_ms" in config.enabled_item_ids
+    env["PENGUIN_BURNER_NR_TIMING"] = "1" if nr_enabled else "0"
     shim_active = False
-    if ingame_latency_enabled(env):
+    if ingame_latency_enabled(env) or nr_enabled:
         # Pin this launch's marker FIFO before anything derives from it (the
         # shim's SHIM_OUTPUT wine path, the drainer's --log, the stderr route).
         env.setdefault(MARKER_FIFO_ENV, str(trace_fifo_path(env)))
@@ -373,8 +376,9 @@ def configure_penguin_burner_environment(
         )
         # Fold the present->scanout display tail into the same opt-in. Both are
         # read-only/gated in the layer and inert where unsupported.
-        env.setdefault(DISPLAY_LATENCY_ENV, "1")
-        env.setdefault(INJECT_PRESENT_ID_ENV, "1")
+        if ingame_latency_enabled(env):
+            env.setdefault(DISPLAY_LATENCY_ENV, "1")
+            env.setdefault(INJECT_PRESENT_ID_ENV, "1")
     env.setdefault(LATENCY_SOCKET_ENV, str(_home_latency_socket_path(env)))
     env.setdefault(OVERLAY_STATE_ENV, str(overlay_state_path(env)))
     _prepend_layer_paths(env)

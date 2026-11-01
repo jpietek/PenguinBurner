@@ -519,7 +519,10 @@ public:
     DisplayLatencyWaiter(VkDevice device, PFN_vkWaitForPresentKHR wait_fn)
         : device_(device),
           wait_fn_(wait_fn),
-          thread_([this]() { run(); }) {}
+          thread_([this]() {
+              pthread_setname_np(pthread_self(), "pb-present-wait");
+              run();
+          }) {}
 
     ~DisplayLatencyWaiter() {
         {

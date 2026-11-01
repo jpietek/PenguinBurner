@@ -10,3 +10,44 @@ Categories=Settings;HardwareSettings;Qt;
 Keywords=Penguin;Burner;Penguin Burner;PenguinBurner;penguin-burner;pburn;Nvidia;NVIDIA;GPU;Tuning;Undervolt;Undervolting;Overclock;Overclocking;Adaptive;Overlay;Auto-UV;Q2RTX;CUDA;Steam;Lutris;Heroic;Faugus;
 StartupNotify=true
 StartupWMClass=io.github.jpietek.PenguinBurner
+Actions=ToggleOverlay;NextOverlayDetail;NextOverlayGraph;NextOverlayOpacity;SmallerOverlayText;LargerOverlayText;PreviousOverlayPosition;NextOverlayPosition;
+
+[Desktop Action ToggleOverlay]
+Name=Toggle overlay
+Exec=penguin-burner-cli --overlay-toggle
+X-KDE-Shortcuts=Alt+X
+
+[Desktop Action NextOverlayDetail]
+Name=Cycle overlay preset
+Exec=penguin-burner-cli --overlay-detail-next
+X-KDE-Shortcuts=Alt+C
+
+[Desktop Action NextOverlayGraph]
+Name=Cycle frame timing graphs
+Exec=penguin-burner-cli --overlay-graph-next
+X-KDE-Shortcuts=Alt+G
+
+[Desktop Action NextOverlayOpacity]
+Name=Cycle background opacity
+Exec=penguin-burner-cli --overlay-opacity-next
+X-KDE-Shortcuts=Alt+O
+
+[Desktop Action SmallerOverlayText]
+Name=Decrease overlay Scale
+Exec=penguin-burner-cli --overlay-scale-down
+X-KDE-Shortcuts=Alt+[
+
+[Desktop Action LargerOverlayText]
+Name=Increase overlay Scale
+Exec=penguin-burner-cli --overlay-scale-up
+X-KDE-Shortcuts=Alt+]
+
+[Desktop Action PreviousOverlayPosition]
+Name=Previous overlay position
+Exec=penguin-burner-cli --overlay-position-prev
+X-KDE-Shortcuts=Alt+<
+
+[Desktop Action NextOverlayPosition]
+Name=Next overlay position
+Exec=penguin-burner-cli --overlay-position-next
+X-KDE-Shortcuts=Alt+>

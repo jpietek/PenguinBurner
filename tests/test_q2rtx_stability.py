@@ -922,8 +922,10 @@ def test_loader_error_result_is_reclassified(tmp_path: Path) -> None:
         telemetry_samples=[],
         companion_telemetry_samples=[],
         output_tail=[
-            "q2rtx: error while loading shared libraries: "
-            "libvulkan.so.1: cannot open shared object file",
+            (
+                "q2rtx: error while loading shared libraries: "
+                "libvulkan.so.1: cannot open shared object file"
+            ),
         ],
     )
 
@@ -1075,7 +1077,15 @@ def test_combined_cuda_failure_keeps_evidence_for_auto_uv_classification(
                 sys.executable, "-c", f"print({failure_line!r}); raise SystemExit(1)",
             ),
         ),
-        command=[sys.executable, "-c", "import time; time.sleep(5)" if concurrent else "pass"],
+        command=[
+            sys.executable, "-c",
+            (
+                "import os, sys, time; "
+                "os.write(int(sys.argv[-1]), "
+                "b'{\"event\":\"phase\",\"name\":\"measure_start\"}\\n'); "
+                "time.sleep(5)"
+            ) if concurrent else "pass",
+        ],
         workdir=tmp_path,
         log_path=tmp_path / "combined.log",
         section_name="test",

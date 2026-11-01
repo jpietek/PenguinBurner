@@ -171,6 +171,23 @@ baseline, including its target label and curve.
 
 ## Verification
 
+Performance rechecks a contradictory near-tie before final selection: if its
+short-probe FPS leader uses more power and measures a lower core clock than
+another passed curve within 2% FPS, those two exact curves run in A/B/B/A order.
+Each run uses 30 seconds of Q2RTX and 5 seconds of CUDA at the same scan settings.
+The higher two-run mean FPS becomes the recommendation; the 2% window only
+triggers measurement and never suppresses a small measured gain. The dialog and
+CLI label the comparison winner and averaged rows; other candidates remain
+selectable. This adds about 140 seconds plus workload startup only when this
+case occurs. Efficiency, Balanced, custom targets, interrupted-run recovery and
+user-stop selection do not add this comparison.
+
+Standard and Aggressive Boost retain their tested two-bin and four-bin curves.
+No voltage bounds, unsafe-point rules or final verification durations are relaxed.
+A comparison failure stops the scan through the normal probe safety path rather
+than recommending a stale pass. The comparison winner still needs the usual
+long final verification; repeated short probes are not a stability guarantee.
+
 Q2RTX and CUDA check stability, load, and FPS. The CUDA companion runs an
 integer stress twice per launch and compares the copies on the GPU, ramping
 from an eighth of the grid to the full grid so a marginal voltage shows up as
@@ -182,6 +199,13 @@ Default final durations are 60 seconds for Efficiency, 180 for Balanced, and
 300 for Performance. An explicit duration overrides the defaults. Final
 verification keeps the selected curve, memory offset, and power limit intact.
 A failed final check can retry the next safer tested curve.
+
+Q2RTX startup, including shader compilation, does not count toward verification
+progress or measured telemetry. Its first-render `measure_start` event begins
+measurement and load checks; there is no fixed startup grace period. Concurrent
+CUDA work starts at that event too. A separate startup timeout reports a launch
+failure without marking the voltage unsafe. Stop and fatal-error handling remain
+active throughout startup.
 
 The managed [headless Q2RTX benchmark](https://github.com/jpietek/Q2RTX-headless)
 needs no display server. Automatic resolution is 3840×2160 (4K) on desktop

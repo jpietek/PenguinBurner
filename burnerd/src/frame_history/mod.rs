@@ -717,6 +717,7 @@ mod tests {
             profile_id: "auto-uv".to_string(),
             adaptive: false,
             updated_unix_ns: 0,
+            ..Default::default()
         }
     }
 

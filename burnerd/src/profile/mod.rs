@@ -11,8 +11,10 @@ mod cpu;
 mod fan;
 mod frametime;
 mod guard;
+mod host;
 pub(crate) mod latency_rx;
 mod logfmt;
+mod nr_timing;
 mod resume;
 mod runtime_spec;
 pub(crate) mod savings;
@@ -103,7 +105,10 @@ pub struct LatencySnapshot {
     pub raw_present_fps_stats_avg: Option<String>,
     pub raw_present_fps_avg: Option<f64>,
     pub framegen_active: Option<String>,
+    pub latency_avg_ms: Option<f64>,
     pub latency_p95_ms: Option<f64>,
+    pub nr_gpu_ms: Option<f64>,
+    pub latency_source: Option<String>,
     pub display_latency_p95_ms: Option<f64>,
     pub pid: Option<String>,
     pub session_id: Option<String>,

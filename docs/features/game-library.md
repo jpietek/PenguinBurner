@@ -57,7 +57,9 @@ saved launch settings, restarting an idle launcher when necessary.
 
 ## Library controls
 
-Sort by launcher, name, recently played, or most played. **Rescan** refreshes
+The library opens sorted by **Recently played**, with the newest play activity
+first and games without recorded play activity last. You can also sort by
+launcher, name, most played, or recently installed. **Rescan** refreshes
 discovery without clearing settings. Scans and bulk writes run in the background.
 
 The **All games** menu enables or disables wrapping, or shows or hides overlays

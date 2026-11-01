@@ -905,6 +905,9 @@ def test_pypi_release_builds_manylinux_native_layer_wheel() -> None:
         assert "CIBW_MANYLINUX_X86_64_IMAGE" in text
         assert "manylinux_2_28" in text
         assert "vulkan-headers" in text
+        # CI and the release runner must prepare the same D3D12-capable
+        # MinGW headers; EPEL 8's headers cannot build the NR collector.
+        assert "bash {project}/scripts/prepare-manylinux-mingw.sh" in text
 
 
 def test_desktop_icons_are_transparent_and_large_enough() -> None:
@@ -1060,7 +1063,7 @@ def test_pypi_summary_matches_readme_positioning() -> None:
     )
     assert "three verified tiers" in summary
     assert "Steam, Lutris, Heroic and Faugus" in summary
-    assert "PC latency" in summary
+    assert "frame latency estimates" in summary
     assert "Steam, Lutris, Heroic and Faugus" in readme
     assert {"overclocking", "adaptive", "steam", "lutris", "heroic", "faugus", "overlay"} <= keywords
 
@@ -1099,7 +1102,7 @@ def test_native_package_descriptions_cover_readme_headline_features() -> None:
         assert "Adaptive undervolting" in prose
         assert "Steam, Lutris, Heroic and Faugus games into one list" in prose
         assert "frame-generation FPS" in prose
-        assert "PC latency" in prose
+        assert "frame latency estimates" in prose
         assert "MSI Afterburner profile import" in prose
         assert "LACT config export" in prose
         assert "penguin-burnerd" in prose
