@@ -41,6 +41,10 @@ finish-args:
   - --filesystem=host:ro
   - --filesystem=home
   - --filesystem=/run/penguin-burnerd.sock
+  # host:ro leaves out /run and /var: Game Perf Profile reads the daemon's
+  # live rings and archives from these two directories.
+  - --filesystem=/run/penguin-burner:ro
+  - --filesystem=/var/lib/penguin-burner:ro
 
 modules:
   # Root daemon: compiled from the bundled Rust crate (burnerd/) with the

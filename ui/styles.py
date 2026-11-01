@@ -165,6 +165,23 @@ QPushButton#gamePlayButton:pressed {{
     background: {theme.PRIMARY_BUTTON_PRESSED_BG};
     border-color: {theme.PRIMARY_BUTTON_PRESSED_BORDER};
 }}
+/* Play's shape, a secondary colour: it opens a view, it does not start
+   anything. Dashed and dimmed while the game has no telemetry yet. */
+QPushButton#gamePerfProfileButton {{
+    background: {theme.CONTROL_BG};
+    border-color: {theme.BORDER_STRONG};
+    color: {theme.TEXT_STRONG};
+    font-size: 14px;
+    font-weight: 700;
+}}
+QPushButton#gamePerfProfileButton:hover {{
+    border-color: {theme.PRIMARY_BUTTON_HOVER_BORDER};
+}}
+QPushButton#gamePerfProfileButton:disabled {{
+    background: transparent;
+    border-style: dashed;
+    color: {theme.TEXT_DISABLED};
+}}
 /* Running turns the same button into Stop, so it takes the danger colour
    rather than growing a second button beside it. */
 QPushButton#gamePlayButton[playState="running"] {{
