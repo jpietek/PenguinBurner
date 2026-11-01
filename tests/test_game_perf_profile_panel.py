@@ -161,17 +161,22 @@ def test_panel_empty_and_missing_states(qtbot, tmp_path: Path) -> None:
         _timer(panel).stop()
 
 
-def test_panel_warming_state_under_five_minutes(qtbot, tmp_path: Path) -> None:
-    # A short *archived* session is over: no more data is coming, so the gate
-    # still says the fingerprint never settled.
+def test_panel_shows_a_short_archived_session_without_a_fingerprint(
+    qtbot, tmp_path: Path
+) -> None:
+    # A short *archived* session is over: its frametimes are real, but the
+    # fingerprint never settled, so it stays empty.
     env = _write_ring(tmp_path, 4242, seconds=120, live=False)
     panel = _make_panel(env)
     qtbot.addWidget(panel.widget)
     try:
         panel.select_game("steam:4242", game_name="INDIKA")
-        assert panel._stack.currentIndex() == 0
-        assert "Warming up" in panel.empty_label.text()
-        assert "2 of 5 min" in panel.empty_label.text()
+        assert panel._stack.currentIndex() == 1  # detail with the graph
+        xs, _ys = panel.frametime_curve.getData()
+        assert xs is not None and len(xs) > 0
+        assert "fingerprint at 5 min" in panel.meta_label.text()
+        assert "Warming up" in panel.profile_label.toolTip()
+        assert "2 of 5 min" in panel.profile_label.toolTip()
     finally:
         _timer(panel).stop()
 

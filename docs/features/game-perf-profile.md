@@ -27,7 +27,14 @@ demanding a game is, where its bottleneck lives, and how fluent its
   red stutter needles, or a **LIVE 10 s** zoom at per-frame resolution).
 
 A game needs at least **5 minutes** of captured play before it earns a
-fingerprint; until then the tab shows a dashed "warming up" outline.
+fingerprint; until then the fingerprint is a dashed "warming up" outline, while
+the stat row and frametime graph already show what was recorded. A session that
+is still running draws its fingerprint early and labels it as settling.
+
+Frametimes are **pre-frame-generation** when the game sends base-frame markers.
+Menus and loading screens usually send none, so for those stretches the graph
+and stats fall back to the raw present cadence — the frames that actually
+reached the screen.
 
 ## The five spokes
 
@@ -65,7 +72,8 @@ buttery game.
 
 Recording runs while the game's per-game PenguinBurner profile is active (a
 wrapped game whose mode is not *Default*), because that is when the daemon
-watches the game. The daemon writes one ring file per running session under
+watches the game. A game launched unwrapped or in *Default* mode records
+nothing. The daemon writes one ring file per running session under
 `/run/penguin-burner/frame-history/` (about 0.3–0.5 MB) and, when the game
 exits, archives the window trimmed to
 `/var/lib/penguin-burner/frame-history/<game>.ring` — typically well under

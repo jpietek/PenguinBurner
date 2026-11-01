@@ -602,17 +602,6 @@ class GamePerfProfilePanel:
         self._set_refresh_interval(
             _LIVE_REFRESH_MS if history.live and self._live_mode else _REFRESH_MS
         )
-        # The 5-minute gate decides whether a fingerprint is worth trusting at
-        # a glance, so it still hides a short *archived* session. A ring the
-        # daemon is writing right now is different: the game is on and the user
-        # wants to watch it fill, so show the detail from the first second and
-        # label it as still settling.
-        if not summary.qualified and not history.live:
-            self._show_message(
-                f"{self._game_name} — {warming_text(summary.minutes)}",
-                warming=True,
-            )
-            return
         self._last_summary = summary
         self._populate(history, summary)
         self._stack.setCurrentIndex(1)
@@ -648,15 +637,23 @@ class GamePerfProfilePanel:
             target_fps=self._target_fps,
             power_limit_w=history.header.power_limit_w,
         )
+        # The 5-minute gate decides whether a fingerprint is worth trusting at
+        # a glance, so a short *archived* session keeps an empty one; its
+        # frametimes and stats are real and still shown. A live ring fills in
+        # front of the user and is labelled as settling instead.
+        settled = summary.qualified or history.live
         self.profile_label.setPixmap(
             perf_profile_pixmap(
-                self.QtCore, self.QtGui, axes=axes, tier=summary.tier,
+                self.QtCore, self.QtGui, axes=axes if settled else None,
+                tier=summary.tier if settled else "",
                 size=_PERF_PROFILE_SIZE, labels=True,
                 device_pixel_ratio=self._device_pixel_ratio(),
             )
         )
         self.profile_label.setToolTip(
             "\n".join(f"{axis.label}: {axis.text}" for axis in axes)
+            if settled
+            else warming_text(summary.minutes)
         )
         self._stat_values["MEDIAN"].setText(
             f"{summary.median_present_fps:.0f} fps · "
