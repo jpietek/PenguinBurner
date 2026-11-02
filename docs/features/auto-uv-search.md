@@ -3,6 +3,13 @@
 See [Auto-UV](auto-uv.md) for setup and [recovery](auto-uv-recovery.md) for
 failed probes and interrupted scans.
 
+## V/F curve compatibility
+
+On drivers that omit the optional V/F base tuple, including affected Turing
+GPUs, missing base frequency or voltage values fall back to the reported curve
+point. Populated base values are preserved. Auto-UV still rejects invalid
+reported points and requires enough plausible points before scanning.
+
 ## Boost shape and freeze retries
 
 The GUI always uses **Standard Boost**. On the CLI, choose the rising tail

@@ -251,8 +251,11 @@ class HiddenNvapiVfCurveReader:
                     "voltage_based": int(point_info.b_voltage_based),
                     "freq_khz": int(point_status.freq_khz),
                     "voltage_uv": int(point_status.voltage_uv),
-                    "base_freq_khz": int(point_status.vf_tuple_base.freq_khz),
-                    "base_voltage_uv": int(point_status.vf_tuple_base.voltage_uv),
+                    # Turing may leave the optional base tuple empty.
+                    "base_freq_khz": int(point_status.vf_tuple_base.freq_khz)
+                    or int(point_status.freq_khz),
+                    "base_voltage_uv": int(point_status.vf_tuple_base.voltage_uv)
+                    or int(point_status.voltage_uv),
                     "current_offset_khz": int(point_control.prog.freq_offset_khz),
                 }
             )
