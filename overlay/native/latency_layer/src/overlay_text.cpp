@@ -567,31 +567,52 @@ OverlayFrameStats overlay_frame_stats_from_samples(
     return stats;
 }
 
-// Oldest sample first. The ring's index points at the next slot to write, so
-// a full ring reads [index, end) then [begin, index).
-OverlayGraph overlay_graph_locked(const SwapchainContext& context, uint64_t median_us) {
+// Present-call data is never labelled as base frames: the fallback says
+// what it measured.
+const char* overlay_graph_title(bool displayed, OverlayGraphSource source, bool framegen_active) {
+    if (displayed) return framegen_active ? "Displayed (post-FG)" : "Displayed";
+    if (source == OverlayGraphSource::BaseFrames)
+        return framegen_active ? "Base frames (pre-FG)" : "Base frames";
+    return "Present calls";
+}
+
+// Both streams use CLOCK_MONOTONIC and the same rolling time window. The top
+// plot starts as the Present-call fallback; the draw path replaces it with
+// base frames when the bridge's shared buffer has fresh samples.
+OverlayGraph overlay_graph_locked(const SwapchainContext& context) {
     OverlayGraph graph{};
-    const uint32_t size = static_cast<uint32_t>(context.present_frametimes.size());
-    const uint32_t count = std::min(context.present_frametime_count, size);
-    const uint32_t start = count < size
-        ? 0u
-        : context.present_frametime_index % size;
-    for (uint32_t i = 0; i < count; ++i) {
-        const uint64_t sample = context.present_frametimes[(start + i) % size];
-        if (sample) {
-            graph.samples[graph.count++] = sample;
-        }
+    const auto now = now_monotonic_us();
+    graph.end_time_us = now;
+    const auto fresh = [&](uint64_t t) { return t && t <= now && now - t < graph.window_us; };
+    const uint32_t ring = static_cast<uint32_t>(context.present_frametimes.size());
+    const uint32_t present_count = std::min(context.present_frametime_count, ring);
+    graph.present_available = present_count != 0;
+    const uint32_t first_present = present_count == ring ? context.present_frametime_index : 0;
+    for (uint32_t i = 0; i < present_count; ++i) {
+        const auto slot = (first_present + i) % ring;
+        if (!context.present_frametimes[slot] || !fresh(context.present_times_us[slot])) continue;
+        graph.sample_times_us[graph.count] = context.present_times_us[slot];
+        graph.samples[graph.count++] = context.present_frametimes[slot];
     }
-    graph.median_us = graph.count ? median_us : 0;
+    if (graph.count) graph.source = OverlayGraphSource::PresentCalls;
+    auto sorted = graph.samples;
+    std::sort(sorted.begin(), sorted.begin() + graph.count);
+    if (graph.count) graph.median_us = sorted[graph.count / 2];
     const auto& display = context.display_timing;
+    // The source exists once the swapchain reports timing; samples only plot
+    // after the display clock is calibrated to the shared axis.
     graph.display_available = display.available;
-    const uint64_t now = now_monotonic_us();
-    if (display.last_sample_us && now >= display.last_sample_us && now - display.last_sample_us < 2000000) {
-        graph.display_count = display.count;
-        const uint32_t first = display.count == display.samples.size() ? display.index : 0;
-        for (uint32_t i = 0; i < display.count; ++i)
-            graph.display_samples[i] = display.samples[(first + i) % display.samples.size()];
-        auto sorted = graph.display_samples;
+    graph.display_queue_only = display.queue_only;
+    if (display.clock_valid && fresh(display.last_sample_us)) {
+        const auto first = display.count == display.samples.size() ? display.index : 0;
+        for (uint32_t i = 0; i < display.count; ++i) {
+            const auto slot = (first + i) % display.samples.size();
+            const auto mapped = static_cast<int64_t>(display.timestamps_ns[slot]) + display.clock_offset_ns;
+            if (mapped <= 0 || !fresh(static_cast<uint64_t>(mapped) / 1000)) continue;
+            graph.display_times_us[graph.display_count] = static_cast<uint64_t>(mapped) / 1000;
+            graph.display_samples[graph.display_count++] = display.samples[slot];
+        }
+        sorted = graph.display_samples;
         std::sort(sorted.begin(), sorted.begin() + graph.display_count);
         if (graph.display_count) graph.display_median_us = sorted[graph.display_count / 2];
     }
@@ -604,16 +625,17 @@ bool overlay_graph_enabled() {
 
 OverlayFrameStats overlay_frame_stats_locked(
     SwapchainContext& context,
-    uint64_t present_frametime_us) {
+    uint64_t present_frametime_us,
+    uint64_t present_time_us) {
+    const uint32_t ring = static_cast<uint32_t>(context.present_frametimes.size());
     if (present_frametime_us) {
         context.present_frametimes[context.present_frametime_index] =
             present_frametime_us;
+        context.present_times_us[context.present_frametime_index] = present_time_us;
         context.present_frametime_index =
-            (context.present_frametime_index + 1)
-            % static_cast<uint32_t>(context.present_frametimes.size());
+            (context.present_frametime_index + 1) % ring;
         context.present_frametime_count = std::min<uint32_t>(
-            context.present_frametime_count + 1,
-            static_cast<uint32_t>(context.present_frametimes.size()));
+            context.present_frametime_count + 1, ring);
         ++context.session_frametime_count;
         context.session_frametime_sum_us += present_frametime_us;
         if (!context.session_frametime_min_us
@@ -624,9 +646,17 @@ OverlayFrameStats overlay_frame_stats_locked(
             context.session_frametime_max_us = present_frametime_us;
         }
     }
+    // The ring outgrew the statistics window for the graph's sake; the
+    // numbers keep their 120-present horizon by reading the newest entries.
+    std::array<uint64_t, kOverlayStatsWindow> recent{};
+    const uint32_t recent_count = std::min(context.present_frametime_count, kOverlayStatsWindow);
+    for (uint32_t i = 0; i < recent_count; ++i) {
+        recent[i] = context.present_frametimes[
+            (context.present_frametime_index + ring - 1 - i) % ring];
+    }
     return overlay_frame_stats_from_samples(
-        context.present_frametimes.data(),
-        context.present_frametime_count,
+        recent.data(),
+        recent_count,
         context.session_frametime_count,
         context.session_frametime_sum_us,
         context.session_frametime_min_us,

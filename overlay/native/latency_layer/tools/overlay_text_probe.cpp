@@ -38,8 +38,9 @@
 // percentile and session maths and prints the result, so the statistics can
 // be tested without a swapchain.
 //
-// --graph pushes the frametimes through the ring exactly as presents do and
-// prints the chronological snapshot the renderer would draw, which is what
+// --graph pushes the frametimes through the Present ring exactly as presents do and
+// prints the chronological snapshot the renderer would draw as its Present-call
+// fallback (no bridge buffer is open), which is what
 // pins the wrap-around ordering.
 //
 // --graph-bars prints the bar height each frametime would draw at, which is
@@ -158,14 +159,21 @@ int print_frame_stats(const std::string& list) {
     return 0;
 }
 
+// Presents are replayed back to back so the last one lands at "now"; the
+// graph then shows the Present-call fallback (no bridge buffer is open here).
 int print_graph(const std::string& list) {
     pblayer::SwapchainContext context{};
-    pblayer::OverlayFrameStats stats{};
-    for (uint64_t sample : parse_us_list(list)) {
-        stats = pblayer::overlay_frame_stats_locked(context, sample);
+    const std::vector<uint64_t> samples = parse_us_list(list);
+    uint64_t present_us = pblayer::now_monotonic_us();
+    for (uint64_t sample : samples) present_us -= sample;
+    for (uint64_t sample : samples) {
+        present_us += sample;
+        pblayer::overlay_frame_stats_locked(context, sample, present_us);
     }
-    const pblayer::OverlayGraph graph = pblayer::overlay_graph_locked(context, stats.median_us);
-    std::printf("count=%u median_us=%" PRIu64 " samples=", graph.count, graph.median_us);
+    const pblayer::OverlayGraph graph = pblayer::overlay_graph_locked(context);
+    const char* source = graph.source == pblayer::OverlayGraphSource::BaseFrames ? "base"
+        : graph.source == pblayer::OverlayGraphSource::PresentCalls ? "present" : "none";
+    std::printf("count=%u median_us=%" PRIu64 " source=%s samples=", graph.count, graph.median_us, source);
     for (uint32_t i = 0; i < graph.count; ++i) {
         std::printf("%s%" PRIu64, i ? "," : "", graph.samples[i]);
     }

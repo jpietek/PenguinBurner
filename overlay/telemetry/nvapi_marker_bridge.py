@@ -54,6 +54,7 @@ from pathlib import Path
 from types import FrameType
 
 from .. import shim_deploy as _shim_deploy
+from .base_timing import BaseFramePublisher
 from .nr_timing import parse_nr_timing
 from .reflex_report import REPORT_PREFIX, parse_reflex_report
 from .sockets import latency_socket_path, latency_socket_paths
@@ -448,6 +449,7 @@ def run(
     sock.setblocking(False)
     pid = os.getpid() if pid is None else pid
     session_id = str(env.get(TELEMETRY_SESSION_ENV) or "").strip()
+    base_graph = BaseFramePublisher(latency_socket_path(env), session_id)
 
     try:
         pending_sim: dict[int, int] = {}
@@ -517,6 +519,7 @@ def run(
                 while len(input_order) > _MAX_PENDING:
                     pending_input.pop(input_order.pop(0), None)
             elif marker == NV_MARKER_SIMULATION_START:
+                base_graph.publish(frame, t_us, sample_pid)
                 previous = last_simulation_start.get(sample_pid)
                 if previous is not None:
                     previous_frame, previous_us = previous
@@ -589,6 +592,7 @@ def run(
                     while len(awaiting_oob) > _MAX_PENDING:
                         awaiting_oob.pop(0)
     finally:
+        base_graph.close()
         sock.close()
 
 

@@ -456,18 +456,18 @@ def test_native_frame_stats_put_the_worst_frame_in_the_tail(
     ("samples", "expected_samples", "expected_median"),
     [
         ([1000, 2000, 3000, 4000, 5000], [1000, 2000, 3000, 4000, 5000], 3000),
-        # More presents than the ring holds: the snapshot keeps the newest 120
-        # in the order they happened, not in the order they sit in the buffer.
-        (list(range(1, 131)), list(range(11, 131)), 71),
+        # The ring no longer stops at 120: the window is two seconds of time.
+        (list(range(1, 131)), list(range(1, 131)), 66),
         ([], [], 0),
     ],
 )
-def test_native_graph_snapshot_reads_the_ring_in_order(
+def test_native_present_ring_is_the_fallback_graph(
     samples: list[int],
     expected_samples: list[int],
     expected_median: int,
     native_overlay_probe: Path,
 ) -> None:
+    """Without a bridge buffer the top plot draws Present calls, labelled as such."""
     result = subprocess.run(
         [
             str(native_overlay_probe),
@@ -485,6 +485,7 @@ def test_native_graph_snapshot_reads_the_ring_in_order(
     assert drawn == expected_samples
     assert int(fields["count"]) == len(expected_samples)
     assert int(fields["median_us"]) == expected_median
+    assert fields["source"] == ("present" if samples else "none")
 
 
 @pytest.mark.parametrize(

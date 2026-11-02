@@ -12,6 +12,7 @@ recursive-include packaging/icons *.png *.svg
 recursive-include ui/assets *.png
 recursive-include tests *.py *.cpp
 recursive-include overlay/native/latency_layer/src *.cpp *.h *.hpp
+recursive-include overlay/native/latency_layer/vendor *
 recursive-include overlay/native/nvapi_shim/src *.cpp *.h
 recursive-include overlay/native/nvapi_shim/third_party *.c *.h *.txt UPSTREAM
 # Rust daemon (penguin-burnerd) crate: ship sources + committed lockfile so a

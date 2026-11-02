@@ -1,0 +1,5 @@
+- Fix the post-FG frame-time graph missing from packaged overlays.
+- Plot real pre-FG base frames above post-FG displayed frames on one time axis; Present calls stay as the fallback.
+- Fix the post-FG graph for games that enable Vulkan present timing but create an untimed swapchain (TLOU2).
+- Skip the post-FG plot when the surface has no display timing; XWayland games get a "needs Wayland surface" hint.
+- Fix Turing Auto-UV failing when the driver reports empty V/F base values.

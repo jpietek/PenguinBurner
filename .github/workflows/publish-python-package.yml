@@ -102,6 +102,9 @@ jobs:
                       raise SystemExit(f"missing required {label}: {suffix}")
           PY
 
+      - name: Verify display-timing capture in both native layers
+        run: python scripts/check-native-display-timing.py dist/*.whl
+
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:

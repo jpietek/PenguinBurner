@@ -14,6 +14,7 @@ void record_display_timestamp(DisplayTimingState& state, uint64_t timestamp_ns, 
         const uint64_t delta = (timestamp_ns - state.last_timestamp_ns) / 1000;
         if (delta) {
             state.samples[state.index] = delta;
+            state.timestamps_ns[state.index] = timestamp_ns;
             state.index = (state.index + 1) % state.samples.size();
             state.count = std::min<uint32_t>(state.count + 1, state.samples.size());
         }
@@ -27,6 +28,16 @@ static const VkBaseInStructure* chain_entry(const void* chain, VkStructureType t
     auto* p = static_cast<const VkBaseInStructure*>(chain);
     for (; p; p = p->pNext) if (p->sType == type) return p;
     return nullptr;
+}
+
+bool display_timing_features_enabled(const VkDeviceCreateInfo* info) {
+    if (!info || !extension_requested(info, VK_EXT_PRESENT_TIMING_EXTENSION_NAME)
+        || !extension_requested(info, VK_KHR_PRESENT_ID_2_EXTENSION_NAME)) return false;
+    const auto* timing = reinterpret_cast<const VkPhysicalDevicePresentTimingFeaturesEXT*>(
+        chain_entry(info->pNext, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_TIMING_FEATURES_EXT));
+    const auto* id = reinterpret_cast<const VkPhysicalDevicePresentId2FeaturesKHR*>(
+        chain_entry(info->pNext, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_2_FEATURES_KHR));
+    return timing && timing->presentTiming && id && id->presentId2;
 }
 
 void prepare_display_timing_device(VkInstance instance, const InstanceContext& context,
@@ -76,7 +87,8 @@ void prepare_display_timing_device(VkInstance instance, const InstanceContext& c
 }
 
 uint32_t display_timing_surface_stage(VkInstance instance, PFN_vkGetInstanceProcAddr get_proc,
-    VkPhysicalDevice physical, VkSurfaceKHR surface) {
+    VkPhysicalDevice physical, VkSurfaceKHR surface, bool* queue_only) {
+    if (queue_only) *queue_only = false;
     if (!get_proc) return 0;
     auto get_caps = reinterpret_cast<PFN_vkGetPhysicalDeviceSurfaceCapabilities2KHR>(
         get_proc(instance, "vkGetPhysicalDeviceSurfaceCapabilities2KHR"));
@@ -97,7 +109,10 @@ uint32_t display_timing_surface_stage(VkInstance instance, PFN_vkGetInstanceProc
         return VK_PRESENT_STAGE_IMAGE_FIRST_PIXEL_VISIBLE_BIT_EXT;
     if (timing.presentStageQueries & VK_PRESENT_STAGE_IMAGE_FIRST_PIXEL_OUT_BIT_EXT)
         return VK_PRESENT_STAGE_IMAGE_FIRST_PIXEL_OUT_BIT_EXT;
-    return 0; // GPU queue completion is not display timing.
+    // GPU queue completion is not display timing. NVIDIA exposes the pixel
+    // stages only on native Wayland surfaces; X11/XWayland ends here.
+    if (queue_only) *queue_only = true;
+    return 0;
 }
 
 void init_display_timing(const DeviceContext& device, VkSwapchainKHR swapchain, DisplayTimingState& state) {
@@ -114,10 +129,55 @@ void init_display_timing(const DeviceContext& device, VkSwapchainKHR swapchain, 
     if (device.get_timing_domains(device.device, swapchain, &domains, &counter) != VK_SUCCESS) return;
     // Intervals stay inside a single domain; no CPU clock conversion is needed.
     state.domain_id = ids[0];
+    state.time_domain = types[0];
     for (uint32_t i = 0; i < domains.timeDomainCount; ++i)
-        if (types[i] == VK_TIME_DOMAIN_CLOCK_MONOTONIC_KHR) state.domain_id = ids[i];
+        if (types[i] == VK_TIME_DOMAIN_CLOCK_MONOTONIC_KHR) { state.domain_id = ids[i]; state.time_domain = types[i]; }
     // Shared: the app sized the queue; leave it alone.
     state.available = state.shared || device.set_timing_queue(device.device, swapchain, 64) == VK_SUCCESS;
+}
+
+// Calibrate display-local nanoseconds to CLOCK_MONOTONIC at most once per
+// two seconds. No GPU timestamp-query pool, waits, or per-frame calibration.
+// A failed re-attempt keeps the last good offset; only a swapchain or domain
+// change (observe_display_timing) invalidates it.
+void calibrate_display_clock(const DeviceContext& device, VkSwapchainKHR swapchain,
+    DisplayTimingState& state, uint64_t now_us) {
+    if (state.time_domain == VK_TIME_DOMAIN_CLOCK_MONOTONIC_KHR) {
+        state.clock_offset_ns = 0;
+        state.clock_valid = true;
+        return;
+    }
+    if (state.last_calibration_us && now_us - state.last_calibration_us < 2000000) return;
+    state.last_calibration_us = now_us;
+    if (!device.get_calibrated_timestamps || !device.get_timing_domains) return;
+    // The opaque domain ID must still be advertised by this swapchain.
+    VkSwapchainTimeDomainPropertiesEXT domains{};
+    domains.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_TIME_DOMAIN_PROPERTIES_EXT;
+    uint64_t counter = 0;
+    if (device.get_timing_domains(device.device, swapchain, &domains, &counter) != VK_SUCCESS
+        || !domains.timeDomainCount || domains.timeDomainCount > 64) return;
+    std::array<VkTimeDomainKHR, 64> types{};
+    std::array<uint64_t, 64> ids{};
+    domains.pTimeDomains = types.data(); domains.pTimeDomainIds = ids.data();
+    if (device.get_timing_domains(device.device, swapchain, &domains, &counter) != VK_SUCCESS) return;
+    bool found = false;
+    for (uint32_t i = 0; i < domains.timeDomainCount; ++i)
+        if (ids[i] == state.domain_id && types[i] == state.time_domain) found = true;
+    if (!found) return;
+    VkSwapchainCalibratedTimestampInfoEXT local{};
+    local.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CALIBRATED_TIMESTAMP_INFO_EXT;
+    local.swapchain = swapchain; local.timeDomainId = state.domain_id;
+    local.presentStage = state.time_domain == VK_TIME_DOMAIN_PRESENT_STAGE_LOCAL_EXT ? state.stage : 0;
+    const VkCalibratedTimestampInfoEXT infos[] = {
+        {VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_EXT, &local, static_cast<VkTimeDomainEXT>(state.time_domain)},
+        {VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_EXT, nullptr, VK_TIME_DOMAIN_CLOCK_MONOTONIC_EXT},
+    };
+    uint64_t stamps[2]{}, deviation = 0;
+    if (device.get_calibrated_timestamps(device.device, 2, infos, stamps, &deviation) != VK_SUCCESS
+        || !stamps[0] || !stamps[1] || deviation > 500000
+        || stamps[0] > INT64_MAX || stamps[1] > INT64_MAX) return;
+    state.clock_offset_ns = static_cast<int64_t>(stamps[1]) - static_cast<int64_t>(stamps[0]);
+    state.clock_valid = true;
 }
 
 void collect_display_timing(const DeviceContext& device, VkSwapchainKHR swapchain, DisplayTimingState& state) {
@@ -147,6 +207,7 @@ void collect_display_timing(const DeviceContext& device, VkSwapchainKHR swapchai
         state.count = state.index = 0;
         return;
     }
+    calibrate_display_clock(device, swapchain, state, now_monotonic_us());
     for (uint32_t i = 0; i < results.presentationTimingCount; ++i) {
         if (!timings[i].reportComplete) continue;
         if (state.pending) --state.pending;
@@ -165,6 +226,7 @@ void observe_display_timing(DisplayTimingState& state,
     if (!results.pPresentationTimings) return;
     for (uint32_t i = 0; i < results.presentationTimingCount; ++i) {
         const auto& report = results.pPresentationTimings[i];
+        state.time_domain = report.timeDomain;
         if (!report.reportComplete || !report.pPresentStages) continue;
         const VkPresentStageTimeEXT* selected = nullptr;
         for (uint32_t j = 0; j < report.presentStageCount; ++j) {
@@ -185,6 +247,7 @@ void observe_display_timing(DisplayTimingState& state,
                 state.last_timestamp_ns = 0;
                 state.domain_id = report.timeDomainId;
                 state.stage = selected->stage;
+                state.clock_valid = false; state.last_calibration_us = 0;
             }
             // A replaced present reports time 0 and is skipped.
             record_display_timestamp(state, selected->time, now_us);
@@ -197,6 +260,7 @@ void observe_display_timing(DisplayTimingState& state,
             state.passive = true;
             state.domain_id = report.timeDomainId;
             state.stage = selected->stage;
+            state.time_domain = report.timeDomain;
         }
         state.available = true;
         record_display_timestamp(state, selected->time, now_us);
@@ -254,6 +318,10 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_get_past_presentation_timing_ext(VkDevice d
         auto it = g_swapchains.find(info->swapchain);
         if (it != g_swapchains.end() && it->second.device == device) {
             observe_display_timing(it->second.display_timing, *results, now_monotonic_us());
+            if (auto dev = g_devices.find(device); dev != g_devices.end())
+                calibrate_display_clock(dev->second, info->swapchain, it->second.display_timing, now_monotonic_us());
+            if (verbose) display_debug_log("  clock aligned=%d offset_ns=%" PRId64,
+                it->second.display_timing.clock_valid ? 1 : 0, it->second.display_timing.clock_offset_ns);
             if (verbose) display_debug_log("  observed available=%d count=%u stage=0x%x last_ts=%" PRIu64,
                 it->second.display_timing.available ? 1 : 0, it->second.display_timing.count,
                 it->second.display_timing.stage, it->second.display_timing.last_timestamp_ns);

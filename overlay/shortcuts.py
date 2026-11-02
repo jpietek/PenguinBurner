@@ -38,7 +38,7 @@ SHORTCUTS = (
     OverlayShortcut('NextOverlayDetail', 'Cycle overlay preset', '--overlay-detail-next',
                     'C', 'Cycle Small → Medium → Large → Biggest → Small and exit. Custom starts at Small.'),
     OverlayShortcut('NextOverlayGraph', 'Cycle frame timing graphs', '--overlay-graph-next',
-                    'G', 'Cycle frame timing graphs: Present calls, Displayed frames, Both.'),
+                    'G', 'Cycle frame timing graphs: Base frames (pre-FG), Displayed frames (post-FG), Both.'),
     OverlayShortcut('NextOverlayOpacity', 'Cycle background opacity', '--overlay-opacity-next',
                     'O', 'Cycle background opacity: 50, 60, 70, 75, 80, 85, 90, 95, 100 percent.'),
     OverlayShortcut('SmallerOverlayText', 'Decrease overlay Scale', '--overlay-scale-down',

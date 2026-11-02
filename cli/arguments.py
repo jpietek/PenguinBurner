@@ -215,7 +215,7 @@ def parse_arguments(argv):
         help=("Set the overlay preset and exit: minimal=Small, standard=Medium, "
               "detailed=Large, full=Biggest; custom restores your selected fields."),
     )
-    parser.add_argument("--overlay-graph", choices=("present", "display", "both"), help="Select frame timing graphs; displayed timing requires driver feedback.")
+    parser.add_argument("--overlay-graph", choices=("base", "display", "both", "present"), help="Select pre-FG base markers, post-FG displayed timing, or both; present is the legacy alias for base.")
     steam_group.add_argument(
         "--set-steam-overlay-launch",
         metavar="APPID",
