@@ -599,23 +599,42 @@ OverlayGraph overlay_graph_locked(const SwapchainContext& context) {
     std::sort(sorted.begin(), sorted.begin() + graph.count);
     if (graph.count) graph.median_us = sorted[graph.count / 2];
     const auto& display = context.display_timing;
-    // The source exists once the swapchain reports timing; samples only plot
-    // after the display clock is calibrated to the shared axis.
+    // The source exists once the swapchain reports timing. A calibrated clock
+    // maps each driver timestamp onto the shared axis; without one (no
+    // vkGetCalibratedTimestamps, or it keeps failing) the newest sample is
+    // anchored at the moment the layer collected it and the older ones are
+    // placed by walking back through their own intervals.
     graph.display_available = display.available;
     graph.display_queue_only = display.queue_only;
-    if (display.clock_valid && fresh(display.last_sample_us)) {
-        const auto first = display.count == display.samples.size() ? display.index : 0;
+    const auto size = display.samples.size();
+    if (!fresh(display.last_sample_us) || !display.count) return graph;
+    if (display.clock_valid) {
+        const auto first = display.count == size ? display.index : 0;
         for (uint32_t i = 0; i < display.count; ++i) {
-            const auto slot = (first + i) % display.samples.size();
+            const auto slot = (first + i) % size;
             const auto mapped = static_cast<int64_t>(display.timestamps_ns[slot]) + display.clock_offset_ns;
             if (mapped <= 0 || !fresh(static_cast<uint64_t>(mapped) / 1000)) continue;
             graph.display_times_us[graph.display_count] = static_cast<uint64_t>(mapped) / 1000;
             graph.display_samples[graph.display_count++] = display.samples[slot];
         }
-        sorted = graph.display_samples;
-        std::sort(sorted.begin(), sorted.begin() + graph.display_count);
-        if (graph.display_count) graph.display_median_us = sorted[graph.display_count / 2];
+    } else {
+        // times[k] is the k-th newest sample's place on the axis.
+        std::array<uint64_t, 512> times{};
+        uint64_t time = display.last_sample_us;
+        uint32_t keep = 0;
+        for (; keep < display.count && fresh(time); ++keep) {
+            times[keep] = time;
+            const auto interval = display.samples[(display.index + size - 1 - keep) % size];
+            time = interval < time ? time - interval : 0;
+        }
+        for (uint32_t k = keep; k-- > 0;) {
+            graph.display_times_us[graph.display_count] = times[k];
+            graph.display_samples[graph.display_count++] = display.samples[(display.index + size - 1 - k) % size];
+        }
     }
+    sorted = graph.display_samples;
+    std::sort(sorted.begin(), sorted.begin() + graph.display_count);
+    if (graph.display_count) graph.display_median_us = sorted[graph.display_count / 2];
     return graph;
 }
 

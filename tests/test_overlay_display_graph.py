@@ -293,8 +293,6 @@ def test_native_present_fallback_base_priority_and_shared_clock(tmp_path, build_
 #include <fcntl.h>
 #include <sys/mman.h>
 using namespace pblayer;
-extern "C" size_t pb_base_timing_size();
-extern "C" void pb_base_timing_publish(void*, uint64_t, uint64_t, uint32_t);
 #ifdef VK_EXT_present_timing
 static unsigned calibrations = 0;
 static uint64_t deviation = 1000;
@@ -373,6 +371,14 @@ int main(int argc, char** argv) {
     assert(std::string(overlay_graph_title(false, graph.source, true)) == "Base frames (pre-FG)");
     assert(std::string(overlay_graph_title(true, graph.source, false)) == "Displayed");
     assert(std::string(overlay_graph_title(true, graph.source, true)) == "Displayed (post-FG)");
+    // The newest marker may postdate the snapshot taken on the present thread
+    // (CPU run-ahead plus the bridge's publish delay): still base frames, with
+    // the future sample left out rather than the whole plot.
+    graph = overlay_graph_locked(context);
+    graph.end_time_us = now - 5000;
+    assert(read_base_frame_reader(reader, graph));
+    assert(graph.source == OverlayGraphSource::BaseFrames && graph.count == 3);
+    assert(graph.sample_times_us[2] == now - 30000 && graph.median_us == 30000);
     // Displayed samples share the axis with the base frames.
     auto& display = context.display_timing;
     display.available = display.clock_valid = true;
@@ -393,10 +399,21 @@ int main(int argc, char** argv) {
     graph.end_time_us += 3000000;
     assert(!read_base_frame_reader(reader, graph));
     assert(graph.base_available && graph.source == OverlayGraphSource::PresentCalls && graph.count == 3);
-    // Display source seen, clock not yet aligned: waiting, not unavailable.
+    // Display source seen but the clock never calibrated: the samples still
+    // plot, anchored at the collection time and walked back through their own
+    // intervals, instead of "waiting" over a full ring.
     display.clock_valid = false;
+    record_display_timestamp(display, (now - 10000) * 1000 - 1000000000, now);
+    graph = overlay_graph_locked(context);
+    assert(graph.display_available && graph.display_count == 2);
+    assert(graph.display_samples[0] == 10000 && graph.display_samples[1] == 20000);
+    assert(graph.display_times_us[1] == now && graph.display_times_us[0] == now - 20000);
+    assert(graph.display_median_us == 20000);
+    // A stale display stream stays empty either way.
+    display.last_sample_us = now - 3000000;
     graph = overlay_graph_locked(context);
     assert(graph.display_available && graph.display_count == 0);
+    display.last_sample_us = now;
     munmap(buffer, pb_base_timing_size());
     unlink(path.c_str());
 #ifdef VK_EXT_present_timing
@@ -436,6 +453,96 @@ int main(int argc, char** argv) {
     build_overlay_probe(harness, output, full_layer=True)
     subprocess.run([str(output), str(tmp_path)], check=True)
 
+
+
+def test_native_worker_reopens_a_replaced_base_timing_file(tmp_path, build_overlay_probe):
+    """A restarted bridge replaces the buffer file; the worker follows it.
+
+    The reader maps an inode, so os.replace or an unlink by the new bridge
+    would otherwise leave the layer on a dead buffer ("waiting") for the rest
+    of the session. build_now() stats the path and reopens or drops the reader.
+    """
+    harness = tmp_path / "reopen.cpp"
+    harness.write_text(r"""
+#include "latency_layer_internal.h"
+#include <cassert>
+#include <fcntl.h>
+#include <sys/mman.h>
+using namespace pblayer;
+static void* make_buffer(const std::string& file) {
+    const int fd = open(file.c_str(), O_RDWR | O_CREAT | O_EXCL, 0600);
+    assert(fd >= 0);
+    const int sized = ftruncate(fd, static_cast<off_t>(pb_base_timing_size()));
+    assert(sized == 0);
+    void* buffer = mmap(nullptr, pb_base_timing_size(), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    assert(buffer != MAP_FAILED);
+    close(fd);
+    return buffer;
+}
+int main(int argc, char** argv) {
+    assert(argc == 2);
+    const std::string dir = argv[1];
+    const std::string path = dir + "/base-timing.701.bin";
+    setenv("PENGUIN_BURNER_TELEMETRY_SESSION", "701", 1);
+    setenv("PENGUIN_BURNER_LATENCY_SOCKET", (dir + "/latency.sock").c_str(), 1);
+    const auto now = now_monotonic_us();
+    OverlayGraph graph{};
+    graph.end_time_us = now;
+    OverlayWorker worker(false);
+    worker.post(OverlayFrameStats{}, graph, VkExtent2D{1920, 1080}, false, OverlayFont::Pixel);
+    // No bridge yet: nothing to map, and nothing to re-validate.
+    assert(!base_frame_reader_stale(nullptr));
+    auto prepared = worker.build_now();
+    assert(prepared && !prepared->base_reader);
+    // The bridge appears: the next build maps it.
+    void* first = make_buffer(path);
+    pb_base_timing_publish(first, 1, now - 100000, 42);
+    pb_base_timing_publish(first, 2, now - 50000, 42);
+    pb_base_timing_publish(first, 3, now, 42);
+    prepared = worker.build_now();
+    assert(prepared->base_reader && !base_frame_reader_stale(prepared->base_reader));
+    OverlayGraph read = graph;
+    assert(read_base_frame_reader(prepared->base_reader, read));
+    assert(read.count == 2 && read.samples[0] == 50000 && read.samples[1] == 50000);
+    // The bridge restarts and replaces the file (new inode, other samples).
+    const std::string temp = path + ".tmp";
+    void* second = make_buffer(temp);
+    pb_base_timing_publish(second, 1, now - 90000, 43);
+    pb_base_timing_publish(second, 2, now - 60000, 43);
+    pb_base_timing_publish(second, 3, now, 43);
+    const int renamed = rename(temp.c_str(), path.c_str());
+    assert(renamed == 0);
+    const auto stale = prepared->base_reader;
+    assert(base_frame_reader_stale(stale));
+    // The old mapping still reads the old inode; the next build swaps it out.
+    read = graph;
+    assert(read_base_frame_reader(stale, read) && read.samples[1] == 50000);
+    prepared = worker.build_now();
+    assert(prepared->base_reader && prepared->base_reader != stale);
+    assert(!base_frame_reader_stale(prepared->base_reader));
+    read = graph;
+    assert(read_base_frame_reader(prepared->base_reader, read));
+    assert(read.count == 2 && read.samples[0] == 30000 && read.samples[1] == 60000);
+    // The bridge goes away: the source does too, instead of a frozen buffer.
+    const int unlinked = unlink(path.c_str());
+    assert(unlinked == 0);
+    assert(base_frame_reader_stale(prepared->base_reader));
+    prepared = worker.build_now();
+    assert(!prepared->base_reader);
+    read = graph;
+    assert(!read_base_frame_reader(prepared->base_reader, read) && !read.base_available);
+    munmap(first, pb_base_timing_size());
+    munmap(second, pb_base_timing_size());
+}
+""")
+    output = tmp_path / "reopen"
+    build_overlay_probe(harness, output, full_layer=True)
+    subprocess.run([str(output), str(tmp_path)], check=True, env={
+        **os.environ,
+        "PENGUIN_BURNER_OVERLAY_CONFIG": str(tmp_path / "missing"),
+        "PENGUIN_BURNER_OVERLAY_STATE": str(tmp_path / "missing"),
+        "PENGUIN_BURNER_OVERLAY_OVERRIDE": str(tmp_path / "missing"),
+    })
 
 
 def test_device_timing_features_do_not_imply_swapchain_ownership(tmp_path, build_overlay_probe):

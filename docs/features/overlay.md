@@ -345,15 +345,19 @@ process, not from the daemon:
   overlay reads each frame, independently of the GPU telemetry poll. The
   original marker timestamps are used rather than FIFO arrival time: Wine's
   QueryPerformanceCounter is CLOCK_MONOTONIC upstream and CLOCK_MONOTONIC_RAW
-  in Proton, and the bridge maps whichever base lands just behind the receive
-  time onto the host monotonic clock; samples that fit neither are dropped. No additional game
-  thread or per-frame GPU query is required, and nothing is smoothed. When no
-  base sample is in the window (no Reflex markers, or a gap such as a loading
-  screen) the plot falls back to **Present calls**: the unsmoothed intervals
-  between Vulkan Present calls, labelled as such, never as base frames. The
-  FPS numbers keep their own 120-present window. The graph label is its
-  window's median interval; the FPS counter uses p95, so their numbers need
-  not be exact reciprocals.
+  in Proton. The bridge decides the clock base once per game process, from the
+  first marker whose candidate lands just behind the receive time, and keeps
+  it for that process so a small offset between the two clocks cannot jitter
+  the intervals; samples that fit neither base are dropped, and eight
+  consecutive misses make the bridge decide again for a new process. No
+  additional game thread or per-frame GPU query is required, and nothing is
+  smoothed. When no base sample is in the window (no Reflex markers, or a gap
+  such as a loading screen) the plot falls back to **Present calls**: the
+  unsmoothed intervals between Vulkan Present calls, labelled as such, never as
+  base frames. The graph label is the median interval over its 2 s marker
+  window; the headline FPS is the median over the newest 120 presents, a
+  different window and source, so the two numbers need not be exact
+  reciprocals.
 - **Displayed frames (post-FG)**: driver-reported visible/scanout timestamps,
   including generated frames when the driver exposes them through that swapchain.
   This uses `VK_EXT_present_timing`; GPU queue completion and CPU wait wakeups

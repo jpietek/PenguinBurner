@@ -955,7 +955,12 @@ extern std::atomic<uint32_t> g_overlay_layout;
     OverlayGpuState read_overlay_gpu_state();
     std::string overlay_runtime_path(const char* env_name, const char* file_name);
     std::shared_ptr<BaseFrameReader> open_base_frame_reader();
+    // stat()s the mapped path; worker thread only. True once the bridge replaced or removed the file.
+    bool base_frame_reader_stale(const std::shared_ptr<BaseFrameReader>& reader);
     bool read_base_frame_reader(const std::shared_ptr<BaseFrameReader>& reader, OverlayGraph& graph);
+    // Reference writer for the base-timing buffer ABI (tests only; the bridge writes the file itself).
+    size_t pb_base_timing_size();
+    void pb_base_timing_publish(void* memory, uint64_t frame_id, uint64_t time_us, uint32_t pid);
     const char* overlay_graph_title(bool displayed, OverlayGraphSource source, bool framegen_active);
     float overlay_graph_sample_x(const OverlayGraph& graph, uint32_t index, float width);
     uint32_t overlay_graph_box_rows(uint32_t mode, const OverlayGraph& graph);

@@ -1,6 +1,8 @@
 // Bounded shared-memory transport from the original NVAPI marker bridge: the
-// single source of base (pre-FG) frames. Opening/mapping happens on the text
-// worker. Drawing only reads memory and retries a concurrent write at most
+// single source of base (pre-FG) frames. The bridge writes the file directly;
+// the layer only reads it. Opening/mapping happens on the text worker, which
+// also re-validates the file's identity each build so a restarted bridge is
+// picked up. Drawing only reads memory and retries a concurrent write at most
 // twice; it never waits for the producer.
 #include "latency_layer_internal.h"
 #include <sys/mman.h>
@@ -17,17 +19,20 @@ struct alignas(8) BaseTimingBuffer {
 static_assert(offsetof(BaseTimingBuffer, frame_id) == 24);
 static_assert(sizeof(BaseTimingBuffer) == 8232);
 
-extern "C" __attribute__((visibility("default"))) size_t pb_base_timing_size() {
+// Reference writer for the ABI above; the shipped bridge writes the same
+// layout itself, so these stay internal and only feed the layer's own tests.
+size_t pb_base_timing_size() {
     return sizeof(BaseTimingBuffer);
 }
-extern "C" __attribute__((visibility("default"))) void pb_base_timing_publish(
-    void* memory, uint64_t frame_id, uint64_t time_us, uint32_t pid) {
+void pb_base_timing_publish(void* memory, uint64_t frame_id, uint64_t time_us, uint32_t pid) {
     if (!memory || !frame_id || !time_us || !pid) return;
     auto& state = *static_cast<BaseTimingBuffer*>(memory);
     const bool reset = state.magic != kBaseTimingMagic || (time_us > state.last_us && time_us - state.last_us > 2000000);
     if (!reset && (state.pid != pid || frame_id <= state.frame_id || time_us <= state.last_us)) return;
     const uint32_t odd = (__atomic_load_n(&state.sequence, __ATOMIC_RELAXED) + 1) | 1;
     __atomic_store_n(&state.sequence, odd, __ATOMIC_SEQ_CST);
+    // The payload stores below must not become visible before the odd marker.
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
     if (reset) {
         state.magic = kBaseTimingMagic; state.pid = pid;
         state.count = state.index = 0; state.last_us = 0;
@@ -44,8 +49,15 @@ extern "C" __attribute__((visibility("default"))) void pb_base_timing_publish(
 
 class BaseFrameReader {
 public:
-    explicit BaseFrameReader(void* memory) : memory_(static_cast<const BaseTimingBuffer*>(memory)) {}
+    BaseFrameReader(void* memory, std::string path, dev_t dev, ino_t ino)
+        : memory_(static_cast<const BaseTimingBuffer*>(memory)), path_(std::move(path)), dev_(dev), ino_(ino) {}
     ~BaseFrameReader() { munmap(const_cast<BaseTimingBuffer*>(memory_), sizeof(BaseTimingBuffer)); }
+    const std::string& path() const { return path_; }
+    // The mapping follows the inode, not the path: a bridge that replaced or
+    // unlinked the file leaves this reader attached to a dead buffer.
+    bool same_file(const struct stat& status) const {
+        return status.st_dev == dev_ && status.st_ino == ino_;
+    }
     // Replaces the graph's top plot with base frames when the buffer holds at
     // least one sample inside the window; otherwise leaves whatever fallback
     // the caller placed there. base_available marks the source as existing
@@ -67,8 +79,12 @@ public:
             snapshot = cached_;
         } else return false;
         graph.base_available = true;
-        if (!snapshot.last_us || graph.end_time_us < snapshot.last_us
-            || graph.end_time_us - snapshot.last_us >= graph.window_us) return false;
+        // Only a stale stream gives up the plot. The newest marker may postdate
+        // end_time_us by the CPU's run-ahead plus the bridge's publish delay;
+        // in_window() drops those samples individually.
+        if (!snapshot.last_us
+            || (graph.end_time_us > snapshot.last_us && graph.end_time_us - snapshot.last_us >= graph.window_us))
+            return false;
         const auto in_window = [&](uint64_t t) {
             return t && t <= graph.end_time_us && graph.end_time_us - t < graph.window_us;
         };
@@ -92,6 +108,9 @@ public:
     }
 private:
     const BaseTimingBuffer* memory_;
+    std::string path_;
+    dev_t dev_;
+    ino_t ino_;
     BaseTimingBuffer cached_{};
     bool cached_valid_ = false;
 };
@@ -111,7 +130,14 @@ std::shared_ptr<BaseFrameReader> open_base_frame_reader() {
         && status.st_size == static_cast<off_t>(sizeof(BaseTimingBuffer)))
         memory = mmap(nullptr, sizeof(BaseTimingBuffer), PROT_READ, MAP_SHARED, fd, 0);
     close(fd);
-    return memory == MAP_FAILED ? nullptr : std::make_shared<BaseFrameReader>(memory);
+    if (memory == MAP_FAILED) return nullptr;
+    return std::make_shared<BaseFrameReader>(memory, path, status.st_dev, status.st_ino);
+}
+
+bool base_frame_reader_stale(const std::shared_ptr<BaseFrameReader>& reader) {
+    if (!reader) return false;
+    struct stat status{};
+    return stat(reader->path().c_str(), &status) != 0 || !reader->same_file(status);
 }
 
 bool read_base_frame_reader(const std::shared_ptr<BaseFrameReader>& reader, OverlayGraph& graph) {
