@@ -45,8 +45,12 @@ fi
 git check-ignore -q dist/deb \
     || { echo "dist/deb must remain ignored by Git" >&2; exit 1; }
 
+# The pinned Vulkan headers under overlay/native/latency_layer/vendor are
+# source, not build output: the layer needs VK_EXT_present_timing on every
+# build image, so they ship in the Debian source package.
 tracked_artifacts="$(
-    git ls-files | grep -E '(^|/)(vendor|target|dist|build)/|\.(deb|dsc|changes|buildinfo|whl|so|dll|src\.rpm)$' || true
+    git ls-files | grep -E '(^|/)(vendor|target|dist|build)/|\.(deb|dsc|changes|buildinfo|whl|so|dll|src\.rpm)$' \
+        | grep -Ev '^overlay/native/latency_layer/vendor/vulkan-headers/' || true
 )"
 if [ -n "$tracked_artifacts" ]; then
     echo "generated build artifacts must not be tracked by Git:" >&2
