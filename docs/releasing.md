@@ -39,6 +39,11 @@ The manylinux build uses `scripts/prepare-manylinux-mingw.sh` to install
 checksum-pinned MinGW headers when the container lacks Direct3D 12 declarations
 needed by the NVAPI shim. This keeps the existing manylinux glibc baseline.
 
+Flatpak publication builds the 32-bit companion layer in the manylinux
+container first (`scripts/build-native-layer-i386.sh`) and runs flatpak-builder
+with `--disable-rofiles-fuse`: appstream 1.1 decodes icons inside its own
+bubblewrap sandbox, which cannot read through the rofiles-fuse mount.
+
 ## Package checks
 
 Arch, Fedora, and Ubuntu package checks build committed `HEAD` in disposable
