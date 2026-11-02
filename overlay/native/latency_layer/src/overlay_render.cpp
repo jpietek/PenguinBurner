@@ -887,19 +887,25 @@ void overlay_draw_row_text(
 // static geometry stay ignorant of the sources and the panel keep its size.
 // Text rows the graph box needs: kGRAPH_ROWS + 1 per drawn plot, plus one for
 // the "needs Wayland surface" hint. Static geometry sizes the box from this.
-uint32_t overlay_graph_box_rows(uint32_t mode, const OverlayGraph& graph) {
+// Which plots "both" mode draws: two while a displayed source exists, else
+// one, plus the lone hint line when only the display stage is missing.
+static void overlay_graph_plots(uint32_t mode, const OverlayGraph& graph, uint32_t& plots, bool& hint) {
     const bool displayed_exists = graph.display_available || graph.display_count != 0;
-    const uint32_t plots = mode == 2 && displayed_exists ? 2 : 1;
-    const bool hint = mode == 2 && !displayed_exists && graph.display_queue_only;
+    plots = mode == 2 && displayed_exists ? 2 : 1;
+    hint = mode == 2 && !displayed_exists && graph.display_queue_only;
+}
+
+uint32_t overlay_graph_box_rows(uint32_t mode, const OverlayGraph& graph) {
+    uint32_t plots = 1;
+    bool hint = false;
+    overlay_graph_plots(mode, graph, plots, hint);
     return static_cast<uint32_t>(kGRAPH_ROWS + 1) * plots + (hint ? 1u : 0u);
 }
 
 OverlayGraphLayout overlay_timing_graph_layout(
     uint32_t mode, const OverlayGraph& graph, float height, float scale) {
     OverlayGraphLayout layout{};
-    const bool displayed_exists = graph.display_available || graph.display_count != 0;
-    layout.plots = mode == 2 && displayed_exists ? 2 : 1;
-    layout.displayed_hint = mode == 2 && !displayed_exists && graph.display_queue_only;
+    overlay_graph_plots(mode, graph, layout.plots, layout.displayed_hint);
     // The box is sized for exactly these rows (overlay_graph_box_rows): three
     // text rows per plot plus one for the hint, so a skipped displayed plot
     // shrinks the panel instead of doubling the remaining plot.

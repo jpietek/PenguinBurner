@@ -66,15 +66,16 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_instance(
     }
 
     // Displayed-frame timing needs VK_KHR_get_surface_capabilities2 on the
-    // instance. Native games rarely enable it, so append it unless the next
-    // layer reports it absent; the application's create info stays untouched.
+    // instance. Native games rarely enable it, so always append it; the
+    // application's create info stays untouched. The pre-instance enumeration
+    // below is logged only: a layer under us may answer it with just its own
+    // extensions, so absence is decided by the create call's retry instead.
     const InstanceExtensionAvailability availability = instance_extension_availability(
         reinterpret_cast<PFN_vkEnumerateInstanceExtensionProperties>(
             next_get_instance_proc_addr(VK_NULL_HANDLE, "vkEnumerateInstanceExtensionProperties")),
         VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
     InstanceExtensionSetup surface_caps2;
-    prepare_instance_surface_capabilities2(
-        create_info, availability != InstanceExtensionAvailability::Absent, surface_caps2);
+    prepare_instance_surface_capabilities2(create_info, true, surface_caps2);
 
     VkResult result = next_create_instance(
         surface_caps2.injected ? &surface_caps2.info : create_info, allocator, instance);

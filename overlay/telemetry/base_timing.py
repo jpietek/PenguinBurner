@@ -6,8 +6,11 @@ import os
 import struct
 import tempfile
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+
+from .sockets import _home_latency_socket_path, latency_socket_path
 
 # Fixed little-endian layout shared with the reader in
 # overlay/native/latency_layer/src/base_timing.cpp (BaseTimingBuffer). The
@@ -26,8 +29,53 @@ _U32 = 0xFFFF_FFFF
 _U64 = 0xFFFF_FFFF_FFFF_FFFF
 
 
+def base_timing_dir(env: Mapping[str, str] | None = None) -> Path:
+    """Directory the layer reads base-timing buffers from.
+
+    Resolved exactly like the layer's overlay_runtime_path(): the explicit
+    socket env, then the home cache (shared into Steam's container), then
+    XDG_RUNTIME_DIR; the generic socket resolver prefers XDG first and would
+    diverge from the layer when the env is not set.
+    """
+    resolved = os.environ if env is None else env
+    explicit = str(resolved.get("PENGUIN_BURNER_LATENCY_SOCKET") or "").strip()
+    if explicit:
+        return Path(explicit).expanduser().parent
+    home = _home_latency_socket_path(resolved)
+    if home is not None:
+        return home.parent
+    return latency_socket_path(resolved).parent
+
+
+def _session_alive(session: str) -> bool:
+    try:
+        os.kill(int(session), 0)
+    except ProcessLookupError:
+        return False
+    except (PermissionError, ValueError, OverflowError):
+        return True
+    return True
+
+
+def sweep_orphan_buffers(directory: Path) -> None:
+    """Remove base-timing buffers left by bridges that died without close()."""
+    try:
+        entries = list(directory.glob("base-timing.*.bin"))
+    except OSError:
+        return
+    for entry in entries:
+        session = entry.name[len("base-timing."):-len(".bin")]
+        if session.isdecimal() and not _session_alive(session):
+            entry.unlink(missing_ok=True)
+
+
 def write_base_frame(buffer, frame_id: int, time_us: int, pid: int) -> bool:
     """Append one simulation-start timestamp to a base-timing buffer.
+
+    Store ordering: the reader relies on the odd/even sequence stores
+    bracketing the payload stores in program order, which holds on x86 (TSO),
+    the only platform the NVIDIA layer ships for. A weakly ordered host would
+    need an explicit fence between them.
 
     Mirrors pb_base_timing_publish: the first publish, or a gap longer than
     two seconds since the previous one, rebinds the buffer to ``pid`` with an
@@ -136,8 +184,8 @@ class QpcClockMapper:
 
 
 class BaseFramePublisher:
-    def __init__(self, socket_path: Path, session: str):
-        self.path = socket_path.parent / f"base-timing.{session}.bin" if session.isdecimal() else None
+    def __init__(self, directory: Path, session: str):
+        self.path = directory / f"base-timing.{session}.bin" if session.isdecimal() else None
         self.mapping: mmap.mmap | None = None
         self.identity: tuple[int, int] | None = None
         self.disabled = False
@@ -151,6 +199,7 @@ class BaseFramePublisher:
         temporary: str | None = None
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
+            sweep_orphan_buffers(self.path.parent)
             with tempfile.NamedTemporaryFile(prefix=".base-timing-", dir=self.path.parent, delete=False) as file:
                 temporary = file.name
                 file.truncate(BUFFER_SIZE)

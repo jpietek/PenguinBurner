@@ -1,10 +1,13 @@
 """Fast original-marker transport on the shared monotonic clock."""
 import os
+import pathlib
 import struct
 import subprocess
 import time
 
 from overlay.telemetry.base_timing import (
+    base_timing_dir,
+    sweep_orphan_buffers,
     BUFFER_MAGIC,
     BUFFER_SIZE,
     RING_SLOTS,
@@ -202,7 +205,7 @@ def test_clock_base_is_redecided_after_eight_consecutive_misses():
 
 
 def test_publish_writes_only_samples_on_the_host_monotonic_clock(tmp_path):
-    publisher = BaseFramePublisher(tmp_path / "latency.sock", "700")
+    publisher = BaseFramePublisher(tmp_path, "700")
     path = tmp_path / "base-timing.700.bin"
     assert publisher.path == path
     now = time.monotonic_ns() // 1000
@@ -222,9 +225,9 @@ def test_publish_writes_only_samples_on_the_host_monotonic_clock(tmp_path):
 
 
 def test_publisher_ignores_non_numeric_sessions_and_foreign_files(tmp_path):
-    assert BaseFramePublisher(tmp_path / "latency.sock", "").path is None
-    assert BaseFramePublisher(tmp_path / "latency.sock", "../etc").path is None
-    publisher = BaseFramePublisher(tmp_path / "latency.sock", "700")
+    assert BaseFramePublisher(tmp_path, "").path is None
+    assert BaseFramePublisher(tmp_path, "../etc").path is None
+    publisher = BaseFramePublisher(tmp_path, "700")
     now = time.monotonic_ns() // 1000
     publisher.publish(1, now - 1_000, 42)
     assert publisher.path is not None and publisher.path.exists()
@@ -257,7 +260,7 @@ int main() {
     binary = tmp_path / "reader"
     build_overlay_probe(harness, binary)
     # Publish after compiling so the samples are inside the reader's window.
-    publisher = BaseFramePublisher(socket, "700")
+    publisher = BaseFramePublisher(tmp_path, "700")
     clock = time.monotonic_ns() // 1000 - 180000
     for frame, delta in enumerate((0, 30000, 30000, 90000, 30000), 1):
         clock += delta
@@ -269,3 +272,27 @@ int main() {
     finally:
         publisher.close()
     assert not (tmp_path / "base-timing.700.bin").exists()
+
+
+def test_buffer_directory_matches_the_layer_resolution(tmp_path):
+    # Explicit socket env wins; otherwise the home cache, like the layer's
+    # overlay_runtime_path(); XDG_RUNTIME_DIR alone must not win over HOME.
+    assert base_timing_dir({"PENGUIN_BURNER_LATENCY_SOCKET": str(tmp_path / "s.sock")}) == tmp_path
+    assert base_timing_dir({"HOME": str(tmp_path), "XDG_RUNTIME_DIR": "/run/user/1"}) == (
+        tmp_path / ".cache" / "penguin-burner")
+
+
+def test_orphan_buffers_from_dead_sessions_are_swept(tmp_path, monkeypatch):
+    live = tmp_path / f"base-timing.{os.getpid()}.bin"
+    pid_max = int(pathlib.Path("/proc/sys/kernel/pid_max").read_text())
+    dead = tmp_path / f"base-timing.{pid_max}.bin"  # Above pid_max: never a live process.
+    other = tmp_path / "base-timing.not-a-pid.bin"
+    for path in (live, dead, other):
+        path.write_bytes(b"x")
+    sweep_orphan_buffers(tmp_path)
+    assert live.exists() and other.exists() and not dead.exists()
+    # Opening a publisher performs the sweep as well.
+    dead.write_bytes(b"x")
+    publisher = BaseFramePublisher(tmp_path, "700")
+    assert publisher._open() and not dead.exists()
+    publisher.close()

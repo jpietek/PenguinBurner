@@ -64,6 +64,10 @@ int main() {
 #ifdef VK_EXT_present_timing
     bool queue_only = false;
     assert(display_timing_surface_stage({}, proc, {}, {}, &queue_only) == 0 && queue_only);
+    supported_stage = 0; // No stage at all: not an X11 symptom, no Wayland hint.
+    assert(display_timing_surface_stage({}, proc, {}, {}, &queue_only) == 0 && !queue_only);
+    supported_stage = VK_PRESENT_STAGE_QUEUE_OPERATIONS_END_BIT_EXT | VK_PRESENT_STAGE_REQUEST_DEQUEUED_BIT_EXT;
+    assert(display_timing_surface_stage({}, proc, {}, {}, &queue_only) == 0 && !queue_only);
     supported_stage = VK_PRESENT_STAGE_IMAGE_FIRST_PIXEL_OUT_BIT_EXT;
     assert(display_timing_surface_stage({}, proc, {}, {}, &queue_only) == supported_stage && !queue_only);
     supported_stage |= VK_PRESENT_STAGE_IMAGE_FIRST_PIXEL_VISIBLE_BIT_EXT;
@@ -708,10 +712,12 @@ int main() {
     assert(run(nullptr, 0));
     assert(creates.size() == 1 && creates[0] == std::vector<std::string>{kCaps2});
 
-    // (b) Next layer does not enumerate it: original list passed through unchanged.
+    // (b) Next layer does not enumerate it (a layer below us answering the
+    // pre-instance query with only its own list): still injected; genuine
+    // absence is handled by the EXTENSION_NOT_PRESENT retry in (e).
     advertised = {VK_KHR_SURFACE_EXTENSION_NAME};
-    assert(!run(surface_only, 1));
-    assert(creates.size() == 1 && creates[0] == surface_list);
+    assert(run(surface_only, 1));
+    assert(creates.size() == 1 && creates[0] == extended);
 
     // (c) Application requested it: passed through unchanged, no duplicate.
     advertised = {VK_KHR_SURFACE_EXTENSION_NAME, kCaps2};

@@ -109,9 +109,9 @@ uint32_t display_timing_surface_stage(VkInstance instance, PFN_vkGetInstanceProc
         return VK_PRESENT_STAGE_IMAGE_FIRST_PIXEL_VISIBLE_BIT_EXT;
     if (timing.presentStageQueries & VK_PRESENT_STAGE_IMAGE_FIRST_PIXEL_OUT_BIT_EXT)
         return VK_PRESENT_STAGE_IMAGE_FIRST_PIXEL_OUT_BIT_EXT;
-    // GPU queue completion is not display timing. NVIDIA exposes the pixel
-    // stages only on native Wayland surfaces; X11/XWayland ends here.
-    if (queue_only) *queue_only = true;
+    // GPU queue completion is not display timing. NVIDIA on X11/XWayland
+    // advertises exactly that one stage; only then is Wayland the remedy.
+    if (queue_only) *queue_only = timing.presentStageQueries == VK_PRESENT_STAGE_QUEUE_OPERATIONS_END_BIT_EXT;
     return 0;
 }
 
