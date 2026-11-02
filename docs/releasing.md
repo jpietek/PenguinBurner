@@ -118,3 +118,21 @@ Check the GitHub release/tag, PyPI file hashes, AUR version, COPR/PPA build
 results and package repositories, and the public Flatpak bundle/repository.
 Existing report pages must remain available after Pages deployment.
 Update the local GUI/daemon only when that host upgrade is requested.
+
+### Native display-timing build requirement
+
+The Vulkan layer uses the pinned Khronos C headers under
+`overlay/native/latency_layer/vendor/vulkan-headers` in every package build,
+including offline builds. Keep their upstream version, archive hash and licenses
+with the vendored files. An explicit CMake `VULKAN_INCLUDE_DIR` override must
+support `VK_EXT_present_timing`; configuration fails otherwise.
+
+Before publication, check both native layers in the built wheel:
+
+```bash
+python scripts/check-native-display-timing.py dist/python/*.whl
+```
+
+This gate rejects the missing capture implementation shipped in 0.8.4. It checks
+binary contents, not driver support; also verify displayed-frame samples in a
+restarted game on a supported driver.

@@ -1,0 +1,2 @@
+- Fix packaged frame-time graphs and compare real pre-FG base frames with post-FG displayed frames.
+- Fix Turing Auto-UV failing when the driver reports empty V/F base values.

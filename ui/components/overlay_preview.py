@@ -269,7 +269,7 @@ def overlay_preview_class(QtCore, QtGui, QtWidgets) -> type:
             if not rows:
                 return None
             graph = self._graph_enabled()
-            graph_h = line_h * (GRAPH_ROWS + 1) * (2 if getattr(config, "graph_mode", "present") == "both" else 1) if graph else 0.0
+            graph_h = line_h * (GRAPH_ROWS + 1) * (2 if getattr(config, "graph_mode", "base") == "both" else 1) if graph else 0.0
 
             label_w = line_h * LABEL_COL
             has_label = any(row.get("label") for row in rows if row["kind"] == "value")
@@ -424,10 +424,10 @@ def overlay_preview_class(QtCore, QtGui, QtWidgets) -> type:
                 y += line_h + lead
 
         def _paint_graph(self, painter, x, y, width, height, blended, line_h) -> None:
-            mode = getattr(self._config, "graph_mode", "present")
-            labels = ["Present calls"] if mode == "present" else ["Displayed (post-FG)"]
+            mode = getattr(self._config, "graph_mode", "base")
+            labels = ["Base frames"] if mode == "base" else ["Displayed"]
             if mode == "both":
-                labels = ["Present calls", "Displayed (post-FG)"]
+                labels = ["Base frames", "Displayed"]
             slot = height / len(labels)
             for index, label in enumerate(labels):
                 top = y + index * slot

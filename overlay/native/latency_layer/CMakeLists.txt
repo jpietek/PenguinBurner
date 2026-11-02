@@ -6,9 +6,27 @@ enable_testing()
 
 include(GNUInstallDirs)
 
-find_path(VULKAN_INCLUDE_DIR vulkan/vulkan.h REQUIRED)
+# Keep release features independent of the build distribution's header age.
+# The pinned C headers are included in source distributions for offline builds.
+set(VULKAN_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/vulkan-headers/include"
+    CACHE PATH "Vulkan headers (must support VK_EXT_present_timing)")
+include(CheckCXXSourceCompiles)
+set(CMAKE_REQUIRED_INCLUDES "${VULKAN_INCLUDE_DIR}")
+unset(PB_HAS_PRESENT_TIMING CACHE)
+check_cxx_source_compiles("
+#include <vulkan/vulkan.h>
+#ifndef VK_EXT_present_timing
+#error VK_EXT_present_timing is required
+#endif
+int main() { VkPresentTimingSurfaceCapabilitiesEXT caps{}; return int(caps.presentTimingSupported); }
+" PB_HAS_PRESENT_TIMING)
+unset(CMAKE_REQUIRED_INCLUDES)
+if(NOT PB_HAS_PRESENT_TIMING)
+  message(FATAL_ERROR "Vulkan headers must support VK_EXT_present_timing; use the bundled headers or Vulkan-Headers v1.4.341 or newer")
+endif()
 
 add_library(latency_layer SHARED
+  src/base_timing.cpp
   src/latency_state.cpp
   src/overlay_text.cpp
   src/overlay_render.cpp

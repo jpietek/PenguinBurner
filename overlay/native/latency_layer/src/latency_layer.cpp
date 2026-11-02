@@ -2,6 +2,41 @@
 #include "latency_layer_internal.h"
 
 namespace pblayer {
+InstanceExtensionAvailability instance_extension_availability(
+    PFN_vkEnumerateInstanceExtensionProperties enumerate, const char* extension_name) {
+    if (!enumerate) return InstanceExtensionAvailability::Unknown;
+    uint32_t count = 0;
+    if (enumerate(nullptr, &count, nullptr) != VK_SUCCESS) return InstanceExtensionAvailability::Unknown;
+    std::vector<VkExtensionProperties> properties(count);
+    const VkResult result = enumerate(nullptr, &count, properties.data());
+    if (result != VK_SUCCESS && result != VK_INCOMPLETE) return InstanceExtensionAvailability::Unknown;
+    for (uint32_t i = 0; i < count; ++i)
+        if (std::strncmp(properties[i].extensionName, extension_name, VK_MAX_EXTENSION_NAME_SIZE) == 0)
+            return InstanceExtensionAvailability::Advertised;
+    return InstanceExtensionAvailability::Absent;
+}
+
+void prepare_instance_surface_capabilities2(
+    const VkInstanceCreateInfo* original, bool inject, InstanceExtensionSetup& setup) {
+    setup.requested = false;
+    setup.injected = false;
+    for (uint32_t i = 0; original->ppEnabledExtensionNames && i < original->enabledExtensionCount; ++i) {
+        const char* name = original->ppEnabledExtensionNames[i];
+        if (name && std::strcmp(name, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME) == 0)
+            setup.requested = true;
+    }
+    if (setup.requested || !inject) return;
+    setup.info = *original;
+    setup.extensions.clear();
+    if (original->ppEnabledExtensionNames && original->enabledExtensionCount)
+        setup.extensions.assign(original->ppEnabledExtensionNames,
+            original->ppEnabledExtensionNames + original->enabledExtensionCount);
+    setup.extensions.push_back(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
+    setup.info.enabledExtensionCount = static_cast<uint32_t>(setup.extensions.size());
+    setup.info.ppEnabledExtensionNames = setup.extensions.data();
+    setup.injected = true;
+}
+
 VKAPI_ATTR VkResult VKAPI_CALL layer_create_instance(
     const VkInstanceCreateInfo* create_info,
     const VkAllocationCallbacks* allocator,
@@ -22,6 +57,7 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_instance(
     PFN_vkGetInstanceProcAddr next_get_instance_proc_addr =
         link->u.pLayerInfo->pfnNextGetInstanceProcAddr;
     link->u.pLayerInfo = link->u.pLayerInfo->pNext;
+    VkLayerInstanceLink* next_layer_info = link->u.pLayerInfo;
 
     auto next_create_instance = reinterpret_cast<PFN_vkCreateInstance>(
         next_get_instance_proc_addr(VK_NULL_HANDLE, "vkCreateInstance"));
@@ -29,16 +65,37 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_instance(
         return VK_ERROR_INITIALIZATION_FAILED;
     }
 
-    VkResult result = next_create_instance(create_info, allocator, instance);
+    // Displayed-frame timing needs VK_KHR_get_surface_capabilities2 on the
+    // instance. Native games rarely enable it, so always append it; the
+    // application's create info stays untouched. The pre-instance enumeration
+    // below is logged only: a layer under us may answer it with just its own
+    // extensions, so absence is decided by the create call's retry instead.
+    const InstanceExtensionAvailability availability = instance_extension_availability(
+        reinterpret_cast<PFN_vkEnumerateInstanceExtensionProperties>(
+            next_get_instance_proc_addr(VK_NULL_HANDLE, "vkEnumerateInstanceExtensionProperties")),
+        VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
+    InstanceExtensionSetup surface_caps2;
+    prepare_instance_surface_capabilities2(create_info, true, surface_caps2);
+
+    VkResult result = next_create_instance(
+        surface_caps2.injected ? &surface_caps2.info : create_info, allocator, instance);
+    if (result == VK_ERROR_EXTENSION_NOT_PRESENT && surface_caps2.injected) {
+        // Never fail the game's instance over our extension: rewind the chain
+        // the layers below advanced and retry with the original create info.
+        surface_caps2.injected = false;
+        link->u.pLayerInfo = next_layer_info;
+        result = next_create_instance(create_info, allocator, instance);
+    }
+    display_debug_log("create-instance surface-caps2 requested=%d availability=%d injected=%d result=%d",
+        surface_caps2.requested ? 1 : 0, static_cast<int>(availability),
+        surface_caps2.injected ? 1 : 0, static_cast<int>(result));
     if (result != VK_SUCCESS) {
         return result;
     }
 
     InstanceContext context{};
     context.get_instance_proc_addr = next_get_instance_proc_addr;
-    for (uint32_t i = 0; i < create_info->enabledExtensionCount; ++i)
-        if (std::strcmp(create_info->ppEnabledExtensionNames[i], VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME) == 0)
-            context.surface_capabilities2_enabled = true;
+    context.surface_capabilities2_enabled = surface_caps2.requested || surface_caps2.injected;
     context.destroy_instance = reinterpret_cast<PFN_vkDestroyInstance>(
         next_get_instance_proc_addr(*instance, "vkDestroyInstance"));
     context.create_device = reinterpret_cast<PFN_vkCreateDevice>(
@@ -229,6 +286,8 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_device(
     context.device = *device;
 #ifdef VK_EXT_present_timing
     context.owns_display_timing = display_setup.enabled;
+    context.display_timing_enabled = instance_context.surface_capabilities2_enabled
+        && display_timing_features_enabled(create_info);
     if (extension_requested(create_info, VK_EXT_PRESENT_TIMING_EXTENSION_NAME)) {
         context.set_timing_queue = reinterpret_cast<PFN_vkSetSwapchainPresentTimingQueueSizeEXT>(next_get_device_proc_addr(*device, "vkSetSwapchainPresentTimingQueueSizeEXT"));
         context.get_timing_domains = reinterpret_cast<PFN_vkGetSwapchainTimeDomainPropertiesEXT>(next_get_device_proc_addr(*device, "vkGetSwapchainTimeDomainPropertiesEXT"));
@@ -597,6 +656,7 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_swapchain_khr(
     VkSwapchainKHR* swapchain) {
     PFN_vkCreateSwapchainKHR next_create_swapchain = nullptr;
     bool owns_display_timing = false;
+    bool timing_enabled = false;
     bool has_timing_procs = false;
     VkPhysicalDevice physical_device = VK_NULL_HANDLE;
     VkInstance instance = VK_NULL_HANDLE;
@@ -607,6 +667,7 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_swapchain_khr(
         if (it != g_devices.end()) {
             next_create_swapchain = it->second.create_swapchain_khr;
             owns_display_timing = it->second.owns_display_timing;
+            timing_enabled = it->second.display_timing_enabled;
 #ifdef VK_EXT_present_timing
             has_timing_procs = it->second.get_past_timing && it->second.get_timing_domains;
 #endif
@@ -649,17 +710,19 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_swapchain_khr(
     }
     uint32_t display_stage = 0;
     bool shared_timing = false;
+    bool queue_only_stage = false;
 #ifdef VK_EXT_present_timing
-    if (!owns_display_timing && has_timing_procs && create_info
+    if (has_timing_procs && create_info
         && (create_info->flags & VK_SWAPCHAIN_CREATE_PRESENT_TIMING_BIT_EXT)
         && (create_info->flags & VK_SWAPCHAIN_CREATE_PRESENT_ID_2_BIT_KHR)) {
-        display_stage = display_timing_surface_stage(instance, get_instance_proc_addr, physical_device, create_info->surface);
+        display_stage = display_timing_surface_stage(instance, get_instance_proc_addr, physical_device, create_info->surface, &queue_only_stage);
         shared_timing = display_stage != 0;
     }
-    // Existing timing consumers retain ownership of their own queue and IDs.
-    if (owns_display_timing && create_info
+    // Device features do not imply that this swapchain uses timing. Enable
+    // our own queue only for an untimed swapchain; preserve existing consumers.
+    if (timing_enabled && has_timing_procs && create_info
         && !(create_info->flags & VK_SWAPCHAIN_CREATE_PRESENT_TIMING_BIT_EXT)) {
-        display_stage = display_timing_surface_stage(instance, get_instance_proc_addr, physical_device, create_info->surface);
+        display_stage = display_timing_surface_stage(instance, get_instance_proc_addr, physical_device, create_info->surface, &queue_only_stage);
         if (display_stage) {
             overlay_info = *create_info;
             overlay_info.flags |= VK_SWAPCHAIN_CREATE_PRESENT_TIMING_BIT_EXT | VK_SWAPCHAIN_CREATE_PRESENT_ID_2_BIT_KHR;
@@ -668,6 +731,7 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_swapchain_khr(
     }
 #else
     (void)owns_display_timing;
+    (void)timing_enabled;
     (void)has_timing_procs;
 #endif
     if (create_info) display_debug_log("create-swapchain flags=0x%x mode=%d images=%u owns=%d shared=%d stage=0x%x",
@@ -684,6 +748,7 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_swapchain_khr(
         context.device = device;
         context.display_timing.stage = display_stage;
         context.display_timing.shared = shared_timing;
+        context.display_timing.queue_only = queue_only_stage;
         context.swapchain_latency_mode = latency_mode_enabled;
         if (create_info) {
             context.image_format = create_info->imageFormat;
@@ -908,10 +973,11 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_queue_present_khr(
                 if (overlay_enabled() && observation.present_frametime_us) {
                     overlay_stats = overlay_frame_stats_locked(
                         swapchain_context,
-                        observation.present_frametime_us);
+                        observation.present_frametime_us,
+                        present_time_us);
                     observation.overlay_fps = overlay_stats.median_fps;
                     if (overlay_graph_enabled()) {
-                        overlay_graph = overlay_graph_locked(swapchain_context, overlay_stats.median_us);
+                        overlay_graph = overlay_graph_locked(swapchain_context);
                     }
                 }
                 if (overlay_enabled() && has_device_context && has_queue_context

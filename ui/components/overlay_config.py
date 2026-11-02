@@ -188,7 +188,7 @@ class OverlayConfigPanel:
         self.layout_combo = make_combo("layout", OVERLAY_LAYOUTS, LAYOUT_LABELS)
         self.graph_mode_combo = make_combo("graphmode", OVERLAY_GRAPH_MODES, OVERLAY_GRAPH_MODE_LABELS)
         self.graph_mode_combo.setToolTip(
-            "Present calls measures Vulkan API intervals. Displayed frames uses driver presentation timestamps, "
+            "Base frames uses real pre-FG markers. Displayed frames uses driver presentation timestamps, "
             "including generated frames when exposed by the driver. Both shows two unsmoothed plots. "
             "Unavailable feedback is labeled, never replaced by Present-call timing. Restart an existing game after updating the layer."
         )

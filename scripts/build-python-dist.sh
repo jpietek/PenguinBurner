@@ -94,3 +94,5 @@ for wheel in wheels:
         f"verified {wheel.name}: wrapper, 64/32-bit Vulkan layers, NVAPI shim, and burnerd"
     )
 PY
+
+python3 scripts/check-native-display-timing.py "$outdir"/*.whl
