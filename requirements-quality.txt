@@ -1,5 +1,5 @@
 # Keep local and CI diagnostics reproducible. Update these together with
 # tool.ruff.required-version and rerun the full quality workflow.
-ruff==0.16.8
+ruff==0.17.3
 pyright==1.1.414
 vulture==2.16

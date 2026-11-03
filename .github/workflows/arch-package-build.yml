@@ -24,6 +24,6 @@ jobs:
       matrix:
         scenario: [vanilla, cachyos-shelly]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build package in ${{ matrix.scenario }} scenario
         run: scripts/check-arch-package-build.sh "${{ matrix.scenario }}"

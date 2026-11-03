@@ -1,12 +1,12 @@
 [build-system]
-requires = ["setuptools>=69", "wheel"]
+requires = ["setuptools>=80", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "penguin-burner"
 version = "0.8.5"
 description = "Automatic NVIDIA GPU undervolting, overclocking, and per-game tuning for Linux: one Auto-UV scan saves three verified tiers, adaptive switching by frame rate, a Steam, Lutris, Heroic and Faugus game library, and an in-game overlay with frame latency estimates"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dynamic = ["readme"]
 license = { file = "LICENSE" }
 authors = [
@@ -33,9 +33,10 @@ classifiers = [
   "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
   "Operating System :: POSIX :: Linux",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3.15",
   "Topic :: System :: Hardware",
 ]
 dependencies = [
@@ -61,7 +62,7 @@ test = [
   "pytest>=8",
   "pytest-qt>=4.4",
   # The sdist test invokes setup.py outside pip's isolated build environment.
-  "setuptools>=69",
+  "setuptools>=80",
   "wheel",
 ]
 
@@ -168,8 +169,8 @@ packages = [
 testpaths = ["tests"]
 
 [tool.ruff]
-target-version = "py311"
-required-version = "==0.16.8"
+target-version = "py312"
+required-version = "==0.17.3"
 
 [tool.ruff.lint]
 # Keep the static-analysis policy in the repository instead of inheriting

@@ -2,7 +2,7 @@
 name = "penguin-burnerd"
 version = "0.8.5"
 edition = "2021"
-rust-version = "1.82"
+rust-version = "1.92"
 license = "GPL-3.0-only"
 description = "PenguinBurner root daemon: socket API + native runtime profile engine (NVML/NVAPI)"
 

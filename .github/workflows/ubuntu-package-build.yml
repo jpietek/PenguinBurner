@@ -25,6 +25,6 @@ jobs:
       matrix:
         scenario: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && fromJSON('["resolute", "devel"]') || fromJSON('["resolute"]') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build package in ${{ matrix.scenario }} scenario
         run: scripts/check-ubuntu-package-build.sh "${{ matrix.scenario }}"

@@ -23,22 +23,22 @@ jobs:
       PENGUIN_BURNER_REQUIRE_NATIVE_LAYER: '1'
       PENGUIN_BURNER_REQUIRE_NVAPI_SHIM: '1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Release packaging tests resolve published tags such as v0.7.7.
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.14'
       - name: Install build and analysis dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y ripgrep cloc cmake ninja-build libvulkan-dev g++-mingw-w64-x86-64 libegl1 libopengl0 libxkbcommon0
-          cargo install tokei --locked --version 14.0.0
+          cargo install tokei --locked --version 15.0.0
           mkdir -p "$RUNNER_TEMP/scc"
           cd "$RUNNER_TEMP/scc"
-          curl --fail --location --retry 3 --remote-name https://github.com/boyter/scc/releases/download/v3.7.0/scc_Linux_x86_64.tar.gz
-          curl --fail --location --retry 3 --remote-name https://github.com/boyter/scc/releases/download/v3.7.0/checksums.txt
+          curl --fail --location --retry 3 --remote-name https://github.com/boyter/scc/releases/download/v4.1.0/scc_Linux_x86_64.tar.gz
+          curl --fail --location --retry 3 --remote-name https://github.com/boyter/scc/releases/download/v4.1.0/checksums.txt
           grep ' scc_Linux_x86_64.tar.gz$' checksums.txt | sha256sum --check --strict
           tar -xzf scc_Linux_x86_64.tar.gz scc
           sudo install -m755 scc /usr/local/bin/scc
@@ -61,7 +61,7 @@ jobs:
       run:
         working-directory: burnerd
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install analysis tools
         run: |
           rustup component add rustfmt clippy

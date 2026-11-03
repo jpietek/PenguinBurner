@@ -25,6 +25,6 @@ jobs:
       matrix:
         scenario: [debian-12, ubuntu-lts, fedora, arch]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Check host-python compatibility in ${{ matrix.scenario }} scenario
         run: scripts/check-flatpak-host-python.sh "${{ matrix.scenario }}"

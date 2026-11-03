@@ -26,6 +26,6 @@ jobs:
       matrix:
         scenario: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && fromJSON('["fedora", "ubuntu-lts", "arch"]') || fromJSON('["fedora"]') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build and smoke-test Flatpak in ${{ matrix.scenario }} scenario
         run: scripts/check-flatpak-install-smoke.sh --container "${{ matrix.scenario }}"

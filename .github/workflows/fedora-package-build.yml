@@ -24,6 +24,6 @@ jobs:
       matrix:
         scenario: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && fromJSON('["fedora-43", "fedora-44", "rawhide"]') || fromJSON('["fedora-43", "fedora-44"]') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build package in ${{ matrix.scenario }} scenario
         run: scripts/check-fedora-package-build.sh "${{ matrix.scenario }}"

@@ -21,6 +21,6 @@ jobs:
       matrix:
         scenario: [fedora, ubuntu-lts, arch]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install published Flatpak in ${{ matrix.scenario }} scenario
         run: scripts/check-flatpak-channel-install.sh "${{ matrix.scenario }}"

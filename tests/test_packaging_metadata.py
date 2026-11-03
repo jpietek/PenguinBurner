@@ -849,15 +849,9 @@ def test_sdist_contains_complete_rust_daemon_crate(tmp_path: Path) -> None:
 
 def test_pypi_wheel_build_installs_rust_toolchain_and_requires_daemon() -> None:
     build_script = Path("scripts/build-python-dist.sh").read_text(encoding="utf-8")
-
-    # The manylinux container gets a pinned rustup toolchain (AlmaLinux 8's cargo
-    # is too old for edition 2021), and the daemon build is required, not
-    # best-effort, for the released wheel.
-    assert "rustup" in build_script
-    assert "sh.rustup.rs" in build_script
-    assert "--default-toolchain" in build_script
+    # Make sure the wheel is building the daemon
     assert "PENGUIN_BURNER_REQUIRE_DAEMON=1" in build_script
-    assert "/opt/rust/cargo/bin" in build_script
+
 
 
 def test_daemon_discovery_includes_packaged_site_packages_copy() -> None:

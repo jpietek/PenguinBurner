@@ -15,7 +15,7 @@ jobs:
   install:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install published package on Bazzite
         # The runner's docker rejects Bazzite's many-layered bootc image
         # ("max depth exceeded"); podman's storage stack handles it.

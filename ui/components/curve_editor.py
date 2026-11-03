@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Generic, TypeVar
+from typing import TypeVar
 
 from ..styles import curve_editor_legend_stylesheet
 
@@ -146,7 +146,7 @@ def install_curve_editor_shortcut_legend(
 EditT = TypeVar("EditT")
 
 
-class CurveEditHistory(Generic[EditT]):
+class CurveEditHistory[EditT]:
     def __init__(
         self,
         *,
