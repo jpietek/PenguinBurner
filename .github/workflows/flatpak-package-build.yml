@@ -19,7 +19,7 @@ on:
 jobs:
   build:
     name: Flatpak package (${{ matrix.scenario }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     strategy:
       fail-fast: false

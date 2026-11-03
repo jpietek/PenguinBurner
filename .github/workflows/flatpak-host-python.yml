@@ -18,7 +18,7 @@ on:
 jobs:
   check:
     name: Host Python (${{ matrix.scenario }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
