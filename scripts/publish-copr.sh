@@ -10,7 +10,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # block releases for stable Fedora users.
 # PENGUIN_BURNER_SKIP_PACKAGE_SMOKE=1 skips the gate.
 if [ "${PENGUIN_BURNER_SKIP_PACKAGE_SMOKE:-0}" != 1 ]; then
-    "$script_dir/check-fedora-package-build.sh" fedora-43 fedora-44
+    "$script_dir/check-fedora-package-build.sh" fedora-43 fedora-44 fedora-45
 fi
 
 project="${COPR_PROJECT:-penguin-burner}"
