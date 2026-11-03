@@ -27,6 +27,10 @@
         "app_id": 15368
       },
       {
+        "context": "Fedora package (fedora-45)",
+        "app_id": 15368
+      },
+      {
         "context": "Ubuntu package (resolute)",
         "app_id": 15368
       },

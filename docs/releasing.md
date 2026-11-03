@@ -53,7 +53,7 @@ checks exercise the working tree. Run all checks from the clean release commit.
 | Surface | Check |
 | --- | --- |
 | Arch and CachyOS | `scripts/check-arch-package-build.sh vanilla cachyos-shelly` |
-| Supported Fedora | `scripts/check-fedora-package-build.sh fedora-43 fedora-44` |
+| Supported Fedora | `scripts/check-fedora-package-build.sh fedora-43 fedora-44 fedora-45` |
 | Ubuntu PPA | `scripts/check-ubuntu-package-build.sh resolute` |
 | Flatpak package/install | `scripts/check-flatpak-install-smoke.sh --container fedora` (also `ubuntu-lts`, `arch`) |
 | Flatpak host Python | `scripts/check-flatpak-host-python.sh` (Debian, Ubuntu, Fedora, Arch scenarios) |
