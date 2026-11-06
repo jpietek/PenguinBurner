@@ -94,13 +94,13 @@ DEFAULT_OVERLAY_FONT = "sans"
 # "table" is the plain grid every field shares, which is what shipped first.
 OVERLAY_LAYOUTS = ("hud", "table")
 DEFAULT_OVERLAY_LAYOUT = "hud"
-OVERLAY_GRAPH_MODES = ("present", "display", "both")
+OVERLAY_GRAPH_MODES = ("base", "display", "both")
 OVERLAY_GRAPH_MODE_LABELS = {
-    "present": "Present calls",
+    "base": "Base frames (pre-FG)",
     "display": "Displayed frames (post-FG)",
     "both": "Both graphs",
 }
-DEFAULT_OVERLAY_GRAPH_MODE = "present"
+DEFAULT_OVERLAY_GRAPH_MODE = "base"
 
 
 # Named detail levels, so a player can go from "just the frame rate" to
@@ -393,6 +393,8 @@ def set_overlay_layout(config: OverlayConfig, value: object) -> OverlayConfig:
 
 def normalize_overlay_graph_mode(value: object) -> str:
     text = str(value or "").strip().lower()
+    if text == "present":  # Preserve the first-graph selection saved before 0.8.5.
+        text = "base"
     return text if text in OVERLAY_GRAPH_MODES else DEFAULT_OVERLAY_GRAPH_MODE
 
 

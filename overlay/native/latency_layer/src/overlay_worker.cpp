@@ -70,8 +70,16 @@ std::shared_ptr<const OverlayPrepared> OverlayWorker::build_now() {
     }
     auto prepared = std::make_shared<OverlayPrepared>();
     const uint64_t now_us = now_monotonic_us();
+    const auto state = read_overlay_gpu_state();
+    // A restarted bridge replaces the buffer file; the old mapping would read
+    // a dead inode forever. One stat per build, never on the present thread.
+    if (base_frame_reader_stale(base_reader_)) base_reader_.reset();
+    if (!base_reader_) base_reader_ = open_base_frame_reader();
+    prepared->base_reader = base_reader_;
+    prepared->framegen_active = state.framegen_active;
+    graph.framegen_active = state.framegen_active;
     prepared->readout = std::make_shared<const OverlayReadout>(
-        build_overlay_readout(stats, facts, read_overlay_gpu_state(), now_us));
+        build_overlay_readout(stats, facts, state, now_us));
     overlay_build_static_geometry(
         prepared->geometry, prepared->readout, graph, extent, blended, font);
     std::lock_guard<std::mutex> lock(mutex_);

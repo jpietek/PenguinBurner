@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 TEXT_SOURCES = (
-    "overlay_text.cpp", "latency_state.cpp", "frame_timing.cpp",
+    "base_timing.cpp", "overlay_text.cpp", "latency_state.cpp", "frame_timing.cpp",
     "overlay_render.cpp", "overlay_worker.cpp",
 )
 LAYER_SOURCES = (*TEXT_SOURCES, "display_timing.cpp", "latency_layer.cpp",
@@ -22,7 +22,8 @@ class OverlayProbeBuilder:
         self.compiler = shutil.which("c++") or shutil.which("g++")
         if self.compiler is None:
             pytest.skip("C++ compiler unavailable")
-        self.flags = [self.compiler, "-std=c++17", "-O2", "-pthread", "-I", str(self.source_dir)]
+        self.flags = [self.compiler, "-std=c++17", "-O2", "-pthread", "-I", str(self.source_dir),
+                      "-I", str(self.source_dir.parent / "vendor/vulkan-headers/include")]
         headers = subprocess.run(
             [*self.flags, "-fsyntax-only", "-x", "c++", "-"],
             input="#include <vulkan/vk_layer.h>\n", text=True, capture_output=True,

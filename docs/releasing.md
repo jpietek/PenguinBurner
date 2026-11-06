@@ -39,6 +39,11 @@ The manylinux build uses `scripts/prepare-manylinux-mingw.sh` to install
 checksum-pinned MinGW headers when the container lacks Direct3D 12 declarations
 needed by the NVAPI shim. This keeps the existing manylinux glibc baseline.
 
+Flatpak publication builds the 32-bit companion layer in the manylinux
+container first (`scripts/build-native-layer-i386.sh`) and runs flatpak-builder
+with `--disable-rofiles-fuse`: appstream 1.1 decodes icons inside its own
+bubblewrap sandbox, which cannot read through the rofiles-fuse mount.
+
 ## Package checks
 
 Arch, Fedora, and Ubuntu package checks build committed `HEAD` in disposable
@@ -48,7 +53,7 @@ checks exercise the working tree. Run all checks from the clean release commit.
 | Surface | Check |
 | --- | --- |
 | Arch and CachyOS | `scripts/check-arch-package-build.sh vanilla cachyos-shelly` |
-| Supported Fedora | `scripts/check-fedora-package-build.sh fedora-43 fedora-44` |
+| Supported Fedora | `scripts/check-fedora-package-build.sh fedora-43 fedora-44 fedora-45` |
 | Ubuntu PPA | `scripts/check-ubuntu-package-build.sh resolute` |
 | Flatpak package/install | `scripts/check-flatpak-install-smoke.sh --container fedora` (also `ubuntu-lts`, `arch`) |
 | Flatpak host Python | `scripts/check-flatpak-host-python.sh` (Debian, Ubuntu, Fedora, Arch scenarios) |
@@ -118,3 +123,21 @@ Check the GitHub release/tag, PyPI file hashes, AUR version, COPR/PPA build
 results and package repositories, and the public Flatpak bundle/repository.
 Existing report pages must remain available after Pages deployment.
 Update the local GUI/daemon only when that host upgrade is requested.
+
+### Native display-timing build requirement
+
+The Vulkan layer uses the pinned Khronos C headers under
+`overlay/native/latency_layer/vendor/vulkan-headers` in every package build,
+including offline builds. Keep their upstream version, archive hash and licenses
+with the vendored files. An explicit CMake `VULKAN_INCLUDE_DIR` override must
+support `VK_EXT_present_timing`; configuration fails otherwise.
+
+Before publication, check both native layers in the built wheel:
+
+```bash
+python scripts/check-native-display-timing.py dist/python/*.whl
+```
+
+This gate rejects the missing capture implementation shipped in 0.8.4. It checks
+binary contents, not driver support; also verify displayed-frame samples in a
+restarted game on a supported driver.

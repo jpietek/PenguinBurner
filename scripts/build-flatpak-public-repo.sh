@@ -47,8 +47,18 @@ flatpak install -y flathub \
     org.freedesktop.Sdk.Extension.mingw-w64//25.08 \
     org.freedesktop.Sdk.Extension.rust-stable//25.08
 
+# The manifest takes the 32-bit layer from dist/native-layer-i386; the SDK
+# cannot build one itself (see scripts/build-native-layer-i386.sh). The local
+# build driver already runs this; the Pages publisher must too, or a clean
+# release checkout fails at the wheel build with the prebuilt directory missing.
+"$ROOT/scripts/build-native-layer-i386.sh"
+
+# appstream 1.1 decodes icons in a bubblewrap sandbox that cannot read files
+# through flatpak-builder's rofiles-fuse mount, so the final compose fails with
+# icon-write-error. Build directly on the build directory instead.
 flatpak-builder \
     --force-clean \
+    --disable-rofiles-fuse \
     --state-dir="$STATE_DIR" \
     --repo="$REPO_DIR" \
     --gpg-sign="$GPG_KEY" \

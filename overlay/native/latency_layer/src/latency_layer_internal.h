@@ -287,6 +287,7 @@ struct OverlayPipelineCache {
 
 struct DeviceContext {
     bool owns_display_timing = false;
+    bool display_timing_enabled = false;
 #ifdef VK_EXT_present_timing
     PFN_vkSetSwapchainPresentTimingQueueSizeEXT set_timing_queue = nullptr;
     PFN_vkGetSwapchainTimeDomainPropertiesEXT get_timing_domains = nullptr;
@@ -496,6 +497,22 @@ struct OverlayGraphPlacement {
     std::size_t vertex_offset = 0;
 };
 
+// How one draw divides the timing-graph box, in pixels from its top. The box
+// keeps the height the worker laid out for the selected mode; only the rows
+// inside it follow which sources exist (see overlay_timing_graph_layout).
+struct OverlayGraphLayout {
+    // Plots that get a label and a bar area: two in "both" mode while the
+    // displayed source exists, otherwise one.
+    uint32_t plots = 1;
+    // "Displayed - needs Wayland surface" drawn as a lone text line, with no
+    // bar area under it, when "both" mode has no display stage to plot.
+    bool displayed_hint = false;
+    float label_height = 0;
+    float slot_height = 0;
+    float plot_height = 0;
+    float hint_y = 0;
+};
+
 struct OverlayGeometryCache {
     std::shared_ptr<const OverlayReadout> readout;
     VkExtent2D extent{};
@@ -568,8 +585,15 @@ struct DisplayTimingState {
     uint64_t last_observed_us = 0;
     uint32_t stage = 0, pending = 0;
     uint64_t domain_id = 0, next_id = 0, last_timestamp_ns = 0, last_sample_us = 0;
-    std::array<uint64_t, 120> samples{};
+    std::array<uint64_t, 512> samples{}, timestamps_ns{};
     uint32_t count = 0, index = 0;
+    bool clock_valid = false;
+    int32_t time_domain = 0;
+    int64_t clock_offset_ns = 0;
+    uint64_t last_calibration_us = 0;
+    // Timing is supported but the surface reports no display stage (NVIDIA
+    // on X11/XWayland): the HUD says why instead of a bare "unavailable".
+    bool queue_only = false;
 };
 
 class OverlayWorker;
@@ -600,10 +624,14 @@ struct SwapchainContext {
     uint64_t timing_empty_count = 0;
     uint64_t latency_recovery_attempt_count = 0;
     uint64_t last_latency_recovery_duplicate_count = 0;
-    std::array<uint64_t, 120> present_frametimes{};
+    // Present-call intervals with the CLOCK_MONOTONIC time of each present, so
+    // the graph can place them on the shared two-second axis. 512 entries
+    // cover that window at high present rates; the FPS statistics keep
+    // reading only the newest kOverlayStatsWindow of them.
+    std::array<uint64_t, 512> present_frametimes{}, present_times_us{};
     uint32_t present_frametime_index = 0;
     uint32_t present_frametime_count = 0;
-    // Whole-session frametime accumulators. The ring above only spans its last
+    // Whole-session frametime accumulators. The statistics only span the last
     // 120 presents -- about a second at 120 FPS -- so session min/avg/max need
     // their own running totals rather than a longer buffer.
     uint64_t session_frametime_count = 0;
@@ -626,8 +654,12 @@ struct SwapchainContext {
 // What the layer measured about presentation, as opposed to what the daemon
 // published about the GPU. None of this can come from overlay-state.txt: the
 // frametimes only exist inside the game process.
+// Presents the FPS statistics are computed over: the newest entries of the
+// present ring, independent of how many the graph keeps.
+constexpr uint32_t kOverlayStatsWindow = 120;
+
 struct OverlayFrameStats {
-    // Median over the ring; the headline FPS the overlay has always shown.
+    // Median over the statistics window; the headline FPS the overlay has always shown.
     uint64_t median_fps = 0;
     uint64_t median_us = 0;
     // FPS at the mean frametime of the ring's worst 1% of frames.
@@ -640,15 +672,34 @@ struct OverlayFrameStats {
     uint32_t sample_count = 0;
 };
 
-// A chronological snapshot of the present ring, taken under the swapchain lock
-// so the draw path never reads the ring while a present updates it.
+// What feeds the top plot. Base frames (pre-FG simulation markers from the
+// NVAPI bridge's shared buffer) take priority; Present-call intervals are the
+// fallback whenever no fresh base sample exists.
+enum class OverlayGraphSource : uint8_t {
+    None = 0,
+    PresentCalls = 1,
+    BaseFrames = 2,
+};
+
+// Chronological timing snapshots. The top plot holds base samples when the
+// bridge publishes them, otherwise Present-call intervals; displayed samples
+// come from the swapchain timing queue. The *_available flags say whether a
+// source exists at all ("unavailable" otherwise); an existing source with no
+// fresh sample is a temporary gap ("waiting").
 struct OverlayGraph {
-    std::array<uint64_t, 120> display_samples{};
+    OverlayGraphSource source = OverlayGraphSource::None;
+    bool base_available = false;
+    bool present_available = false;
+    bool framegen_active = false;
+    uint64_t end_time_us = 0;
+    uint64_t window_us = 2000000;
+    std::array<uint64_t, 512> display_samples{}, display_times_us{};
     uint32_t display_count = 0;
     uint64_t display_median_us = 0;
     bool display_available = false;
+    bool display_queue_only = false;
     uint64_t scale_span_us = 0;
-    std::array<uint64_t, 120> samples{};
+    std::array<uint64_t, 512> samples{}, sample_times_us{};
     uint32_t count = 0;
     // The rule drawn across the bars. The window's own median, not a target
     // frame rate: the layer has no way to learn the target, and "how far do
@@ -658,7 +709,11 @@ struct OverlayGraph {
 
 // One worker snapshot: the readout and its static text geometry, built off
 // the present thread. The present path only appends the live graph bars.
+class BaseFrameReader;
+
 struct OverlayPrepared {
+    std::shared_ptr<BaseFrameReader> base_reader;
+    bool framegen_active = false;
     std::shared_ptr<const OverlayReadout> readout;
     OverlayGeometryCache geometry;
 };
@@ -692,6 +747,7 @@ private:
     bool blended_ = false;
     OverlayFont font_ = OverlayFont::Pixel;
     std::shared_ptr<const OverlayPrepared> latest_;
+    std::shared_ptr<BaseFrameReader> base_reader_;
     std::thread thread_;
 };
 
@@ -876,9 +932,9 @@ extern std::atomic<uint32_t> g_overlay_layout;
     OverlayLayout parse_overlay_layout(const std::string& value);
     VkOffset2D overlay_text_origin( const VkExtent2D& extent, uint32_t box_width, uint32_t box_height, uint32_t margin, OverlayPosition position);
     bool overlay_enabled();
-    OverlayFrameStats overlay_frame_stats_locked( SwapchainContext& context, uint64_t present_frametime_us);
+    OverlayFrameStats overlay_frame_stats_locked( SwapchainContext& context, uint64_t present_frametime_us, uint64_t present_time_us);
     std::string overlay_frametime_ms_text(uint64_t frametime_us);
-    OverlayGraph overlay_graph_locked(const SwapchainContext& context, uint64_t median_us);
+    OverlayGraph overlay_graph_locked(const SwapchainContext& context);
     uint64_t overlay_graph_span_us(const OverlayGraph& graph, uint64_t worst_us);
     uint32_t overlay_graph_bar_height( uint64_t sample_us, uint64_t span_us, uint32_t height);
     std::string overlay_fit_line(const std::string& line, uint32_t max_chars);
@@ -897,6 +953,18 @@ extern std::atomic<uint32_t> g_overlay_layout;
     OverlayFrameStats overlay_frame_stats_from_samples( const uint64_t* samples, uint32_t count, uint64_t session_count, uint64_t session_sum_us, uint64_t session_min_us, uint64_t session_max_us);
     uint64_t overlay_fps_from_frametime_us(uint64_t frametime_us);
     OverlayGpuState read_overlay_gpu_state();
+    std::string overlay_runtime_path(const char* env_name, const char* file_name);
+    std::shared_ptr<BaseFrameReader> open_base_frame_reader();
+    // stat()s the mapped path; worker thread only. True once the bridge replaced or removed the file.
+    bool base_frame_reader_stale(const std::shared_ptr<BaseFrameReader>& reader);
+    bool read_base_frame_reader(const std::shared_ptr<BaseFrameReader>& reader, OverlayGraph& graph);
+    // Reference writer for the base-timing buffer ABI (tests only; the bridge writes the file itself).
+    size_t pb_base_timing_size();
+    void pb_base_timing_publish(void* memory, uint64_t frame_id, uint64_t time_us, uint32_t pid);
+    const char* overlay_graph_title(bool displayed, OverlayGraphSource source, bool framegen_active);
+    float overlay_graph_sample_x(const OverlayGraph& graph, uint32_t index, float width);
+    uint32_t overlay_graph_box_rows(uint32_t mode, const OverlayGraph& graph);
+    OverlayGraphLayout overlay_timing_graph_layout( uint32_t mode, const OverlayGraph& graph, float height, float scale);
     OverlayReadout build_overlay_readout( const OverlayFrameStats& stats, const OverlayDeviceFacts& facts, const OverlayGpuState& state, uint64_t now_us);
     std::string overlay_driver_version_text(uint32_t version, uint32_t vendor_id);
     std::string overlay_present_mode_text(VkPresentModeKHR mode);
@@ -940,6 +1008,24 @@ void record_display_timestamp(DisplayTimingState& state, uint64_t timestamp_ns, 
 // Trace log (latency_state.cpp); no-op unless PENGUIN_BURNER_LATENCY_DEBUG_FLOW.
 bool display_debug_enabled();
 void display_debug_log(const char* fmt, ...);
+// Instance-level VK_KHR_get_surface_capabilities2 injection (latency_layer.cpp).
+// Display timing probes surfaces through that extension; native games rarely
+// enable it, so the layer appends it when the loader/ICD offers it.
+enum class InstanceExtensionAvailability { Unknown, Advertised, Absent };
+// Unknown when the next layer exposes no vkEnumerateInstanceExtensionProperties
+// or the query fails; vkCreateInstance then decides (retry without on failure).
+InstanceExtensionAvailability instance_extension_availability(
+    PFN_vkEnumerateInstanceExtensionProperties enumerate, const char* extension_name);
+struct InstanceExtensionSetup {
+    bool requested = false; // The application enabled it itself.
+    bool injected = false;  // The layer appended it; use `info`.
+    VkInstanceCreateInfo info{};
+    std::vector<const char*> extensions;
+};
+// Pure: never touches `original`; copies it and appends the extension name when
+// the application did not request it and `inject` is true.
+void prepare_instance_surface_capabilities2(
+    const VkInstanceCreateInfo* original, bool inject, InstanceExtensionSetup& setup);
 #ifdef VK_EXT_present_timing
 struct DisplayTimingDeviceSetup {
     bool enabled = false;
@@ -948,10 +1034,12 @@ struct DisplayTimingDeviceSetup {
     VkPhysicalDevicePresentTimingFeaturesEXT timing{};
     VkPhysicalDevicePresentId2FeaturesKHR id{};
 };
+bool display_timing_features_enabled(const VkDeviceCreateInfo* info);
 void prepare_display_timing_device(VkInstance instance, const InstanceContext& context,
     VkPhysicalDevice physical, const VkDeviceCreateInfo* original, DisplayTimingDeviceSetup& setup);
 uint32_t display_timing_surface_stage(VkInstance instance, PFN_vkGetInstanceProcAddr get_proc,
-    VkPhysicalDevice physical, VkSurfaceKHR surface);
+    VkPhysicalDevice physical, VkSurfaceKHR surface, bool* queue_only = nullptr);
+void calibrate_display_clock(const DeviceContext& device, VkSwapchainKHR swapchain, DisplayTimingState& state, uint64_t now_us);
 void init_display_timing(const DeviceContext& device, VkSwapchainKHR swapchain, DisplayTimingState& state);
 void collect_display_timing(const DeviceContext& device, VkSwapchainKHR swapchain, DisplayTimingState& state);
 void observe_display_timing(DisplayTimingState& state,

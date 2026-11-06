@@ -3,12 +3,12 @@
 # Build the Fedora package from the current tree inside disposable
 # containers, mirroring the COPR pipeline: pack an SRPM from git HEAD, then
 # dnf builddep + rpmbuild --rebuild it. Companion of
-# check-arch-package-build.sh; publish-copr.sh runs the vanilla scenario as
+# check-arch-package-build.sh; publish-copr.sh runs the supported scenarios as
 # a pre-publish gate.
 #
 # Scenarios:
-#   fedora-43, fedora-44  the supported Fedora releases — what the COPR
-#                         chroots and users run.
+#   fedora-43, fedora-44, fedora-45
+#                         the supported Fedora releases and COPR chroots.
 #   rawhide               fedora:rawhide — early warning for toolchain
 #                         drift; new rustc, gcc, and mingw land there first
 #                         (the drift class behind GitHub issue #65 on Arch).
@@ -23,7 +23,7 @@ NETWORK="${PENGUIN_BURNER_CONTAINER_NETWORK:-host}"
 
 usage() {
     cat <<EOF
-Usage: $0 [fedora-43] [fedora-44] [rawhide]
+Usage: $0 [fedora-43] [fedora-44] [fedora-45] [rawhide]
 
 Runs the requested scenarios (default: all). Each scenario builds an SRPM
 from a tarball of the current git HEAD using packaging/rpm/penguin-burner.spec,
@@ -36,6 +36,7 @@ scenario_image() {
     case "$1" in
         fedora-43) echo "fedora:43" ;;
         fedora-44) echo "fedora:44" ;;
+        fedora-45) echo "fedora:45" ;;
         rawhide) echo "fedora:rawhide" ;;
         *) return 1 ;;
     esac
@@ -43,7 +44,7 @@ scenario_image() {
 
 scenarios=("$@")
 if [[ ${#scenarios[@]} -eq 0 ]]; then
-    scenarios=(fedora-43 fedora-44 rawhide)
+    scenarios=(fedora-43 fedora-44 fedora-45 rawhide)
 fi
 for scenario in "${scenarios[@]}"; do
     if ! scenario_image "$scenario" >/dev/null; then
@@ -75,8 +76,10 @@ cp "$ROOT/packaging/rpm/penguin-burner.spec" "$work_dir/"
 for scenario in "${scenarios[@]}"; do
     image="$(scenario_image "$scenario")"
     echo "==> scenario $scenario ($image)"
+    # The build script expands inside the container. Relabel only its temporary inputs.
+    # shellcheck disable=SC2016
     "$ENGINE" run --rm --network "$NETWORK" \
-        -v "$work_dir:/work:ro" \
+        -v "$work_dir:/work:ro,Z" \
         "$image" bash -euo pipefail -c '
         dnf -y -q install rpm-build >/dev/null
         # builddep lives in a plugin package whose name differs between

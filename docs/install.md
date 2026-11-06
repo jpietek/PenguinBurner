@@ -58,7 +58,7 @@ missing right after the first setup, the relaunch is the fix.
 
 ## Fedora ([COPR](https://copr.fedorainfracloud.org/coprs/jpietek/penguin-burner/))
 
-Fedora 42 / 43 / 44, with the NVIDIA driver from Fedora's repo or RPM Fusion:
+Fedora 43 / 44 / 45, with the NVIDIA driver from Fedora's repo or RPM Fusion:
 
 ```bash
 sudo dnf install -y dnf-plugins-core

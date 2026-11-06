@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
     OverlayGraph graph{};
     graph.count = 120;
     graph.median_us = 9000;
-    for (uint32_t i = 0; i < graph.count; ++i) graph.samples[i] = 8000 + i * 100;
+    for (uint32_t i = 0; i < graph.samples.size(); ++i) graph.samples[i] = 8000 + i * 100;
     auto mutable_readout = std::make_shared<OverlayReadout>();
     mutable_readout->text = "119 fps hotspot 79 C";
     mutable_readout->rows = {
@@ -78,7 +78,11 @@ int main(int argc, char** argv) {
     VkExtent2D extent{2560, 1440};
     OverlayPrepared prepared;
     const auto rebuild = [&] {
+        graph.display_count = graph.count;
+        graph.display_median_us = graph.median_us / 3;
+        for (uint32_t i = 0; i < graph.count; ++i) graph.display_samples[i] = graph.samples[i] / 3;
         prepared.readout = readout;
+        prepared.framegen_active = graph.framegen_active;
         overlay_build_static_geometry(prepared.geometry, readout, graph, extent, blended, font);
     };
     const auto verify = [&] {
@@ -123,6 +127,7 @@ int main(int argc, char** argv) {
     graph.count = 1; verify();
     graph.count = 30; verify();
     graph.count = 120; verify();
+    graph.count = 512; verify();
     g_overlay_user_scale = 1.5; verify();
     g_overlay_opacity = 0.4; verify();
     g_overlay_position = static_cast<uint32_t>(OverlayPosition::BottomLeft); verify();
@@ -139,7 +144,7 @@ int main(int argc, char** argv) {
     context.device_facts.gpu_name = "first";
     context.overlay_worker = std::make_unique<OverlayWorker>(false);
     context.overlay_worker->set_facts(context.device_facts);
-    auto stats = overlay_frame_stats_locked(context, 10000);
+    auto stats = overlay_frame_stats_locked(context, 10000, now_monotonic_us());
     context.overlay_worker->post(stats, graph, extent, blended, font);
     const auto first = context.overlay_worker->build_now();
     assert(first && first->readout && !first->readout->text.empty());
@@ -147,9 +152,11 @@ int main(int argc, char** argv) {
     allocations = 0;
     counting = true;
     for (int i = 0; i < 500; ++i) {
-        stats = overlay_frame_stats_locked(context, 8000 + i);
-        const auto trace = overlay_graph_locked(context, stats.median_us);
-        assert(trace.median_us == stats.median_us);
+        stats = overlay_frame_stats_locked(context, 8000 + i, now_monotonic_us());
+        const auto trace = overlay_graph_locked(context);
+        // Present intervals are the fallback; the draw path swaps in base
+        // frames only when the bridge buffer has fresh samples.
+        assert(trace.source == OverlayGraphSource::PresentCalls && trace.count > 0);
         context.overlay_worker->post(stats, trace, extent, blended, font);
         assert(context.overlay_worker->latest() == first);
     }

@@ -186,7 +186,7 @@ to use, per game, with everything that implies for anti-cheat.
 
 | Default key | Command | What it does |
 | --- | --- | --- |
-| Alt+G | `penguin-burner-cli --overlay-graph-next` | Present calls → Displayed frames → Both |
+| Alt+G | `penguin-burner-cli --overlay-graph-next` | Base frames → Displayed frames → Both |
 | Alt+O | `penguin-burner-cli --overlay-opacity-next` | Cycle background opacity |
 | Alt+C | `penguin-burner-cli --overlay-detail-next` | Small → Medium → Large → Biggest → Small |
 | Alt+[ | `penguin-burner-cli --overlay-scale-down` | Decrease Scale, stopping at 50% |
@@ -340,13 +340,35 @@ process, not from the daemon:
 
 **Frame time graph** has three modes in Overlay Setup → **Frame timing graphs**:
 
-- **Present calls**: unsmoothed intervals between Vulkan Present calls. These
-  are API timing, not a guarantee of pre-FG rendering or screen delivery.
+- **Base frames**: raw intervals between original NVAPI simulation-start
+  markers. The NVAPI bridge publishes a bounded shared-memory buffer that the
+  overlay reads each frame, independently of the GPU telemetry poll. The
+  original marker timestamps are used rather than FIFO arrival time: Wine's
+  QueryPerformanceCounter is CLOCK_MONOTONIC upstream and CLOCK_MONOTONIC_RAW
+  in Proton. The bridge decides the clock base once per game process, from the
+  first marker whose candidate lands just behind the receive time, and keeps
+  it for that process so a small offset between the two clocks cannot jitter
+  the intervals; samples that fit neither base are dropped, and eight
+  consecutive misses make the bridge decide again for a new process. No
+  additional game thread or per-frame GPU query is required, and nothing is
+  smoothed. When no base sample is in the window (no Reflex markers, or a gap
+  such as a loading screen) the plot falls back to **Present calls**: the
+  unsmoothed intervals between Vulkan Present calls, labelled as such, never as
+  base frames. The graph label is the median interval over its 2 s marker
+  window; the headline FPS is the median over the newest 120 presents, a
+  different window and source, so the two numbers need not be exact
+  reciprocals.
 - **Displayed frames (post-FG)**: driver-reported visible/scanout timestamps,
   including generated frames when the driver exposes them through that swapchain.
   This uses `VK_EXT_present_timing`; GPU queue completion and CPU wait wakeups
   are never substituted for display timestamps. Unsupported surfaces show
-  **unavailable**, and missing or stale feedback shows **waiting**.
+  **unavailable**, and missing or stale feedback shows **waiting**. NVIDIA
+  exposes display-stage timestamps only on native Wayland surfaces; a game
+  running through XWayland shows **needs Wayland surface**. Add
+  `PROTON_ENABLE_WAYLAND=1` to that game's launch options to get the plot.
+  The layer enables the `VK_KHR_get_surface_capabilities2` instance extension
+  itself when the game did not request it, so native Vulkan games such as
+  Quake II RTX need no changes to get the displayed plot.
   When Proton or the game already manages the timing queue, PBurn observes
   the feedback it polls for. vkd3d-proton only files timing requests on FIFO
   (vsync on) presents; with vsync off PBurn files its own request on each
@@ -355,14 +377,25 @@ process, not from the daemon:
   panel are skipped, so the plot shows what was actually displayed. The HUD
   footer follows the mode the game presents with, not the swapchain's
   creation mode. Queue-completion feedback alone remains unavailable.
-- **Both graphs**: two labeled plots with the same vertical scale,
-  keeping the last 120 samples from each source. They can cover different time
-  spans because their sampling rates differ. Neither plot averages out spikes.
+- **Both graphs**: two plots sharing a rolling two-second horizontal time axis
+  and the same vertical scale. Driver-local display timestamps are calibrated
+  to the host monotonic clock, at most once every two seconds; a failed
+  re-calibration keeps the last good offset. Until the clock is calibrated,
+  displayed samples are not aligned by feedback arrival time. Each stream
+  retains up to 512 raw samples; at very high rates the oldest part of the
+  window can be empty. Spikes are preserved. An empty plot reads
+  **waiting** when a source was seen but has no sample in the window. When
+  the displayed source does not exist at all, the panel shrinks to the
+  single-plot height instead of leaving an empty half: on an XWayland
+  surface a single **Displayed - needs Wayland surface** line remains under
+  the top plot, and without any present-timing support the displayed plot
+  and its label are omitted. Labels add **(pre-FG)** and **(post-FG)** only while FG is
+  detected.
 
-**Alt+G** cycles Present calls → Displayed frames → Both. It changes the saved
+**Alt+G** cycles Base frames → Displayed frames → Both. It changes the saved
 mode live; enable the Frame time graph metric to see it. The CLI equivalents
 are `pburn-cli --overlay-graph-next` and
-`pburn-cli --overlay-graph present|display|both`. Existing games need one restart
+`pburn-cli --overlay-graph base|display|both`. Existing games need one restart
 when upgrading the native layer. Mode changes after that require no restart.
 The desktop preview labels its traces as examples, not live measurements.
 

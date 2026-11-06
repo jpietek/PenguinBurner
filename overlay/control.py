@@ -194,8 +194,10 @@ def change_overlay_graph_mode(
     config = load_overlay_config(config_path)
     if mode == "next":
         mode = OVERLAY_GRAPH_MODES[(OVERLAY_GRAPH_MODES.index(config.graph_mode) + 1) % len(OVERLAY_GRAPH_MODES)]
+    if mode == "present":
+        mode = "base"
     if mode not in OVERLAY_GRAPH_MODES:
-        raise ValueError("overlay graph must be present, display, both or next")
+        raise ValueError("overlay graph must be base, display, both or next")
     updated = set_overlay_graph_mode(config, mode)
     save_overlay_config(updated, config_path)
     return OverlayControlResult(
