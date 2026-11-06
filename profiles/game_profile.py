@@ -42,7 +42,7 @@ GAME_MODES = (GAME_MODE_ADAPTIVE, *PROFILE_TIERS, GAME_MODE_STOCK)
 
 
 class GameProfileSetting(Protocol):
-    """The four fields a per-game preset needs to resolve to daemon argv.
+    """The fields a per-game preset needs to resolve to daemon argv.
 
     Read-only, so the frozen setting dataclasses both integrations keep
     actually satisfy it.
@@ -59,6 +59,9 @@ class GameProfileSetting(Protocol):
 
     @property
     def gpu_uuid(self) -> str: ...
+
+    @property
+    def telemetry(self) -> bool: ...
 
 
 def normalize_game_mode(
@@ -103,6 +106,25 @@ def profile_argv_for_setting(
     include_legacy_profiles: bool = False,
 ) -> list[str] | None:
     """Daemon runtime argv for a preset; None when there is nothing to apply."""
+    argv = _profile_argv(
+        setting,
+        gpu_index=gpu_index,
+        gpu_uuid=gpu_uuid,
+        include_legacy_profiles=include_legacy_profiles,
+    )
+    if argv is not None and not setting.telemetry:
+        # Frame-history capture is on unless this game opted out.
+        argv.append("--no-game-telemetry")
+    return argv
+
+
+def _profile_argv(
+    setting: GameProfileSetting,
+    *,
+    gpu_index: int | None,
+    gpu_uuid: str,
+    include_legacy_profiles: bool,
+) -> list[str] | None:
     if not setting.enabled:
         return None
     if setting.mode in (GAME_MODE_NONE, GAME_MODE_DEFAULT):
