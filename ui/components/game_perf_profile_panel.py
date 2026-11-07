@@ -1,10 +1,10 @@
 """The Game Perf Profile tab: one game's full telemetry detail.
 
-Fingerprint card, boxed stat groups and the MangoHUD-style frametime graph
-(30-minute overview or the live last-10-seconds zoom), laid out like the
-In-Game Overlay tab. Reads the daemon's ring for the selected game and
-refreshes while visible. The trace is always the ``theme.PERF_PROFILE_*``
-violet-blue; red is reserved for the stutter needles.
+Fingerprint card, boxed stat groups and the frametime graph (a 30-minute
+median-and-1%-worst ribbon with hitch dots, or the live per-frame zoom), laid
+out like the In-Game Overlay tab. Reads the daemon's ring for the selected game
+and refreshes while visible. The trace is always the ``theme.PERF_PROFILE_*``
+violet-blue; red is reserved for hitches.
 """
 
 from __future__ import annotations
@@ -35,10 +35,26 @@ _REFRESH_MS = 2000
 # advances instead of jumping two seconds at a time.
 _LIVE_REFRESH_MS = 1000
 _OVERVIEW_COLUMNS = 300
+# Below ~100 frames a column's p99 is simply its worst frame and the ribbon
+# turns back into needles; short or low-fps windows get fewer, wider columns.
+_MIN_COLUMN_FRAMES = 200
 _LIVE_WINDOW_MS = 10_000.0
 _STUTTER_RATIO = 1.6
 _STUTTER_MILD_MS = 16.7
 _STUTTER_SEVERE_MS = 33.3
+# An overview hitch: a frame over 33 ms that is also twice its column's
+# median. The local median keeps a 60 fps cap in a faster game, or a whole
+# 30 fps game, from reading as one long stutter.
+_HITCH_RATIO = 2.0
+_RIBBON_FILL_ALPHA = 70
+_OVERVIEW_CAPTION = (
+    "line: median frametime · band: up to the 1% worst frames · "
+    f"dots: hitches over {_STUTTER_SEVERE_MS:.0f} ms"
+)
+_LIVE_CAPTION = (
+    "flat & low = smooth · stutter needles yellow -> red by severity "
+    "(red ~30 ms) · lines: median & 1%-low (p99)"
+)
 # Sized so the fingerprint card ends level with the five-row stat card.
 _PERF_PROFILE_SIZE = 170
 # Three columns, then two, then one, like the In-Game Overlay tab. These cards
@@ -77,28 +93,43 @@ def meta_text(history: FrameHistory, summary: FrameHistorySummary) -> str:
 
 def densify_frametimes(
     frametimes_ms: tuple[float, ...], columns: int = _OVERVIEW_COLUMNS
-) -> tuple[tuple[float, ...], tuple[float, ...], tuple[float, ...]]:
-    """Bucket a frame ring into plot columns: (x_minutes, mean_ms, max_ms).
+) -> tuple[tuple[float, ...], ...]:
+    """Bucket a frame ring into plot columns: (x_minutes, p50_ms, p99_ms, max_ms).
 
     x is minutes relative to now (0 = newest), derived from the frametimes
-    themselves. The per-column max preserves the stutter spikes that a plain
-    mean would smooth away.
+    themselves. The median and 99th percentile draw the ribbon; the per-column
+    max keeps the hitches a percentile would hide. A column holds at least
+    ``_MIN_COLUMN_FRAMES`` frames so its p99 is not just its worst frame.
     """
     if not frametimes_ms:
-        return (), (), ()
+        return (), (), (), ()
     total_ms = sum(frametimes_ms)
-    bucket = max(1, len(frametimes_ms) // columns)
+    bucket = max(1, len(frametimes_ms) // columns, _MIN_COLUMN_FRAMES)
     xs: list[float] = []
-    means: list[float] = []
+    medians: list[float] = []
+    p99s: list[float] = []
     maxes: list[float] = []
     elapsed = 0.0
     for start in range(0, len(frametimes_ms), bucket):
-        chunk = frametimes_ms[start : start + bucket]
+        chunk = sorted(frametimes_ms[start : start + bucket])
         elapsed += sum(chunk)
         xs.append((elapsed - total_ms) / 60_000.0)
-        means.append(sum(chunk) / len(chunk))
-        maxes.append(max(chunk))
-    return tuple(xs), tuple(means), tuple(maxes)
+        medians.append(chunk[len(chunk) // 2])
+        p99s.append(chunk[min(len(chunk) - 1, int(len(chunk) * 0.99))])
+        maxes.append(chunk[-1])
+    return tuple(xs), tuple(medians), tuple(p99s), tuple(maxes)
+
+
+def hitch_points(
+    xs: tuple[float, ...], medians: tuple[float, ...], maxes: tuple[float, ...]
+) -> tuple[tuple[float, ...], tuple[float, ...]]:
+    """Overview columns whose worst frame is a hitch: (x_minutes, worst_ms)."""
+    points = [
+        (x, worst)
+        for x, median, worst in zip(xs, medians, maxes, strict=True)
+        if worst >= max(_STUTTER_SEVERE_MS, median * _HITCH_RATIO)
+    ]
+    return tuple(x for x, _ in points), tuple(worst for _, worst in points)
 
 
 def live_tail(
@@ -162,6 +193,14 @@ def stutter_severity_color(QtGui, frametime_ms: float):
         round(mild.green() + (severe.green() - mild.green()) * t),
         round(mild.blue() + (severe.blue() - mild.blue()) * t),
     )
+
+
+def _clipped_caption(caption: str, worst_ms: float, ceiling_ms: float) -> str:
+    """A 250 ms hitch must not silently render like a 20 ms blip: disclose the
+    true worst frame whenever the plot clamps it."""
+    if worst_ms > ceiling_ms:
+        return f"{caption} · worst frame {worst_ms:.0f} ms (clipped)"
+    return caption
 
 
 class GamePerfProfilePanel:
@@ -515,13 +554,8 @@ class GamePerfProfilePanel:
     def _build_frametime_figure(self):
         QtWidgets = self.QtWidgets
         pg = self.pg
-        frame, layout, header, caption = self._figure(
-            "Frametime",
-            "flat & low = smooth · stutter needles yellow -> red by severity "
-            "(red ~30 ms) · lines: median & 1%-low (p99)",
-        )
+        frame, layout, header, caption = self._figure("Frametime", _OVERVIEW_CAPTION)
         self._frametime_caption = caption
-        self._frametime_caption_base = caption.text()
         self.live_toggle = QtWidgets.QToolButton()
         self.live_toggle.setObjectName("gamePerfProfileLiveToggle")
         self.live_toggle.setText("Live")
@@ -538,7 +572,23 @@ class GamePerfProfilePanel:
         self.frametime_plot = self._styled_plot(
             x_label="minutes ago", y_label="frametime (ms)"
         )
-        # The trace is ALWAYS the mock's violet-blue, whatever the game's
+        # The 30-minute overview: the median line over a band reaching the
+        # column's 1% worst frames, and a dot only where a frame really hitched.
+        blue = theme.PERF_PROFILE_TIER_BALANCED
+        self.ribbon_median = pg.PlotCurveItem([], [], pen=pg.mkPen(blue, width=1.8))
+        self.ribbon_p99 = pg.PlotCurveItem([], [], pen=pg.mkPen(None))
+        self.ribbon_fill = pg.FillBetweenItem(
+            self.ribbon_median, self.ribbon_p99,
+            brush=_mk_color(self.QtGui, blue, _RIBBON_FILL_ALPHA),
+        )
+        self.hitch_dots = pg.ScatterPlotItem(
+            x=[], y=[], size=6, pen=pg.mkPen(None),
+            brush=_mk_color(self.QtGui, theme.PERF_PROFILE_STUTTER, 255),
+        )
+        self.hitch_dots.setZValue(10)
+        for item in (self.ribbon_fill, self.ribbon_median, self.hitch_dots):
+            self.frametime_plot.addItem(item)
+        # The live trace is ALWAYS the mock's violet-blue, whatever the game's
         # tier: red belongs exclusively to the stutter needles.
         self.frametime_curve = self.frametime_plot.plot(
             [], [], pen=pg.mkPen(theme.PERF_PROFILE_TIER_BALANCED, width=1.4),
@@ -686,63 +736,69 @@ class GamePerfProfilePanel:
     def _render_frametime(
         self, history: FrameHistory, summary: FrameHistorySummary
     ) -> None:
-        threshold = summary.median_frametime_ms * _STUTTER_RATIO
-        if self._live_mode:
-            window_s = float(self._live_window_s)
-            xs, values = live_tail(history.frametimes_ms, window_s * 1000.0)
-            spikes_x = tuple(x for x, v in zip(xs, values) if v >= threshold)
-            spikes_h = tuple(v for v in values if v >= threshold)
-            bar_width = window_s * 0.003
-            x_range = (-window_s - window_s * 0.03, window_s * 0.01)
-            self.frametime_plot.setLabel(
-                "bottom", "seconds ago", color=theme.TEXT_MUTED
-            )
-        else:
-            xs, values, maxes = densify_frametimes(history.frametimes_ms)
-            spikes_x = tuple(x for x, m in zip(xs, maxes) if m >= threshold)
-            spikes_h = tuple(m for m in maxes if m >= threshold)
-            span = abs(xs[0]) if xs else 1.0
-            bar_width = span / _OVERVIEW_COLUMNS * 0.5
-            # Pin the view to the captured span so the band meets the plot
-            # edges instead of floating in autorange padding.
-            x_range = (xs[0] - span * 0.01, span * 0.01) if xs else (-1.0, 0.0)
-            self.frametime_plot.setLabel(
-                "bottom", "minutes ago", color=theme.TEXT_MUTED
-            )
-        # The mock's y-ceiling, rounded to a nice number so the top tick and
-        # the range end coincide; spikes keep their height, extremes clamp.
+        # The y-ceiling, rounded to a nice number so the top tick and the
+        # range end coincide; spikes keep their height, extremes clamp.
         raw_ceiling = max(
             20.0, summary.median_frametime_ms * 2.4, summary.p99_frametime_ms * 1.85
         )
         ceiling = float(math.ceil(raw_ceiling / 5.0) * 5)
+        for item in (self.ribbon_fill, self.ribbon_median, self.hitch_dots):
+            item.setVisible(not self._live_mode)
+        for item in (self.frametime_curve, self.stutter_bars, self.median_line, self.p99_line):
+            item.setVisible(self._live_mode)
+        if not self._live_mode:
+            self._render_overview(history, ceiling)
+            return
+        threshold = summary.median_frametime_ms * _STUTTER_RATIO
+        window_s = float(self._live_window_s)
+        xs, values = live_tail(history.frametimes_ms, window_s * 1000.0)
+        spikes_x = tuple(x for x, v in zip(xs, values) if v >= threshold)
+        spikes_h = tuple(v for v in values if v >= threshold)
+        self.frametime_plot.setLabel("bottom", "seconds ago", color=theme.TEXT_MUTED)
         worst = max(spikes_h) if spikes_h else 0.0
         # Colors come from the TRUE spike magnitude, before the plot clamp.
         spike_brushes = [
             stutter_severity_color(self.QtGui, height) for height in spikes_h
         ]
-        spikes_h = tuple(min(height, ceiling) for height in spikes_h)
-        # A 250 ms hitch must not silently render like a 20 ms blip: the
-        # caption discloses the true worst frame whenever the plot clamps.
-        caption = self._frametime_caption_base
-        if worst > ceiling:
-            caption = f"{caption} · worst frame {worst:.0f} ms (clipped)"
-        self._frametime_caption.setText(caption)
+        self._frametime_caption.setText(_clipped_caption(_LIVE_CAPTION, worst, ceiling))
         self.frametime_curve.setData(xs, values)
         self.stutter_bars.setOpts(
-            x=spikes_x, height=spikes_h, width=bar_width, brushes=spike_brushes
+            x=spikes_x,
+            height=tuple(min(height, ceiling) for height in spikes_h),
+            width=window_s * 0.003,
+            brushes=spike_brushes,
         )
         self.median_line.setValue(summary.median_frametime_ms)
         self.p99_line.setValue(summary.p99_frametime_ms)
         if values:
-            # Explicit ticks, mock-style: 0 is always on the axis.
-            step = 5 if ceiling <= 25 else 10 if ceiling <= 50 else 20
-            self.frametime_plot.getAxis("left").setTicks(
-                [[(v, str(v)) for v in range(0, int(ceiling) + 1, step)]]
-            )
-            self.frametime_plot.setXRange(*x_range, padding=0.0)
-            # 4% headroom keeps the top tick's label unclipped; clamped
-            # needles still terminate exactly on the ceiling tick.
-            self.frametime_plot.setYRange(0.0, ceiling * 1.04, padding=0.0)
+            self._set_ranges((-window_s - window_s * 0.03, window_s * 0.01), ceiling)
+
+    def _render_overview(self, history: FrameHistory, ceiling: float) -> None:
+        xs, medians, p99s, maxes = densify_frametimes(history.frametimes_ms)
+        hitch_x, hitch_y = hitch_points(xs, medians, maxes)
+        worst = max(hitch_y) if hitch_y else 0.0
+        self._frametime_caption.setText(_clipped_caption(_OVERVIEW_CAPTION, worst, ceiling))
+        self.frametime_plot.setLabel("bottom", "minutes ago", color=theme.TEXT_MUTED)
+        # PlotCurveItem takes lists or arrays, not tuples.
+        self.ribbon_median.setData(list(xs), list(medians))
+        self.ribbon_p99.setData(list(xs), list(p99s))
+        self.hitch_dots.setData(x=list(hitch_x), y=[min(y, ceiling) for y in hitch_y])
+        if xs:
+            # Pin the view to the captured span so the band meets the plot
+            # edges instead of floating in autorange padding.
+            span = abs(xs[0]) or 1.0
+            self._set_ranges((xs[0] - span * 0.01, span * 0.01), ceiling)
+
+    def _set_ranges(self, x_range: tuple[float, float], ceiling: float) -> None:
+        # Explicit ticks, mock-style: 0 is always on the axis.
+        step = 5 if ceiling <= 25 else 10 if ceiling <= 50 else 20
+        self.frametime_plot.getAxis("left").setTicks(
+            [[(v, str(v)) for v in range(0, int(ceiling) + 1, step)]]
+        )
+        self.frametime_plot.setXRange(*x_range, padding=0.0)
+        # 4% headroom keeps the top tick's label unclipped; clamped needles
+        # and dots still end exactly on the ceiling tick.
+        self.frametime_plot.setYRange(0.0, ceiling * 1.04, padding=0.0)
 
     # ---------- events ----------
 

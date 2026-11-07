@@ -55,8 +55,8 @@ _GOOD_LOW = (0.85, 1.0)
 _GOOD_PWR = (0.0, 0.6)
 _GOOD_CPU = (0.0, 0.8)
 _RING_FRACTIONS = (0.25, 0.5, 0.75, 1.0)
-# Below this pixmap size the value line and ring numbers would crowd the
-# spokes (the 124 px hover peek); codes and arrows still fit.
+# Below this pixmap size the value line would crowd the spokes (the 124 px
+# hover peek); codes and arrows still fit.
 _DETAIL_LABEL_MIN_SIZE = 160
 
 AXIS_HIGHER_IS_BETTER = "higher"
@@ -72,6 +72,8 @@ class PerfProfileAxis:
     fraction: float
     direction: str = ""
     good_band: tuple[float, float] | None = None
+    # The value printed on the spoke when ``text`` is too long for it.
+    spoke_text: str = ""
 
     @property
     def caption(self) -> str:
@@ -162,6 +164,7 @@ def perf_profile_axes(
             _clamp(low_ratio),
             AXIS_HIGHER_IS_BETTER,
             _GOOD_LOW,
+            f"{low_ratio:.0%}",
         ),
         PerfProfileAxis(
             "CPU",
@@ -199,10 +202,14 @@ def _label_font(QtGui, size: int, *, compact: bool):
 
 
 def axis_label_lines(axis: PerfProfileAxis, *, detailed: bool) -> tuple[str, ...]:
-    """Spoke label text: caption, plus the spoke percentage when there is room."""
+    """Spoke label text: caption, plus the value in its own unit when there is room.
+
+    Real units, not the spoke fraction: five percentages against five
+    different scales (power limit, target FPS, median...) read alike and mislead.
+    """
     if not detailed:
         return (axis.caption,)
-    return (axis.caption, f"{round(axis.fraction * 100)}%")
+    return (axis.caption, axis.spoke_text or axis.text)
 
 
 def axis_point_color(axis: PerfProfileAxis) -> str:
@@ -238,9 +245,9 @@ def perf_profile_pixmap(
     """Render the fingerprint (or the dashed warming placeholder) to a pixmap.
 
     ``axes=None`` draws the warming-up state. ``labels=True`` is the large
-    variant: rings at 25/50/75/100% of the spoke scale, captions with reading
-    direction, and vertex dots colored by whether the value sits in the
-    spoke's fine band. The badge is the bare shape — at miniature sizes
+    variant: unnumbered rings at 25/50/75/100% of the spoke scale, captions with
+    reading direction and value, and vertex dots colored by whether the value
+    sits in the spoke's fine band. The badge is the bare shape — at miniature sizes
     the silhouette is the information. The labeled radius is computed from the
     label band's real font metrics so every caption always lands inside the
     pixmap, at any size.
@@ -318,8 +325,6 @@ def perf_profile_pixmap(
                     center_y=center + sin * distance,
                     size=size,
                 )
-            if detailed:
-                _draw_ring_scale(QtCore, QtGui, painter, center, radius, count, size)
 
         color = QtGui.QColor(tier_color(tier))
         fill = QtGui.QColor(color)
@@ -343,22 +348,6 @@ def perf_profile_pixmap(
     finally:
         painter.end()
     return pixmap
-
-
-def _draw_ring_scale(QtCore, QtGui, painter, center, radius, count, size):
-    """Number the rings along the gap between the first two spokes."""
-    font = QtGui.QFont(painter.font())
-    font.setPixelSize(max(7, round(size * 0.04)))
-    painter.setFont(font)
-    metrics = QtGui.QFontMetricsF(font)
-    angle = -math.pi / 2 + math.pi / count
-    painter.setPen(QtGui.QPen(QtGui.QColor(theme.TEXT_DISABLED)))
-    for fraction in _RING_FRACTIONS:
-        reach = _spoke_reach(radius, fraction)
-        text = f"{round(fraction * 100)}"
-        x = center + math.cos(angle) * reach - metrics.horizontalAdvance(text) / 2
-        y = center + math.sin(angle) * reach + metrics.ascent() / 2
-        painter.drawText(QtCore.QPointF(x, y), text)
 
 
 class GamePerfProfilePeek:

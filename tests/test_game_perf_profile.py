@@ -118,11 +118,16 @@ def test_perf_profile_fine_band_membership_drives_point_color() -> None:
     assert axes["CPU"].in_good_band is False
 
 
-def test_axis_label_lines_add_the_percentage_only_when_detailed() -> None:
+def test_axis_label_lines_add_the_value_in_its_own_unit_only_when_detailed() -> None:
     axes = {a.code: a for a in perf_profile_axes(_summary(), target_fps=120.0, power_limit_w=360)}
     assert axis_label_lines(axes["LOW"], detailed=False) == ("LOW ↑",)
+    # Real units, never the spoke fraction: FPS against its target or power
+    # against the board limit would print a percentage of a different scale.
     assert axis_label_lines(axes["LOW"], detailed=True) == ("LOW ↑", "74%")
     assert axis_label_lines(axes["GPU"], detailed=True) == ("GPU", "92%")
+    fps_line = axis_label_lines(axes["FPS"], detailed=True)[1]
+    assert fps_line.endswith(" fps") and not fps_line.endswith("%")
+    assert axis_label_lines(axes["PWR"], detailed=True)[1].endswith(" W")
 
 
 def test_tier_colors_use_the_mock_palette() -> None:

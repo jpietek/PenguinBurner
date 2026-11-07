@@ -23,8 +23,11 @@ demanding a game is, where its bottleneck lives, and how fluent its
   **Capture telemetry** switch under *In game* (on by default); turning it off
   stops new capture from the next launch.
 - **Game Perf Profile tab** — the full view: the large fingerprint, a stat row, and a
-  MangoHUD-style **frametime graph** in milliseconds (30-minute overview with
-  red stutter needles, or a **LIVE 10 s** zoom at per-frame resolution).
+  **frametime graph** in milliseconds. The 30-minute overview draws the median
+  frametime over a band reaching the 1% worst frames, with a red dot wherever a
+  frame hitched: over 33 ms and at least twice the frames around it, so a 60 fps
+  cap or a 30 fps game does not read as stutter. **Live** zooms to the last
+  10, 30 or 60 s at per-frame resolution, with stutter needles.
 
 A game needs at least **5 minutes** of captured play before it earns a
 fingerprint; until then the fingerprint is a dashed "warming up" outline, while
@@ -46,11 +49,11 @@ reached the screen.
 | **FPS** | median rendered FPS | the game's target FPS | ↑ higher is better | 95 % of target or more |
 | **LOW** | 1%-low ÷ median (consistency) | 1.0 | ↑ higher is better | 85 % or more |
 
-In the large fingerprint each vertex dot is green when the value sits inside
-its spoke's fine band and amber outside it. The rings
-mark 25, 50, 75 and 100 % of the spoke scale and sit exactly where those values
-land. FPS and LOW belong at the outer ring; PWR and CPU are costs, so closer to
-the center means more headroom. GPU load has no band: high load is a
+In the large fingerprint each spoke is labelled with its value in its own unit
+(watts, fps, load %), and each vertex dot is green when the value sits inside
+its spoke's fine band and amber outside it. The unnumbered rings sit at 25, 50,
+75 and 100 % of each spoke's scale. FPS and LOW belong at the outer ring; PWR
+and CPU are costs, so closer to the center means more headroom. GPU load has no band: high load is a
 bottleneck when FPS misses its target and simply full use when it does not, so
 its dot stays neutral.
 

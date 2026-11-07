@@ -20,6 +20,7 @@ from ui import theme
 from ui.components.game_perf_profile_panel import (
     GamePerfProfilePanel,
     densify_frametimes,
+    hitch_points,
     live_tail,
 )
 from ui.qt import import_qt
@@ -108,13 +109,34 @@ def _write_ring(
 
 def test_densify_preserves_spikes_and_time_axis() -> None:
     frametimes = tuple(10.0 if i != 1500 else 80.0 for i in range(3000))
-    xs, means, maxes = densify_frametimes(frametimes, columns=100)
-    assert len(xs) == len(means) == len(maxes) == 100
+    # 300 frames a column, so one hitch sits beyond the column's p99.
+    xs, medians, p99s, maxes = densify_frametimes(frametimes, columns=10)
+    assert len(xs) == len(medians) == len(p99s) == len(maxes) == 10
     assert xs[-1] == 0.0  # newest column ends at "now"
     assert xs[0] < xs[-1] <= 0.0
     assert max(maxes) == 80.0  # the spike survives densification
-    assert max(means) < 80.0  # ...while the mean smooths it
-    assert densify_frametimes(()) == ((), (), ())
+    assert max(medians) == max(p99s) == 10.0  # ...while the ribbon ignores it
+    assert densify_frametimes(()) == ((), (), (), ())
+
+
+def test_densify_keeps_enough_frames_per_column_for_a_real_p99() -> None:
+    # Five minutes at 60 fps: 300 columns would hold 60 frames each, where a
+    # p99 is just the worst frame and every hitch would stretch the band.
+    frametimes = tuple(16.7 if i % 500 else 120.0 for i in range(18_000))
+    xs, _medians, p99s, maxes = densify_frametimes(frametimes)
+    assert len(xs) == 90
+    assert max(p99s) == 16.7
+    assert max(maxes) == 120.0
+    assert len(densify_frametimes((10.0,) * 50)[0]) == 1
+
+
+def test_hitches_are_over_33_ms_and_twice_their_column_median() -> None:
+    xs = (-3.0, -2.0, -1.0, 0.0)
+    # 60 fps cap in a faster game, a real hitch, a 30 fps game's normal
+    # frame, and that 30 fps game hitching.
+    medians = (16.7, 10.0, 33.4, 33.4)
+    maxes = (18.0, 45.0, 40.0, 90.0)
+    assert hitch_points(xs, medians, maxes) == ((-2.0, 0.0), (45.0, 90.0))
 
 
 def test_live_tail_returns_the_last_ten_seconds() -> None:
@@ -172,7 +194,7 @@ def test_panel_shows_a_short_archived_session_without_a_fingerprint(
     try:
         panel.select_game("steam:4242", game_name="INDIKA")
         assert panel._stack.currentIndex() == 1  # detail with the graph
-        xs, _ys = panel.frametime_curve.getData()
+        xs, _ys = panel.ribbon_median.getData()
         assert xs is not None and len(xs) > 0
         assert "fingerprint at 5 min" in panel.meta_label.text()
         assert "Warming up" in panel.profile_label.toolTip()
@@ -254,17 +276,19 @@ def test_panel_populates_detail_from_a_qualified_ring(qtbot, tmp_path: Path) -> 
         assert "78 fps" in panel._stat_values["MEDIAN"].text()
         assert panel.profile_label.pixmap() is not None
 
-        # overview plot has densified data + stutter needles + reference lines
-        xs, _ys = panel.frametime_curve.getData()
+        # overview: the median ribbon and hitch dots, not the live trace
+        xs, medians = panel.ribbon_median.getData()
         assert xs is not None and len(xs) > 100
-        assert panel.stutter_bars.opts["x"] is not None
-        assert len(panel.stutter_bars.opts["x"]) > 0
-        assert abs(panel.median_line.value() - 12.8) < 0.2
-        assert panel.p99_line.value() > panel.median_line.value()
+        _p99_xs, p99s = panel.ribbon_p99.getData()
+        assert all(top >= mid for top, mid in zip(p99s, medians, strict=True))
+        assert panel.ribbon_fill.isVisible() and panel.hitch_dots.isVisible()
+        assert not panel.stutter_bars.isVisible()
+        assert not panel.median_line.isVisible()
+        assert panel._frametime_caption.text().startswith("line: median frametime")
 
-        # the trace stays balanced-blue even though this ring is performance
+        # the ribbon stays balanced-blue even though this ring is performance
         assert (
-            panel.frametime_curve.opts["pen"].color().name()
+            panel.ribbon_median.opts["pen"].color().name()
             == theme.PERF_PROFILE_TIER_BALANCED
         )
         # the latency cell reports the measured marker latency
@@ -274,12 +298,21 @@ def test_panel_populates_detail_from_a_qualified_ring(qtbot, tmp_path: Path) -> 
         # the y axis is pinned to a zero floor
         assert panel.frametime_plot.getViewBox().viewRange()[1][0] == 0.0
 
-        # live zoom re-renders at per-frame resolution
+        # live zoom re-renders at per-frame resolution with its needles and lines
         panel.live_toggle.setChecked(True)
         live_xs, _live_ys = panel.frametime_curve.getData()
         assert live_xs is not None
         assert min(live_xs) >= -10.5  # seconds, not minutes
+        assert not panel.ribbon_fill.isVisible() and not panel.hitch_dots.isVisible()
+        assert panel.stutter_bars.isVisible()
+        assert abs(panel.median_line.value() - 12.8) < 0.2
+        assert panel.p99_line.value() > panel.median_line.value()
+        assert (
+            panel.frametime_curve.opts["pen"].color().name()
+            == theme.PERF_PROFILE_TIER_BALANCED
+        )
         panel.live_toggle.setChecked(False)
+        assert panel.ribbon_fill.isVisible()
     finally:
         _timer(panel).stop()
 
