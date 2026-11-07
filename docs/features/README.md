@@ -13,6 +13,8 @@
 - **[Overlay](overlay.md)** — configure HUD/table layouts, fonts, presets, opacity,
   keyboard shortcuts, hotspot temperature, frame-timing graphs and DLSS 5 NR timing.
   [Latency and FPS details](latency-fg.md)
+- **[Game Perf Profile](game-perf-profile.md)** — per-game telemetry fingerprint
+  and frametime graph over the last 30 minutes of play.
 - **[Curve editors](curve-editor.md)** — edit V/F and fan curves manually.
 - **[Silent fan curve](silent-fan-curve.md)** — generate quieter cooling settings.
 - **[Laptop deep sleep](deep-sleep.md)** — let an idle NVIDIA GPU power down.

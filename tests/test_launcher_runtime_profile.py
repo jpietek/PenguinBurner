@@ -188,6 +188,17 @@ def test_argv_resolves_the_stored_setting_for_that_game(tmp_path, monkeypatch) -
     assert argv[argv.index("--adaptive-target-fps") + 1] == "120"
 
 
+def test_a_telemetry_opt_out_reaches_the_daemon_request(tmp_path, monkeypatch) -> None:
+    _one_gpu(monkeypatch)
+    opted_out = _stored(
+        tmp_path, LauncherGameSetting(enabled=True, mode=GAME_MODE_STOCK, telemetry=False)
+    )
+
+    argv = _argv("lutris:27", opted_out)
+
+    assert argv is not None and argv[-1] == "--no-game-telemetry"
+
+
 def test_a_stock_setting_pins_factory_state(tmp_path, monkeypatch) -> None:
     _one_gpu(monkeypatch)
     settings = _stored(tmp_path, LauncherGameSetting(enabled=True, mode=GAME_MODE_STOCK))

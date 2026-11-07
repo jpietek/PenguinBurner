@@ -482,6 +482,61 @@ def test_both_launchers_land_on_one_list(qapp) -> None:
     assert any("Shadows" in label for label in labels)
 
 
+def test_the_perf_profile_badge_enables_once_any_launchers_game_has_telemetry(
+    qapp, monkeypatch,
+) -> None:
+    from ui.components import game_perf_profile_badge
+
+    recorded = {"lutris:27"}
+    monkeypatch.setattr(
+        game_perf_profile_badge,
+        "read_frame_history_for_game",
+        lambda game_key: (
+            SimpleNamespace(header=SimpleNamespace(power_limit_w=0))
+            if game_key in recorded else None
+        ),
+    )
+    # Recorded but still warming up: the badge shows its placeholder.
+    monkeypatch.setattr(game_perf_profile_badge, "summarize", lambda history: None)
+    panel = _panel(qapp, _steam_and_lutris())
+    panel.ensure_scanned()
+    opened: list[tuple] = []
+    panel.perf_profile_badge.on_open = lambda *args: opened.append(args)
+
+    # Never recorded: the badge is there but disabled, and says why.
+    # Not visible while the widget is unshown; isHidden is the explicit flag.
+    panel._select_key("steam:620")
+    badge = panel.perf_profile_badge.button
+    assert not badge.isHidden()
+    assert not badge.isEnabled()
+    assert "unavailable" in badge.toolTip()
+    badge.click()
+    assert opened == []
+
+    panel._select_key("lutris:27")
+    assert not badge.isHidden() and badge.isEnabled()
+    badge.click()
+    assert opened == [("lutris:27", "Shadows", None)]
+
+    recorded.add("steam:620")
+    panel._select_key("steam:620")
+    assert badge.isEnabled()
+
+
+def test_the_telemetry_switch_writes_through_the_owning_launcher(qapp) -> None:
+    sources = _steam_and_lutris()
+    panel = _panel(qapp, sources)
+    panel.ensure_scanned()
+    panel._select_key("lutris:27")
+    assert panel.telemetry_switch.isChecked()  # capture is on by default
+
+    panel.telemetry_switch.setChecked(False)
+    _finish_worker(qapp, panel, "_setting_thread")
+
+    lutris = next(source for source in sources if source.launcher_id == "lutris")
+    assert ("set_game_telemetry", "27", False) in lutris.manager.calls
+
+
 def test_every_row_carries_its_launcher_badge(qapp) -> None:
     """The maintainer's ask: a small mark saying which launcher a game is from.
 

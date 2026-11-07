@@ -618,10 +618,14 @@ fn restore_finished_game(supervisor: &mut Supervisor) -> Result<(), String> {
     if supervisor.game_runtime.watches.is_empty() {
         return Ok(());
     }
-    supervisor
-        .game_runtime
-        .watches
-        .retain(|pid, watch| watch.running(*pid));
+    supervisor.game_runtime.watches.retain(|&pid, watch| {
+        let running = watch.running(pid);
+        if !running {
+            // Fires exactly once per pid: archive the game's telemetry ring.
+            crate::frame_history::session_end(pid);
+        }
+        running
+    });
     if !supervisor.game_runtime.watches.is_empty() {
         return Ok(());
     }
@@ -1339,6 +1343,11 @@ pub fn start_game_runtime_profile(
                 supervisor.game_runtime.restore_spec = restore_spec;
             }
             supervisor.game_runtime.watches.insert(watch_pid, watch);
+            if spec.game_telemetry {
+                if let Some(watch) = supervisor.game_runtime.watches.get(&watch_pid) {
+                    crate::frame_history::session_start(watch_pid, &watch.app_id);
+                }
+            }
             let _ = supervisor.game_watch_wake.write(&[1]);
             supervisor.game_runtime.override_active = true;
             Ok(serde_json::json!({

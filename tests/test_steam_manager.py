@@ -219,8 +219,10 @@ def test_bulk_enable_and_disable_all_games(manager, tmp_path, monkeypatch) -> No
     stored = load_steam_game_settings(tmp_path / "steam-game-settings.json")
     setting = stored[ACCOUNT_ID][APP_ID]
     assert setting.enabled is True
-    # Bulk enable never turns the overlay on.
+    # Bulk enable never turns the overlay on, and a game the user never
+    # configured individually defaults to Adaptive.
     assert setting.overlay is False
+    assert setting.mode == GAME_MODE_ADAPTIVE
 
     result = manager.set_all_games_enabled([APP_ID], False)
 
@@ -228,6 +230,21 @@ def test_bulk_enable_and_disable_all_games(manager, tmp_path, monkeypatch) -> No
     assert _FakeCdpClient.launch_options[APP_ID] == "gamemoderun %command%"
     stored = load_steam_game_settings(tmp_path / "steam-game-settings.json")
     assert stored[ACCOUNT_ID][APP_ID].enabled is False
+
+
+def test_bulk_enable_keeps_an_explicit_per_game_mode(
+    manager, tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(manager, "_watched_running_app_ids", lambda: frozenset())
+    manager.refresh()
+    manager.set_game_mode(APP_ID, "efficiency")
+
+    manager.set_all_games_enabled([APP_ID], True)
+
+    stored = load_steam_game_settings(tmp_path / "steam-game-settings.json")
+    # Enabling everything must not clobber a mode the user chose deliberately.
+    assert stored[ACCOUNT_ID][APP_ID].mode == "efficiency"
+    assert stored[ACCOUNT_ID][APP_ID].enabled is True
 
 
 def test_bulk_apply_hot_reapplies_only_watched_running_games(
@@ -342,6 +359,22 @@ def test_overlay_toggle_updates_tokens(manager) -> None:
     assert result.launch_options == (
         "gamemoderun PENGUIN_BURNER --pb-overlay=1 %command%"
     )
+
+
+def test_telemetry_opt_out_is_stored_without_touching_launch_options(
+    manager, tmp_path
+) -> None:
+    manager.refresh()
+    enabled = manager.set_game_enabled(APP_ID, True)
+
+    result = manager.set_game_telemetry(APP_ID, False)
+
+    assert result.ok
+    # Capture is a daemon-side flag resolved at launch, not a wrapper token.
+    assert result.launch_options == enabled.launch_options
+    stored = load_steam_game_settings(tmp_path / "steam-game-settings.json")
+    assert stored[ACCOUNT_ID][APP_ID].telemetry is False
+    assert stored[ACCOUNT_ID][APP_ID].enabled is True
 
 
 def test_overlay_off_keeps_penguin_burner_wrapper_active(manager, tmp_path) -> None:
