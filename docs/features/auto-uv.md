@@ -62,6 +62,12 @@ for driver-applied limits, workload telemetry, and what a passing scan proves.
 3. Adjust clocks for the selected tier or custom target.
 4. Run final verification on the exact selected curve, then save it.
 
+The final CUDA pass is not steady: it alternates a full grid with a fractional
+one, stepping current up and down while the compute engine stays loaded. The
+steps force the transient load changes a sustained soak never produces, and the
+scan fails if they never moved the load. Q2RTX still runs first, so its frame
+rate and power remain the profile's measured reference.
+
 Failures fall back to safer settings where possible. Final verification can
 retry another tested curve; a failed later tier preserves completed profiles.
 Stopping the scan remains a user-controlled action.

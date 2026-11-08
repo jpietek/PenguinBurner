@@ -28,6 +28,9 @@ from auto_uv.probes.stability_decision import (
 from auto_uv.run.voltage_sweep_state import VoltageProbeOutcome
 from runtime.support.vf_curve_plan import apply_plan
 from stability.q2rtx.long_stability_config import (
+    FINAL_CUDA_PULSE_LOW_FRACTION,
+    FINAL_CUDA_PULSE_OFF_S,
+    FINAL_CUDA_PULSE_ON_S,
     build_long_stability_test_config,
     long_stability_workload_durations,
 )
@@ -38,6 +41,7 @@ from ..persistence.unsafe_voltage_blacklist_file import load_unsafe_voltage_blac
 from ..persistence.unsafe_voltage_cache import unsafe_voltage_block_reason
 from ..persistence.verified_candidate_result_file import write_latest_verified_candidate
 from ..shared.positive_int import positive_int
+from ..shared.probe_data_fields import read_field
 from .crash_marker import (
     final_probe_crash_marker_details,
     memory_offset_from_gpu_policy,
@@ -50,6 +54,11 @@ from .result_files import (
     write_final_stable_result,
     write_final_verified_profile,
     write_last_stable_result_snapshot,
+)
+from .transient_check import (
+    missing_pulse_cycles_reason,
+    power_pulse_cycle_count,
+    required_pulse_cycles,
 )
 
 
@@ -120,6 +129,7 @@ def run_final_verification_and_save(
     final_config = build_long_stability_test_config(
         q2rtx_config,
         total_duration_s=int(final_verification_duration_s),
+        cuda_pulse_low_fraction=FINAL_CUDA_PULSE_LOW_FRACTION,
     )
     q2rtx_duration_s, cuda_duration_s = long_stability_workload_durations(
         int(final_verification_duration_s)
@@ -233,6 +243,24 @@ def run_final_verification_and_save(
                 f"Final verification stopped after critical probe failure: {reason}"
             )
         raise AutoUvError(f"final long verification failed: {reason}")
+
+    pulse_cycles = power_pulse_cycle_count(
+        list(read_field(raw_result, "companion_telemetry_samples") or [])
+    )
+    required_cycles = required_pulse_cycles(
+        int(cuda_duration_s),
+        pulse_on_s=FINAL_CUDA_PULSE_ON_S,
+        pulse_off_s=FINAL_CUDA_PULSE_OFF_S,
+    )
+    log_phase(
+        log,
+        "final-verify",
+        f"cuda-pulses cycles={pulse_cycles} required={required_cycles}",
+    )
+    pulse_reason = missing_pulse_cycles_reason(pulse_cycles, required_cycles)
+    if pulse_reason is not None:
+        log_phase(log, "final-verify", f"rejected {pulse_reason}")
+        raise AutoUvError(f"final long verification failed: {pulse_reason}")
 
     write_latest_verified_candidate(
         plan=final_plan,

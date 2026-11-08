@@ -63,6 +63,21 @@ class AutoUvProbeTuning:
 
 
 @dataclass(frozen=True, slots=True)
+class AutoUvTransientTuning:
+    """What the final verification's CUDA load steps have to prove."""
+
+    # Keep the minimum small enough for the short per-tier finals; the
+    # available cycle count lowers the requirement further on tiny budgets.
+    pulse_cycles_min: int = 5
+    power_low_percentile: float = 10.0
+    power_high_percentile: float = 90.0
+    power_min_swing_pct: float = 10.0
+    # Idle startup/teardown samples sit far below both pulse levels. Drop
+    # anything under this share of the observed peak before measuring levels.
+    power_loaded_min_pct: float = 25.0
+
+
+@dataclass(frozen=True, slots=True)
 class AutoUvStallTuning:
     load_lost_min_samples: int = 8
     load_lost_streak_samples: int = 3
@@ -112,3 +127,4 @@ AUTO_UV_FAN_TUNING = AutoUvFanTuning()
 AUTO_UV_METRIC_TUNING = AutoUvMetricTuning()
 AUTO_UV_PROBE_TUNING = AutoUvProbeTuning()
 AUTO_UV_STALL_TUNING = AutoUvStallTuning()
+AUTO_UV_TRANSIENT_TUNING = AutoUvTransientTuning()
