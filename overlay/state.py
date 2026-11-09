@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import pwd
+import time
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -9,6 +10,9 @@ OVERLAY_STATE_ENV = "PENGUIN_BURNER_OVERLAY_STATE"
 OVERLAY_ENABLE_ENV = "PENGUIN_BURNER_OVERLAY"
 OVERLAY_ENABLE_ENV_ALIAS = "PB_OVERLAY"
 OVERLAY_OVERRIDE_ENV = "PENGUIN_BURNER_OVERLAY_OVERRIDE"
+# Allow three missed updates at the daemon's maximum 10-second interval.
+# Keep the native reader in overlay_text.cpp in agreement.
+OVERLAY_STATE_MAX_AGE_S = 30
 
 
 def _home_overlay_dir(env: Mapping[str, str]) -> Path | None:
@@ -142,7 +146,12 @@ def clear_overlay_override(path: str | Path | None = None) -> None:
 def read_overlay_state(path: str | Path | None = None) -> dict[str, str]:
     state_path = Path(path).expanduser() if path is not None else overlay_state_path()
     try:
-        lines = state_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        with state_path.open(encoding="utf-8", errors="replace") as state_file:
+            # Stat the opened inode: the publisher replaces this file atomically.
+            age_ns = time.time_ns() - os.fstat(state_file.fileno()).st_mtime_ns
+            if abs(age_ns) > OVERLAY_STATE_MAX_AGE_S * 1_000_000_000:
+                return {}
+            lines = state_file.read().splitlines()
     except OSError:
         return {}
     values: dict[str, str] = {}
