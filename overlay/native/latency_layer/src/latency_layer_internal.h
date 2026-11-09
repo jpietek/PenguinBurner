@@ -1010,12 +1010,7 @@ bool display_debug_enabled();
 void display_debug_log(const char* fmt, ...);
 // Instance-level VK_KHR_get_surface_capabilities2 injection (latency_layer.cpp).
 // Display timing probes surfaces through that extension; native games rarely
-// enable it, so the layer appends it when the loader/ICD offers it.
-enum class InstanceExtensionAvailability { Unknown, Advertised, Absent };
-// Unknown when the next layer exposes no vkEnumerateInstanceExtensionProperties
-// or the query fails; vkCreateInstance then decides (retry without on failure).
-InstanceExtensionAvailability instance_extension_availability(
-    PFN_vkEnumerateInstanceExtensionProperties enumerate, const char* extension_name);
+// enable it, so the layer appends it and retries without it if unsupported.
 struct InstanceExtensionSetup {
     bool requested = false; // The application enabled it itself.
     bool injected = false;  // The layer appended it; use `info`.
