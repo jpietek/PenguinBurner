@@ -233,10 +233,13 @@ class FakeCudaLib:
         raise AssertionError(f"read from unknown device address {address:#x}")
 
 
-def _run(lib, **kwargs):
+def _run(lib, *, duration_seconds=1.0, **kwargs):
     driver = cuda_bruteforce._CudaDriver(lib=lib)
     return cuda_bruteforce.run_cuda_bruteforce_test(
-        gpu_index=0, duration_seconds=1.0, driver=driver, **kwargs
+        gpu_index=0,
+        duration_seconds=float(duration_seconds),
+        driver=driver,
+        **kwargs,
     )
 
 
@@ -308,3 +311,61 @@ def test_main_maps_exceptions_to_the_documented_exit_codes(monkeypatch) -> None:
     monkeypatch.setattr(cuda_bruteforce, "run_cuda_bruteforce_test", lambda **_k: None)
     assert cuda_bruteforce.main(["--duration-seconds", "1"]) == 0
     assert {3, 4} == cuda_bruteforce.CUDA_INSTABILITY_EXIT_CODES
+
+
+def test_pulse_schedule_alternates_full_and_fractional_grids() -> None:
+    stages = cuda_bruteforce.pulse_schedule(
+        15.0,
+        pulse_on_s=4.0,
+        pulse_off_s=3.0,
+        low_fraction=0.125,
+    )
+
+    assert [s.fraction for s in stages] == [1.0, 0.125, 1.0, 0.125, 1.0]
+    assert [s.seconds for s in stages] == [4.0, 3.0, 4.0, 3.0, 1.0]
+    assert sum(s.seconds for s in stages) == pytest.approx(15.0)
+    assert [s.grid_blocks for s in stages] == [256, 32, 256, 32, 256]
+
+    with pytest.raises(ValueError, match="pulse low fraction"):
+        cuda_bruteforce.pulse_schedule(
+            5.0, pulse_on_s=2.0, pulse_off_s=1.0, low_fraction=0.9
+        )
+
+
+def test_pulse_arguments_are_parsed() -> None:
+    args = cuda_bruteforce.parse_args(
+        [
+            "--pulse-on-seconds",
+            "4",
+            "--pulse-off-seconds",
+            "3",
+            "--pulse-low-fraction",
+            "0.125",
+        ]
+    )
+
+    assert args.pulse_on_seconds == 4.0
+    assert args.pulse_off_seconds == 3.0
+    assert args.pulse_low_fraction == 0.125
+
+
+def test_pulsed_run_visits_both_grid_sizes() -> None:
+    lib = FakeCudaLib()
+    _run(
+        lib,
+        duration_seconds=1.0,
+        pulse_on_s=0.3,
+        pulse_off_s=0.3,
+        pulse_low_fraction=0.125,
+    )
+
+    verify_elements = cuda_bruteforce.DEFAULT_VERIFY_ELEMENTS
+    grids = [
+        gx
+        for name, gx, value in lib.launches
+        if name == "brute_force" and value[2] > verify_elements
+    ]
+    assert grids[0] == cuda_bruteforce.FULL_GRID_BLOCKS
+    assert 32 in grids and 256 in grids
+    first_low = grids.index(32)
+    assert 256 in grids[first_low + 1:]

@@ -62,6 +62,15 @@ def measured_result(voltage, clock, plan):
         )
         for i in range(10)
     ]
+    # Final verification pulses the CUDA companion; give it alternating power
+    # so the load-step assertion sees the same shape as real telemetry.
+    companion_samples = [
+        TelemetrySample(
+            float(i), 100.0, 200.0 if i % 2 == 0 else 100.0,
+            float(clock), 60.0, float(voltage), 40.0,
+        )
+        for i in range(20)
+    ]
     result = Q2RTXStabilityResult(
         True,
         "ok",
@@ -79,7 +88,7 @@ def measured_result(voltage, clock, plan):
         [],
         [],
         samples,
-        samples,
+        companion_samples,
         [],
         benchmark,
     )

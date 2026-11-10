@@ -348,10 +348,19 @@ def _probe_result(voltage_mv, lock_mhz, plan, *, measured_clock, measured_mv, po
         TelemetrySample(float(i), 100.0, power_w, measured_clock, 64.0, measured_mv, 55.0)
         for i in range(20)
     ]
+    # Final verification pulses the CUDA companion; give it alternating power
+    # so the load-step assertion sees the same shape as real telemetry.
+    companion_samples = [
+        TelemetrySample(
+            float(i), 100.0, 200.0 if i % 2 == 0 else 100.0,
+            measured_clock, 64.0, measured_mv, 55.0,
+        )
+        for i in range(20)
+    ]
     result = Q2RTXStabilityResult(
         True, "ok", "benchmark", "q2demo1", [], Path("/tmp/q2rtx"), Path("/tmp"),
         10, 10.0, None, summary.log_path, 0, "benchmark-duration-complete",
-        [], [], samples, samples, [], benchmark,
+        [], [], samples, companion_samples, [], benchmark,
     )
     return summary, result
 
