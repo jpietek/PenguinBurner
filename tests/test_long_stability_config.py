@@ -35,7 +35,7 @@ def test_long_stability_config_can_pulse_the_cuda_companion() -> None:
     config = build_long_stability_test_config(
         Q2RTXStabilityConfig(gpu_index=1),
         total_duration_s=600,
-        cuda_pulse_low_fraction=FINAL_CUDA_PULSE_LOW_FRACTION,
+        cuda_pulses=True,
     )
 
     assert config.companion_command is not None

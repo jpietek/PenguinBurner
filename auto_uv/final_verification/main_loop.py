@@ -28,7 +28,6 @@ from auto_uv.probes.stability_decision import (
 from auto_uv.run.voltage_sweep_state import VoltageProbeOutcome
 from runtime.support.vf_curve_plan import apply_plan
 from stability.q2rtx.long_stability_config import (
-    FINAL_CUDA_PULSE_LOW_FRACTION,
     FINAL_CUDA_PULSE_OFF_S,
     FINAL_CUDA_PULSE_ON_S,
     build_long_stability_test_config,
@@ -129,7 +128,7 @@ def run_final_verification_and_save(
     final_config = build_long_stability_test_config(
         q2rtx_config,
         total_duration_s=int(final_verification_duration_s),
-        cuda_pulse_low_fraction=FINAL_CUDA_PULSE_LOW_FRACTION,
+        cuda_pulses=True,
     )
     q2rtx_duration_s, cuda_duration_s = long_stability_workload_durations(
         int(final_verification_duration_s)
@@ -260,7 +259,9 @@ def run_final_verification_and_save(
     pulse_reason = missing_pulse_cycles_reason(pulse_cycles, required_cycles)
     if pulse_reason is not None:
         log_phase(log, "final-verify", f"rejected {pulse_reason}")
-        raise AutoUvError(f"final long verification failed: {pulse_reason}")
+        # The curve itself passed; a load that never stepped is a harness
+        # fault, so stop instead of retreating to a higher voltage.
+        raise AutoUvError(f"final CUDA pulse check failed: {pulse_reason}")
 
     write_latest_verified_candidate(
         plan=final_plan,

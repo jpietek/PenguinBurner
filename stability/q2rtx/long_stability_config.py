@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from stability.cuda_bruteforce import PULSE_LOW_FRACTION_DEFAULT
+
 from .constants import DEFAULT_SINGLE_PASS_TIMEOUT_S
 from .cuda_companion import (
     cuda_bruteforce_companion_command,
@@ -21,7 +23,7 @@ LONG_STABILITY_TIMEOUT_BUFFER_S = 60.0
 # verification keeps the steady companion unless it asks for pulses.
 FINAL_CUDA_PULSE_ON_S = 4.0
 FINAL_CUDA_PULSE_OFF_S = 3.0
-FINAL_CUDA_PULSE_LOW_FRACTION = 0.125
+FINAL_CUDA_PULSE_LOW_FRACTION = PULSE_LOW_FRACTION_DEFAULT
 
 
 def long_stability_workload_durations(
@@ -39,10 +41,10 @@ def build_long_stability_test_config(
     config: Q2RTXStabilityConfig,
     *,
     total_duration_s: int,
-    cuda_pulse_low_fraction: float | None = None,
+    cuda_pulses: bool = False,
 ) -> Q2RTXStabilityConfig:
     q2rtx_s, cuda_s = long_stability_workload_durations(int(total_duration_s))
-    if cuda_pulse_low_fraction is None:
+    if not cuda_pulses:
         companion = cuda_bruteforce_companion_command(
             gpu_index=int(config.gpu_index),
             duration_s=int(cuda_s),
@@ -53,7 +55,7 @@ def build_long_stability_test_config(
             duration_s=int(cuda_s),
             pulse_on_s=FINAL_CUDA_PULSE_ON_S,
             pulse_off_s=FINAL_CUDA_PULSE_OFF_S,
-            pulse_low_fraction=float(cuda_pulse_low_fraction),
+            pulse_low_fraction=FINAL_CUDA_PULSE_LOW_FRACTION,
         )
     return replace(
         config,

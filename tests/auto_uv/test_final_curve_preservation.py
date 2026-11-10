@@ -355,6 +355,10 @@ def test_final_soak_preserves_selected_curve_and_power_limit(
     if status == "pulses":
         assert stages == ["final-verify"]
         assert not saved
+        # A pulse harness fault must not retreat to a higher-voltage curve.
+        assert not final_verification_failure_can_offer_retry(
+            failure.value
+        )
         return
     assert stages == ["final-verify"]
     assert len(saved) == 3
