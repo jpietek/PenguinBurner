@@ -46,7 +46,7 @@ scenario_bootstrap() {
             echo "apt-get update -qq >/dev/null && DEBIAN_FRONTEND=noninteractive apt-get install -qq -y flatpak ca-certificates dbus >/dev/null"
             ;;
         arch)
-            echo "pacman -Sy --noconfirm --needed flatpak dbus >/dev/null"
+            echo "pacman -Syu --noconfirm --needed flatpak dbus >/dev/null"
             ;;
     esac
 }
