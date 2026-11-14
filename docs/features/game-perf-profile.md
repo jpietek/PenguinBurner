@@ -47,13 +47,15 @@ reached the screen.
 | **GPU** | median GPU load | 100 % | — | none |
 | **CPU** | median hottest-thread load | 100 % | ↓ lower is cheaper | under 80 % |
 | **FPS** | median rendered FPS | the game's target FPS | ↑ higher is better | 95 % of target or more |
-| **LOW** | 1%-low ÷ median (consistency) | 1.0 | ↑ higher is better | 85 % or more |
+| **1% LOW** | 1% low FPS | median FPS (consistency) | ↑ higher is better | 85 % or more |
 
 In the large fingerprint each spoke is labelled with its value in its own unit
 (watts, fps, load %), and each vertex dot is green when the value sits inside
 its spoke's fine band and amber outside it. The unnumbered rings sit at 25, 50,
-75 and 100 % of each spoke's scale. FPS and LOW belong at the outer ring; PWR
-and CPU are costs, so closer to the center means more headroom. GPU load has no band: high load is a
+75 and 100 % of each spoke's scale. **1% LOW** shows the measured FPS; only its
+position uses the ratio of 1% low to median FPS. FPS and 1% LOW belong at the
+outer ring; PWR and CPU are costs, so closer to the center means more headroom.
+GPU load has no band: high load is a
 bottleneck when FPS misses its target and simply full use when it does not, so
 its dot stays neutral.
 
@@ -63,8 +65,8 @@ reading it appears as a **LATENCY** number in the tab's stat row: the session
 median of the same average the in-game `LAT` shows. Like `LAT` it carries a
 `~` when any of the session's readings was an estimate rather than an
 input-to-GPU measurement, as for games without Reflex markers (see
-[Latency and frame-generation FPS](latency-fg.md)). The 1%-low consistency
-figure is likewise textual (**1%-LOW** in the stat row) rather than a spoke.
+[Latency and frame-generation FPS](latency-fg.md)). The **1%-LOW** stat row also
+shows the measured FPS and its corresponding frametime in milliseconds.
 
 Read the spokes, not the blob's area — the shape is the signature. A fat kite
 leaning into PWR/GPU is a heavyweight; a tall CPU spike with a small GPU spoke

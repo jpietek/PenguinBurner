@@ -158,13 +158,12 @@ def perf_profile_axes(
             _GOOD_FPS,
         ),
         PerfProfileAxis(
-            "LOW",
-            "Fluency floor",
-            f"{low_ratio:.0%} of median",
+            "1% LOW",
+            "1% low FPS",
+            f"{summary.low_1pct_fps:.0f} fps",
             _clamp(low_ratio),
             AXIS_HIGHER_IS_BETTER,
             _GOOD_LOW,
-            f"{low_ratio:.0%}",
         ),
         PerfProfileAxis(
             "CPU",

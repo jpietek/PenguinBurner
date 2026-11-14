@@ -64,14 +64,14 @@ def test_perf_profile_axes_normalization_math() -> None:
     by_code = {axis.code: axis for axis in axes}
     # Five spokes — PWR crown, load pair, experience pair; latency stays
     # textual only.
-    assert [axis.code for axis in axes] == ["PWR", "GPU", "FPS", "LOW", "CPU"]
+    assert [axis.code for axis in axes] == ["PWR", "GPU", "FPS", "1% LOW", "CPU"]
     assert abs(by_code["PWR"].fraction - 214 / 360) < 1e-9
     assert by_code["PWR"].text == "214 W"
     assert abs(by_code["GPU"].fraction - 0.92) < 1e-9
     assert abs(by_code["CPU"].fraction - 0.60) < 1e-9
     assert abs(by_code["FPS"].fraction - 96 / 120) < 1e-9
-    assert abs(by_code["LOW"].fraction - 71 / 96) < 1e-9
-    assert by_code["LOW"].text == "74% of median"
+    assert abs(by_code["1% LOW"].fraction - 71 / 96) < 1e-9
+    assert by_code["1% LOW"].text == "71 fps"
 
 
 def test_perf_profile_axes_fallbacks_and_clamping() -> None:
@@ -88,7 +88,7 @@ def test_perf_profile_axes_carry_reading_direction_and_fine_band() -> None:
     # Experience spokes read outward, cost spokes inward; GPU load has no
     # single good reading, so it carries neither.
     assert axes["FPS"].direction == AXIS_HIGHER_IS_BETTER
-    assert axes["LOW"].direction == AXIS_HIGHER_IS_BETTER
+    assert axes["1% LOW"].direction == AXIS_HIGHER_IS_BETTER
     assert axes["PWR"].direction == AXIS_LOWER_IS_CHEAPER
     assert axes["CPU"].direction == AXIS_LOWER_IS_CHEAPER
     assert axes["GPU"].direction == ""
@@ -105,10 +105,10 @@ def test_perf_profile_fine_band_membership_drives_point_color() -> None:
     assert axes["FPS"].in_good_band is True
     assert axes["PWR"].in_good_band is True
     assert axes["CPU"].in_good_band is True
-    assert axes["LOW"].in_good_band is False
+    assert axes["1% LOW"].in_good_band is False
     assert axes["GPU"].in_good_band is None
     assert axis_point_color(axes["FPS"]) == theme.PERF_PROFILE_POINT_GOOD
-    assert axis_point_color(axes["LOW"]) == theme.PERF_PROFILE_POINT_OUTSIDE
+    assert axis_point_color(axes["1% LOW"]) == theme.PERF_PROFILE_POINT_OUTSIDE
     assert axis_point_color(axes["GPU"]) == theme.PERF_PROFILE_POINT_NEUTRAL
 
     # A CPU-bound title misses its target and pins its hottest thread.
@@ -120,10 +120,10 @@ def test_perf_profile_fine_band_membership_drives_point_color() -> None:
 
 def test_axis_label_lines_add_the_value_in_its_own_unit_only_when_detailed() -> None:
     axes = {a.code: a for a in perf_profile_axes(_summary(), target_fps=120.0, power_limit_w=360)}
-    assert axis_label_lines(axes["LOW"], detailed=False) == ("LOW ↑",)
+    assert axis_label_lines(axes["1% LOW"], detailed=False) == ("1% LOW ↑",)
     # Real units, never the spoke fraction: FPS against its target or power
     # against the board limit would print a percentage of a different scale.
-    assert axis_label_lines(axes["LOW"], detailed=True) == ("LOW ↑", "74%")
+    assert axis_label_lines(axes["1% LOW"], detailed=True) == ("1% LOW ↑", "71 fps")
     assert axis_label_lines(axes["GPU"], detailed=True) == ("GPU", "92%")
     fps_line = axis_label_lines(axes["FPS"], detailed=True)[1]
     assert fps_line.endswith(" fps") and not fps_line.endswith("%")
