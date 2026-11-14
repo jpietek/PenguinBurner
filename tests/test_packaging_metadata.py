@@ -166,6 +166,9 @@ def test_flatpak_manifest_exposes_daemon_socket_host_files_and_spawn_portal() ->
 
     assert "--filesystem=/run/penguin-burnerd.sock" in manifest
     assert "--filesystem=host:ro" in manifest
+    # Game Perf Profile rings: host:ro does not cover /run or /var.
+    assert "--filesystem=/run/penguin-burner:ro" in manifest
+    assert "--filesystem=/var/lib/penguin-burner:ro" in manifest
     assert "--talk-name=org.freedesktop.Flatpak" in manifest
     # A fresh flatpak install must ship all three moving parts, so the build
     # gates them: the Rust daemon is compiled and installed to /app/libexec,

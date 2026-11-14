@@ -34,6 +34,10 @@ flatpak install --user -y penguinburner io.github.jpietek.PenguinBurner
 flatpak run io.github.jpietek.PenguinBurner
 ```
 
+The app itself reads `/run/penguin-burner` and `/var/lib/penguin-burner`
+read-only, where the root daemon keeps
+[Game Perf Profile](features/game-perf-profile.md) telemetry.
+
 Or as a single pasteable command:
 
 ```bash

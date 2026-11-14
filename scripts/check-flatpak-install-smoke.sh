@@ -227,6 +227,33 @@ assert_host_glibc_floor() {
     fi
 }
 
+# Game Perf Profile reads the daemon's rings from /run and /var/lib, which
+# host:ro does not expose. Creating them needs root, so only the container
+# scenarios (and root hosts) check it.
+assert_sandbox_reads_frame_history() {
+    if [[ "$(id -u)" != 0 ]]; then
+        echo "skipping frame-history sandbox check (needs root to create the host dirs)"
+        return
+    fi
+    local dir
+    for dir in /run/penguin-burner/frame-history /var/lib/penguin-burner/frame-history; do
+        mkdir -p "$dir"
+        printf 'ring' > "$dir/smoke.ring"
+    done
+    flatpak run --user --command=bash "$APP_ID" -c '
+        set -euo pipefail
+        for dir in /run/penguin-burner/frame-history /var/lib/penguin-burner/frame-history; do
+            test "$(cat "$dir/smoke.ring")" = ring
+            if touch "$dir/write-probe" 2>/dev/null; then
+                echo "$dir is writable inside the sandbox" >&2
+                exit 1
+            fi
+        done
+    '
+    rm -f /run/penguin-burner/frame-history/smoke.ring \
+        /var/lib/penguin-burner/frame-history/smoke.ring
+}
+
 assert_sandbox_entrypoints() {
     flatpak run --user --command=bash "$APP_ID" -c '
         set -euo pipefail
@@ -236,6 +263,8 @@ assert_sandbox_entrypoints() {
             test "$resolved" = "/app/bin/$bin"
         done
     '
+
+    assert_sandbox_reads_frame_history
 
     flatpak run --user --command=penguin-burner-cli "$APP_ID" --help >/dev/null
     flatpak run --user --command=pburn-cli "$APP_ID" --help >/dev/null

@@ -67,3 +67,25 @@ PLOT_BADGE = "#ffe5b1"
 TIER_CURVE_EFFICIENCY = "#9fe6a8"
 TIER_CURVE_BALANCED = "#8ecbef"
 TIER_CURVE_PERFORMANCE = "#e05c5c"
+
+# Game Perf Profile: the approved mockup's dark palette.
+# These are deliberately the mock's values, not the TIER_CURVE_* pastels, so
+# the shipped feature matches the design that was signed off.
+PERF_PROFILE_TEXT = "#ffffff"
+PERF_PROFILE_TEXT_DIM = "#c3c2b7"
+PERF_PROFILE_TEXT_MUTED = "#8a8880"
+PERF_PROFILE_GRID = "#2a2a28"
+PERF_PROFILE_AXIS = "#3a3a36"
+PERF_PROFILE_TIER_EFFICIENCY = "#199e70"
+PERF_PROFILE_TIER_BALANCED = "#3987e5"
+PERF_PROFILE_TIER_PERFORMANCE = "#d95926"
+PERF_PROFILE_TIER_NONE = "#8a8880"
+PERF_PROFILE_STUTTER = "#e05656"
+# Graduated stutter severity: needles lerp mild -> PERF_PROFILE_STUTTER; red is only
+# for genuinely laggy frames (>= ~30 ms).
+PERF_PROFILE_STUTTER_MILD = "#e8c258"
+# Fingerprint vertex dots: inside or outside the spoke's "fine" band. GPU
+# load has no band and keeps the neutral dot.
+PERF_PROFILE_POINT_GOOD = "#55d27a"
+PERF_PROFILE_POINT_OUTSIDE = "#f0b84c"
+PERF_PROFILE_POINT_NEUTRAL = "#c3c2b7"
