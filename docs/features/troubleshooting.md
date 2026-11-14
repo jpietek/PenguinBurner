@@ -2,6 +2,33 @@
 
 > See the [feature guides](./README.md) for how each part works.
 
+### The daemon fills the journal with GPU statistics
+
+Periodic `telemetry` and `status` lines are disabled by default. Monitoring,
+overlay updates, fan control, and adaptive switching continue normally. Startup,
+profile changes, warnings, and errors are still logged.
+
+To collect these statistics for debugging, run
+`systemctl edit penguin-burnerd.service` with administrator privileges and add:
+
+```ini
+[Service]
+Environment=PENGUIN_BURNERD_DEBUG=1
+```
+
+Restart `penguin-burnerd.service` with administrator privileges, then read the
+logs with `journalctl -u penguin-burnerd.service -b`. Restarting interrupts the
+active runtime profile; the daemon replays its saved boot configuration.
+
+After debugging, remove that environment line from the override (preserving any
+other overrides), reload systemd, and restart the service again. Alternatively,
+set `PENGUIN_BURNERD_DEBUG=0` to disable it. Values `true`, `yes`, and `on` also
+enable debugging; an unset variable leaves it off.
+
+For a manually launched daemon, `penguin-burnerd serve --debug` enables the same
+logging. The application's `--debug-log` option is separate and does not change
+the running root daemon's journal output.
+
 ### The scan stops early
 
 Read the latest scan log in `~/.config/PenguinBurner/debug-logs/`.

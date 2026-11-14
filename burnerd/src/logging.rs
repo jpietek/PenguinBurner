@@ -1,6 +1,18 @@
 //! Tiny hand-rolled stderr logger: timestamped level lines, no external crates.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+static DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
+
+/// Configured once at startup, before the runtime engine threads start.
+pub fn set_debug_enabled(enabled: bool) {
+    DEBUG_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+pub fn debug_enabled() -> bool {
+    DEBUG_ENABLED.load(Ordering::Relaxed)
+}
 
 fn timestamp() -> String {
     let secs = SystemTime::now()
