@@ -83,6 +83,7 @@ impl Daemon {
             .env("PENGUIN_BURNERD_TEST_RTD3_SYSFS", default_rtd3_sys)
             .env("PENGUIN_BURNERD_TEST_RTD3_PROC", default_rtd3_proc)
             .env_remove("PENGUIN_BURNER_DAEMON_ALLOWED_UID")
+            .env_remove("PENGUIN_BURNERD_DEBUG")
             .env_remove("NOTIFY_SOCKET")
             .stdout(Stdio::null())
             // The daemon logs to stderr (journald's view); capture it so
@@ -362,6 +363,21 @@ fn version_flag_prints_identity_and_exits_zero() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.starts_with("penguin-burnerd "));
     assert!(stdout.contains(env!("CARGO_PKG_VERSION")));
+}
+
+#[test]
+fn debug_environment_controls_daemon_logging_mode() {
+    for (extra_env, expected) in [
+        (vec![], false),
+        (vec![("PENGUIN_BURNERD_DEBUG", "1")], true),
+        (vec![("PENGUIN_BURNERD_DEBUG", "0")], false),
+    ] {
+        let daemon = Daemon::start(&extra_env);
+        let response = daemon.request(r#"{"method":"status"}"#);
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["result"]["state"], "idle");
+        assert_eq!(daemon.stderr_log().contains("debug mode enabled"), expected);
+    }
 }
 
 #[test]
