@@ -89,7 +89,7 @@ function setupDialog(focusId) {
             `0–2000 MHz · <output id="uvMemoryRate">${draft.settings[tier].memory * 2} MT/s</output>` +
             (full && tier !== 'Efficiency' ? ' · Shared by Balanced and Performance.' : ''))
         + uvNumber('watts', 'Power limit', 'W', `300–400 W · preset ${preset.watts} W.`);
-    uvDialog('Setup Auto Undervolt', 'Configure the scan for the selected graphics card.',
+    uvDialog('Setup Auto Undervolt', design.copy.setupNote,
         `<section class="uvGroup"><h3>Graphics card</h3><div class="uvGPU">
         <b>GPU 0 · ${setupGPU.name}</b>
         <span>Board power 300–400 W · stock 360 W</span></div>

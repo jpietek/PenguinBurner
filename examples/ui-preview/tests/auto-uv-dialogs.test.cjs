@@ -7,13 +7,14 @@ const vm = require('node:vm');
 const preview = path.resolve(__dirname, '..');
 const script = fs.readFileSync(path.join(preview, 'auto-uv-dialogs.js'), 'utf8');
 const sample = JSON.parse(fs.readFileSync(path.join(preview, 'sample.json'), 'utf8'));
+const design = JSON.parse(fs.readFileSync(path.join(preview, 'pburn-design.json'), 'utf8'));
 const tiers = ['Efficiency', 'Balanced', 'Performance'];
 
 // Exercise the same classic-script entry points used by the page and Qt
 // projection. Rendering and timers are the boundaries of these model tests.
 function createPreview() {
     const state = {
-        tiers, plan: structuredClone(sample.rows), completed: sample.rows.length,
+        design, tiers, plan: structuredClone(sample.rows), completed: sample.rows.length,
         profiles: [], profileMeta: [], order: [], verified: [], pi: -1,
         verifyMinutes: 5, stage: 'choice', ticks: 0, structuredClone,
         est: () => '10–20 min', activeTiers: () => tiers,

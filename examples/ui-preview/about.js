@@ -35,7 +35,7 @@ function aboutView() {
     ${
       data
         ? '<div class="aboutReadings"><div>Total runtime<strong id="aboutRuntime"></strong></div><div>Energy saved<strong id="aboutEnergy"></strong></div></div><small>Sample lifetime totals</small>'
-        : '<p class="aboutPurpose">PenguinBurner finds a voltage and clock that use less power while preserving game performance. A scan saves Efficiency, Balanced and Performance profiles. Adaptive can switch between them while you play games from Steam, Heroic, Lutris or Faugus.</p>'
+        : '<p class="aboutPurpose">' + esc(design.copy.aboutPurpose) + '</p>'
     }
     <div class="aboutLinks"><a href="https://github.com/sponsors/jpietek" target="_blank" rel="noopener noreferrer">Support PenguinBurner on GitHub ↗</a>
     <a href="https://github.com/jpietek/PenguinBurner/issues" target="_blank" rel="noopener noreferrer">Report an issue ↗</a></div>

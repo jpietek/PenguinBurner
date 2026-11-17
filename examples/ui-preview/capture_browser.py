@@ -49,9 +49,15 @@ def capture(page: Page, directory: Path) -> None:
     open_screen("#auto-uv")
     assert page.get_by_text("No runs yet", exact=True).is_visible()
     click("About")
-    assert page.locator(".aboutPurpose").is_visible()
+    assert page.locator(".aboutPurpose").inner_text() == page.evaluate(
+        "design.copy.aboutPurpose"
+    )
+    shot("about-first-launch", "#panel")
     click("OK")
     click("Setup Auto Undervolt")
+    assert page.locator(".uvHeader p").inner_text() == page.evaluate(
+        "design.copy.setupNote"
+    )
     page.locator("#uv-watts").fill("347")
     assert page.locator("#uvPowerRange").input_value() == "347"
     shot("auto-uv-setup", "#panel")

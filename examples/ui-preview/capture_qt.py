@@ -10,10 +10,10 @@ os.environ.setdefault(
     "QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu --disable-dev-shm-usage"
 )
 
-from preview import Preview, configure_app
+from preview import COPY, Preview, configure_app
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QDialog, QPushButton, QTableWidget
+from PySide6.QtWidgets import QApplication, QDialog, QLabel, QPushButton, QTableWidget
 
 
 def capture():
@@ -30,6 +30,12 @@ def capture():
     def start_full_scan():
         dialog = app.activeModalWidget()
         assert isinstance(dialog, QDialog)
+        purpose = dialog.findChild(QLabel, "purposeText")
+        assert purpose and purpose.text() == COPY["setupNote"]
+        cautions = dialog.findChildren(QLabel, "autoUvTargetCaution")
+        assert cautions and all(
+            label.text() == COPY["targetCaution"] for label in cautions
+        )
         assert dialog.grab().save(str(output / "auto-uv-setup-qt.png"))
         next(
             b

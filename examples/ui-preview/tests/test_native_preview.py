@@ -199,10 +199,7 @@ def test_about_shows_purpose_or_live_fixture_energy(app, monkeypatch):
             snapshots.append("counter")
         else:
             purpose = dialog.findChild(preview.W.QLabel, "purposeText")
-            assert (
-                purpose
-                and purpose.text() == preview.about.GPU_UNDERVOLTING_PURPOSE_TEXT
-            )
+            assert purpose and purpose.text() == preview.COPY["aboutPurpose"]
             snapshots.append("purpose")
         dialog.close()
         return preview.W.QDialog.DialogCode.Accepted

@@ -49,5 +49,10 @@
     "control": 5,
     "panel": 8,
     "pill": 999
+  },
+  "copy": {
+    "setupNote": "Auto UV tests lower GPU voltages to reduce power use while checking performance and stability.",
+    "aboutPurpose": "PenguinBurner tunes your GPU to use less power while you play.",
+    "targetCaution": "Custom voltage or clock targets can cause instability."
   }
 }

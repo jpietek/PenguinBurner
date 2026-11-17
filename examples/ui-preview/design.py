@@ -13,6 +13,7 @@ from ui.styles import STYLESHEET
 
 SPEC = json.loads(Path(__file__).with_name("pburn-design.json").read_text())
 COL = SPEC["colors"]
+COPY = SPEC["copy"]
 TYPE = SPEC["typography"]
 GAP = SPEC["spacing"]
 RAD = SPEC["radii"]

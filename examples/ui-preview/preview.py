@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import numpy as np
 import pyqtgraph as pg
 from build_preview import build_preview
-from design import COL, GAP, TYPE, DemoCurvePlot, install_theme
+from design import COL, COPY, GAP, TYPE, DemoCurvePlot, install_theme
 from PySide6 import QtCore as C
 from PySide6 import QtGui as G
 from PySide6 import QtWidgets as W
@@ -100,7 +100,20 @@ def setup_options(parent):
         "auto_uv_voltage_floor_range_mv": (725, 1240),
         "memory_offset_mhz_range": (0, 4000),
     }
+
+    def set_target_note():
+        dialog = W.QApplication.activeModalWidget()
+        if dialog:
+            for note in dialog.findChildren(W.QLabel, "autoUvTargetCaution"):
+                note.setText(COPY["targetCaution"])
+
+    C.QTimer.singleShot(0, set_target_note)
     with ExitStack() as stack:
+        stack.enter_context(
+            patch.object(
+                scan_tuning, "GPU_UNDERVOLTING_PURPOSE_TEXT", COPY["setupNote"]
+            )
+        )
         for name, reply in fixtures.items():
             stack.enter_context(patch.object(scan_tuning, name, return_value=reply))
         return scan_tuning.select_scan_tuning(
@@ -1077,6 +1090,7 @@ class Preview(W.QWidget):
                 side_effect=self.sample_energy_status,
             ),
             patch.object(about, "ABOUT_LINKS_HTML", links),
+            patch.object(about, "GPU_UNDERVOLTING_PURPOSE_TEXT", COPY["aboutPurpose"]),
         ):
             about.show_about_dialog(QtCore=C, QtGui=G, QtWidgets=W, parent=self)
 
