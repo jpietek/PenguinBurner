@@ -575,6 +575,17 @@ class FixtureOverlay(overlay_ui.OverlayConfigPanel):
             candidate = Path(__file__).with_name("artwork") / f"{game.game_id}art.webp"
             if candidate.is_file():
                 path = candidate
+        name = (
+            game.name
+            if game is not None and path is not None
+            else "Illustrative preview"
+        )
+        caption = self.widget.findChild(W.QLabel, "overlayPreviewCaption")
+        if caption is not None:
+            caption.setText(f"{name} · sample readings")
+        self.preview.setAccessibleName(f"{name} · overlay preview")
+        if self.sample_dialog is not None:
+            self.sample_dialog.setWindowTitle(self.preview.accessibleName())
         if path == self.art_path:
             return
         self.art_path = path
@@ -616,7 +627,9 @@ class FixtureOverlay(overlay_ui.OverlayConfigPanel):
             self.sample_dialog.close()
             return
         dlg = W.QDialog(self.widget)
-        dlg.setWindowTitle("Live preview · sample readings")
+        dlg.setWindowTitle(
+            self.preview.accessibleName() or "Live preview · sample readings"
+        )
         layout = W.QVBoxLayout(dlg)
         self.sample_canvas = GameArtworkPreview()
         self.sample_canvas.set_artwork(self.preview.artwork)

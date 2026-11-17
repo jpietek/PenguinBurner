@@ -39,7 +39,7 @@ python3 -m venv .venv-preview
 .venv-preview/bin/python examples/ui-preview/preview.py
 ```
 
-The native mock opens on Auto UV. It uses the checkout's Qt setup and final verification dialogs, V/F plot, curve editors, Afterburner chooser, Game Library and Overlay settings. Profiles and the recording detail use the embedded HTML view.
+The native mock opens on Auto UV. To jump straight to the Qt artwork preview, run `python3 examples/ui-preview/preview.py --overlay`. It uses the checkout's Qt setup and final verification dialogs, V/F plot, curve editors, Afterburner chooser, Game Library and Overlay settings. Profiles and the recording detail use the embedded HTML view.
 
 ## Try the workflows
 

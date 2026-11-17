@@ -877,7 +877,7 @@ class PreviewPage(QWebEnginePage):
 
 
 class Preview(W.QWidget):
-    def __init__(self, *, history=False):
+    def __init__(self, *, history=False, overlay=False):
         super().__init__()
         self.setWindowTitle("PenguinBurner · Qt UX preview")
         self.setWindowIcon(G.QIcon(str(asset_image_path("penguin-burner.png"))))
@@ -941,6 +941,8 @@ class Preview(W.QWidget):
         self.scan.show_profiles.connect(lambda: self.tabs.setCurrentIndex(1))
         if history:
             self.tabs.setCurrentIndex(2)
+        elif overlay:
+            self.tabs.setCurrentIndex(3)
         self.browser.load(C.QUrl.fromLocalFile(str(build_preview())))
 
     def loaded(self, ok):
@@ -1191,7 +1193,7 @@ def configure_app(app):
 def main():
     app = W.QApplication(sys.argv)
     configure_app(app)
-    win = Preview(history="--history" in sys.argv)
+    win = Preview(history="--history" in sys.argv, overlay="--overlay" in sys.argv)
     win.show()
     return app.exec()
 

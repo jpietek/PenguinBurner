@@ -343,3 +343,66 @@ def test_each_launcher_badge_is_visible_in_the_composited_row(app):
         )
     finally:
         window.close()
+
+
+def test_overlay_game_art_tracks_library_and_native_hud(app):
+    window = preview.Preview(overlay=True)
+    window.show()
+    try:
+        assert (
+            window.tabs.currentIndex() == 3
+            and window.stack.currentWidget() is window.overlay
+        )
+        overlay = window.overlay.panel
+        window.tabs.setCurrentIndex(2)
+        for index, game_id in enumerate(("1091500", "2531310", "1888930", "782330")):
+            window.library.select_game(index)
+            assert overlay.art_path == preview.HERE / "artwork" / f"{game_id}art.webp"
+            assert not overlay.preview.artwork.isNull()
+        window.tabs.setCurrentIndex(3)
+        overlay.live_button.click()
+        assert overlay.sample_dialog is not None
+        assert (
+            overlay.sample_canvas.artwork.cacheKey()
+            == overlay.preview.artwork.cacheKey()
+        )
+        assert "DOOM Eternal" in overlay.sample_dialog.windowTitle()
+        overlay.position_combo.setCurrentText("Bottom left")
+        overlay.scale_slider.setValue(overlay.scale_slider.maximum())
+        assert (
+            overlay.sample_canvas._config == overlay.preview._config == overlay.config
+        )
+        assert overlay.config.position == "bottom_left"
+        assert "preview" in overlay.preview.accessibleName()
+        enabled = overlay.sample_canvas.grab().toImage()
+        overlay.enabled_switch.click()
+        backdrop = overlay.sample_canvas.grab().toImage()
+        assert backdrop != enabled and not overlay.config.enabled
+        window.library.select_game(4)
+        assert overlay.art_path is None
+        assert (
+            overlay.sample_canvas.artwork.isNull() and overlay.preview.artwork.isNull()
+        )
+        scenery = overlay.sample_canvas.grab().toImage()
+        assert scenery != backdrop
+        # A 4:1 source must lose its outer red bands to fill a 16:9 game
+        # frame. Stretching the source would leave red pixels at both edges.
+        art = preview.G.QPixmap(400, 100)
+        art.fill(preview.G.QColor("red"))
+        brush = preview.G.QPainter(art)
+        brush.fillRect(100, 0, 200, 100, preview.G.QColor("lime"))
+        brush.end()
+        overlay.sample_canvas.set_artwork(art)
+        frame = preview.G.QImage(160, 90, preview.G.QImage.Format.Format_RGB32)
+        brush = preview.G.QPainter(frame)
+        brush.scale(160 / 2560, 90 / 1440)
+        overlay.sample_canvas._paint_scene(brush)
+        brush.end()
+        top = frame.pixelColor(2, 1)
+        bottom = frame.pixelColor(157, 88)
+        assert top.green() > top.red() and bottom.green() > bottom.red()
+        assert 0 < bottom.green() < top.green() < 255
+        overlay.live_button.click()
+        assert overlay.sample_dialog is None
+    finally:
+        window.close()

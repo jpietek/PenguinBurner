@@ -81,9 +81,14 @@ def capture():
     scan.table.setCurrentCell(13, 0)
     QTest.qWait(100)
     assert window.grab().save(str(output / "auto-uv.png"))
+    while scan.stage == "verifying":
+        scan.tick()
     window.tabs.setCurrentIndex(2)
     window.library.select_game(0)
     window.tabs.setCurrentIndex(3)
+    overlay = window.overlay.panel
+    overlay.position_combo.setCurrentText("Top left")
+    overlay.scale_slider.setValue(overlay.scale_slider.maximum())
     QTest.qWait(100)
     assert window.grab().save(str(output / "overlay-qt.png"))
     window.close()
