@@ -1,0 +1,58 @@
+{
+  "name": "PenguinBurner",
+  "colors": {
+    "window": "#121516",
+    "panel": "#191D1E",
+    "raised": "#222829",
+    "control": "#262D2D",
+    "border": "#363F3E",
+    "divider": "#2C3333",
+    "ink": "#EBEFEC",
+    "secondary": "#AFB9B3",
+    "quiet": "#949F99",
+    "primary": "#315F48",
+    "primaryHover": "#3C7156",
+    "onPrimary": "#F1F7F2",
+    "selection": "#24392E",
+    "accent": "#A1D5AF",
+    "focus": "#A8E2B9",
+    "gain": "#91BBA2",
+    "loss": "#D29C9A",
+    "warning": "#D4B583",
+    "baseCurve": "#A9B3AD",
+    "candidateCurve": "#F5F8F6",
+    "selectedCurve": "#CF76FF",
+    "efficiency": "#20DB78",
+    "balanced": "#FFB319",
+    "performance": "#FF5547",
+    "plotSurface": "#101315",
+    "gridMinor": "#1D2323",
+    "gridMajor": "#353E3B",
+    "curveHistory": "#64716C"
+  },
+  "typography": {
+    "family": "Inter",
+    "title": 26,
+    "section": 17,
+    "body": 14,
+    "caption": 12,
+    "table": 12
+  },
+  "spacing": {
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24
+  },
+  "radii": {
+    "control": 5,
+    "panel": 8,
+    "pill": 999
+  },
+  "copy": {
+    "setupNote": "Auto UV tests lower GPU voltages to reduce power use while checking performance and stability.",
+    "aboutPurpose": "PenguinBurner tunes your GPU to use less power while you play.",
+    "targetCaution": "Custom voltage or clock targets can cause instability."
+  }
+}
