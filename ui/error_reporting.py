@@ -36,26 +36,51 @@ class ErrorReporter:
         exit_code,
         exit_status,
     ) -> None:
-        details = process_failure_details(
-            action_label=action_label,
-            exit_code=exit_code,
-            exit_status=qt_enum_name(exit_status),
-            log_tail=self.recent_log_tail(),
-        )
-        show_error_dialog(
+        show_process_failure(
             QtCore=self.QtCore,
             QtGui=self.QtGui,
             QtWidgets=self.QtWidgets,
             parent=self.parent,
             title=title,
-            message=(
-                f"{action_label} stopped unexpectedly. "
-                "The full error details can be copied for troubleshooting."
-            ),
-            details=details,
+            action_label=action_label,
+            exit_code=exit_code,
+            exit_status=exit_status,
+            log_text=self.log_view.text_edit.toPlainText(),
         )
 
-    def recent_log_tail(self, *, lines: int = 80, char_limit: int = 12000) -> str:
-        text = self.log_view.text_edit.toPlainText()
-        tail = "\n".join(text.splitlines()[-max(1, int(lines)) :])
-        return tail[-int(char_limit) :] if len(tail) > int(char_limit) else tail
+
+def show_process_failure(
+    *,
+    QtCore,
+    QtGui,
+    QtWidgets,
+    parent,
+    title: str,
+    action_label: str,
+    exit_code,
+    exit_status,
+    log_text: str,
+) -> None:
+    """The copyable error dialog for a scan or verification that failed."""
+    show_error_dialog(
+        QtCore=QtCore,
+        QtGui=QtGui,
+        QtWidgets=QtWidgets,
+        parent=parent,
+        title=title,
+        message=(
+            f"{action_label} stopped unexpectedly. "
+            "The full error details can be copied for troubleshooting."
+        ),
+        details=process_failure_details(
+            action_label=action_label,
+            exit_code=exit_code,
+            exit_status=qt_enum_name(exit_status),
+            log_tail=recent_log_tail(log_text),
+        ),
+    )
+
+
+def recent_log_tail(text: str, *, lines: int = 80, char_limit: int = 12000) -> str:
+    tail = "\n".join(str(text or "").splitlines()[-max(1, int(lines)) :])
+    return tail[-int(char_limit) :] if len(tail) > int(char_limit) else tail

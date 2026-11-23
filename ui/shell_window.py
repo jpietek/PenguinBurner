@@ -26,6 +26,7 @@ from ui.design.style import COL, COPY, GAP, glyph_icon, info_icon, tab_icon
 from ui.design.tokens import AppearanceSettings
 from ui.dialogs import about
 from ui.dialogs.appearance import AppearanceDialog
+from ui.features.tuning.auto_uv_page import AutoUvPage
 from ui.startup_checks import run_startup_checks
 
 # (tab label, painted tab glyph)
@@ -202,6 +203,10 @@ class ShellWindow(W.QWidget):
     def build_page(self, index: int) -> W.QWidget:
         """The page for tab ``index``. Each ported page adds its branch here;
         the rest offer the classic window."""
+        if index == 0:
+            page = AutoUvPage(gpu_index=self.gpu_index)
+            page.attach_to_shell(self)
+            return page
         return ClassicPlaceholder(PAGES[index][0], open_classic=self.open_classic)
 
     def add_header_action(self, widget: W.QWidget) -> None:
@@ -213,6 +218,16 @@ class ShellWindow(W.QWidget):
     def refresh_pages(self) -> None:
         """Re-read live state after the root service changed (wired pages
         reload here)."""
+        for page in self.pages:
+            if isinstance(page, AutoUvPage):
+                page.refresh_live_state()
+
+    def rebuild_blocked(self) -> bool:
+        """A page in the middle of a modal step (Auto UV's final candidate
+        choice) must not be torn down by a theme rebuild."""
+        return any(
+            isinstance(page, AutoUvPage) and page.blocks_rebuild() for page in self.pages
+        )
 
     # ---------- window status ----------
 
@@ -314,7 +329,7 @@ def rebuild_window(
 def follow_desktop_scheme(_scheme=None) -> None:
     """Auto theme: rebuild when the desktop switches light/dark."""
     window = CURRENT["window"]
-    if window is None or design.APPEARANCE.theme != "auto":
+    if window is None or design.APPEARANCE.theme != "auto" or window.rebuild_blocked():
         return
     if design.resolved_mode(design.APPEARANCE) != design.MODE["current"]:
         rebuild_window(window)

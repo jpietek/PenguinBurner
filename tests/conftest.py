@@ -120,3 +120,72 @@ def native_launcher_installed(monkeypatch):
         installation, "host_command_path", lambda name: f"/usr/bin/{name}"
     )
     installation.native_command.cache_clear()
+
+
+@pytest.fixture
+def isolated_theme(qapp):
+    """install_theme restyles the whole process (app style sheet, palette,
+    font, the classic ui.theme colours and the switch). The two windows run
+    in separate processes, but tests share one, so put everything back."""
+    from PySide6 import QtCore as C
+    from PySide6 import QtGui as G
+    from PySide6 import QtWidgets as W
+
+    import ui.design.style as design
+    from ui import theme
+    from ui.components.toggle_switch import toggle_switch_class
+
+    switch = toggle_switch_class(C, G, W)
+    saved = (
+        {name: getattr(theme, name) for name in dir(theme) if name.isupper()},
+        qapp.styleSheet(),
+        G.QPalette(qapp.palette()),
+        G.QFont(qapp.font()),
+        switch.__dict__.get("_colors"),
+        dict(design.COL),
+        dict(design.TYPE),
+        dict(design.TIER_COLORS),
+        dict(design.MODE),
+        design.APPEARANCE,
+    )
+    yield qapp
+    constants, qss, palette, font, colors, col, type_, tiers, mode, appearance = saved
+    for name, value in constants.items():
+        setattr(theme, name, value)
+    qapp.setStyleSheet(qss)
+    qapp.setPalette(palette)
+    qapp.setFont(font)
+    if colors is not None:
+        switch._colors = colors
+    for live, value in (
+        (design.COL, col),
+        (design.TYPE, type_),
+        (design.TIER_COLORS, tiers),
+        (design.MODE, mode),
+    ):
+        live.clear()
+        live.update(value)
+    design.APPEARANCE = appearance
+
+
+@pytest.fixture
+def offline_auto_uv(monkeypatch):
+    """The Auto UV page without the root service: a fresh scan engine and no
+    daemon read for the GPU caption. Pages built in the test use it."""
+    from ui.features.tuning import auto_uv_page
+    from ui.features.tuning.gpu_selection import GpuChoice
+
+    monkeypatch.setattr(
+        auto_uv_page,
+        "gpu_choices_with_fallback",
+        lambda selected_index=None, **_: (
+            [GpuChoice(index=0, name="NVIDIA GeForce RTX 5080")],
+            0 if selected_index is None else int(selected_index),
+        ),
+    )
+    monkeypatch.setitem(auto_uv_page.ENGINE, "engine", None)
+    yield auto_uv_page
+    engine = auto_uv_page.ENGINE["engine"]
+    if engine is not None:
+        engine.page = None
+        engine.deleteLater()

@@ -10,55 +10,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import tomllib
 
 import pytest
-from PySide6 import QtCore as C
-from PySide6 import QtGui as G
 from PySide6 import QtWidgets as W
 from PySide6.QtTest import QTest
 
 import ui.design.style as design
 import ui.shell_window as shell
 from cli import runtime_config_file
-from ui import theme
-from ui.components.toggle_switch import toggle_switch_class
 from ui.design.tokens import AppearanceSettings, resolve_colors
-
-
-@pytest.fixture
-def isolated_theme(qapp):
-    """install_theme restyles the whole process (app style sheet, palette,
-    font, the classic ui.theme colours and the switch). The two windows run
-    in separate processes, but tests share one, so put everything back."""
-    switch = toggle_switch_class(C, G, W)
-    saved = (
-        {name: getattr(theme, name) for name in dir(theme) if name.isupper()},
-        qapp.styleSheet(),
-        G.QPalette(qapp.palette()),
-        G.QFont(qapp.font()),
-        switch.__dict__.get("_colors"),
-        dict(design.COL),
-        dict(design.TYPE),
-        dict(design.TIER_COLORS),
-        dict(design.MODE),
-        design.APPEARANCE,
-    )
-    yield qapp
-    constants, qss, palette, font, colors, col, type_, tiers, mode, appearance = saved
-    for name, value in constants.items():
-        setattr(theme, name, value)
-    qapp.setStyleSheet(qss)
-    qapp.setPalette(palette)
-    qapp.setFont(font)
-    if colors is not None:
-        switch._colors = colors
-    for live, value in (
-        (design.COL, col),
-        (design.TYPE, type_),
-        (design.TIER_COLORS, tiers),
-        (design.MODE, mode),
-    ):
-        live.clear()
-        live.update(value)
-    design.APPEARANCE = appearance
+from ui.features.tuning.auto_uv_page import AutoUvPage
 
 
 @pytest.fixture
@@ -70,7 +29,7 @@ def config(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def window(isolated_theme, config):
+def window(isolated_theme, config, offline_auto_uv):
     qapp = isolated_theme
     opened = []
     design.install_theme(qapp, AppearanceSettings())
@@ -115,10 +74,11 @@ def test_every_tab_offers_the_classic_window_until_its_page_lands(window):
         "Game Library",
         "In-Game Overlay",
     ]
+    assert isinstance(window.pages[0], AutoUvPage)
     for index, page in enumerate(window.pages):
         window.tabs.setCurrentIndex(index)
         assert window.stack.currentWidget() is page
-        assert isinstance(page, shell.ClassicPlaceholder)
+        assert index == 0 or isinstance(page, shell.ClassicPlaceholder)
     window.pages[1].open_button.click()
     assert window.opened_classic == [True]
 
