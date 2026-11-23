@@ -14,8 +14,8 @@ import profiles.verification.runner as profile_verification_runner
 from cli.runtime_profile_argument import (
     runtime_profile_selector_allows_unverified_from_argv as allow_unverified_from_argv,
 )
-import ui.features.curves.curve_profiles as curve_profiles
-import ui.features.curves.fan_profiles as ui_app
+import profiles.uv.profile_vf_curve as curve_profiles
+import profiles.uv.profile_fan_curve as ui_app
 from runtime.gpu_control.flattened_clock_ceiling import FlattenedClockCeilingController
 from profiles.uv.profile_store import (
     archive_auto_uv_profile,
@@ -36,7 +36,7 @@ from ui.components.fan_curve_editor import (
 from ui.components.vf_curve_editor import (
     vf_curve_editor_shortcut_legend_rows as _curve_editor_shortcut_legend_rows,
 )
-from ui.features.curves.curve_profiles import (
+from profiles.uv.profile_vf_curve import (
     load_cached_base_curve_points as _load_cached_base_curve_points,
     profile_base_curve_points as _profile_base_curve_points,
     save_cached_base_curve_points as _save_cached_base_curve_points,
@@ -49,7 +49,7 @@ from ui.dialogs.final_choice import candidate_status_text as _candidate_status_t
 from ui.dialogs.final_choice import (
     final_choice_sort_values as _final_choice_sort_values,
 )
-from ui.features.curves.fan_profiles import (
+from profiles.uv.profile_fan_curve import (
     fan_curve_target_point_from_payload as _fan_curve_target_point_from_payload,
     fan_measurement_point as _fan_measurement_point,
     fan_measurement_points as _fan_measurement_points,
@@ -57,8 +57,10 @@ from ui.features.curves.fan_profiles import (
     profile_fan_curve_points as _profile_fan_curve_points,
     profile_fan_curve_target_point as _profile_fan_curve_target_point,
     profile_fan_measurement_points as _profile_fan_measurement_points,
-    profile_id_from_archive_path as _profile_id_from_archive_path,
     sorted_unique_fan_points as _sorted_unique_fan_points,
+)
+from profiles.uv.profile_store import (
+    profile_id_from_archive_path as _profile_id_from_archive_path,
 )
 from ui.features.integrations.lact_export import (
     lact_export_output_path as _lact_export_output_path,

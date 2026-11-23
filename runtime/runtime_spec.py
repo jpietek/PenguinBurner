@@ -18,7 +18,15 @@ from common.penguin_burner_errors import NvmlError
 from drivers.nvidia.daemon_gpu import DaemonGpuClient
 from overlay.config import load_overlay_config
 from profiles.gpu_identity import gpu_index_for_uuid, profile_gpu_uuid
-from profiles.uv.profile_store import STOCK_PROFILE_SELECTOR, read_auto_uv_profiles
+from profiles.uv.profile_fan_curve import (
+    auto_uv_fan_curve_payload_path,
+    fan_curve_points_from_payload,
+)
+from profiles.uv.profile_store import (
+    STOCK_PROFILE_SELECTOR,
+    read_auto_uv_profiles,
+    read_json_object,
+)
 from profiles.uv.profile_tiers import (
     PROFILE_TIER_BALANCED,
     PROFILE_TIERS,
@@ -32,11 +40,6 @@ from runtime.gpu_control.adaptive_profile_policy import AdaptiveProfilePolicyCon
 from runtime.support.adaptive_target_fps import (
     adaptive_target_fps_from_env,
     parse_adaptive_target_fps,
-)
-from ui.features.curves.fan_profiles import (
-    auto_uv_fan_curve_payload_path,
-    fan_curve_points_from_payload,
-    read_json_file,
 )
 
 RUNTIME_SPEC_FORMAT_VERSION = 1
@@ -417,7 +420,7 @@ def _fan_spec(config: dict[str, Any], *, enabled: bool) -> dict[str, Any]:
     path = auto_uv_fan_curve_payload_path()
     if not path.is_file():
         return {"enabled": True, "config": base, "notice": ""}
-    payload = read_json_file(path)
+    payload = read_json_object(path)
     rejection = _fan_payload_rejection(payload, path)
     if rejection:
         return {"enabled": False, "config": base, "notice": rejection}

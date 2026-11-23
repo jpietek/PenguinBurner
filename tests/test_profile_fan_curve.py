@@ -1,4 +1,4 @@
-"""Coverage for ui/fan_profiles.py: fan payload/point parsing + IO helpers.
+"""Coverage for profiles/uv/profile_fan_curve.py: fan payload/point parsing + IO helpers.
 
 Pure parsing tested directly; afterburner/archive/ownership/path dependencies
 are monkeypatched so no real GPU/profile store is touched.
@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import json
 
-import ui.features.curves.fan_profiles as fp
+import profiles.uv.profile_fan_curve as fp
+import profiles.uv.profile_store as profile_store
 
 # --- low-level point parsing --------------------------------------------------
 
@@ -128,23 +129,23 @@ def test_profile_fan_curve_accessors(monkeypatch) -> None:
 # --- file IO + matching -------------------------------------------------------
 
 
-def test_read_json_file_and_payload_from_path(tmp_path) -> None:
+def test_read_json_object_and_payload_from_path(tmp_path) -> None:
     good = tmp_path / "p.json"
     good.write_text(json.dumps({"plan": [1]}), encoding="utf-8")
-    assert fp.read_json_file(good) == {"plan": [1]}
+    assert profile_store.read_json_object(good) == {"plan": [1]}
     bad = tmp_path / "bad.json"
     bad.write_text("not json", encoding="utf-8")
-    assert fp.read_json_file(bad) is None
-    assert fp.read_json_file(tmp_path / "absent.json") is None
-    assert fp.profile_payload_from_path({"path": str(good)}) == {"plan": [1]}
-    assert fp.profile_payload_from_path({}) is None
+    assert profile_store.read_json_object(bad) is None
+    assert profile_store.read_json_object(tmp_path / "absent.json") is None
+    assert profile_store.profile_payload_from_path({"path": str(good)}) == {"plan": [1]}
+    assert profile_store.profile_payload_from_path({}) is None
 
 
 def test_profile_payload_has_saved_vf_curve_and_archive_id() -> None:
     assert fp.profile_payload_has_saved_vf_curve({"plan": [1]}) is True
     assert fp.profile_payload_has_saved_vf_curve({}) is False
-    assert fp.profile_id_from_archive_path("auto-uv-profile-abc.json") == "abc"
-    assert fp.profile_id_from_archive_path("/tmp/other.json") == "other"
+    assert profile_store.profile_id_from_archive_path("auto-uv-profile-abc.json") == "abc"
+    assert profile_store.profile_id_from_archive_path("/tmp/other.json") == "other"
 
 
 def test_write_payload_and_matching(monkeypatch, tmp_path) -> None:

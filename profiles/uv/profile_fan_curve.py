@@ -1,6 +1,7 @@
+"""Fan curves in saved profiles and the shared fan-curve file the daemon runs."""
+
 from __future__ import annotations
 
-import json
 import math
 from pathlib import Path
 from typing import Any, cast
@@ -10,7 +11,11 @@ from common.penguin_burner_paths import default_user_config_dir
 from curve_editors.fan.fan_curve_manual_editor import (
     user_edited_fan_curve_profile_payload,
 )
-from profiles.uv.profile_store import archive_auto_uv_profile
+from profiles.uv.profile_store import (
+    archive_auto_uv_profile,
+    profile_payload_from_path,
+    read_json_object,
+)
 
 
 def profile_fan_curve_points(profile: dict) -> list[tuple[float, float]]:
@@ -129,14 +134,19 @@ def fan_payload_has_silent_runtime_fields(payload: dict) -> bool:
     return payload.get("loaded_temperature_c") not in (None, "")
 
 
+# The fan curve the daemon runs with the silent-fan option: written by final
+# verification and by Apply, read by the runtime spec and the LACT export.
+AUTO_UV_FAN_CURVE_FILENAME = "auto-uv-fan-curve.json"
+
+
 def auto_uv_fan_curve_payload_path() -> Path:
-    return default_user_config_dir() / "auto-uv-fan-curve.json"
+    return default_user_config_dir() / AUTO_UV_FAN_CURVE_FILENAME
 
 
 def write_auto_uv_fan_curve_payload(payload: dict) -> Path:
     if not isinstance(payload, dict):
         raise TypeError("fan curve payload must be an object")
-    return atomic_write_json(auto_uv_fan_curve_payload_path(), payload)
+    return atomic_write_json(auto_uv_fan_curve_payload_path(), payload, durable=True)
 
 
 def embedded_fan_payload(payload) -> dict | None:
@@ -152,7 +162,7 @@ def embedded_fan_payload(payload) -> dict | None:
 
 
 def matching_current_auto_uv_fan_payload(profile: dict) -> dict | None:
-    payload = read_json_file(auto_uv_fan_curve_payload_path())
+    payload = read_json_object(auto_uv_fan_curve_payload_path())
     if not isinstance(payload, dict) or not fan_payload_matches_profile(payload, profile):
         return None
     return payload
@@ -187,36 +197,10 @@ def fan_payload_matches_profile(payload: dict, profile: dict) -> bool:
     return False
 
 
-def profile_payload_from_path(profile: dict) -> dict | None:
-    path_text = str(profile.get("path", "")).strip()
-    if not path_text:
-        return None
-    return read_json_file(Path(path_text).expanduser())
-
-
-def read_json_file(path: str | Path) -> dict | None:
-    try:
-        payload = json.loads(
-            Path(path).expanduser().read_text(encoding="utf-8", errors="replace")
-        )
-    except (OSError, json.JSONDecodeError):
-        return None
-    return payload if isinstance(payload, dict) else None
-
-
 def profile_payload_has_saved_vf_curve(payload: dict) -> bool:
     if not isinstance(payload, dict):
         return False
     return bool(payload.get("plan") or payload.get("curve_points") or payload.get("points"))
-
-
-def profile_id_from_archive_path(path: str | Path) -> str:
-    name = Path(path).name
-    prefix = "auto-uv-profile-"
-    suffix = ".json"
-    if name.startswith(prefix) and name.endswith(suffix):
-        return name[len(prefix) : -len(suffix)]
-    return Path(path).stem
 
 
 def fan_curve_points_from_values(values) -> list[tuple[float, float]]:

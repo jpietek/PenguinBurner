@@ -27,6 +27,7 @@ from common.penguin_burner_paths import (
     default_saved_uv_dir,
     default_user_config_dir,
 )
+from profiles.uv.profile_fan_curve import AUTO_UV_FAN_CURVE_FILENAME
 from profiles.uv.profile_store import auto_uv_profiles_dir
 from profiles.verification.runner import run_profile_verification
 from runtime.support.runtime_debug import (
@@ -47,7 +48,7 @@ def clear_auto_uv_state(*, log=print) -> None:
         config_dir / "uv-result",
         auto_uv_profiles_dir(),
         config_dir / "auto-uv-final-curve.json",
-        config_dir / "auto-uv-fan-curve.json",
+        config_dir / AUTO_UV_FAN_CURVE_FILENAME,
         config_dir / "debug-logs",
         config_dir / "stability-logs",
         default_saved_uv_dir(),

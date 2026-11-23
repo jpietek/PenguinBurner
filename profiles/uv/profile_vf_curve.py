@@ -1,3 +1,5 @@
+"""V/F curves in saved profiles, the cached base curve, and saving an edited curve."""
+
 from __future__ import annotations
 
 import json
@@ -12,8 +14,7 @@ from common.penguin_burner_paths import (
     default_user_config_dir,
 )
 from curve_editors.uv.vf_curve_manual_editor import user_edited_profile_payload
-from profiles.uv.profile_store import archive_auto_uv_profile
-from ui.features.curves.fan_profiles import profile_payload_from_path
+from profiles.uv.profile_store import archive_auto_uv_profile, profile_payload_from_path
 
 
 def profile_curve_plan(profile: dict) -> list[dict]:

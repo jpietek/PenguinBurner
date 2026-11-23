@@ -44,11 +44,11 @@ from qt.components.profile_model import (
     LactExport,
     RuntimeState,
 )
-from ui.features.curves.curve_profiles import (
+from profiles.uv.profile_vf_curve import (
     base_curve_points_from_payload,
     curve_plan_from_payload,
 )
-from ui.features.curves.fan_profiles import (
+from profiles.uv.profile_fan_curve import (
     embedded_fan_payload,
     fan_curve_points_from_payload,
     fan_curve_target_point_from_payload,

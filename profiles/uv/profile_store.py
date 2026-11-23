@@ -55,9 +55,13 @@ def _file_time_iso(path: Path) -> str:
         return _now_iso()
 
 
-def _read_json(path: Path) -> dict | None:
+def read_json_object(path: str | Path) -> dict | None:
+    """A JSON file's top-level object, or None when it is missing, unreadable
+    or not an object."""
     try:
-        payload = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        payload = json.loads(
+            Path(path).expanduser().read_text(encoding="utf-8", errors="replace")
+        )
     except (OSError, json.JSONDecodeError):
         return None
     return dict(payload) if isinstance(payload, dict) else None
@@ -91,6 +95,23 @@ def _profile_sort_time(profile: dict) -> float:
         return float(path.stat().st_mtime)
     except OSError:
         return 0.0
+
+
+def profile_payload_from_path(profile: dict) -> dict | None:
+    """The saved payload a profile summary points at through its ``path``."""
+    path_text = str(profile.get("path", "")).strip()
+    if not path_text:
+        return None
+    return read_json_object(path_text)
+
+
+def profile_id_from_archive_path(path: str | Path) -> str:
+    name = Path(path).name
+    prefix = "auto-uv-profile-"
+    suffix = ".json"
+    if name.startswith(prefix) and name.endswith(suffix):
+        return name[len(prefix) : -len(suffix)]
+    return Path(path).stem
 
 
 def archive_auto_uv_profile(final_curve_payload: dict) -> Path:
@@ -129,7 +150,7 @@ def mark_auto_uv_profile_verified(
     if resolved is None:
         raise FileNotFoundError(f"Auto-UV profile not found: {selector}")
     path, _resolved_payload = resolved
-    payload = _read_json(path)
+    payload = read_json_object(path)
     if payload is None:
         raise FileNotFoundError(f"Auto-UV profile not readable: {path}")
 
@@ -191,7 +212,7 @@ def bind_auto_uv_profile_gpu_identity(
     if resolved is None:
         raise FileNotFoundError(f"Auto-UV profile not found: {selector}")
     path, _resolved_payload = resolved
-    payload = _read_json(path)
+    payload = read_json_object(path)
     if payload is None:
         raise FileNotFoundError(f"Auto-UV profile not readable: {path}")
     normalized_identity = normalized_gpu_identity(gpu_identity)
@@ -223,7 +244,7 @@ def mark_auto_uv_profile_verification_failed(
     if resolved is None:
         raise FileNotFoundError(f"Auto-UV profile not found: {selector}")
     path, _resolved_payload = resolved
-    payload = _read_json(path)
+    payload = read_json_object(path)
     if payload is None:
         raise FileNotFoundError(f"Auto-UV profile not readable: {path}")
     if not _is_user_edited_profile_payload(payload):
@@ -351,7 +372,7 @@ def _load_profile_files(
 ) -> list[dict]:
     profiles = []
     for path in paths:
-        payload = _read_json(path)
+        payload = read_json_object(path)
         if payload is None:
             continue
         profile = _normalize_profile_payload(
@@ -395,7 +416,7 @@ def apply_latest_final_verification_metrics(profiles: list[dict]) -> None:
     ]
     if not unrepaired:
         return
-    latest = _read_json(
+    latest = read_json_object(
         default_user_config_dir() / "uv-result" / "auto-uv-latest-verified.json"
     )
     if latest is None:
@@ -678,7 +699,7 @@ def resolve_auto_uv_profile(
 
     path = Path(text).expanduser()
     if path.is_file():
-        payload = _read_json(path)
+        payload = read_json_object(path)
         if payload is None:
             return None
         if not _profile_payload_is_runnable(
