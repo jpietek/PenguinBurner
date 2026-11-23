@@ -5,6 +5,8 @@ import struct
 import subprocess
 import time
 
+import pytest
+
 from overlay.telemetry.base_timing import (
     base_timing_dir,
     sweep_orphan_buffers,
@@ -22,6 +24,27 @@ from overlay.telemetry.base_timing import (
 
 HEADER = struct.Struct("<6I2Q")
 NOW = 10_000_000_000
+
+
+@pytest.fixture
+def raw_clock_far_behind(monkeypatch):
+    """Pin CLOCK_MONOTONIC_RAW 10 s behind CLOCK_MONOTONIC for publisher tests.
+
+    The publisher reads both host clocks and picks the Wine clock base whose
+    candidate lands closest to now. NTP slew drifts the two clocks apart by a
+    few tens to hundreds of ms on a long-running host, and with that drift a
+    sample tens of ms old can map plausibly on BOTH bases, so the real clocks
+    made these tests pass or fail with the host's uptime. A 10 s gap leaves
+    one answer: every RAW candidate falls outside the 2 s window.
+    """
+    real_clock_gettime_ns = time.clock_gettime_ns
+
+    def clock_gettime_ns(clock_id):
+        if clock_id == time.CLOCK_MONOTONIC_RAW:
+            return time.monotonic_ns() - 10_000_000_000
+        return real_clock_gettime_ns(clock_id)
+
+    monkeypatch.setattr(time, "clock_gettime_ns", clock_gettime_ns)
 
 
 def header(buffer) -> dict[str, int]:
@@ -204,7 +227,9 @@ def test_clock_base_is_redecided_after_eight_consecutive_misses():
     assert QpcClockMapper().map(42, NOW - 5_000_000, NOW, 0) is None
 
 
-def test_publish_writes_only_samples_on_the_host_monotonic_clock(tmp_path):
+def test_publish_writes_only_samples_on_the_host_monotonic_clock(
+    tmp_path, raw_clock_far_behind
+):
     publisher = BaseFramePublisher(tmp_path, "700")
     path = tmp_path / "base-timing.700.bin"
     assert publisher.path == path
@@ -224,7 +249,9 @@ def test_publish_writes_only_samples_on_the_host_monotonic_clock(tmp_path):
     assert publisher.mapping is None and not path.exists()
 
 
-def test_publisher_ignores_non_numeric_sessions_and_foreign_files(tmp_path):
+def test_publisher_ignores_non_numeric_sessions_and_foreign_files(
+    tmp_path, raw_clock_far_behind
+):
     assert BaseFramePublisher(tmp_path, "").path is None
     assert BaseFramePublisher(tmp_path, "../etc").path is None
     publisher = BaseFramePublisher(tmp_path, "700")
@@ -238,7 +265,9 @@ def test_publisher_ignores_non_numeric_sessions_and_foreign_files(tmp_path):
     assert publisher.path.read_bytes() == b"other"
 
 
-def test_native_reader_decodes_the_python_publisher(tmp_path, build_overlay_probe):
+def test_native_reader_decodes_the_python_publisher(
+    tmp_path, build_overlay_probe, raw_clock_far_behind
+):
     socket = tmp_path / "latency.sock"
     harness = tmp_path / "reader.cpp"
     harness.write_text(r'''
@@ -261,13 +290,6 @@ int main() {
     build_overlay_probe(harness, binary)
     # Publish after compiling so the samples are inside the reader's window.
     publisher = BaseFramePublisher(tmp_path, "700")
-    # A bridge decides the pid's clock base on a fresh frame. Deciding it on
-    # the 180 ms-old first sample below is ambiguous once CLOCK_MONOTONIC and
-    # CLOCK_MONOTONIC_RAW have drifted ~90 ms+ apart (NTP slew on a host with
-    # long uptime): RAW lands closer to now and every later sample misses.
-    now = time.monotonic_ns() // 1000
-    raw_to_monotonic = now - time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW) // 1000
-    assert publisher.clock.map(42, now, now, raw_to_monotonic) == now
     clock = time.monotonic_ns() // 1000 - 180000
     for frame, delta in enumerate((0, 30000, 30000, 90000, 30000), 1):
         clock += delta
