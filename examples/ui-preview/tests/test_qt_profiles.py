@@ -14,17 +14,17 @@ sys.path[:0] = [str(HERE), str(HERE.parents[1])]
 from PySide6 import QtCore as C  # noqa: E402
 from PySide6 import QtWidgets as W  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
-from qt.components import profile_model as model  # noqa: E402
-from qt.features.profiles_page import (  # noqa: E402
-    CurveEditors,
-    ProfileDialogs,
-    ProfilesPage,
-)
 from qt.sample.profiles_source import SAMPLE_GPUS, SampleProfilesSource  # noqa: E402
 
 from curve_editors.fan.fan_curve_manual_editor import ManualFanCurveEdit  # noqa: E402
 from curve_editors.uv.vf_curve_manual_editor import ManualCurveEdit  # noqa: E402
 from ui.design.style import install_theme  # noqa: E402
+from ui.features.profiles import profile_model as model  # noqa: E402
+from ui.features.profiles.profiles_page import (  # noqa: E402
+    CurveEditors,
+    ProfileDialogs,
+    ProfilesPage,
+)
 
 EFF = "20260713-222800-efficiency"
 BAL = "20260713-223600-balanced"

@@ -13,10 +13,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
+import integrations.lact.export as lact_export
 import ui.features.profiles.profile_actions as actions_mod
 import ui.window as window_mod
-from ui.qt import import_qt
+from profiles.uv.profile_rules import DeleteSafety
 from ui.features.tuning.gpu_selection import GpuChoice
+from ui.qt import import_qt
 from ui.window import MainWindow
 
 
@@ -42,7 +44,7 @@ def win(qapp, monkeypatch):
         window_mod, "gpu_choices_with_fallback",
         lambda **_: ([GpuChoice(index=0, name="RTX 5080", uuid="GPU-test")], 0),
     )
-    monkeypatch.setattr(window_mod, "load_profile_summaries", lambda: [])
+    monkeypatch.setattr(window_mod, "read_auto_uv_profile_summaries", lambda: [])
     monkeypatch.setattr(
         window_mod, "systemd_autostart_profile_info", lambda: {"selector": "", "silent_fan_curve": False}
     )
@@ -84,7 +86,7 @@ def test_profile_power_reference_follows_gpu_identity_and_disappearance(win, mon
     ]
     monkeypatch.setattr(window_mod, "gpu_choices_with_fallback", lambda **_: (choices, 0))
     monkeypatch.setattr(
-        window_mod, "load_profile_summaries",
+        window_mod, "read_auto_uv_profile_summaries",
         lambda: [
             {"profile_id": "a", "gpu_identity": {"uuid": "GPU-A"}, "avg_power_w": 270.0},
             {"profile_id": "b", "gpu_identity": {"uuid": "GPU-B"}, "avg_power_w": 270.0},
@@ -166,7 +168,7 @@ def test_edit_vf_curve_opens_and_saves(win) -> None:
     )
     monkeypatch.setattr(actions_mod, "editable_anchor_from_profile", lambda profile: (900, 2500))
     monkeypatch.setattr(actions_mod, "profile_base_curve_points", lambda profile: [(900, 2400)])
-    monkeypatch.setattr(actions_mod, "_manual_curve_control_voltage_mvs", lambda manual: ())
+    monkeypatch.setattr(actions_mod, "manual_edit_control_voltage_mvs", lambda manual: ())
     monkeypatch.setattr(
         actions_mod, "save_edited_curve_profile",
         lambda profile, edit, **kw: (Path("/tmp/auto-uv-profile-y.json"), {"candidate_id": "c9"}),
@@ -216,7 +218,7 @@ def test_export_lact_cancelled_and_no_gpu(win) -> None:
     monkeypatch.setattr(
         window.QtWidgets.QFileDialog, "getExistingDirectory", staticmethod(lambda *a, **k: "/tmp/lact")
     )
-    monkeypatch.setattr(actions_mod, "detect_lact_gpu_id", lambda directory: "")
+    monkeypatch.setattr(lact_export, "detect_lact_gpu_id", lambda directory: "")
     shown: list = []
     monkeypatch.setattr(window.errors, "show", lambda title, msg: shown.append(title))
     window._export_lact_profile(PROFILE)
@@ -228,10 +230,10 @@ def test_export_lact_writes(win) -> None:
     monkeypatch.setattr(
         window.QtWidgets.QFileDialog, "getExistingDirectory", staticmethod(lambda *a, **k: "/tmp/lact")
     )
-    monkeypatch.setattr(actions_mod, "detect_lact_gpu_id", lambda directory: "1002:abcd")
+    monkeypatch.setattr(lact_export, "detect_lact_gpu_id", lambda directory: "1002:abcd")
     monkeypatch.setattr(window.profile_list, "silent_fan_enabled", lambda: False)
     monkeypatch.setattr(
-        actions_mod, "write_lact_profile_config",
+        lact_export, "write_lact_profile_config",
         lambda profile, **kw: (Path("/tmp/lact/config.yaml"), ["a warning"]),
     )
     monkeypatch.setattr(window.QtWidgets.QMessageBox, "information", lambda *a, **k: None)
@@ -304,7 +306,7 @@ def test_delete_selected_profiles(win) -> None:
     monkeypatch.setattr(window.profile_list, "selected_profile_ids", lambda: ["p1"])
     monkeypatch.setattr(window.profile_list, "selected_profile_paths", lambda: ["/tmp/p1.json"])
     monkeypatch.setattr(
-        actions_mod, "profile_delete_autostart_action", lambda *a, **k: {"action": "keep"}
+        actions_mod, "profile_delete_safety", lambda *a, **k: DeleteSafety()
     )
     monkeypatch.setattr(MainWindow, "_confirm_profile_delete", lambda self, **k: True)
     deleted = []
@@ -408,7 +410,6 @@ def test_profile_context_menu_outside_batch_selects_only_clicked_row(win, qapp) 
     def dismiss(menu, _position):
         assert window.profile_list.selected_profile_ids() == ["p2"]
         assert "Delete" in [action.text() for action in menu.actions()]
-        return None
 
     class Menu(window.QtWidgets.QMenu):
         def exec(self, position):
@@ -863,7 +864,7 @@ def test_apply_profile_persists_silent_fan_choice(win, monkeypatch) -> None:
     saved: list[bool] = []
     monkeypatch.setattr(window_mod, "silent_fan_curve_to_runtime_config", lambda v: saved.append(bool(v)))
     monkeypatch.setattr(actions_mod, "profile_for_selector", lambda summaries, pid: dict(PROFILE))
-    monkeypatch.setattr(actions_mod, "profile_can_apply", lambda p: True)
+    monkeypatch.setattr(actions_mod, "apply_refusal", lambda *a, **k: "")
     monkeypatch.setattr(actions_mod, "sync_profile_fan_payload", lambda p: True)
     monkeypatch.setattr(
         actions_mod,

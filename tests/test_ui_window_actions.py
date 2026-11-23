@@ -43,7 +43,7 @@ def win(qapp, monkeypatch):
         window_mod, "gpu_choices_with_fallback",
         lambda **_: ([GpuChoice(index=0, name="RTX 5080", uuid="GPU-test")], 0),
     )
-    monkeypatch.setattr(window_mod, "load_profile_summaries", lambda: [])
+    monkeypatch.setattr(window_mod, "read_auto_uv_profile_summaries", lambda: [])
     monkeypatch.setattr(
         window_mod, "systemd_autostart_profile_info", lambda: {"selector": "", "silent_fan_curve": False}
     )

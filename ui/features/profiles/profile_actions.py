@@ -1,29 +1,21 @@
 from __future__ import annotations
 
 import shlex
-from pathlib import Path
 from typing import Any
 
 from cli.runtime_config_file import persist_on_startup_to_runtime_config
 from common.penguin_burner_paths import default_user_config_dir
-from curve_editors.uv.vf_curve_manual_editor import editable_anchor_from_profile
-from drivers.nvidia.daemon_gpu import DaemonGpuClient
-from integrations.lact.export import (
-    detect_lact_gpu_id,
-    lact_export_output_path,
-    write_lact_profile_config,
+from curve_editors.uv.vf_curve_manual_editor import (
+    editable_anchor_from_profile,
+    manual_edit_control_voltage_mvs,
 )
-from profiles.gpu_identity import (
-    GPU_COMPATIBILITY_LEGACY,
-    GPU_COMPATIBILITY_MATCH,
-    normalized_gpu_identity,
-    profile_gpu_compatibility,
-    profile_gpu_uuid,
-)
+from integrations.lact.export import LactExportRefused, export_profile_to_lact
+from profiles.gpu_identity import profile_gpu_uuid
 from profiles.uv.memory_offset_edit import (
     editable_memory_offset_from_profile,
     save_edited_memory_offset_profile,
 )
+from profiles.uv.profile_binding import bind_legacy_profile_to_gpu
 from profiles.uv.profile_fan_curve import (
     profile_fan_curve_points,
     profile_fan_curve_target_point,
@@ -31,9 +23,25 @@ from profiles.uv.profile_fan_curve import (
     save_edited_fan_profile,
     sync_profile_fan_payload,
 )
+from profiles.uv.profile_rules import (
+    NO_SILENT_FAN_CURVE,
+    adaptive_profile_tier_labels,
+    apply_refusal,
+    boot_apply_checked,
+    delete_confirmation_text,
+    legacy_profile_needs_binding,
+    main_gpu_change_allowed,
+    profile_can_apply,
+    profile_can_verify,
+    profile_delete_safety,
+    profile_for_selector,
+    profile_is_deletable,
+    profile_status_label,
+    profile_verify_selector,
+    verify_refusal,
+)
 from profiles.uv.profile_store import (
     STOCK_PROFILE_SELECTOR,
-    bind_auto_uv_profile_gpu_identity,
     delete_auto_uv_profile_paths,
     profile_id_from_archive_path,
 )
@@ -53,25 +61,16 @@ from runtime.daemon_commands import (
     profile_verify_command,
     runtime_profile_command,
 )
+from runtime.profile_status import (
+    penguin_burner_runtime_is_active,
+    running_auto_uv_profile_info,
+    systemd_autostart_profile_info,
+)
 from ui.components.fan_curve_editor import open_fan_curve_editor_dialog
 from ui.components.memory_offset_editor import open_memory_offset_editor_dialog
 from ui.components.vf_curve_editor import open_vf_curve_editor_dialog
 from ui.daemon_setup import ensure_daemon_ready_for_privileged_action
 from ui.dialogs.verify import select_verify_options
-from ui.features.profiles.profiles import (
-    adaptive_profile_tier_labels,
-    delete_confirmation_text,
-    penguin_burner_runtime_is_active,
-    profile_can_apply,
-    profile_can_verify,
-    profile_delete_autostart_action,
-    profile_for_selector,
-    profile_is_deletable,
-    profile_status_label,
-    profile_verify_selector,
-    running_auto_uv_profile_info,
-    systemd_autostart_profile_info,
-)
 from ui.features.tuning.tuning import memory_offset_mhz_range
 from ui.features.tuning.verify import stop_request_path as verify_stop_request_path
 from ui.features.tuning.verify import workload_label
@@ -172,7 +171,9 @@ class ProfileActionsMixin:
         # --boot or --clear-boot from this state, so showing OFF over a saved
         # entry is what let an unrelated apply silently clear a boot profile.
         self.profile_list.set_boot_apply_checked(
-            saved or self._boot_apply_by_gpu.get(key, False)
+            boot_apply_checked(
+                str(info.get("selector") or ""), self._boot_apply_by_gpu.get(key, False)
+            )
         )
         self.profile_list.set_main_gpu_state(
             checked=bool(info.get("main_gpu")),
@@ -181,14 +182,13 @@ class ProfileActionsMixin:
 
     def _persist_main_gpu_preference(self, checked: bool) -> None:
         gpu_uuid = self.profile_list.target_gpu_uuid()
-        if not gpu_uuid or not self.profile_list.target_selection_required():
-            self.profile_list.set_main_gpu_state(
-                checked=False,
-                has_boot_profile=False,
-            )
-            return
         has_boot_profile = self.profile_list.main_gpu_target_has_boot_profile()
-        if checked and not has_boot_profile:
+        if not main_gpu_change_allowed(
+            checked,
+            target_gpu_uuid=gpu_uuid,
+            selection_required=self.profile_list.target_selection_required(),
+            has_boot_profile=has_boot_profile,
+        ):
             self.profile_list.set_main_gpu_state(
                 checked=False,
                 has_boot_profile=False,
@@ -266,21 +266,13 @@ class ProfileActionsMixin:
                 self.log_view.append("\nNo profile selected.\n")
                 return
             selected_profile = profile_for_selector(self.profile_summaries, profile_id)
-            if not profile_can_apply(selected_profile or {}):
-                message = "This edited profile must be verified before it can be applied."
-                self.controls.set_status_text(message)
-                self.log_view.append(f"\n{message}\n")
-                return
-            if not self.profile_list.profile_matches_target(selected_profile or {}):
-                compatibility = profile_gpu_compatibility(
-                    selected_profile or {}, target_gpu_uuid
-                )
-                message = (
-                    "This legacy profile must be verified on the selected GPU "
-                    "before it can be applied."
-                    if compatibility == GPU_COMPATIBILITY_LEGACY
-                    else "This profile belongs to a different GPU. Choose its GPU target."
-                )
+            message = apply_refusal(
+                selected_profile or {},
+                target_gpu_uuid,
+                target_chosen=True,
+                single_gpu=self.profile_list.single_physical_gpu(),
+            )
+            if message:
                 self.controls.set_status_text(message)
                 self.log_view.append(f"\n{message}\n")
                 return
@@ -289,8 +281,8 @@ class ProfileActionsMixin:
             and self.profile_list.silent_fan_enabled()
             and not sync_profile_fan_payload(selected_profile)
         ):
-            self.controls.set_status_text("No runtime-ready silent fan curve is available.")
-            self.log_view.append("\nNo runtime-ready silent fan curve is available.\n")
+            self.controls.set_status_text(NO_SILENT_FAN_CURVE)
+            self.log_view.append(f"\n{NO_SILENT_FAN_CURVE}\n")
             return
         if not ensure_daemon_ready_for_privileged_action(
             QtWidgets=self.QtWidgets,
@@ -305,22 +297,11 @@ class ProfileActionsMixin:
             return
         if not self._confirm_runtime_gpu_switch(target_gpu_uuid):
             return
-        if (
-            selected_profile
-            and profile_gpu_compatibility(selected_profile, target_gpu_uuid)
-            == GPU_COMPATIBILITY_LEGACY
-            and Path(str(selected_profile.get("path") or "")).is_file()
+        if selected_profile and legacy_profile_needs_binding(
+            selected_profile, target_gpu_uuid
         ):
             try:
-                identity = normalized_gpu_identity(
-                    DaemonGpuClient(int(target_gpu_index)).capabilities().identity,
-                    index_at_verification=int(target_gpu_index),
-                )
-                bind_auto_uv_profile_gpu_identity(
-                    str(selected_profile.get("path") or profile_id),
-                    identity,
-                )
-                selected_profile["gpu_identity"] = identity
+                bind_legacy_profile_to_gpu(selected_profile, int(target_gpu_index))
             except Exception as exc:  # noqa: BLE001
                 self.errors.show(
                     "GPU profile binding",
@@ -447,7 +428,7 @@ class ProfileActionsMixin:
             )
             return
         manual_edit = profile.get("manual_edit")
-        control_voltage_mvs = _manual_curve_control_voltage_mvs(manual_edit)
+        control_voltage_mvs = manual_edit_control_voltage_mvs(manual_edit)
 
         def save_edit(edit) -> str:
             path, payload = save_edited_curve_profile(
@@ -534,29 +515,15 @@ class ProfileActionsMixin:
         )
         if not directory:
             return
-        output_path = lact_export_output_path(directory)
-        gpu_id = detect_lact_gpu_id(output_path.parent)
-        if not gpu_id:
-            self.errors.show(
-                "Export LACT",
-                "Could not detect the LACT GPU id. Start LACT once, or choose a "
-                "directory that already contains config.yaml.",
-            )
-            return
-        include_fan_curve = self.profile_list.silent_fan_enabled()
-        if include_fan_curve and not sync_profile_fan_payload(profile):
-            self.errors.show(
-                "Export LACT",
-                "No runtime-ready silent fan curve is available for this profile.",
-            )
-            return
         try:
-            written_path, warnings = write_lact_profile_config(
+            written_path, warnings = export_profile_to_lact(
                 profile,
-                output_path=output_path,
-                gpu_id=gpu_id,
-                include_fan_curve=include_fan_curve,
+                directory,
+                include_fan_curve=self.profile_list.silent_fan_enabled(),
             )
+        except LactExportRefused as exc:
+            self.errors.show("Export LACT", str(exc))
+            return
         except Exception as exc:  # noqa: BLE001
             self.errors.show("Export LACT", f"LACT export failed:\n{exc}")
             return
@@ -571,19 +538,13 @@ class ProfileActionsMixin:
         if self._workflow_running() or not profile_can_verify(profile):
             return
         target_gpu_index = self.profile_list.target_gpu_index()
-        target_gpu_uuid = self.profile_list.target_gpu_uuid()
-        if target_gpu_index is None:
-            self.errors.show(
-                "Profile verification",
-                "Choose a target GPU before verifying this profile.",
-            )
-            return
-        compatibility = profile_gpu_compatibility(profile, target_gpu_uuid)
-        if compatibility not in {GPU_COMPATIBILITY_MATCH, GPU_COMPATIBILITY_LEGACY}:
-            self.errors.show(
-                "Profile verification",
-                "This profile belongs to a different GPU. Choose its GPU target.",
-            )
+        refusal = verify_refusal(
+            profile,
+            self.profile_list.target_gpu_uuid(),
+            target_chosen=target_gpu_index is not None,
+        )
+        if refusal or target_gpu_index is None:
+            self.errors.show("Profile verification", refusal)
             return
         label = profile_status_label(
             self.profile_summaries,
@@ -646,37 +607,23 @@ class ProfileActionsMixin:
         if not selected_paths:
             return
         target_gpu_uuid = self.profile_list.target_gpu_uuid()
-        autostart_info = systemd_autostart_profile_info(gpu_uuid=target_gpu_uuid)
-        autostart_action = profile_delete_autostart_action(
+        # Session-only applies (Apply-on-startup unticked) leave no boot
+        # entry, so the actively running profile counts too.
+        safety = profile_delete_safety(
             self.profile_summaries,
             list(selected_ids),
-            autostart_info,
+            autostart_info=systemd_autostart_profile_info(gpu_uuid=target_gpu_uuid),
+            running_info=(
+                running_auto_uv_profile_info()
+                if penguin_burner_runtime_is_active()
+                else {}
+            ),
             include_legacy_profiles=self.profile_list.single_physical_gpu(),
         )
-        # Session-only applies (Apply-on-startup unticked) leave no boot
-        # entry, so also check the actively running profile — deleting it
-        # must restore stock instead of leaving an orphaned curve applied.
-        running_action = {"action": "keep"}
-        if penguin_burner_runtime_is_active():
-            running_action = profile_delete_autostart_action(
-                self.profile_summaries,
-                list(selected_ids),
-                running_auto_uv_profile_info(),
-                include_legacy_profiles=self.profile_list.single_physical_gpu(),
-            )
-        restore_stock = "restore-stock" in (
-            autostart_action.get("action"),
-            running_action.get("action"),
-        )
+        restore_stock = safety.restore_stock
         if not self._confirm_profile_delete(
             restore_stock=restore_stock,
-            removes_last_usable_adaptive_profile=(
-                "last-usable-adaptive-profile"
-                in (
-                    autostart_action.get("reason"),
-                    running_action.get("reason"),
-                )
-            ),
+            removes_last_usable_adaptive_profile=safety.last_adaptive,
         ):
             return
         try:
@@ -925,25 +872,6 @@ class ProfileActionsMixin:
         )
         return answer == self.QtWidgets.QMessageBox.StandardButton.Yes
 
-
-def _manual_curve_control_voltage_mvs(manual_edit) -> tuple[int, ...]:
-    if not isinstance(manual_edit, dict):
-        return ()
-    raw_values = manual_edit.get("control_voltage_mvs")
-    if not isinstance(raw_values, (list, tuple)):
-        return ()
-    values = []
-    seen = set()
-    for raw_value in raw_values:
-        try:
-            value = round(float(raw_value))
-        except (TypeError, ValueError):
-            continue
-        if value in seen:
-            continue
-        seen.add(value)
-        values.append(value)
-    return tuple(values)
 
 
 def _runtime_action_label(action: str) -> str:

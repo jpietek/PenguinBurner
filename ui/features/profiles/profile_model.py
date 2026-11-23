@@ -1,11 +1,10 @@
-"""Profiles page model: the data-source contract and pure helpers.
+"""Profiles page model: the data-source contract and page-level helpers.
 
 Nothing here touches Qt widgets, the daemon or the disk. The page reads
-saved profiles as the same summary dicts ``profiles.uv.profile_store``
-returns (``read_auto_uv_profile_summaries``), so every rule below can call
-the real helpers in ``ui/`` and ``profiles/`` directly. The only local
-copies are the two places where the real helper would read the user's
-tier-assignment file: here the assignments come from the source instead.
+saved profiles as the summary dicts ``profiles.uv.profile_store`` returns
+(``read_auto_uv_profile_summaries``); every rule is the backend's own
+(``profiles.uv.profile_rules`` and ``profile_presentation``), called with the
+tier assignments the source reports.
 """
 
 from __future__ import annotations
@@ -15,57 +14,54 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from profiles.gpu_identity import (
-    GPU_COMPATIBILITY_LEGACY,
-    GPU_COMPATIBILITY_MATCH,
-    profile_gpu_compatibility,
-    profile_gpu_label,
-    profile_gpu_uuid,
-)
+from profiles.gpu_identity import profile_gpu_label, profile_gpu_uuid
 from profiles.uv.memory_offset_edit import editable_memory_offset_from_profile
-from profiles.uv.profile_store import STOCK_PROFILE_SELECTOR
-from profiles.uv.profile_tiers import (
-    PROFILE_TIER_LABELS,
-    available_adaptive_tiers,
-    resolve_profile_tier_profiles,
-)
-from ui.components.profile_list import (
+from profiles.uv.profile_presentation import (
+    PROFILE_COLUMNS,
     PROFILE_SORTABLE_COLUMNS,
-    ProfileList,
-    _date_text,
-    _format_number,
-    _format_signed_memory_clock,
-    _metric_delta_percent,
-    _profile_base_metric,
-    _profile_metric_tooltip,
-    _profile_name,
-    _profile_sort_values,
-    _profile_source_label,
-    _profile_tier_label,
-    _promote_preferred_profile,
-    _sort_value_less,
-    _to_float,
+    format_number,
+    format_signed_memory_clock,
+    metric_delta_percent,
+    profile_base_metric,
+    profile_metric_tooltip,
+    profile_name,
+    profile_sort_values,
+    profile_source_label,
+    profile_tier_column_label,
+    promote_preferred_profile,
+    sort_value_less,
+    to_float,
 )
-from ui.features.profiles.profiles import (
+from profiles.uv.profile_presentation import (
+    date_text as _full_date_text,
+)
+from profiles.uv.profile_rules import (
+    DeleteSafety,
+    TierStore,
+    adaptive_profile_tier_labels,
     profile_can_apply,
     profile_can_verify,
-    profile_delete_autostart_action,
+    profile_delete_safety,
     profile_for_selector,
-    profile_is_deletable,
+    profile_matches_gpu_target,
+    profile_row_applicable,
+    profile_row_deletable,
     profile_status_label,
     runner_status_parts,
 )
+from profiles.uv.profile_rules import apply_refusal as _apply_refusal
+from profiles.uv.profile_rules import verify_refusal as _verify_refusal
+from profiles.uv.profile_store import STOCK_PROFILE_SELECTOR
 
 STOCK = STOCK_PROFILE_SELECTOR
-# The real table's columns and sortable set (ui/components/profile_list.py).
-COLUMNS = ProfileList.COLUMNS
+COLUMNS = PROFILE_COLUMNS
 SORTABLE_COLUMNS = PROFILE_SORTABLE_COLUMNS
 DATE, PROFILE, GPU, MV, TARGET, EFFECTIVE, FPSW, FPS, POWER, MEM, TIER, SOURCE = range(
     len(COLUMNS)
 )
 RIGHT_ALIGNED = frozenset({MV, TARGET, EFFECTIVE, FPSW, FPS, POWER, MEM})
 # Columns whose tooltip compares against the scan's own baseline, with the
-# real table's precision (profile_list.set_profiles metric_columns).
+# classic table's precision (profile_list.set_profiles metric_columns).
 METRIC_COLUMNS = {
     MV: ("candidate_voltage_mv", 2),
     EFFECTIVE: ("avg_core_clock_mhz", 2),
@@ -133,6 +129,11 @@ class CommandResult:
     ok: bool
     message: str = ""
     profile_id: str = ""
+    # The copyable error report of a failed command (process_failure_details).
+    details: str = ""
+    # The user declined a step the command needed (the root-service prompt):
+    # nothing ran and there is nothing to report.
+    cancelled: bool = False
 
 
 @dataclass(frozen=True)
@@ -162,6 +163,8 @@ class ProfilesSource(Protocol):
     def tier_assignments(self, gpu_uuid: str) -> dict[str, str]: ...
     def tier_disabled(self, gpu_uuid: str) -> set[str]: ...
     def runtime(self) -> RuntimeState: ...
+    # One GPU's boot entry; "" is the daemon's active boot entry, the one the
+    # window status reports as Autostart.
     def boot_entry(self, gpu_uuid: str) -> BootEntry | None: ...
     def silent_fan_preference(self) -> bool: ...
     def curve_plan(self, profile_id: str) -> list[dict]: ...
@@ -170,10 +173,13 @@ class ProfilesSource(Protocol):
     def fan_measurements(self, profile_id: str) -> list[tuple[float, float]]: ...
     def fan_target_point(self, profile_id: str) -> tuple[float, float] | None: ...
     def fan_runtime_ready(self, profile_id: str) -> bool: ...
+    def memory_offset_range(self, gpu_uuid: str) -> tuple[int, int]: ...
     def lact_directories(self) -> list[str]: ...
 
     # Writes (each one follows an explicit user action)
     def set_silent_fan_preference(self, enabled: bool) -> None: ...
+    def remember_apply_on_startup(self, enabled: bool) -> None: ...
+    def remember_target_gpu(self, gpu_index: int) -> None: ...
     def apply_profile(
         self,
         profile_id: str,
@@ -209,8 +215,13 @@ class ProfilesSource(Protocol):
     def subscribe(self, callback: Callable[[], None]) -> None: ...
 
 
+def tier_store(source: ProfilesSource) -> TierStore:
+    """The backend tier rules over the source's assignment store."""
+    return TierStore(assignments=source.tier_assignments, disabled=source.tier_disabled)
+
+
 # ---------------------------------------------------------------------------
-# GPU targeting (ProfileList.configure_gpu_targets / profile_matches_target)
+# GPU targeting (ProfileList.configure_gpu_targets)
 # ---------------------------------------------------------------------------
 
 
@@ -248,8 +259,14 @@ def resolve_target(
     previous_uuid: str = "",
     preferred_index: int | None = None,
 ) -> Target:
-    """One GPU targets itself; with two or more, keep the user's choice."""
-    choices = tuple(g for g in gpus if g.uuid.strip())
+    """One GPU targets itself; with two or more, a preferred index (the
+    window's --gpu-index or the last choice) wins, then the previous choice.
+
+    Targeting needs stable identities: GPUs without a UUID are dropped, and
+    when discovery produced none at all, the first GPU still targets itself
+    so a one-GPU machine can apply (ProfileList.configure_gpu_targets)."""
+    listed = list(gpus)
+    choices = tuple(g for g in listed if g.uuid.strip()) or tuple(listed[:1])
     if len(choices) == 1:
         return Target(choices, choices[0].uuid)
     if preferred_index is not None:
@@ -263,12 +280,9 @@ def resolve_target(
 
 
 def profile_matches_target(profile: dict, target: Target) -> bool:
-    compatibility = profile_gpu_compatibility(profile, target.uuid)
-    if compatibility == GPU_COMPATIBILITY_MATCH:
-        return target.chosen
-    if compatibility == GPU_COMPATIBILITY_LEGACY:
-        return target.single_gpu and target.chosen
-    return False
+    return profile_matches_gpu_target(
+        profile, target.uuid, target_chosen=target.chosen, single_gpu=target.single_gpu
+    )
 
 
 def row_visible(profile: dict, target: Target) -> bool:
@@ -287,7 +301,7 @@ def visible_profiles(profiles: Iterable[dict], target: Target) -> list[dict]:
 
 
 def next_sort(column: int, descending: bool, clicked: int) -> tuple[int, bool]:
-    """The real header rule: same column flips; Date starts newest first."""
+    """The classic header rule: same column flips; Date starts newest first."""
     if clicked not in SORTABLE_COLUMNS:
         return column, descending
     if clicked == column:
@@ -296,19 +310,19 @@ def next_sort(column: int, descending: bool, clicked: int) -> tuple[int, bool]:
 
 
 def sort_profiles(profiles: list[dict], column: int, descending: bool) -> list[dict]:
-    """Order rows like QTableWidget.sortItems with the real item comparator.
+    """Order rows like QTableWidget.sortItems with the classic item comparator.
 
     The input order breaks ties, so the store's newest-first order stays
     the secondary key."""
     if column not in SORTABLE_COLUMNS:
         return list(profiles)
-    keyed = [(_profile_sort_values(p)[column], p) for p in profiles]
+    keyed = [(profile_sort_values(p)[column], p) for p in profiles]
 
     def compare(a, b) -> int:
         left, right = (b[0], a[0]) if descending else (a[0], b[0])
-        if _sort_value_less(left, right, descending=descending):
+        if sort_value_less(left, right, descending=descending):
             return -1
-        if _sort_value_less(right, left, descending=descending):
+        if sort_value_less(right, left, descending=descending):
             return 1
         return 0
 
@@ -316,9 +330,7 @@ def sort_profiles(profiles: list[dict], column: int, descending: bool) -> list[d
 
 
 def promote_preferred(profiles: list[dict], preferred_profile_id: str) -> list[dict]:
-    return _promote_preferred_profile(
-        profiles, preferred_profile_id=preferred_profile_id
-    )
+    return promote_preferred_profile(profiles, preferred_profile_id=preferred_profile_id)
 
 
 # ---------------------------------------------------------------------------
@@ -326,88 +338,26 @@ def promote_preferred(profiles: list[dict], preferred_profile_id: str) -> list[d
 # ---------------------------------------------------------------------------
 
 
-AssignmentsFor = Callable[[str], dict[str, str]]
-DisabledFor = Callable[[str], set[str]]
-
-
-def merged_tier_store(
-    assignments: AssignmentsFor,
-    disabled: DisabledFor,
-    gpu_uuid: str,
-    include_legacy_profiles: bool,
-) -> tuple[dict[str, str], set[str]]:
-    """Per-GPU assignments; on a one-GPU machine the old global ones too
-    (resolve_profile_tier_profiles' own merge rule)."""
-    tiers = dict(assignments(gpu_uuid))
-    off = set(disabled(gpu_uuid))
-    if gpu_uuid and include_legacy_profiles:
-        tiers = {**assignments(""), **tiers}
-        off |= set(disabled(""))
-    return tiers, off
-
-
-def tier_winner_ids(
-    profiles: list[dict],
-    assignments: AssignmentsFor,
-    disabled: DisabledFor,
-    *,
-    include_legacy_profiles: bool = False,
-) -> dict[str, str]:
-    """profile_list._resolved_tier_winner_ids, with the assignment store
-    passed in instead of read from the user's config file."""
-    winners: dict[str, str] = {}
-    gpu_uuids = {profile_gpu_uuid(p) for p in profiles}
-    if include_legacy_profiles and gpu_uuids - {""}:
-        gpu_uuids -= {""}
-    for gpu_uuid in gpu_uuids:
-        tiers, off = merged_tier_store(
-            assignments, disabled, gpu_uuid, include_legacy_profiles
-        )
-        resolved = resolve_profile_tier_profiles(
-            profiles,
-            tiers,
-            off,
-            gpu_uuid=gpu_uuid,
-            include_legacy_profiles=include_legacy_profiles,
-        )
-        for tier, profile in resolved.items():
-            profile_id = str((profile or {}).get("profile_id") or "").strip()
-            if not profile_id:
-                continue
-            winners[f"{gpu_uuid}\0{tier}" if gpu_uuid else tier] = profile_id
-            if include_legacy_profiles and gpu_uuid:
-                winners[tier] = profile_id
-    return winners
-
-
 def tier_label(profile: dict, winners: dict[str, str]) -> str:
-    return _profile_tier_label(profile, winners)
+    return profile_tier_column_label(profile, winners)
 
 
 def adaptive_tier_labels(
-    profiles: list[dict],
-    assignments: AssignmentsFor,
-    disabled: DisabledFor,
-    target: Target,
+    profiles: list[dict], store: TierStore, target: Target
 ) -> list[str]:
     """Tiers Adaptive can switch between on the target GPU."""
     if not target.chosen:
         return []
-    tiers, off = merged_tier_store(
-        assignments, disabled, target.uuid, target.single_gpu
-    )
-    resolved = resolve_profile_tier_profiles(
+    return adaptive_profile_tier_labels(
         profiles,
-        tiers,
-        off,
         gpu_uuid=target.uuid,
         include_legacy_profiles=target.single_gpu,
+        store=store,
     )
-    return [PROFILE_TIER_LABELS[t] for t in available_adaptive_tiers(resolved)]
 
 
 # ---------------------------------------------------------------------------
-# Table cells (formatting and metric context from profile_list.set_profiles)
+# Table cells (formatting and metric context from profile_presentation)
 # ---------------------------------------------------------------------------
 
 
@@ -426,15 +376,15 @@ def factory_power_limit(profile: dict, gpus: Iterable[GpuTarget]) -> float | Non
         return None
     for gpu in gpus:
         if gpu.uuid.casefold() == key:
-            watts = _to_float(gpu.factory_power_w)
+            watts = to_float(gpu.factory_power_w)
             return watts if watts is not None and watts > 0 else None
     return None
 
 
 def date_text(profile: dict) -> str:
-    # The real table shows seconds; the minute is enough to tell rows apart
+    # The classic table shows seconds; the minute is enough to tell rows apart
     # and keeps the column narrow. Sorting still uses the full timestamp.
-    text = _date_text(profile)
+    text = _full_date_text(profile)
     return text[:16] if len(text) >= 16 else text
 
 
@@ -443,22 +393,22 @@ def profile_cells(
 ) -> list[Cell]:
     cells = [
         Cell(date_text(profile)),
-        Cell(_profile_name(profile)),
+        Cell(profile_name(profile)),
         gpu_cell(profile),
-        Cell(_format_number(profile.get("candidate_voltage_mv"), precision=0)),
-        Cell(_format_number(profile.get("lock_clock_mhz"), precision=0)),
-        Cell(_format_number(profile.get("avg_core_clock_mhz"), precision=2)),
-        Cell(_format_number(profile.get("efficiency_fps_per_w"), precision=4)),
-        Cell(_format_number(profile.get("avg_fps"), precision=2)),
+        Cell(format_number(profile.get("candidate_voltage_mv"), precision=0)),
+        Cell(format_number(profile.get("lock_clock_mhz"), precision=0)),
+        Cell(format_number(profile.get("avg_core_clock_mhz"), precision=2)),
+        Cell(format_number(profile.get("efficiency_fps_per_w"), precision=4)),
+        Cell(format_number(profile.get("avg_fps"), precision=2)),
         power_cell(profile.get("avg_power_w"), factory_power_w),
         memory_cell(profile),
         Cell(tier),
-        Cell(_profile_source_label(profile)),
+        Cell(profile_source_label(profile)),
     ]
     for column, (metric, precision) in METRIC_COLUMNS.items():
-        tooltip = _profile_metric_tooltip(
+        tooltip = profile_metric_tooltip(
             profile.get(metric),
-            _profile_base_metric(profile, metric),
+            profile_base_metric(profile, metric),
             label=COLUMNS[column],
             precision=precision,
         )
@@ -467,17 +417,17 @@ def profile_cells(
 
 
 def gpu_cell(profile: dict) -> Cell:
-    """The real GPU label, shortened to the model; the tooltip keeps it all."""
+    """The GPU label, shortened to the model; the tooltip keeps it all."""
     label = profile_gpu_label(profile)
     short = label.replace("NVIDIA ", "").replace("GeForce ", "")
     return Cell(short, label if short != label else "")
 
 
 def power_cell(watts, limit_w: float | None) -> Cell:
-    text = _format_number(watts, precision=2)
+    text = format_number(watts, precision=2)
     if not text:
         return Cell("")
-    delta = _metric_delta_percent(watts, limit_w)
+    delta = metric_delta_percent(watts, limit_w)
     if delta is None or limit_w is None:
         return Cell(
             f"{text} W",
@@ -494,7 +444,7 @@ def power_cell(watts, limit_w: float | None) -> Cell:
 
 
 def memory_cell(profile: dict) -> Cell:
-    text = _format_signed_memory_clock(profile.get("memory_offset_mhz"))
+    text = format_signed_memory_clock(profile.get("memory_offset_mhz"))
     stored = editable_memory_offset_from_profile(profile)
     return Cell(text, transfer_rate_text(stored) if text and stored is not None else "")
 
@@ -528,44 +478,22 @@ ACTIONS = (
 
 def apply_refusal(profile: dict, target: Target) -> str:
     """Why Apply cannot run for this profile, or '' when it can."""
-    if not target.chosen:
-        return "Choose a target GPU before applying this profile."
-    if not is_applicable(profile):
-        return "This edited profile must be verified before it can be applied."
-    if not profile_matches_target(profile, target):
-        if profile_gpu_compatibility(profile, target.uuid) == GPU_COMPATIBILITY_LEGACY:
-            return (
-                "This legacy profile must be verified on the selected GPU "
-                "before it can be applied."
-            )
-        return "This profile belongs to a different GPU. Choose its GPU target."
-    return ""
+    return _apply_refusal(
+        profile, target.uuid, target_chosen=target.chosen, single_gpu=target.single_gpu
+    )
 
 
 def verify_refusal(profile: dict, target: Target) -> str:
-    if not target.chosen:
-        return "Choose a target GPU before verifying this profile."
-    if profile_gpu_compatibility(profile, target.uuid) not in {
-        GPU_COMPATIBILITY_MATCH,
-        GPU_COMPATIBILITY_LEGACY,
-    }:
-        return "This profile belongs to a different GPU. Choose its GPU target."
-    return ""
+    return _verify_refusal(profile, target.uuid, target_chosen=target.chosen)
 
 
 def is_applicable(profile: dict) -> bool:
-    """Verified, or an imported Afterburner profile (profile_list rows)."""
-    return (
-        profile_can_apply(profile)
-        or str(profile.get("runtime_source", "")) == "afterburner"
-    )
+    """The table row's Apply state (verified, or an imported Afterburner row)."""
+    return profile_row_applicable(profile)
 
 
 def is_deletable(profile: dict) -> bool:
-    return (
-        profile_is_deletable(profile)
-        or str(profile.get("runtime_source", "")) == "afterburner"
-    )
+    return profile_row_deletable(profile)
 
 
 def action_reasons(
@@ -577,7 +505,7 @@ def action_reasons(
     has_fan_curve: bool,
 ) -> dict[str, str]:
     """Each action mapped to why it is disabled ('' = enabled)."""
-    unverified = "" if is_applicable(profile) else "Verify this profile first."
+    unverified = "" if profile_can_apply(profile) else "Verify this profile first."
     busy_reason = BUSY_REASON if busy else ""
     memory = ""
     if editable_memory_offset_from_profile(profile) is None:
@@ -624,50 +552,28 @@ def verification_label(profile: dict) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class DeleteSafety:
-    restore_stock: bool = False
-    last_adaptive: bool = False
-    gpu_uuid: str = ""
+def boot_info(boot: BootEntry | None, gpu_uuid: str) -> dict[str, object]:
+    """A boot entry as the backend rules read it."""
+    if boot is None:
+        return {}
+    return {
+        "selector": boot.selector,
+        "silent_fan_curve": boot.silent_fan,
+        "adaptive_auto_uv": boot.adaptive,
+        "gpu_uuid": gpu_uuid,
+    }
 
 
-def _selector_info(
-    selector: str, *, adaptive: bool, gpu_uuid: str
-) -> dict[str, object]:
-    return {"selector": selector, "adaptive_auto_uv": adaptive, "gpu_uuid": gpu_uuid}
-
-
-def _autostart_action(
-    profiles: list[dict],
-    selected: list[str],
-    info: dict[str, object],
-    assignments: AssignmentsFor,
-    disabled: DisabledFor,
-    include_legacy: bool,
-) -> dict[str, str]:
-    """profiles.profile_delete_autostart_action; the Adaptive branch resolves
-    tiers from the source's assignments instead of the config file."""
-    if (
-        not bool(info.get("adaptive_auto_uv"))
-        or not str(info.get("selector") or "").strip()
-    ):
-        return profile_delete_autostart_action(profiles, selected, info)
-    gpu_uuid = str(info.get("gpu_uuid") or "")
-    chosen = {str(v).strip() for v in selected}
-    remaining = [
-        p for p in profiles if str(p.get("profile_id", "")).strip() not in chosen
-    ]
-    tiers, off = merged_tier_store(assignments, disabled, gpu_uuid, include_legacy)
-    resolved = resolve_profile_tier_profiles(
-        remaining,
-        tiers,
-        off,
-        gpu_uuid=gpu_uuid,
-        include_legacy_profiles=include_legacy,
-    )
-    if available_adaptive_tiers(resolved):
-        return {"action": "keep"}
-    return {"action": "restore-stock", "reason": "last-usable-adaptive-profile"}
+def running_info(runtime: RuntimeState) -> dict[str, object]:
+    """What runs now as the backend rules read it; empty when nothing runs."""
+    if not runtime.running_selector:
+        return {}
+    return {
+        "selector": runtime.running_selector,
+        "silent_fan_curve": runtime.running_silent_fan,
+        "adaptive_auto_uv": runtime.running_adaptive,
+        "gpu_uuid": runtime.running_gpu_uuid,
+    }
 
 
 def delete_safety(
@@ -677,46 +583,18 @@ def delete_safety(
     boot: BootEntry | None,
     runtime: RuntimeState,
     target: Target,
-    assignments: AssignmentsFor,
-    disabled: DisabledFor,
+    store: TierStore,
 ) -> DeleteSafety:
-    """Deleting the startup or running profile, or the last usable Adaptive
-    tier, restores stock now and at boot on that GPU."""
-    include_legacy = target.single_gpu
-    boot_action = {"action": "keep"}
-    if boot is not None and boot.selector != STOCK:
-        boot_action = _autostart_action(
-            profiles,
-            selected_ids,
-            _selector_info(boot.selector, adaptive=boot.adaptive, gpu_uuid=target.uuid),
-            assignments,
-            disabled,
-            include_legacy,
-        )
-    running_action = {"action": "keep"}
-    if runtime.running_selector and runtime.running_selector != STOCK:
-        running_action = _autostart_action(
-            profiles,
-            selected_ids,
-            _selector_info(
-                runtime.running_selector,
-                adaptive=runtime.running_adaptive,
-                gpu_uuid=runtime.running_gpu_uuid or target.uuid,
-            ),
-            assignments,
-            disabled,
-            include_legacy,
-        )
-    actions = (boot_action.get("action"), running_action.get("action"))
-    restore = "restore-stock" in actions
-    last_adaptive = "last-usable-adaptive-profile" in (
-        boot_action.get("reason"),
-        running_action.get("reason"),
+    """Deleting the target GPU's startup profile, the running profile, or the
+    last usable Adaptive tier restores stock now and at boot."""
+    return profile_delete_safety(
+        profiles,
+        list(selected_ids),
+        autostart_info=boot_info(boot, target.uuid),
+        running_info=running_info(runtime),
+        include_legacy_profiles=target.single_gpu,
+        store=store,
     )
-    gpu_uuid = target.uuid
-    if running_action.get("action") == "restore-stock" and runtime.running_gpu_uuid:
-        gpu_uuid = runtime.running_gpu_uuid
-    return DeleteSafety(restore, last_adaptive, gpu_uuid if restore else "")
 
 
 # ---------------------------------------------------------------------------
@@ -741,18 +619,17 @@ class StatusLines:
 
 
 def runner_status(
-    profiles: list[dict], runtime: RuntimeState, boot: BootEntry | None
+    profiles: list[dict], runtime: RuntimeState, autostart: BootEntry | None
 ) -> StatusLines:
-    """The real two-group runner status: headline, then everything behind it."""
+    """The two-group runner status: headline, then everything behind it.
+    ``autostart`` is the daemon's active boot entry."""
     head, parts = runner_status_parts(
         profiles,
         running_selector=runtime.running_selector,
         running_adaptive=runtime.running_adaptive,
-        autostart_selector=""
-        if boot is None or boot.selector == STOCK
-        else boot.selector,
+        autostart_selector="" if autostart is None else autostart.selector,
         running_silent_fan=runtime.running_silent_fan,
-        autostart_silent_fan=bool(boot and boot.silent_fan),
+        autostart_silent_fan=bool(autostart and autostart.silent_fan),
         defaults_restored=runtime.defaults_restored,
         game_override=runtime.game_override,
         standing_selector=runtime.standing_selector,

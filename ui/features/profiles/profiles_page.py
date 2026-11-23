@@ -1,19 +1,20 @@
 """Profiles page: saved profiles, Apply / Apply on startup, edits, Verify.
 
-Mirrors the real Profiles tab (ui/components/profile_list.py and
-ui/features/profiles/profile_actions.py) as native widgets over a
-ProfilesSource. Rules come from the real modules through
-qt.components.profile_model; the real dialogs (Verify, Edit memory offset,
-V/F and fan curve editors) open through small hook objects so a host can
-restyle or script them.
+Native widgets over a ProfilesSource (profile_model.ProfilesSource): the
+classic Profiles tab's workflows (ui/features/profiles/profile_actions.py),
+with every rule from the backend (profiles.uv.profile_rules) through
+profile_model. Dialogs (confirmations, Verify, Edit memory offset, LACT,
+Afterburner) and the V/F and fan curve editors open through small hook
+objects so a host can restyle or script them.
 
-Host wiring (preview.py or the future window):
+Host wiring (the window, or the preview):
   page = ProfilesPage(source, dialogs=..., editors=..., ensure_daemon_ready=...)
-  page.status_changed(dict)        -> global status band
-  page.verify_requested(id, label, row, minutes) -> Auto UV verification;
+  page.status_changed(dict)        -> window status band
+  page.verify_requested(id, label, row, minutes) -> profile verification;
       call page.verification_finished(id, passed) when it ends
   page.adaptive_requested()        -> open Game Library's Adaptive picker
-  page.setup_requested() / page.import_requested() (empty state)
+  page.setup_requested()           -> Auto UV setup (empty state)
+  page.import_requested()          -> run_afterburner_import(), or a host's picker
   page.set_busy(bool)              <- scan/verification running elsewhere
   page.import_afterburner(entry, fan_payload) after the Afterburner picker
 """
@@ -27,52 +28,58 @@ from PySide6 import QtCore as C
 from PySide6 import QtGui as G
 from PySide6 import QtWidgets as W
 
-from curve_editors.uv.vf_curve_manual_editor import editable_anchor_from_profile
+from curve_editors.uv.vf_curve_manual_editor import (
+    editable_anchor_from_profile,
+    manual_edit_control_voltage_mvs,
+)
 from profiles.gpu_identity import profile_gpu_label, profile_gpu_uuid
 from profiles.uv.memory_offset_edit import editable_memory_offset_from_profile
+from profiles.uv.profile_presentation import (
+    format_number,
+    profile_name,
+    profile_source_label,
+    to_float,
+)
+from profiles.uv.profile_rules import (
+    NO_SILENT_FAN_CURVE,
+    boot_apply_checked,
+    delete_confirmation_text,
+    main_gpu_change_allowed,
+    profile_can_verify,
+    profile_status_label,
+    tier_winner_ids,
+)
 from profiles.uv.profile_tiers import (
     PROFILE_TIER_LABELS,
     PROFILE_TIERS,
     normalize_profile_tier,
 )
-from qt.components import confirm_dialog
-from qt.components import profile_model as model
-from qt.components.profile_detail import (
-    AdaptiveCard,
-    DetailState,
-    Metric,
-    ProfileDetailCard,
-)
-from qt.components.profile_model import (
-    CommandResult,
-    LactExport,
-    ProfilesSource,
-    StatusLines,
-    Target,
-)
-from qt.components.profile_style import (
+from ui.components import confirm_dialog
+from ui.components.page_header import PAGE_MARGINS, PageHeader
+from ui.components.profile_style import (
     apply_style,
     divider,
     repolish,
     text_label,
     trash_icon,
 )
-from qt.components.profile_table import ProfileTable, TableRow
-from ui.components.page_header import PAGE_MARGINS, PageHeader
-from ui.components.profile_list import (
-    _format_number,
-    _profile_name,
-    _profile_source_label,
-    _to_float,
-)
 from ui.design.style import GAP
 from ui.dialogs.error_details import process_failure_details, show_error_dialog
-from ui.features.profiles.profile_actions import _manual_curve_control_voltage_mvs
-from ui.features.profiles.profiles import (
-    delete_confirmation_text,
-    profile_can_verify,
-    profile_status_label,
+from ui.features.profiles import profile_model as model
+from ui.features.profiles.profile_detail import (
+    AdaptiveCard,
+    DetailState,
+    Metric,
+    ProfileDetailCard,
 )
+from ui.features.profiles.profile_model import (
+    CommandResult,
+    LactExport,
+    ProfilesSource,
+    StatusLines,
+    Target,
+)
+from ui.features.profiles.profile_table import ProfileTable, TableRow
 
 HINT = (
     "Ctrl-click selects several profiles and Shift-click selects a range. Press "
@@ -208,6 +215,16 @@ class ProfileDialogs:
             return None
         return combo.currentText().strip() or None
 
+    def afterburner_entry(self, parent) -> dict | None:
+        """The classic Afterburner chooser: pick an exported slot to import."""
+        import pyqtgraph as pg
+
+        from ui.dialogs.afterburner_import import select_afterburner_import
+
+        return select_afterburner_import(
+            QtCore=C, QtGui=G, QtWidgets=W, pg=pg, parent=parent
+        )
+
     def lact_result(self, parent, result: LactExport, message: str) -> None:
         dialog = W.QDialog(parent)
         dialog.setWindowTitle("Export LACT")
@@ -304,11 +321,15 @@ class ProfilesPage(W.QWidget):
         dialogs: ProfileDialogs | None = None,
         editors: CurveEditors | None = None,
         ensure_daemon_ready: Callable[[str], bool] | None = None,
+        gpu_index: int | None = None,
         parent=None,
     ):
         super().__init__(parent)
         self.setObjectName("profilesPage")
         self.source = source
+        # The window's --gpu-index, then the last target chosen here: it wins
+        # over the previous target when the GPU list is re-read.
+        self.preferred_gpu_index = gpu_index
         self.dialogs = dialogs or ProfileDialogs()
         self.editors = editors or CurveEditors()
         self.ensure_daemon_ready = ensure_daemon_ready or (lambda _label: True)
@@ -485,12 +506,21 @@ class ProfilesPage(W.QWidget):
         if not self._loading:
             self.reload()
 
+    def refresh(self) -> None:
+        """Re-read everything, the silent-fan load rule included (after the
+        root service changed)."""
+        self.silent_fan = bool(self.source.silent_fan_preference())
+        self.reload()
+
     def reload(self) -> None:
         """Re-read the source; the sort order and selection survive."""
         self._loading = True
         try:
             self.profiles = list(self.source.profiles())
             self._configure_target(self.target.uuid)
+            if self.boot() is not None:
+                # Confirmed on the daemon: there is nothing left pending.
+                self.boot_intent.pop(self.target.uuid.casefold(), None)
             ids = {p["profile_id"] for p in self.visible()}
             if self.preferred_id not in {p["profile_id"] for p in self.profiles}:
                 self.preferred_id = ""
@@ -503,7 +533,9 @@ class ProfilesPage(W.QWidget):
 
     def _configure_target(self, previous_uuid: str) -> None:
         gpus = self.source.gpus()
-        target = model.resolve_target(gpus, previous_uuid=previous_uuid)
+        target = model.resolve_target(
+            gpus, previous_uuid=previous_uuid, preferred_index=self.preferred_gpu_index
+        )
         changed = target != self.target
         self.target = target
         blocked = self.target_combo.blockSignals(True)
@@ -534,10 +566,20 @@ class ProfilesPage(W.QWidget):
     def _target_combo_changed(self, _index: int) -> None:
         uuid = str(self.target_combo.currentData() or "")
         self.target = Target(self.target.gpus, uuid)
+        self.preferred_gpu_index = self.target.index
         self.notice = ("", "")
         self.target_gpu_changed.emit(
             -1 if self.target.index is None else self.target.index
         )
+        if self.target.index is not None:
+            # The chosen GPU becomes the saved runtime GPU, as the classic
+            # target selector does.
+            try:
+                self.source.remember_target_gpu(self.target.index)
+            except Exception as exc:  # noqa: BLE001 - a corrupt config is refused
+                self.dialogs.error(
+                    self, "GPU selection", f"Could not save selected GPU index: {exc}"
+                )
         self.reload()
 
     def visible(self) -> list[dict]:
@@ -563,33 +605,30 @@ class ProfilesPage(W.QWidget):
             self.external_busy = busy
             self._render()
 
-    def _assignments(self, uuid: str) -> dict[str, str]:
-        return self.source.tier_assignments(uuid)
-
-    def _disabled(self, uuid: str) -> set[str]:
-        return self.source.tier_disabled(uuid)
-
     def _winners(self) -> dict[str, str]:
-        return model.tier_winner_ids(
+        return tier_winner_ids(
             self.profiles,
-            self._assignments,
-            self._disabled,
             include_legacy_profiles=self.target.single_gpu,
+            store=model.tier_store(self.source),
         )
 
     def adaptive_tiers(self) -> list[str]:
         return model.adaptive_tier_labels(
-            self.profiles, self._assignments, self._disabled, self.target
+            self.profiles, model.tier_store(self.source), self.target
         )
 
     def boot(self):
         return self.source.boot_entry(self.target.uuid) if self.target.chosen else None
 
     def startup_checked(self) -> bool:
+        """Apply on startup: the daemon's boot entry for the target GPU, or a
+        freshly ticked box whose entry the next Apply writes."""
         if not self.target.chosen:
             return False
-        return self.boot() is not None or self.boot_intent.get(
-            self.target.uuid.casefold(), False
+        boot = self.boot()
+        return boot_apply_checked(
+            "" if boot is None else boot.selector,
+            self.boot_intent.get(self.target.uuid.casefold(), False),
         )
 
     def silent_fan_enabled(self) -> bool:
@@ -717,7 +756,7 @@ class ProfilesPage(W.QWidget):
         if profile is None:
             return DetailState()
         pid = profile["profile_id"]
-        name = _profile_name(profile)
+        name = profile_name(profile)
         winners = self._winners()
         tier = model.tier_label(profile, winners)
         gpu_text = profile_gpu_label(profile)
@@ -727,7 +766,7 @@ class ProfilesPage(W.QWidget):
             filter(
                 None,
                 (
-                    _profile_source_label(profile),
+                    profile_source_label(profile),
                     f"{tier} tier" if tier else "",
                     gpu.label if gpu else gpu_text,
                 ),
@@ -738,18 +777,18 @@ class ProfilesPage(W.QWidget):
         reasons = model.action_reasons(
             profile, self.target, busy=busy, has_vf_plan=has_plan, has_fan_curve=has_fan
         )
-        meas = _to_float(profile.get("avg_core_clock_mhz"))
+        meas = to_float(profile.get("avg_core_clock_mhz"))
         memory = model.memory_clock_mhz(profile)
         stored = editable_memory_offset_from_profile(profile)
         metrics = (
             Metric(
                 "Core voltage",
-                _format_number(profile.get("candidate_voltage_mv"), precision=0) or "–",
+                format_number(profile.get("candidate_voltage_mv"), precision=0) or "–",
                 "mV",
             ),
             Metric(
                 "Target clock",
-                _format_number(profile.get("lock_clock_mhz"), precision=0) or "–",
+                format_number(profile.get("lock_clock_mhz"), precision=0) or "–",
                 "MHz",
             ),
             Metric(
@@ -775,7 +814,7 @@ class ProfilesPage(W.QWidget):
             and self.silent_fan
             and not self.source.fan_runtime_ready(pid)
         ):
-            refusal = "No runtime-ready silent fan curve is available."
+            refusal = NO_SILENT_FAN_CURVE
         runtime = self.source.runtime()
         running_here = runtime.running_selector == pid and (
             not runtime.running_gpu_uuid or runtime.running_gpu_uuid == self.target.uuid
@@ -869,7 +908,7 @@ class ProfilesPage(W.QWidget):
             lines = self.command
         else:
             lines = model.runner_status(
-                self.profiles, self.source.runtime(), self.boot()
+                self.profiles, self.source.runtime(), self.source.boot_entry("")
             )
         status = lines.as_dict()
         if status != self._status:
@@ -1011,6 +1050,9 @@ class ProfilesPage(W.QWidget):
     def _finish(self, label: str, after: Callable[[CommandResult], None] | None = None):
         def done(result: CommandResult) -> None:
             self.command = None
+            if result.cancelled:
+                self.reload()
+                return
             if after is not None and result.ok:
                 after(result)
             if result.ok:
@@ -1029,7 +1071,8 @@ class ProfilesPage(W.QWidget):
                     f"{label} failed",
                     f"{label} failed. The full error details can be copied for "
                     "troubleshooting.",
-                    process_failure_details(
+                    result.details
+                    or process_failure_details(
                         action_label=label,
                         exit_code=1,
                         exit_status="NormalExit",
@@ -1063,7 +1106,7 @@ class ProfilesPage(W.QWidget):
             and self.silent_fan
             and not self.source.fan_runtime_ready(profile_id)
         ):
-            refusal = "No runtime-ready silent fan curve is available."
+            refusal = NO_SILENT_FAN_CURVE
         if refusal:
             self.notice = (refusal, "warning")
             self._render()
@@ -1159,7 +1202,9 @@ class ProfilesPage(W.QWidget):
             return
         key = self.target.uuid.casefold()
         if checked:
+            # Intent only: the boot entry itself is written by the next Apply.
             self.boot_intent[key] = True
+            self.source.remember_apply_on_startup(True)
             self._render()
             return
         try:
@@ -1178,8 +1223,12 @@ class ProfilesPage(W.QWidget):
 
     def _main_gpu_toggled(self, checked: bool) -> None:
         uuid = self.target.uuid
-        has_boot = self.boot() is not None
-        if not uuid or not self.target.selection_required or (checked and not has_boot):
+        if not main_gpu_change_allowed(
+            checked,
+            target_gpu_uuid=uuid,
+            selection_required=self.target.selection_required,
+            has_boot_profile=self.boot() is not None,
+        ):
             self._sync_main_gpu()
             return
         try:
@@ -1209,8 +1258,7 @@ class ProfilesPage(W.QWidget):
             boot=self.boot(),
             runtime=self.source.runtime(),
             target=self.target,
-            assignments=self._assignments,
-            disabled=self._disabled,
+            store=model.tier_store(self.source),
         )
         names = [profile_status_label(self.profiles, i) for i in ids]
         text = delete_confirmation_text(
@@ -1233,9 +1281,7 @@ class ProfilesPage(W.QWidget):
             if safety.restore_stock:
                 # The profile is gone: restore stock rather than leave an
                 # orphaned curve applied, once the delete command has ended.
-                C.QTimer.singleShot(
-                    0, lambda: self.restore_defaults(gpu_uuid=safety.gpu_uuid)
-                )
+                C.QTimer.singleShot(0, self.restore_defaults)
 
         self.source.delete_profiles(
             ids, self._finish("Delete selected profiles", deleted)
@@ -1326,7 +1372,7 @@ class ProfilesPage(W.QWidget):
             plan=plan,
             anchor=anchor,
             base_points=self.source.base_curve_points(profile_id),
-            control_voltage_mvs=_manual_curve_control_voltage_mvs(
+            control_voltage_mvs=manual_edit_control_voltage_mvs(
                 profile.get("manual_edit")
             ),
             save=save,
@@ -1377,7 +1423,7 @@ class ProfilesPage(W.QWidget):
                 "Choose this profile's GPU before editing its memory offset.",
             )
             return
-        low, high = gpu.memory_offset_range
+        low, high = self.source.memory_offset_range(gpu.uuid)
 
         def save(value: int) -> str:
             if int(value) == int(current):
@@ -1418,6 +1464,22 @@ class ProfilesPage(W.QWidget):
         self.reload()
 
     # ---------------- Afterburner ----------------
+
+    def run_afterburner_import(self) -> str | None:
+        """Import Afterburner: the classic chooser, then save the chosen slot
+        as a profile row (ui/features/integrations/afterburner_workflow)."""
+        if self.busy():
+            return self.import_afterburner({})
+        try:
+            entry = self.dialogs.afterburner_entry(self)
+        except Exception as exc:  # noqa: BLE001 - the chooser parses user files
+            self.dialogs.error(
+                self, "Import Afterburner", f"Afterburner import failed:\n{exc}"
+            )
+            return None
+        if not entry:
+            return None
+        return self.import_afterburner(entry)
 
     def import_afterburner(
         self, entry: dict, fan_payload: dict | None = None

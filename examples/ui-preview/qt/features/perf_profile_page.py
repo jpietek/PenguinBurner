@@ -37,8 +37,8 @@ from qt.components.perf_profile_plot import (
     tier_label,
     warming_text,
 )
-from qt.components.profile_style import Pill
 from ui.components.page_header import PAGE_MARGINS
+from ui.components.profile_style import Pill
 from ui.design.style import COL, GAP, RAD, TYPE, WEIGHT, focus_visible, qcolor
 
 THREE_COLUMN_WIDTH = 960

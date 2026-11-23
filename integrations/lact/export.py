@@ -9,12 +9,28 @@ from common.penguin_burner_paths import (
     claim_desktop_user_ownership,
     default_user_config_dir,
 )
-from profiles.uv.profile_fan_curve import AUTO_UV_FAN_CURVE_FILENAME
+from profiles.uv.profile_fan_curve import (
+    AUTO_UV_FAN_CURVE_FILENAME,
+    sync_profile_fan_payload,
+)
 from profiles.uv.profile_store import resolve_auto_uv_profile
 
 
 class LactExportError(RuntimeError):
     pass
+
+
+class LactExportRefused(LactExportError):
+    """The export cannot start; the message is shown to the user as is."""
+
+
+LACT_GPU_ID_MISSING = (
+    "Could not detect the LACT GPU id. Start LACT once, or choose a "
+    "directory that already contains config.yaml."
+)
+LACT_NO_SILENT_FAN_CURVE = (
+    "No runtime-ready silent fan curve is available for this profile."
+)
 
 
 LACT_NVIDIA_DEFAULT_MAX_VF_OFFSET_MHZ = 1000
@@ -343,6 +359,32 @@ def detect_lact_gpu_id(output_dir: str | Path) -> str:
         if gpu_id:
             return gpu_id
     return ""
+
+
+def export_profile_to_lact(
+    profile: dict,
+    directory: str | Path,
+    *,
+    include_fan_curve: bool,
+) -> tuple[Path, list[str]]:
+    """Profiles → Export LACT: write ``config.yaml`` into ``directory`` for
+    the GPU id LACT already uses there (or in /etc/lact). With the silent fan
+    curve, the profile's runtime fan payload is synced first.
+
+    Raises ``LactExportRefused`` when the export cannot start and
+    ``LactExportError`` (or an OS error) when writing fails."""
+    output_path = lact_export_output_path(directory)
+    gpu_id = detect_lact_gpu_id(output_path.parent)
+    if not gpu_id:
+        raise LactExportRefused(LACT_GPU_ID_MISSING)
+    if include_fan_curve and not sync_profile_fan_payload(profile):
+        raise LactExportRefused(LACT_NO_SILENT_FAN_CURVE)
+    return write_lact_profile_config(
+        profile,
+        output_path=output_path,
+        gpu_id=gpu_id,
+        include_fan_curve=include_fan_curve,
+    )
 
 
 def write_lact_profile_config(

@@ -8,8 +8,19 @@ from cli.runtime_config_file import (
     silent_fan_curve_to_runtime_config,
 )
 from common.penguin_burner_paths import default_user_config_dir
-from profiles.uv.profile_store import STOCK_PROFILE_SELECTOR
+from profiles.uv.profile_rules import (
+    adaptive_profile_tier_labels,
+    defaults_restored_after_status,
+    runner_status_parts,
+    silent_fan_checked_on_load,
+)
+from profiles.uv.profile_store import read_auto_uv_profile_summaries
 from runtime.daemon_commands import scan_command
+from runtime.profile_status import (
+    penguin_burner_runtime_is_active,
+    running_auto_uv_profile_info,
+    systemd_autostart_profile_info,
+)
 from ui.assets import asset_image_path
 from ui.components.auto_uv_tier_progress import AutoUvTierProgress
 from ui.components.curve_plot import CurvePlot
@@ -29,14 +40,6 @@ from ui.dialogs.scan_tuning import select_scan_tuning
 from ui.features.curves.curve_tabs import CurveTabs
 from ui.features.integrations.afterburner_workflow import AfterburnerImportWorkflow
 from ui.features.profiles.profile_actions import ProfileActionsMixin
-from ui.features.profiles.profiles import (
-    adaptive_profile_tier_labels,
-    load_profile_summaries,
-    penguin_burner_runtime_is_active,
-    runner_status_parts,
-    running_auto_uv_profile_info,
-    systemd_autostart_profile_info,
-)
 from ui.features.tuning.final_choice_controller import handle_final_choice_request
 from ui.features.tuning.gpu_selection import (
     detected_gpu_choices,
@@ -709,7 +712,7 @@ class MainWindow(ProfileActionsMixin):
         self._load_profiles()
 
     def _load_profiles(self) -> None:
-        self.profile_summaries = load_profile_summaries()
+        self.profile_summaries = read_auto_uv_profile_summaries()
         gpu_choices, _selected_gpu_index = gpu_choices_with_fallback(
             selected_index=self.gpu_index
         )
@@ -732,10 +735,8 @@ class MainWindow(ProfileActionsMixin):
             # reloads. We OR in the live runtime / autostart flag only so an
             # already-applied silent-fan profile still shows checked on a fresh
             # install where nothing has been toggled yet.
-            silent_fan_checked=(
-                silent_fan_curve_from_runtime_config()
-                or bool(running_info["silent_fan_curve"])
-                or bool(autostart_info["silent_fan_curve"])
+            silent_fan_checked=silent_fan_checked_on_load(
+                silent_fan_curve_from_runtime_config(), running_info, autostart_info
             ),
         )
         self.profile_list.configure_gpu_targets(
@@ -826,11 +827,9 @@ class MainWindow(ProfileActionsMixin):
         # A live running profile always wins: it means the flag is stale, so
         # clear it. This keeps the status honest if a profile is (re)applied
         # outside the UI after a restore.
-        live_selector = str(running_info["selector"]).strip()
-        if live_selector and live_selector != STOCK_PROFILE_SELECTOR:
-            # A real profile is live -> the restore flag is stale; clear it. The
-            # stock sentinel is NOT a real profile, so it keeps "Default".
-            self._defaults_restored = False
+        self._defaults_restored = defaults_restored_after_status(
+            self._defaults_restored, str(running_info["selector"])
+        )
         head, detail = runner_status_parts(
             self.profile_summaries,
             running_selector=str(running_info["selector"]),

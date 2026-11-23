@@ -73,44 +73,54 @@ from ui.models import event_base_points as _event_base_points
 from ui.models import stage_title as _stage_title
 from ui.models import status_value as _status_value
 from ui.models import top_status_text as _top_status_text
-from ui.features.profiles.profiles import (
+from profiles.uv.profile_rules import (
     delete_confirmation_text as _profile_delete_confirmation_text,
 )
-from ui.features.profiles.profiles import (
+from profiles.uv.profile_rules import (
     adaptive_profile_tier_labels as _adaptive_profile_tier_labels,
 )
-from ui.features.profiles.profiles import (
+from runtime.profile_status import (
     profile_info_from_command_text as _profile_info_from_command_text,
 )
-from ui.features.profiles.profiles import (
+from profiles.uv.profile_rules import (
     profile_delete_autostart_action as _profile_delete_autostart_action,
 )
-from ui.features.profiles.profiles import (
+from profiles.uv.profile_rules import (
     profile_verify_selector as _profile_verify_selector,
 )
-from ui.features.profiles.profiles import runner_status_text as _runner_status_text
-from ui.features.profiles.profiles import (
+from profiles.uv.profile_rules import runner_status_text as _runner_status_text
+from profiles.uv.profile_rules import (
     selected_profile_ids_include_selector as _selected_profile_ids_include_selector,
 )
 from ui.features.tuning.verify import elapsed_from_line as _verify_elapsed_from_line
 from ui.features.tuning.verify import progress_percent as _verify_progress_percent
 from ui.features.tuning.gpu_selection import GpuChoice
 from ui.components.profile_list import (
-    PROFILE_SORTABLE_COLUMNS,
     ProfileList,
-    _format_number,
-    _metric_delta_percent,
-    _profile_base_metric,
-    _profile_metric_tooltip,
-    _profile_sort_values,
-    _profile_source_label,
-    _profile_tier_label,
-    _promote_preferred_profile,
-    _resolved_tier_winner_ids,
     _should_preserve_selection,
     _should_preserve_single_selection_toggle,
-    _sort_value_less,
 )
+from profiles.uv.profile_presentation import PROFILE_SORTABLE_COLUMNS
+from profiles.uv.profile_presentation import format_number as _format_number
+from profiles.uv.profile_presentation import metric_delta_percent as _metric_delta_percent
+from profiles.uv.profile_presentation import profile_base_metric as _profile_base_metric
+from profiles.uv.profile_presentation import (
+    profile_metric_tooltip as _profile_metric_tooltip,
+)
+from profiles.uv.profile_presentation import profile_sort_values as _profile_sort_values
+from profiles.uv.profile_presentation import profile_source_label as _profile_source_label
+from profiles.uv.profile_presentation import (
+    profile_tier_column_label as _profile_tier_label,
+)
+from profiles.uv.profile_presentation import (
+    promote_preferred_profile as _promote_preferred_profile,
+)
+from profiles.uv.profile_presentation import sort_value_less as _sort_value_less
+from profiles.uv.profile_rules import TierStore
+from profiles.uv.profile_rules import tier_winner_ids as _resolved_tier_winner_ids
+
+# No saved tier assignments; "None" tiers still come from the user's file.
+_NO_TIER_ASSIGNMENTS = TierStore(assignments=lambda _gpu_uuid: {})
 
 
 def test_profile_display_name_uses_clock_then_voltage() -> None:
@@ -906,7 +916,7 @@ def test_adaptive_profile_tier_labels_need_distinct_verified_tiers() -> None:
         },
     ]
 
-    assert _adaptive_profile_tier_labels(profiles, assignments={}) == ["Efficiency"]
+    assert _adaptive_profile_tier_labels(profiles, store=_NO_TIER_ASSIGNMENTS) == ["Efficiency"]
 
     profiles.append(
         {
@@ -916,7 +926,7 @@ def test_adaptive_profile_tier_labels_need_distinct_verified_tiers() -> None:
         }
     )
 
-    assert _adaptive_profile_tier_labels(profiles, assignments={}) == [
+    assert _adaptive_profile_tier_labels(profiles, store=_NO_TIER_ASSIGNMENTS) == [
         "Efficiency",
         "Performance",
     ]

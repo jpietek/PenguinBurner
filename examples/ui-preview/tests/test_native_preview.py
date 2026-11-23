@@ -15,7 +15,8 @@ import preview
 from PySide6.QtCore import QTimer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
-from qt.features.profiles_page import ProfileDialogs
+
+from ui.features.profiles.profiles_page import ProfileDialogs
 
 
 @pytest.fixture(scope="module")
