@@ -6,6 +6,8 @@ import signal
 from collections.abc import Callable
 from pathlib import Path
 
+from auto_uv.persistence.auto_uv_persisted_json_files import safe_json_write
+
 
 class ScanController:
     def __init__(self, *, QtCore, parent=None, stop_request_path: Path | None = None):
@@ -69,11 +71,12 @@ class ScanController:
         self.QtCore.QTimer.singleShot(30000, lambda: self.kill_if_running(process))
 
     def write_json_response(self, path: str | Path, payload: dict) -> None:
-        response_path = Path(path).expanduser()
-        if not str(response_path).strip():
+        """Answer the scan's final-choice request. Atomic, as the CLI's
+        answer is: the scan reads the file as soon as it exists, and a
+        partial read would fall back to the default candidate."""
+        if not str(path).strip():
             return
-        response_path.parent.mkdir(parents=True, exist_ok=True)
-        response_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        safe_json_write(Path(path).expanduser(), payload)
 
     def kill_if_running(self, process=None) -> None:
         target = self.process if process is None else process
