@@ -2,7 +2,7 @@
 
 Opened from the header's palette button. Every choice updates the sample
 at the bottom straight away; **Apply** hands the new ``AppearanceSettings``
-to the host, which restyles the app (the real app saves it in ``[ui]``).
+to the window, which saves it in ``[ui]`` and restyles the app.
 Nothing here touches the GPU, the root service or a game.
 """
 
@@ -10,7 +10,12 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from design import (
+from PySide6 import QtCore as C
+from PySide6 import QtGui as G
+from PySide6 import QtWidgets as W
+
+from ui.components.preference_rows import preference_group, preference_row
+from ui.design.style import (
     BUNDLED_FAMILY,
     GAP,
     RAD,
@@ -22,10 +27,7 @@ from design import (
     system_font_family,
     system_prefers_light,
 )
-from PySide6 import QtCore as C
-from PySide6 import QtGui as G
-from PySide6 import QtWidgets as W
-from tokens import (
+from ui.design.tokens import (
     SYSTEM_ACCENT,
     AppearanceSettings,
     accent_presets,
@@ -33,8 +35,6 @@ from tokens import (
     resolve_colors,
     resolve_mode,
 )
-
-from ui.components.preference_rows import preference_group, preference_row
 
 THEME_CHOICES = (("auto", "Auto"), ("dark", "Dark"), ("light", "Light"))
 FONT_CHOICES = (("custom", "Custom"), ("system", "System"))

@@ -7,9 +7,10 @@ scroll with their page's content.
 
 from __future__ import annotations
 
-from design import GAP
 from PySide6 import QtCore as C
 from PySide6 import QtWidgets as W
+
+from ui.design.style import GAP
 
 # left, top, right, bottom: GAP xl horizontally, GAP lg vertically.
 PAGE_MARGINS = (GAP["xl"], GAP["lg"], GAP["xl"], GAP["lg"])

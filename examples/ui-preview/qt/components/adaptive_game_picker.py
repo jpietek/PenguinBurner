@@ -8,8 +8,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from design import GAP
 from PySide6 import QtWidgets as W
+
+from ui.design.style import GAP
 
 TITLE = "Use Adaptive for a game"
 NOTE = (

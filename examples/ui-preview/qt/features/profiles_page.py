@@ -23,7 +23,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from design import GAP
 from PySide6 import QtCore as C
 from PySide6 import QtGui as G
 from PySide6 import QtWidgets as W
@@ -38,7 +37,6 @@ from profiles.uv.profile_tiers import (
 )
 from qt.components import confirm_dialog
 from qt.components import profile_model as model
-from qt.components.page_header import PAGE_MARGINS, PageHeader
 from qt.components.profile_detail import (
     AdaptiveCard,
     DetailState,
@@ -60,12 +58,14 @@ from qt.components.profile_style import (
     trash_icon,
 )
 from qt.components.profile_table import ProfileTable, TableRow
+from ui.components.page_header import PAGE_MARGINS, PageHeader
 from ui.components.profile_list import (
     _format_number,
     _profile_name,
     _profile_source_label,
     _to_float,
 )
+from ui.design.style import GAP
 from ui.dialogs.error_details import process_failure_details, show_error_dialog
 from ui.features.profiles.profile_actions import _manual_curve_control_voltage_mvs
 from ui.features.profiles.profiles import (

@@ -3,14 +3,18 @@
 import argparse
 import base64
 import json
+import sys
 import tomllib
 import webbrowser
 from pathlib import Path
 
-from tokens import FALLBACK_ACCENT, resolve_colors
-
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
+# The checkout's design tokens, even when another PenguinBurner is installed.
+sys.path.insert(0, str(ROOT))
+
+from ui.design.tokens import FALLBACK_ACCENT, resolve_colors  # noqa: E402
+
 SCRIPTS = (
     "auto-uv-dialogs",
     "shell",
@@ -86,7 +90,7 @@ def design_css(design: dict) -> str:
 def build_preview(output: Path | None = None) -> Path:
     """Return a self-contained file that can also be loaded in the native Qt preview."""
     output = (output or ROOT / "build/ui-preview/index.html").resolve()
-    design = json.loads((HERE / "pburn-design.json").read_text())
+    design = json.loads((ROOT / "ui" / "design" / "pburn-design.json").read_text())
     # The frozen prototype reads one flat colour set: the shipped dark look.
     design["colors"] = resolve_colors("dark", FALLBACK_ACCENT)
     fixture = HERE / "fixtures/Afterburner"

@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const preview = path.resolve(__dirname, '..');
 const read = (name) => fs.readFileSync(path.join(preview, name), 'utf8');
 const sample = JSON.parse(read('sample.json'));
-const design = JSON.parse(read('pburn-design.json'));
+const design = JSON.parse(read('../../ui/design/pburn-design.json'));
 // build_preview.py hands the frozen prototype one flat colour set, the
 // shipped dark look; resolve the same roles here.
 design.colors = Object.assign({}, design.themes.dark, design.accents.penguinburner.dark);

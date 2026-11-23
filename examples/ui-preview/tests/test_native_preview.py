@@ -553,7 +553,11 @@ def test_about_shows_purpose_or_live_fixture_energy(app, monkeypatch):
             & preview.C.Qt.TextInteractionFlag.TextSelectableByMouse
         )
         links = next(label for label in labels if label.openExternalLinks())
-        assert preview.COL["accent"] in links.text()
+        # Links take the accent from the themed palette.
+        assert (
+            links.palette().color(preview.G.QPalette.ColorRole.Link).name().upper()
+            == preview.COL["accent"].upper()
+        )
         assert (
             preview.about.SPONSOR_URL in links.text()
             and preview.about.ISSUES_URL in links.text()

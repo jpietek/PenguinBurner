@@ -45,6 +45,7 @@ from ui.features.tuning.gpu_selection import (
 )
 from ui.features.tuning.scan_resume import restore_scan_presentation
 from ui.features.tuning.verify import stop_request_path as verify_stop_request_path
+from ui.startup_checks import run_startup_checks
 
 from . import theme
 from .controllers.command import CommandController
@@ -322,63 +323,12 @@ class MainWindow(ProfileActionsMixin):
         self.tabs.setCurrentIndex(self.game_perf_profile_tab_index)
 
     def _run_startup_checks(self) -> None:
-        self._check_gpu_supported_on_startup()
-        self._check_daemon_upgrade_on_startup()
-
-    def _check_gpu_supported_on_startup(self) -> None:
-        """Warn immediately when no usable NVIDIA GPU is present.
-
-        Cheap, unprivileged, daemon-free: the NVIDIA kernel driver exposes
-        /dev/nvidia0. Catching "no NVIDIA GPU / driver" here means an
-        unsupported box gets a plain explanation up front instead of a cryptic
-        scan failure after a pointless root-service install. The deeper
-        architecture/driver validation still runs at scan start.
-        """
-        if Path("/dev/nvidia0").exists() or Path("/dev/nvidiactl").exists():
-            return
-        self.QtWidgets.QMessageBox.warning(
-            self.window,
-            "No NVIDIA GPU detected",
-            "PenguinBurner tunes NVIDIA GPUs and could not find one on this "
-            "system (no NVIDIA kernel driver is loaded).\n\n"
-            "Make sure a supported NVIDIA card and the proprietary driver are "
-            "installed, then restart PenguinBurner. Undervolt scans and profile "
-            "applies will not work until then.",
-        )
-
-    def _check_daemon_upgrade_on_startup(self) -> None:
-        """Offer to update a running daemon from another incompatible release.
-
-        Only fires when a daemon is actually running and its protocol or release
-        differs from this application. A brand-new user with no daemon installed
-        is left alone: the install prompt appears when they first do something
-        privileged, not on launch.
-        """
-        from runtime.daemon_client import (
-            DaemonCompatibilityError,
-            daemon_status,
-            require_daemon_capabilities,
-        )
-        from ui.assets import application_version
-
-        try:
-            daemon_status(timeout_s=1.0)
-        except Exception:  # noqa: BLE001
-            return  # not running / not installed — do not nag a new user
-        try:
-            require_daemon_capabilities(expected_version=application_version())
-            return  # running and compatible — nothing to do
-        except DaemonCompatibilityError:
-            pass
-        except Exception:  # noqa: BLE001
-            return
-        ensure_daemon_ready_for_privileged_action(
+        run_startup_checks(
             QtWidgets=self.QtWidgets,
             parent=self.window,
             log=self.log_view.append,
-            action_label="Updating the PenguinBurner hardware service",
+            on_daemon_updated=self._load_profiles,
         )
-        self._load_profiles()
 
     def _sync_selected_tab_layout(self, index: int) -> None:
         if index == self.game_library_tab_index:

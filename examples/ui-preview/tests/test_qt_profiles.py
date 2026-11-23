@@ -11,7 +11,6 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 HERE = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(HERE), str(HERE.parents[1])]
 
-from design import install_theme  # noqa: E402
 from PySide6 import QtCore as C  # noqa: E402
 from PySide6 import QtWidgets as W  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
@@ -25,6 +24,7 @@ from qt.sample.profiles_source import SAMPLE_GPUS, SampleProfilesSource  # noqa:
 
 from curve_editors.fan.fan_curve_manual_editor import ManualFanCurveEdit  # noqa: E402
 from curve_editors.uv.vf_curve_manual_editor import ManualCurveEdit  # noqa: E402
+from ui.design.style import install_theme  # noqa: E402
 
 EFF = "20260713-222800-efficiency"
 BAL = "20260713-223600-balanced"

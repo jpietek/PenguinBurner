@@ -11,7 +11,6 @@ frametime ribbon in miniature.
 
 from __future__ import annotations
 
-from design import COL, GAP, RAD, TYPE, WEIGHT, focus_visible, qcolor
 from PySide6 import QtCore as C
 from PySide6 import QtGui as G
 from PySide6 import QtWidgets as W
@@ -27,6 +26,7 @@ from qt.components.perf_profile_plot import (
     percentile,
     warming_text,
 )
+from ui.design.style import COL, GAP, RAD, TYPE, WEIGHT, focus_visible, qcolor
 
 SPARK_WIDTH = 44
 SPARK_HEIGHT = 18

@@ -184,6 +184,37 @@ def _ui_bool_to_runtime_config(
     return normalized
 
 
+def ui_strings_from_runtime_config(keys, config_path=None) -> dict[str, str]:
+    """The ``[ui]`` string values among ``keys``; missing or non-string
+    values are left out, and a corrupt config reads as empty."""
+    path = (
+        default_config_path()
+        if config_path is None
+        else Path(config_path).expanduser()
+    )
+    raw_ui = load_raw_runtime_config(path, tolerant=True).get(UI_CONFIG_SECTION, {})
+    if not isinstance(raw_ui, dict):
+        return {}
+    return {key: raw_ui[key] for key in keys if isinstance(raw_ui.get(key), str)}
+
+
+def ui_strings_to_runtime_config(values: dict[str, str], config_path=None) -> None:
+    """Merge string ``values`` into ``[ui]``, keeping every other setting."""
+    path = (
+        default_config_path()
+        if config_path is None
+        else Path(config_path).expanduser()
+    )
+    # Strict read, as _ui_bool_to_runtime_config: never re-emit a corrupt
+    # config with only the [ui] section.
+    config = load_raw_runtime_config(path)
+    raw_ui = config.get(UI_CONFIG_SECTION, {})
+    ui = dict(raw_ui) if isinstance(raw_ui, dict) else {}
+    ui.update({key: str(value) for key, value in values.items()})
+    config[UI_CONFIG_SECTION] = ui
+    write_runtime_config(path, config)
+
+
 def persist_on_startup_from_runtime_config(
     config_path=None,
     *,

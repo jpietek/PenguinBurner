@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+
 from ui.features.tuning.tuning import GPU_UNDERVOLTING_PURPOSE_TEXT
 
 from ..assets import application_version, asset_image_path
@@ -8,11 +10,18 @@ from .error_details import qt_flags, selectable_text_flags
 
 SPONSOR_URL = "https://github.com/sponsors/jpietek"
 ISSUES_URL = "https://github.com/jpietek/PenguinBurner/issues"
+ABOUT_AUTHORS = (
+    ("Jan Pietek", "https://github.com/jpietek"),
+    ("Michał Ernst (Ernold)", "https://github.com/Ernold11"),
+)
 ABOUT_LINKS_HTML = (
     "If you like the tool please consider supporting me on Github!<br>"
     f'<a href="{SPONSOR_URL}">{SPONSOR_URL}</a><br><br>'
     "Having issues with PenguinBurner? Please report the bugs here:<br>"
-    f'<a href="{ISSUES_URL}">{ISSUES_URL}</a>'
+    f'<a href="{ISSUES_URL}">{ISSUES_URL}</a><br><br>Authors<br>'
+    + " · ".join(
+        f'<a href="{url}">{html.escape(name)}</a>' for name, url in ABOUT_AUTHORS
+    )
 )
 
 
@@ -78,7 +87,14 @@ def energy_savings_lines(status: dict | None = None) -> str:
     )
 
 
-def show_about_dialog(*, QtCore, QtGui, QtWidgets, parent) -> None:
+def show_about_dialog(
+    *,
+    QtCore,
+    QtGui,
+    QtWidgets,
+    parent,
+    purpose_text: str = GPU_UNDERVOLTING_PURPOSE_TEXT,
+) -> None:
     dialog = QtWidgets.QDialog(parent)
     dialog.setWindowTitle("About")
     dialog.setMinimumWidth(520)
@@ -136,7 +152,7 @@ def show_about_dialog(*, QtCore, QtGui, QtWidgets, parent) -> None:
         refresh_timer.timeout.connect(_refresh_savings)
         refresh_timer.start()
     else:
-        purpose = QtWidgets.QLabel(GPU_UNDERVOLTING_PURPOSE_TEXT)
+        purpose = QtWidgets.QLabel(purpose_text)
         purpose.setObjectName("purposeText")
         purpose.setWordWrap(True)
         purpose.setAlignment(QtCore.Qt.AlignCenter)
@@ -147,13 +163,12 @@ def show_about_dialog(*, QtCore, QtGui, QtWidgets, parent) -> None:
     body.setAlignment(QtCore.Qt.AlignCenter)
     body.setWordWrap(True)
     body.setOpenExternalLinks(True)
+    # Links, not a text field: no caret is left after a clicked link.
     body.setTextInteractionFlags(
         qt_flags(
             QtCore.Qt,
             "TextInteractionFlag",
-            "TextBrowserInteraction",
-            "TextSelectableByMouse",
-            "TextSelectableByKeyboard",
+            "LinksAccessibleByMouse",
             "LinksAccessibleByKeyboard",
         )
     )
@@ -162,6 +177,10 @@ def show_about_dialog(*, QtCore, QtGui, QtWidgets, parent) -> None:
     buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.StandardButton.Ok)
     buttons.accepted.connect(dialog.accept)
     layout.addWidget(buttons)
+    ok = buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    if ok is not None:
+        ok.setDefault(True)
+        ok.setFocus()
     dialog.exec()
 
 

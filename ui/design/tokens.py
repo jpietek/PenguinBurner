@@ -1,6 +1,6 @@
-"""Resolve the preview's colour roles for a theme, accent and font choice.
+"""Resolve the colour roles for a theme, accent and font choice.
 
-Pure and Qt-free: the Qt layer (design.py), the frozen HTML build and the
+Pure and Qt-free: the Qt layer (style.py), the mock's frozen HTML build and the
 tests all read colours through ``resolve_colors``. pburn-design.json holds a
 neutral token set per theme and the accent presets; an accent is either a
 preset name or a ``#rrggbb`` seed, and its button, link, focus and selection

@@ -23,6 +23,10 @@ from curve_editors.fan.fan_curve_manual_editor import (
     user_edited_fan_curve_profile_payload,
 )
 from curve_editors.uv.vf_curve_manual_editor import user_edited_profile_payload
+from integrations.afterburner.profile_import import (
+    entry_curve_points,
+    relative_profile_path,
+)
 from integrations.lact.export import (
     LactExportError,
     _auto_uv_fan_config,
@@ -33,8 +37,19 @@ from profiles.uv.memory_offset_edit import (
     editable_memory_offset_from_profile,
     user_edited_memory_offset_profile_payload,
 )
+from profiles.uv.profile_fan_curve import (
+    embedded_fan_payload,
+    fan_curve_points_from_payload,
+    fan_curve_target_point_from_payload,
+    fan_measurement_points_from_payload,
+    fan_payload_has_silent_runtime_fields,
+)
 from profiles.uv.profile_store import profile_summary
 from profiles.uv.profile_tiers import PROFILE_TIERS
+from profiles.uv.profile_vf_curve import (
+    base_curve_points_from_payload,
+    curve_plan_from_payload,
+)
 from qt.components.profile_model import (
     STOCK,
     BootEntry,
@@ -43,21 +58,6 @@ from qt.components.profile_model import (
     GpuTarget,
     LactExport,
     RuntimeState,
-)
-from profiles.uv.profile_vf_curve import (
-    base_curve_points_from_payload,
-    curve_plan_from_payload,
-)
-from profiles.uv.profile_fan_curve import (
-    embedded_fan_payload,
-    fan_curve_points_from_payload,
-    fan_curve_target_point_from_payload,
-    fan_measurement_points_from_payload,
-    fan_payload_has_silent_runtime_fields,
-)
-from integrations.afterburner.profile_import import (
-    entry_curve_points,
-    relative_profile_path,
 )
 
 SAMPLE_PATH = Path(__file__).resolve().parents[2] / "sample.json"

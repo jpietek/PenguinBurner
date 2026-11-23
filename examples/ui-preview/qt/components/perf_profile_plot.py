@@ -5,7 +5,7 @@ Ported from PR #137 (``origin/build-pr-137`` @ 611e6d3):
 ``hitch_points``, ``live_tail``, the y-ceiling, ticks, captions and refresh
 cadence) and ``runtime/frame_history.py`` (floor-index percentiles and the
 5-minute qualify gate). The algorithms are kept equivalent to that commit;
-the figure is restyled to the preview's green design tokens (``design.py``).
+the figure is restyled to the preview's green design tokens (``ui/design/style.py``).
 
 The model half is pure Python and knows nothing about where a ring comes
 from: a page receives a ``PerfProfileSource`` (the preview passes the sample
@@ -22,7 +22,12 @@ from functools import cached_property
 from typing import Any, Protocol
 
 import pyqtgraph as pg
-from design import (
+from PySide6 import QtCore as C
+from PySide6 import QtGui as G
+from PySide6 import QtWidgets as W
+
+from ui.components.toggle_switch import toggle_switch_class
+from ui.design.style import (
     COL,
     GAP,
     TYPE,
@@ -32,11 +37,6 @@ from design import (
     qcolor,
     style_value_badge,
 )
-from PySide6 import QtCore as C
-from PySide6 import QtGui as G
-from PySide6 import QtWidgets as W
-
-from ui.components.toggle_switch import toggle_switch_class
 
 # ---------- PR #137 constants ----------
 QUALIFY_MINUTES = 5.0

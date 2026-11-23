@@ -39,7 +39,7 @@ The browser prototype (`build_preview.py`, `*.js`, `*.css`) is frozen and no lon
 
 ## Visual verification
 
-The design roles are in [pburn-design.json](pburn-design.json): a neutral set per theme plus the accent presets. [tokens.py](tokens.py) resolves them for a theme and accent without Qt, deriving the accent roles from a seed colour, and [design.py](design.py) turns them into the Qt style sheet and chart pens. The bundled Inter faces and their SIL Open Font License are in [fonts/](fonts/). The sample export in [fixtures/Afterburner](fixtures/Afterburner) contains synthetic V/F and fan curves. The sample covers and wide backdrops are thumbnails of the corresponding Steam title artwork.
+The design roles are in [ui/design/pburn-design.json](../../ui/design/pburn-design.json): a neutral set per theme plus the accent presets. [tokens.py](../../ui/design/tokens.py) resolves them for a theme and accent without Qt, deriving the accent roles from a seed colour, and [style.py](../../ui/design/style.py) turns them into the Qt style sheet and chart pens. The bundled Inter faces and their SIL Open Font License are in [ui/design/fonts/](../../ui/design/fonts/). The sample export in [fixtures/Afterburner](fixtures/Afterburner) contains synthetic V/F and fan curves. The sample covers and wide backdrops are thumbnails of the corresponding Steam title artwork.
 
 Run the regression checks, then render every tab, the Perf Profile, its peek, the Profiles menu, Prototype controls and About at 1350x900:
 

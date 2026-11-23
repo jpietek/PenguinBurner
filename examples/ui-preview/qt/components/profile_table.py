@@ -11,7 +11,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from design import TYPE, WEIGHT, qcolor
 from PySide6 import QtCore as C
 from PySide6 import QtGui as G
 from PySide6 import QtWidgets as W
@@ -33,6 +32,7 @@ from qt.components.profile_style import (
     pill_width,
     tier_color,
 )
+from ui.design.style import TYPE, WEIGHT, qcolor
 
 ID_ROLE = int(C.Qt.ItemDataRole.UserRole)
 PILLS_ROLE = ID_ROLE + 1

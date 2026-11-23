@@ -9,15 +9,20 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import design
 import preview
-import tokens
 from PySide6 import QtGui as G
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
-from tokens import AppearanceSettings, accent_presets, contrast, resolve_colors
 
+import ui.design.style as design
 from ui import theme as shipped
+from ui.design import tokens
+from ui.design.tokens import (
+    AppearanceSettings,
+    accent_presets,
+    contrast,
+    resolve_colors,
+)
 
 MODES = ("dark", "light")
 ACCENTS = [name for name, _label, _swatch in accent_presets()] + ["#E0A030"]
