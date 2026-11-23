@@ -350,7 +350,7 @@ def test_auto_uv_nvml_info_text_is_compact_and_tuning_relevant() -> None:
     assert "Supported memory clocks: 810, 5001, 10501 MHz" in text
     assert "Supported core range: 210-3015 MHz (3 steps)" in text
     assert "Power management: enabled" in text
-    assert "Fixed power-limit writes: supported" in text
+    assert "Power limit: adjustable" in text
     assert "RTX" not in text
     assert "PCI" not in text
     assert "thermal" not in text.lower()
@@ -384,29 +384,15 @@ def test_read_auto_uv_nvml_info_skips_setter_probe_without_power_limits(
     assert info.power_limit_max_w is None
 
 
-def test_read_auto_uv_nvml_info_grays_power_controls_from_setter_probe(
-    monkeypatch,
-) -> None:
-    # RTX 2050 mobile GPUs can expose readable limits under a desktop-like
-    # name. The setter probe, not identity strings, must disable the controls.
-    power = SimpleNamespace(
-        management_enabled=True,
-        current_w=43.0,
-        default_w=60.0,
-        minimum_w=35.0,
-        maximum_w=80.0,
-    )
-    telemetry = SimpleNamespace(power_draw_w=42.0, clocks=None)
+def _nvml_info_from_power(monkeypatch, power):
     snapshot = SimpleNamespace(
         capabilities=SimpleNamespace(
             power=power,
             supported_memory_clocks_mhz=(),
             supported_core_clocks_mhz=(),
         ),
-        telemetry=telemetry,
+        telemetry=SimpleNamespace(power_draw_w=42.0, clocks=None),
     )
-
-    probe_calls: list[bool] = []
 
     class FakeDaemonClient:
         def __init__(self, _gpu_index):
@@ -416,16 +402,41 @@ def test_read_auto_uv_nvml_info_grays_power_controls_from_setter_probe(
             return snapshot
 
         def power_limit_set_supported(self) -> bool:
-            probe_calls.append(True)
-            return False
+            raise AssertionError("opening the setup dialog must not write the limit")
 
     monkeypatch.setattr(tuning, "DaemonGpuClient", FakeDaemonClient)
+    return tuning.read_auto_uv_nvml_info(0)
 
-    info = tuning.read_auto_uv_nvml_info(0)
+
+@pytest.mark.parametrize(
+    ("management", "minimum_w", "maximum_w", "expected"),
+    [
+        (True, 35.0, 80.0, True),  # a real range: the control is offered
+        (True, 60.0, 60.0, False),  # fixed board power
+        (False, 35.0, 80.0, False),  # power management off
+        (True, None, None, None),  # constraints unreadable: control disabled
+        (None, 35.0, 80.0, None),
+    ],
+)
+def test_read_auto_uv_nvml_info_checks_power_limit_without_writing(
+    monkeypatch, management, minimum_w, maximum_w, expected
+) -> None:
+    # The dialog reads NVML's management mode and limit range only. The old
+    # support probe re-applied the current limit (a hardware write) every
+    # time the dialog opened; the scan now owns the first write and stops
+    # loudly when the driver rejects it.
+    power = SimpleNamespace(
+        management_enabled=management,
+        current_w=43.0,
+        default_w=60.0,
+        minimum_w=minimum_w,
+        maximum_w=maximum_w,
+    )
+
+    info = _nvml_info_from_power(monkeypatch, power)
 
     assert info.power_draw_w == 42.0
-    assert info.power_limit_set_supported is False
-    assert probe_calls == [True]
+    assert info.power_limit_set_supported is expected
 
 
 class _FakeController:

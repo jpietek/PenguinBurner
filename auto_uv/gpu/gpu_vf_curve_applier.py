@@ -228,6 +228,18 @@ def open_live_gpu_vf_curve_applier(
     if baseline_power_limit_w is not None:
         translated_gpu_policy["power_limit_w"] = baseline_power_limit_w
     requested_power_limit_w = _auto_uv_power_limit_w(runtime_options)
+    user_power_limits_w = _user_requested_power_limits_w(runtime_options)
+    if user_power_limits_w and not power_limit_set_supported:
+        # The setup dialog only reads whether the limit looks adjustable; this
+        # stock reset is the first write. A limit the user asked for is never
+        # dropped silently: the scan stops before probing.
+        raise AutoUvPowerLimitApplyError(
+            "Auto-UV power limit: the driver rejected power-limit writes during "
+            "the stock reset, so the requested "
+            + ", ".join(f"{watts}W" for watts in user_power_limits_w)
+            + " cannot be applied; scan stopped before probing. This GPU keeps "
+            "its fixed board power limit; start the scan without a power limit."
+        )
     if requested_power_limit_w is not None and not power_limit_set_supported:
         requested_power_limit_w = None
     elif requested_power_limit_w is not None:
@@ -337,6 +349,19 @@ def _auto_uv_power_limit_w(runtime_options: dict) -> int | None:
     except (TypeError, ValueError) as exc:
         raise AutoUvError(f"invalid Auto-UV power limit: {value!r}") from exc
     return power_limit_w if power_limit_w > 0 else None
+
+
+def _user_requested_power_limits_w(runtime_options: dict) -> list[int]:
+    """Every power limit the scan options ask for: scan-wide and per tier."""
+    keys = (
+        "auto_uv_power_limit_w",
+        *(
+            adaptive_tier_option_key(tier, "power_limit_w")
+            for tier in ADAPTIVE_TIER_MODES
+        ),
+    )
+    limits = (_positive_power_limit_w(runtime_options.get(key)) for key in keys)
+    return sorted({watts for watts in limits if watts is not None})
 
 
 def _positive_power_limit_w(value: object) -> int | None:
