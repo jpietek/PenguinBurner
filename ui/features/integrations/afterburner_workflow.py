@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ui.dialogs.afterburner_import import select_afterburner_import
-from ui.features.integrations.afterburner_import import (
+from integrations.afterburner.profile_import import (
     persist_afterburner_import_selection,
 )
+from ui.dialogs.afterburner_import import select_afterburner_import
 
 
 class AfterburnerImportWorkflow:

@@ -4,7 +4,7 @@ import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 
-import ui.features.integrations.afterburner_import as afterburner_import
+import integrations.afterburner.profile_import as afterburner_import
 import profiles.uv.profile_fan_curve as fan_profiles
 from ui.main import parse_gui_args
 from ui.main import parse_gui_launch_options
@@ -16,8 +16,8 @@ from ui.features.tuning.gpu_selection import persist_runtime_gpu_index
 from profiles.uv.profile_fan_curve import profile_fan_curve_points
 from profiles.uv.profile_fan_curve import profile_fan_measurement_points
 from profiles.uv.profile_fan_curve import profile_fan_curve_target_point
-from ui.features.integrations.lact_export import lact_export_output_path
-from ui.features.integrations.lact_export import lact_gpu_id_from_config
+from integrations.lact.export import lact_export_output_path
+from integrations.lact.export import lact_gpu_id_from_config
 from ui.controllers.scan import ScanController
 from profiles.uv.profile_vf_curve import curve_plan_from_values
 from profiles.uv.profile_vf_curve import curve_points_from_values

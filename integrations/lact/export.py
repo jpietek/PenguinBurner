@@ -18,6 +18,7 @@ class LactExportError(RuntimeError):
 
 
 LACT_NVIDIA_DEFAULT_MAX_VF_OFFSET_MHZ = 1000
+LACT_CONFIG_FILENAME = "config.yaml"
 
 
 def _read_json(path: Path) -> dict:
@@ -299,3 +300,66 @@ def write_lact_nvidia_config(
     output_path.write_text(rendered, encoding="utf-8")
     claim_desktop_user_ownership(output_path)
     return output_path, warnings
+
+
+def lact_export_output_path(directory: str | Path) -> Path:
+    return Path(directory).expanduser() / LACT_CONFIG_FILENAME
+
+
+def lact_gpu_id_from_config(path: str | Path) -> str:
+    """The first GPU key under ``gpus:`` in a LACT config, or empty."""
+    path = Path(path).expanduser()
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    in_gpus = False
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if not in_gpus:
+            if stripped == "gpus:":
+                in_gpus = True
+            continue
+        if not line.startswith((" ", "\t")):
+            return ""
+        if not line.startswith("  ") or line.startswith("    "):
+            continue
+        key = stripped.rsplit(":", 1)[0].strip().strip("'\"")
+        if key:
+            return key
+    return ""
+
+
+def detect_lact_gpu_id(output_dir: str | Path) -> str:
+    """The GPU id from an existing config in ``output_dir``, else LACT's own."""
+    directory = Path(output_dir).expanduser()
+    for config_path in (
+        directory / LACT_CONFIG_FILENAME,
+        Path("/etc/lact") / LACT_CONFIG_FILENAME,
+    ):
+        gpu_id = lact_gpu_id_from_config(config_path)
+        if gpu_id:
+            return gpu_id
+    return ""
+
+
+def write_lact_profile_config(
+    profile: dict,
+    *,
+    output_path: Path,
+    gpu_id: str,
+    include_fan_curve: bool = False,
+) -> tuple[Path, list[str]]:
+    """Write a LACT config for a saved Auto-UV profile row."""
+    profile_path = Path(str(profile.get("path", "")).strip()).expanduser()
+    if not profile_path.is_file():
+        raise LactExportError("Selected Auto-UV profile file was not found")
+    return write_lact_nvidia_config(
+        output_path=output_path,
+        gpu_id=gpu_id,
+        final_curve_path=profile_path,
+        include_vf_curve=True,
+        include_fan_curve=include_fan_curve,
+    )
