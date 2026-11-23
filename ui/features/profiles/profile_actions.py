@@ -15,15 +15,32 @@ from profiles.gpu_identity import (
     profile_gpu_compatibility,
     profile_gpu_uuid,
 )
-from profiles.uv.memory_offset_edit import editable_memory_offset_from_profile
+from profiles.uv.memory_offset_edit import (
+    editable_memory_offset_from_profile,
+    save_edited_memory_offset_profile,
+)
+from profiles.uv.profile_fan_curve import (
+    profile_fan_curve_points,
+    profile_fan_curve_target_point,
+    profile_fan_measurement_points,
+    save_edited_fan_profile,
+    sync_profile_fan_payload,
+)
 from profiles.uv.profile_store import (
     STOCK_PROFILE_SELECTOR,
     bind_auto_uv_profile_gpu_identity,
     delete_auto_uv_profile_paths,
+    profile_id_from_archive_path,
 )
 from profiles.uv.profile_tiers import (
     save_profile_tier_assignment,
     save_profile_tier_none_assignment,
+)
+from profiles.uv.profile_vf_curve import (
+    curve_points_from_values,
+    profile_base_curve_points,
+    profile_curve_plan,
+    save_edited_curve_profile,
 )
 from runtime.daemon_client import clear_boot_runtime_spec, set_boot_main_gpu
 from runtime.daemon_commands import (
@@ -36,21 +53,6 @@ from ui.components.memory_offset_editor import open_memory_offset_editor_dialog
 from ui.components.vf_curve_editor import open_vf_curve_editor_dialog
 from ui.daemon_setup import ensure_daemon_ready_for_privileged_action
 from ui.dialogs.verify import select_verify_options
-from ui.features.curves.curve_profiles import (
-    curve_points_from_values,
-    profile_base_curve_points,
-    profile_curve_plan,
-    save_edited_curve_profile,
-)
-from ui.features.curves.fan_profiles import (
-    profile_fan_curve_points,
-    profile_fan_curve_target_point,
-    profile_fan_measurement_points,
-    profile_id_from_archive_path,
-    save_edited_fan_profile,
-    sync_profile_fan_payload,
-)
-from ui.features.curves.memory_offset_profiles import save_edited_memory_offset_profile
 from ui.features.integrations.lact_export import (
     detect_lact_gpu_id,
     lact_export_output_path,

@@ -9,6 +9,7 @@ from common.penguin_burner_paths import (
     claim_desktop_user_ownership,
     default_user_config_dir,
 )
+from profiles.uv.profile_fan_curve import AUTO_UV_FAN_CURVE_FILENAME
 from profiles.uv.profile_store import resolve_auto_uv_profile
 
 
@@ -249,7 +250,7 @@ def build_lact_nvidia_config(
         )
         if resolved_profile is None and selector not in {"active", "latest"}:
             raise LactExportError(f"Auto-UV profile not found: {selector}")
-    fan_curve_path = fan_curve_path or config_dir / "auto-uv-fan-curve.json"
+    fan_curve_path = fan_curve_path or config_dir / AUTO_UV_FAN_CURVE_FILENAME
     if include_vf_curve:
         assert final_curve_path is not None
         final_curve_payload = _read_json(final_curve_path)

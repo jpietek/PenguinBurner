@@ -1,4 +1,4 @@
-"""Coverage for ui/curve_profiles.py: profile payload -> curve point/plan parsing.
+"""Coverage for profiles/uv/profile_vf_curve.py: profile payload -> curve point/plan parsing.
 
 Most functions are pure; the cache and save helpers use tmp files and
 monkeypatched dependencies so no live GPU/profile store is touched.
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 
-import ui.features.curves.curve_profiles as cp
+import profiles.uv.profile_vf_curve as cp
 
 
 # --- low-level value parsing --------------------------------------------------
@@ -163,7 +163,7 @@ def test_save_cached_base_curve_points_writes_atomically(tmp_path, monkeypatch) 
     temp file + rename, so no partial file and no leftover .tmp."""
     import json
 
-    import ui.features.curves.curve_profiles as cp
+    import profiles.uv.profile_vf_curve as cp
 
     cache = tmp_path / "base-vf-curve.json"
     monkeypatch.setattr(cp, "base_curve_cache_path", lambda: cache)

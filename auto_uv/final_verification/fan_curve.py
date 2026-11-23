@@ -12,11 +12,7 @@ from pathlib import Path
 
 from auto_uv.domain.types import AutoUvProbeSummary
 from auto_uv.domain.user_options import AUTO_UV_FAN_TUNING
-
-from ..persistence.auto_uv_persisted_json_files import (
-    auto_uv_user_config_dir,
-    safe_json_write,
-)
+from profiles.uv.profile_fan_curve import write_auto_uv_fan_curve_payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,7 +189,7 @@ def write_final_verification_fan_curve_payload(
     )
     if payload is None:
         return None
-    path = safe_json_write(auto_uv_user_config_dir() / "auto-uv-fan-curve.json", payload)
+    path = write_auto_uv_fan_curve_payload(payload)
     return FinalVerificationFanCurveResult(path=path, payload=payload)
 
 

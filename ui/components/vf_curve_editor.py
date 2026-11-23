@@ -16,7 +16,7 @@ from curve_editors.uv.vf_curve_manual_editor import (
     manual_select_range_to_right,
     manual_tune_single_point_edit,
 )
-from ui.features.curves.curve_profiles import curve_points_from_values
+from profiles.uv.profile_vf_curve import curve_points_from_values
 
 from .. import theme
 from .curve_editor import (
