@@ -51,12 +51,12 @@ from qt.sample.profiles_source import SampleProfilesSource
 from qt.sample.prototype_controls import PrototypeControlsDialog, PrototypeState
 
 from auto_uv.scan_mode.auto_uv_mode import adaptive_tier_option_key
+from integrations.afterburner.profile_import import afterburner_fan_curve_payload
 from ui.assets import asset_image_path
 from ui.components import fan_curve_editor, vf_curve_editor
 from ui.dialogs import about, afterburner_import, scan_tuning
 from ui.dialogs.error_details import process_failure_details, show_error_dialog
 from ui.dialogs.final_choice import select_final_candidate
-from ui.features.integrations.afterburner_import import afterburner_fan_curve_payload
 from ui.features.tuning.tuning import AutoUvNvmlInfo
 from ui.qt import apply_dark_palette
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ui.features.integrations.afterburner_import import (
+from integrations.afterburner.profile_import import (
     afterburner_profile_entries,
     configured_afterburner_root,
     entry_curve_points,

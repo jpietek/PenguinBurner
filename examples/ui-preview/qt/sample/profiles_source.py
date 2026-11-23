@@ -55,7 +55,7 @@ from profiles.uv.profile_fan_curve import (
     fan_measurement_points_from_payload,
     fan_payload_has_silent_runtime_fields,
 )
-from ui.features.integrations.afterburner_import import (
+from integrations.afterburner.profile_import import (
     entry_curve_points,
     relative_profile_path,
 )

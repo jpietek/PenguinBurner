@@ -4,14 +4,14 @@ import json
 
 import pytest
 
-import profiles.uv.profile_store as profile_store
 import integrations.lact.export as lact_export
-from profiles.uv.profile_store import archive_auto_uv_profile
+import profiles.uv.profile_store as profile_store
 from integrations.lact.export import (
     build_lact_nvidia_config,
     build_lact_nvidia_config_from_plan,
     write_lact_nvidia_config,
 )
+from profiles.uv.profile_store import archive_auto_uv_profile
 
 
 def _use_auto_uv_config_dir(tmp_path, monkeypatch) -> None:
@@ -474,3 +474,58 @@ def test_build_from_plan_requires_gpu_id():
             source_label="auto-uv",
             source_vf="/tmp/p.json",
         )
+
+
+# --- GPU id detection and output path ----------------------------------------
+
+
+def test_lact_gpu_id_from_config_reads_first_gpu_key(tmp_path) -> None:
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "\n".join(
+            [
+                "# a comment",
+                "daemon:",
+                "  log_level: info",
+                "gpus:",
+                "  1002:73df-1043:8888:",
+                "    fan_control_enabled: true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    assert lact_export.lact_gpu_id_from_config(config) == "1002:73df-1043:8888"
+
+
+def test_lact_gpu_id_from_config_returns_empty_when_no_gpus_block(tmp_path) -> None:
+    config = tmp_path / "config.yaml"
+    config.write_text("daemon:\n  log_level: info\n", encoding="utf-8")
+    assert lact_export.lact_gpu_id_from_config(config) == ""
+
+
+def test_lact_gpu_id_from_config_stops_when_block_ends(tmp_path) -> None:
+    # A non-indented line after gpus: ends the block before any id is found.
+    config = tmp_path / "config.yaml"
+    config.write_text("gpus:\nother: 1\n", encoding="utf-8")
+    assert lact_export.lact_gpu_id_from_config(config) == ""
+
+
+def test_lact_gpu_id_from_config_missing_file_returns_empty(tmp_path) -> None:
+    assert lact_export.lact_gpu_id_from_config(tmp_path / "nope.yaml") == ""
+
+
+def test_detect_lact_gpu_id_prefers_output_dir(tmp_path) -> None:
+    (tmp_path / "config.yaml").write_text(
+        "gpus:\n  abcd:0001:\n    x: 1\n", encoding="utf-8"
+    )
+    assert lact_export.detect_lact_gpu_id(tmp_path) == "abcd:0001"
+
+
+def test_detect_lact_gpu_id_empty_when_nothing_found(tmp_path, monkeypatch) -> None:
+    # Force every candidate path to yield no id, independent of the host's /etc/lact.
+    monkeypatch.setattr(lact_export, "lact_gpu_id_from_config", lambda _path: "")
+    assert lact_export.detect_lact_gpu_id(tmp_path) == ""
+
+
+def test_lact_export_output_path_appends_filename(tmp_path) -> None:
+    assert lact_export.lact_export_output_path(tmp_path) == tmp_path / "config.yaml"

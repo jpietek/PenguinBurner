@@ -62,10 +62,10 @@ from profiles.uv.profile_fan_curve import (
 from profiles.uv.profile_store import (
     profile_id_from_archive_path as _profile_id_from_archive_path,
 )
-from ui.features.integrations.lact_export import (
+from integrations.lact.export import (
     lact_export_output_path as _lact_export_output_path,
 )
-from ui.features.integrations.lact_export import (
+from integrations.lact.export import (
     lact_gpu_id_from_config as _lact_gpu_id_from_config,
 )
 from ui.models import candidate_id_from_payload as _candidate_id_from_result

@@ -17,8 +17,8 @@ from integrations.afterburner.vfcurve import (
     parse_vfcurve_blob,
     point_map_by_voltage,
 )
-import ui.features.integrations.afterburner_import as ui_app
-from ui.features.integrations.afterburner_import import (
+import integrations.afterburner.profile_import as ui_app
+from integrations.afterburner.profile_import import (
     afterburner_profile_entries as _afterburner_profile_entries,
     persist_afterburner_import_selection as _persist_afterburner_import_selection,
 )

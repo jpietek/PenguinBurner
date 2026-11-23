@@ -8,6 +8,11 @@ from cli.runtime_config_file import persist_on_startup_to_runtime_config
 from common.penguin_burner_paths import default_user_config_dir
 from curve_editors.uv.vf_curve_manual_editor import editable_anchor_from_profile
 from drivers.nvidia.daemon_gpu import DaemonGpuClient
+from integrations.lact.export import (
+    detect_lact_gpu_id,
+    lact_export_output_path,
+    write_lact_profile_config,
+)
 from profiles.gpu_identity import (
     GPU_COMPATIBILITY_LEGACY,
     GPU_COMPATIBILITY_MATCH,
@@ -53,11 +58,6 @@ from ui.components.memory_offset_editor import open_memory_offset_editor_dialog
 from ui.components.vf_curve_editor import open_vf_curve_editor_dialog
 from ui.daemon_setup import ensure_daemon_ready_for_privileged_action
 from ui.dialogs.verify import select_verify_options
-from ui.features.integrations.lact_export import (
-    detect_lact_gpu_id,
-    lact_export_output_path,
-    write_lact_profile_config,
-)
 from ui.features.profiles.profiles import (
     adaptive_profile_tier_labels,
     delete_confirmation_text,

@@ -1,1 +1,1 @@
-"""UI helpers for external import/export integrations."""
+"""Qt workflows for external integrations."""
