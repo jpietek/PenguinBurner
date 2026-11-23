@@ -9,6 +9,7 @@ from profiles.uv.profile_tiers import (
     PROFILE_TIER_BALANCED,
     PROFILE_TIER_EFFICIENCY,
     PROFILE_TIER_PERFORMANCE,
+    adaptive_tier_available,
     assigned_tier_for_profile,
     available_adaptive_tiers,
     generated_profile_tier,
@@ -205,6 +206,24 @@ def test_resolve_selected_gpu_can_include_legacy_without_other_gpu(monkeypatch) 
     assert resolved[PROFILE_TIER_BALANCED] == legacy
     assert resolved[PROFILE_TIER_PERFORMANCE] == profile_a
     assert resolved[PROFILE_TIER_EFFICIENCY] is None
+
+
+def test_adaptive_tier_available_is_scoped_to_the_game_gpu(monkeypatch) -> None:
+    profile_b = _profile("profile-b", "Efficiency", "2026-06-03T12:00:00+00:00")
+    profile_b["gpu_identity"] = {"uuid": "GPU-b", "name": "B"}
+    unverified = _profile("draft", "Performance", "2026-06-04T12:00:00+00:00")
+    unverified["final_verified"] = False
+    monkeypatch.setattr(
+        tiers_mod, "load_profile_tier_assignments", lambda *, gpu_uuid="": {}
+    )
+    monkeypatch.setattr(
+        tiers_mod, "load_profile_tier_disabled_profile_ids", lambda *, gpu_uuid="": set()
+    )
+
+    assert not adaptive_tier_available([])
+    assert not adaptive_tier_available([unverified])
+    assert adaptive_tier_available([profile_b], gpu_uuid="GPU-b")
+    assert not adaptive_tier_available([profile_b], gpu_uuid="GPU-a")
 
 
 def test_resolve_profile_tier_profiles_prefers_pinned_then_latest_generated() -> None:

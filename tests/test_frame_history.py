@@ -22,6 +22,7 @@ from runtime.frame_history import (
     MetricsSample,
     decode_frametime_ms,
     encode_frametime_ms,
+    frame_history_files_for_game,
     frame_history_live_dir,
     frame_history_system_archive_dir,
     nibble_from_tier,
@@ -404,6 +405,29 @@ def test_for_game_reads_the_daemon_system_archive(tmp_path: Path) -> None:
     assert found is not None
     assert found.header.app_id == 3764200
     assert len(found.samples) == 7
+
+
+def test_files_for_game_lists_what_the_reader_may_read(tmp_path: Path) -> None:
+    env = {
+        FRAME_HISTORY_LIVE_DIR_ENV: str(tmp_path / "live"),
+        FRAME_HISTORY_SYSTEM_ARCHIVE_DIR_ENV: str(tmp_path / "system"),
+    }
+    assert frame_history_files_for_game("lutris:777", env=env) == ()
+    assert frame_history_files_for_game("not-a-key", env=env) == ()
+    for name in ("200.lutris%3A777.ring", "100.lutris%3A777.ring", "300.steam%3A777.ring"):
+        write_frame_history(
+            tmp_path / "live" / name, samples=[_sample(0)], frametimes_ms=[],
+            metrics_cap=4, frame_cap=8,
+        )
+    write_frame_history(
+        tmp_path / "system" / "lutris%3A777.ring.gz", samples=[_sample(0)],
+        frametimes_ms=[], metrics_cap=4, frame_cap=8,
+    )
+    assert [path.name for path in frame_history_files_for_game("lutris:777", env=env)] == [
+        "100.lutris%3A777.ring",
+        "200.lutris%3A777.ring",
+        "lutris%3A777.ring.gz",
+    ]
 
 
 def test_summarize_derives_fps_from_frametimes_when_estimator_is_silent() -> None:

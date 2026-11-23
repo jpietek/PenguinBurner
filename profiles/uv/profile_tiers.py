@@ -452,6 +452,28 @@ def available_adaptive_tiers(
     return tiers
 
 
+def adaptive_tier_available(
+    profiles: list[dict],
+    *,
+    gpu_uuid: str = "",
+    include_legacy_profiles: bool = False,
+) -> bool:
+    """Whether Adaptive has at least one tier profile to switch to on a GPU.
+
+    The game mode's gate: Adaptive needs a verified tier profile, which is a
+    property of the saved profiles rather than of any launcher.
+    """
+    return bool(
+        available_adaptive_tiers(
+            resolve_profile_tier_profiles(
+                list(profiles),
+                gpu_uuid=gpu_uuid,
+                include_legacy_profiles=include_legacy_profiles,
+            )
+        )
+    )
+
+
 def _write_profile_tier_assignments(
     assignments: dict[str, str],
     *,

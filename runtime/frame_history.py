@@ -541,13 +541,7 @@ def read_frame_history_for_game(
     if not stem:
         return None
     best: FrameHistory | None = None
-    try:
-        candidates = sorted(frame_history_live_dir(env).glob("*.ring"))
-    except OSError:
-        candidates = []
-    for candidate in candidates:
-        if _live_ring_stem(candidate) != stem:
-            continue
+    for candidate in _live_ring_paths(stem, env):
         history = read_frame_history(candidate)
         if history is None:
             continue
@@ -555,12 +549,46 @@ def read_frame_history_for_game(
             best = history
     if best is not None:
         return replace(best, live=True)
-    system_dir = frame_history_system_archive_dir(env)
-    for name in (f"{stem}.ring", f"{stem}.ring.gz"):
-        history = read_frame_history(system_dir / name)
+    for path in _archive_paths(stem, env):
+        history = read_frame_history(path)
         if history is not None:
             return history
     return None
+
+
+def _live_ring_paths(stem: str, env: Mapping[str, str] | None) -> list[Path]:
+    """A game's live rings (one per session), in name order."""
+    try:
+        candidates = sorted(frame_history_live_dir(env).glob("*.ring"))
+    except OSError:
+        return []
+    return [path for path in candidates if _live_ring_stem(path) == stem]
+
+
+def _archive_paths(stem: str, env: Mapping[str, str] | None) -> tuple[Path, Path]:
+    system_dir = frame_history_system_archive_dir(env)
+    return (system_dir / f"{stem}.ring", system_dir / f"{stem}.ring.gz")
+
+
+def frame_history_files_for_game(
+    game_key: str,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> tuple[Path, ...]:
+    """The files ``read_frame_history_for_game`` may read for a game, without
+    decoding any: its live rings, then the archives that exist. Empty when
+    the game has never recorded."""
+    stem = frame_history_file_stem(game_key)
+    if not stem:
+        return ()
+    archives = []
+    for path in _archive_paths(stem, env):
+        try:
+            if path.is_file():
+                archives.append(path)
+        except OSError:
+            continue
+    return (*_live_ring_paths(stem, env), *archives)
 
 
 def _percentile(values: Sequence[float], fraction: float) -> float:
