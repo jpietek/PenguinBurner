@@ -102,7 +102,6 @@ packages = [
   "auto_uv.shared",
   "stability",
   "stability.q2rtx",
-  "ui.features.auto_uv",
   "cli",
   "common",
   "curve_editors",

@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-from auto_uv.scan_mode.auto_uv_mode import (
-    AUTO_UV_MODE_PERFORMANCE,
-    normalize_auto_uv_mode,
-)
-from ui.features.auto_uv.final_choice_ranking import (
+from auto_uv.final_verification.final_choice_ranking import (
     FINAL_CHOICE_DEFAULT_SORT_COLUMN,
     FINAL_CHOICE_FPS_SORT_COLUMN,
     FINAL_CHOICE_FPSW_SORT_COLUMN,
@@ -18,6 +14,10 @@ from ui.features.auto_uv.final_choice_ranking import (
     final_choice_sort_values,
     numeric_sort_value,
     sort_candidates_for_final_choice,
+)
+from auto_uv.scan_mode.auto_uv_mode import (
+    AUTO_UV_MODE_PERFORMANCE,
+    normalize_auto_uv_mode,
 )
 
 from ..components.profile_list import (

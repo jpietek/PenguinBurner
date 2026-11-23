@@ -55,7 +55,7 @@ const SETUP_TOOLTIPS = {
     watts: "Power limit applied to this profile's stock baseline, descent, final verification and saved profile. Efficiency caps below stock; Balanced and Performance keep the stock budget.",
     start: 'Resume an unfinished scan when the GPU and settings match; otherwise start a new scan.',
 };
-// ui/features/auto_uv defaults: Efficiency 1 min, Balanced 3 min, Performance 5 min.
+// auto_uv/final_verification defaults: Efficiency 1 min, Balanced 3 min, Performance 5 min.
 const FINAL_MINUTES = {Efficiency: 1, Balanced: 3, Performance: 5};
 const MAX_FINAL_MINUTES = 60;
 const SHORT_PROBE_S = 30;

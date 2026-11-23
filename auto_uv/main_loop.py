@@ -35,6 +35,11 @@ from auto_uv.domain.types import (
 )
 from auto_uv.domain.user_options import AUTO_UV_DEFAULTS, AUTO_UV_METRIC_TUNING
 from auto_uv.efficiency_tune.voltage_floor import min_search_voltage_mv
+from auto_uv.final_verification.candidate_choice import (
+    choose_final_verification_candidate,
+    choose_next_final_verification_candidate_after_failure,
+    choose_recovery_final_verification_candidate,
+)
 from auto_uv.final_verification.crash_marker import memory_offset_from_gpu_policy
 from auto_uv.final_verification.main_loop import run_final_verification_and_save
 from auto_uv.gpu.gpu_vf_curve_applier import open_live_gpu_vf_curve_applier
@@ -133,11 +138,6 @@ from auto_uv.scan_mode.uv_limits import (
 from auto_uv.shared.positive_int import positive_int
 from stability.q2rtx.models import Q2RTXStabilityConfig
 from stability.q2rtx.process_harness import cleanup_managed_q2rtx_processes
-from ui.features.auto_uv.candidate_choice import (
-    choose_final_verification_candidate,
-    choose_next_final_verification_candidate_after_failure,
-    choose_recovery_final_verification_candidate,
-)
 
 ADAPTIVE_BASELINE_REUSE_CLOCK_TOLERANCE_MHZ = 15
 ADAPTIVE_BASELINE_REUSE_VOLTAGE_TOLERANCE_MV = 10
