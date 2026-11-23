@@ -1,3 +1,6 @@
+"""Command lines the desktop app runs: daemon_client RPCs (scan, apply,
+verify, delete) and the one privileged daemon install/migration."""
+
 from __future__ import annotations
 
 import base64
@@ -9,14 +12,14 @@ import sys
 from collections.abc import Mapping
 from pathlib import Path
 
+from auto_uv.domain.user_options import AUTO_UV_DEFAULTS
 from auto_uv.scan_mode.auto_uv_mode import (
     ADAPTIVE_TIER_MODES,
     ADAPTIVE_TIER_OPTION_SUFFIXES,
     adaptive_tier_option_key,
 )
+from cli.runtime_config_file import runtime_gpu_index
 from common.privileged_env import env_command_prefix
-from ui.constants import DEFAULT_FINAL_VERIFICATION_DURATION_S
-from ui.features.tuning.gpu_selection import runtime_gpu_index
 
 FLATPAK_INFO_PATH = Path("/.flatpak-info")
 FLATPAK_APP_ID = "io.github.jpietek.PenguinBurner"
@@ -394,7 +397,7 @@ def _flatpak_daemon_install_command(
 def profile_verify_command(
     *,
     profile_selector: str = "",
-    duration_s: int = DEFAULT_FINAL_VERIFICATION_DURATION_S,
+    duration_s: int = AUTO_UV_DEFAULTS.final_duration_s,
     stop_request_path: str | Path = "",
     gpu_index: int | None = None,
 ) -> list[str]:

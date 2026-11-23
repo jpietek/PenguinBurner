@@ -7,6 +7,8 @@ from __future__ import annotations
 import os
 from types import SimpleNamespace
 
+from cli import runtime_config_file
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import importlib
@@ -63,8 +65,9 @@ def test_relative_profile_path(tmp_path) -> None:
     assert ab.relative_profile_path(root, tmp_path / "other.cfg") == "other.cfg"
 
 
-def test_runtime_gpu_index_and_mtime(tmp_path) -> None:
-    # runtime_gpu_index is re-exported from gpu_selection (single shared impl).
+def test_afterburner_import_reads_the_shared_runtime_gpu_index(tmp_path) -> None:
+    # One implementation, owned by the runtime config module.
+    assert ab.runtime_gpu_index is runtime_config_file.runtime_gpu_index
     config = tmp_path / "c.toml"
     config.write_text("[gpu]\nindex = 2\n", encoding="utf-8")
     assert ab.runtime_gpu_index(config) == 2

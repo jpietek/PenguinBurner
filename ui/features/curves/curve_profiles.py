@@ -5,6 +5,7 @@ import math
 from datetime import datetime
 from pathlib import Path
 
+from cli.runtime_config_file import runtime_gpu_index
 from common.atomic_write import atomic_write_json
 from common.penguin_burner_paths import (
     default_runtime_config_path,
@@ -13,7 +14,6 @@ from common.penguin_burner_paths import (
 from curve_editors.uv.vf_curve_manual_editor import user_edited_profile_payload
 from profiles.uv.profile_store import archive_auto_uv_profile
 from ui.features.curves.fan_profiles import profile_payload_from_path
-from ui.features.integrations.afterburner_import import runtime_gpu_index
 
 
 def profile_curve_plan(profile: dict) -> list[dict]:

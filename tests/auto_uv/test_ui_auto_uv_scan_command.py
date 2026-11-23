@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-import ui.commands as commands
+import runtime.daemon_commands as commands
 
 
 def _daemon_options(command: list[str]) -> dict:

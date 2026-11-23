@@ -1119,7 +1119,7 @@ fn verification_streams_frames_and_builds_the_exact_argv() {
     assert_eq!(frames[3]["control"], "finished");
     assert_eq!(frames[3]["exit_code"], 0);
 
-    // The exact argv of `ui/commands.py::profile_verify_command`, with the
+    // The exact argv of `runtime/daemon_commands.py::profile_verify_command`, with the
     // daemon-owned stop-request file appended last.
     let argv: Value = serde_json::from_str(&std::fs::read_to_string(&argv_file).unwrap()).unwrap();
     assert_eq!(

@@ -14,9 +14,9 @@ from auto_uv.scan_mode.uv_limits import (
     uv_limit_power_limit_pct_for_gpu,
     uv_limit_profile_target_for_gpu,
 )
+from cli.runtime_config_file import runtime_gpu_index
 from common.penguin_burner_paths import default_runtime_config_path
 from drivers.nvidia.daemon_gpu import DaemonGpuClient
-from ui.features.tuning.gpu_selection import runtime_gpu_index
 
 DEFAULT_AUTO_UV_TAIL_RISE_BINS = AUTO_UV_DEFAULTS.tail_rise_bins
 DEFAULT_AUTO_UV_BALANCED_TAIL_RISE_BINS = AUTO_UV_DEFAULTS.balanced_tail_rise_bins

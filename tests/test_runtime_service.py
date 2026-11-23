@@ -1688,7 +1688,7 @@ def test_daemonize_preserves_pkexec_desktop_user_env(tmp_path, monkeypatch) -> N
 
 def test_flatpak_site_packages_stabilizes_deployment_id_to_active(monkeypatch) -> None:
     # The Python daemon unit is no longer built inside the Flatpak sandbox
-    # (Option A -- the install path is gated in ui/commands.py), but the surviving
+    # (Option A -- the install path is gated in runtime/daemon_commands.py), but the surviving
     # flatpak path helper still rewrites a concrete deployment-id path to the
     # stable "active" symlink so a re-sync does not strand PYTHONPATH.
     monkeypatch.setenv("FLATPAK_ID", "io.github.jpietek.PenguinBurner")

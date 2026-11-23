@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from cli.runtime_config_file import runtime_gpu_index
 from common.penguin_burner_paths import (
     default_runtime_config_path,
     discover_afterburner_device_profiles,
@@ -26,7 +27,6 @@ from integrations.afterburner.vfcurve_describe import (
 )
 from profiles.gpu_identity import normalized_gpu_identity
 from profiles.uv.profile_store import archive_auto_uv_profile
-from ui.features.tuning.gpu_selection import runtime_gpu_index
 
 
 def configured_afterburner_root() -> str:

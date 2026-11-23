@@ -82,6 +82,17 @@ def load_runtime_config(config_path=None):
     return config, path
 
 
+def runtime_gpu_index(config_path: str | Path | None = None) -> int:
+    """The GPU the runtime targets, from the runtime config; 0 when unset
+    or unreadable."""
+    path = default_runtime_config_path() if config_path is None else Path(config_path)
+    try:
+        config = load_raw_runtime_config(path)
+        return max(0, int(config.get("gpu", {}).get("index", 0)))
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 def load_raw_runtime_config(config_path, *, tolerant: bool = False):
     """Read the raw TOML config.
 

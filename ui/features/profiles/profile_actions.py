@@ -26,7 +26,7 @@ from profiles.uv.profile_tiers import (
     save_profile_tier_none_assignment,
 )
 from runtime.daemon_client import clear_boot_runtime_spec, set_boot_main_gpu
-from ui.commands import (
+from runtime.daemon_commands import (
     delete_profiles_command,
     profile_verify_command,
     runtime_profile_command,

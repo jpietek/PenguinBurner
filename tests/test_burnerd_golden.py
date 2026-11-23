@@ -960,7 +960,7 @@ def test_autostart_runs_the_persisted_runtime_profile(make_daemon):
 def test_all_tier_targets_survive_gui_socket_and_worker_cli(make_daemon, tmp_path):
     from cli.arguments import parse_arguments
     from cli.effective_runtime_options import build_effective_auto_uv_runtime_options
-    from ui.commands import scan_command
+    from runtime.daemon_commands import scan_command
 
     targets = {
         f"auto_uv_{tier}_target_{field}": value

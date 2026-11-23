@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from cli.runtime_config_file import load_raw_runtime_config
+from cli.runtime_config_file import load_raw_runtime_config, runtime_gpu_index
 from common.penguin_burner_paths import default_runtime_config_path
 from drivers.nvidia.daemon_gpu import DaemonGpuClient
 from integrations.afterburner.import_fan_curve import write_config
@@ -62,15 +62,6 @@ def gpu_choices_from_nvml_identities(identities) -> list[GpuChoice]:
             )
         )
     return choices
-
-
-def runtime_gpu_index(config_path: str | Path | None = None) -> int:
-    path = default_runtime_config_path() if config_path is None else Path(config_path)
-    try:
-        config = load_raw_runtime_config(path)
-        return max(0, int(config.get("gpu", {}).get("index", 0)))
-    except Exception:  # noqa: BLE001
-        return 0
 
 
 def gpu_choices_with_fallback(
