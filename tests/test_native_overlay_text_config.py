@@ -1136,6 +1136,71 @@ def test_native_nr_gpu_format_matches_python(live_overlay_probe, tmp_path, nr_va
     assert result.stdout.strip() == format_overlay_item("nr_gpu_ms", {"nr_gpu_ms": nr_value})
 
 
+@pytest.mark.parametrize("layout", ["hud", "table"])
+def test_stale_telemetry_expires_and_recovers_in_running_overlay(
+    live_overlay_probe, tmp_path, layout,
+):
+    from time import time_ns
+
+    from overlay.state import read_overlay_state
+
+    config = tmp_path / "overlay.toml"
+    config.write_text(
+        f'enabled = true\nlayout = "{layout}"\n'
+        'items = ["base_fps", "clock_mhz", "latency_ms", "profile"]\n'
+    )
+    state = tmp_path / "overlay-state.txt"
+    payload = "present_fps=99\nclock_mhz=420\nlatency_ms=73\nprofile_tier=Performance\n"
+    state.write_text(payload)
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "PB_OVERLAY": "1",
+        "PENGUIN_BURNER_OVERLAY_CONFIG": str(config),
+        "PENGUIN_BURNER_OVERLAY_STATE": str(state),
+        "PENGUIN_BURNER_OVERLAY_OVERRIDE": str(tmp_path / "absent"),
+    }
+    with subprocess.Popen(
+        [str(live_overlay_probe), "--live"], env=env,
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
+    ) as process:
+        assert process.stdout is not None and process.stdin is not None
+        try:
+            assert "99 fps" in process.stdout.readline().lower()
+            for age_s, fresh in ((20, True), (31, False), (-60, False)):
+                # 20 seconds still tolerates the maximum 10-second poll interval.
+                stamp = time_ns() - age_s * 1_000_000_000
+                os.utime(state, ns=(stamp, stamp))
+                process.stdin.write("tick\n")
+                process.stdin.flush()
+                text = process.stdout.readline().lower()
+                assert ("99 fps" in text) is fresh
+                assert ("19 fps" in text) is not fresh  # Native present fallback.
+                assert ("420 mhz" in text) is fresh
+                assert ("73 ms" in text) is fresh
+                assert ("perf" in text) is fresh
+                assert bool(read_overlay_state(state)) is fresh
+
+            # The real publisher replaces the inode when it resumes.
+            replacement = tmp_path / "replacement"
+            replacement.write_text(payload.replace("99", "77").replace("420", "810"))
+            replacement.replace(state)
+            process.stdin.write("tick\n")
+            process.stdin.flush()
+            text = process.stdout.readline().lower()
+            assert "77 fps" in text and "810 mhz" in text
+            assert read_overlay_state(state)["present_fps"] == "77"
+
+            state.unlink()
+            process.stdin.write("tick\n")
+            process.stdin.flush()
+            text = process.stdout.readline().lower()
+            assert "19 fps" in text and "810 mhz" not in text
+            assert read_overlay_state(state) == {}
+        finally:
+            process.stdin.close()
+            assert process.wait(timeout=5) == 0
+
+
 @pytest.fixture(scope="module")
 def latency_probe(live_overlay_probe) -> Path:
     return live_overlay_probe
