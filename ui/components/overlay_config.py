@@ -64,6 +64,9 @@ from .toggle_switch import make_toggle_switch, toggle_state_text
 
 LIVE_PREVIEW_START = "Live preview"
 LIVE_PREVIEW_STOP = "Stop preview"
+LIVE_PREVIEW_RUNNING = (
+    "Live preview running. It follows these settings as you change them."
+)
 
 LAYOUT_LABELS = {
     "hud": "HUD",
@@ -255,10 +258,7 @@ class OverlayConfigPanel:
         self.scale_control.setToolTip(
             "Overlay scale, on top of automatic sizing for the game's resolution."
         )
-        preview_class = overlay_preview_class(
-            QtCore, _qt_gui_module(QtWidgets), QtWidgets
-        )
-        self.preview = preview_class()
+        self.preview = self._preview_widget_class()()
         self.preview.setObjectName("overlayPreviewCanvas")
         self.live_button = QtWidgets.QPushButton(LIVE_PREVIEW_START)
         self.live_button.setObjectName("overlayLivePreviewButton")
@@ -270,6 +270,12 @@ class OverlayConfigPanel:
         self.status_label.setObjectName("overlayConfigStatus")
         self.status_label.setWordWrap(True)
         self.status_label.hide()
+
+    def _preview_widget_class(self):
+        """The HUD preview widget class; a page may paint its own scene."""
+        return overlay_preview_class(
+            self.QtCore, _qt_gui_module(self.QtWidgets), self.QtWidgets
+        )
 
     def _label(self, text, name="overlayMuted"):
         widget = self.QtWidgets.QLabel(text)
@@ -634,13 +640,16 @@ class OverlayConfigPanel:
             return
         self._live_process = process
         self.live_button.setText(LIVE_PREVIEW_STOP)
-        self._show_status(
-            "Live preview running. It follows these settings as you change them."
-        )
+        self._show_status(LIVE_PREVIEW_RUNNING)
+
+    def _clear_live_preview_status(self) -> None:
+        if self.status_label.text() == LIVE_PREVIEW_RUNNING:
+            self._show_status("")
 
     def _stop_live_preview(self) -> None:
         process, self._live_process = self._live_process, None
         self.live_button.setText(LIVE_PREVIEW_START)
+        self._clear_live_preview_status()
         if process is None:
             return
         process.terminate()
@@ -652,11 +661,17 @@ class OverlayConfigPanel:
         # own stop, so the button never claims something is running that is not.
         self._live_process = None
         self.live_button.setText(LIVE_PREVIEW_START)
+        self._clear_live_preview_status()
 
-    def _on_live_preview_error(self, *_args) -> None:
+    def _on_live_preview_error(self, error=None, *_args) -> None:
         self._live_process = None
         self.live_button.setText(LIVE_PREVIEW_START)
-        self._show_status(MISSING_EXECUTABLE_MESSAGE)
+        # Stop terminates vkcube, which Qt reports as a crash; only a failed
+        # start means the program is missing.
+        if error == self.QtCore.QProcess.ProcessError.FailedToStart:
+            self._show_status(MISSING_EXECUTABLE_MESSAGE)
+        else:
+            self._clear_live_preview_status()
 
     def _update_setting(self, setter: Callable[..., OverlayConfig], value: Any) -> None:
         if self._syncing:
@@ -714,7 +729,10 @@ class OverlayConfigPanel:
             self.preview.set_config(self.config)
             return
         self.config = candidate
-        self._show_status("")
+        # A running live preview keeps saying so: it follows every save.
+        self._show_status(
+            LIVE_PREVIEW_RUNNING if self._live_process is not None else ""
+        )
         self._sync_widgets()
         self.refresh_preview()
 
@@ -762,11 +780,18 @@ class OverlayConfigPanel:
         if saved != self.config:
             self.config = saved
             self._sync_widgets()
-        values = read_overlay_state()
+        self._show_readings(self.telemetry())
+
+    def telemetry(self) -> dict[str, str]:
+        """The overlay telemetry the daemon (and a wrapped game) publish now;
+        empty when it is missing or stale."""
+        return read_overlay_state()
+
+    def _show_readings(self, telemetry: dict[str, str]) -> None:
         self.preview.set_config(self.config)
-        self.preview.set_values(_preview_values(values))
+        self.preview.set_values(_preview_values(telemetry))
         for key, value in self.item_value_labels.items():
-            value.setText(_sample_text(key, values))
+            value.setText(_sample_text(key, telemetry))
 
 
 def _preview_values(telemetry: dict[str, str]) -> dict[str, str]:
