@@ -3,6 +3,7 @@ from pathlib import Path
 
 from integrations.steam.library import (
     game_art_path,
+    game_hero_path,
     game_icon_path,
     installed_steam_games,
 )
@@ -151,6 +152,27 @@ def test_icon_supports_legacy_flat_layout(tmp_path: Path) -> None:
     (cache / "10_icon.jpg").write_bytes(b"x" * 500)
     icon = game_icon_path("10", steam_root=root)
     assert icon is not None and icon.name == "10_icon.jpg"
+
+
+def test_hero_prefers_current_cache_copy_and_skips_blur(tmp_path: Path) -> None:
+    root = _steam_home(tmp_path)
+    cache = root / "appcache" / "librarycache" / "10"
+    (cache / "abc123").mkdir(parents=True)
+    (cache / "abc123" / "library_hero.jpg").write_bytes(b"x")
+    (cache / "abc123" / "library_hero_blur.jpg").write_bytes(b"x")
+    assert game_hero_path("10", steam_root=root) == cache / "abc123" / "library_hero.jpg"
+    (cache / "library_hero.jpg").write_bytes(b"x")
+    assert game_hero_path("10", steam_root=root) == cache / "library_hero.jpg"
+
+
+def test_hero_supports_legacy_flat_layout_and_missing(tmp_path: Path) -> None:
+    root = _steam_home(tmp_path)
+    cache = root / "appcache" / "librarycache"
+    cache.mkdir(parents=True)
+    assert game_hero_path("10", steam_root=root) is None
+    assert game_hero_path("10", steam_root=None) is None
+    (cache / "10_library_hero.jpg").write_bytes(b"x")
+    assert game_hero_path("10", steam_root=root) == cache / "10_library_hero.jpg"
 
 
 def test_icon_missing_yields_none(tmp_path: Path) -> None:

@@ -185,6 +185,25 @@ def game_art_path(app_id: str, *, steam_root: Path | None) -> Path | None:
     return game_icon_path(app_id, steam_root=steam_root)
 
 
+def game_hero_path(app_id: str, *, steam_root: Path | None) -> Path | None:
+    """The wide library hero Steam has cached for a game, or None.
+
+    Steam keeps it beside the cover, as ``<app_id>_library_hero.jpg`` or in
+    the app's (sometimes hashed) subdirectory; the blurred copy is not art.
+    """
+    if steam_root is None:
+        return None
+    cache_dir = steam_root / "appcache" / "librarycache"
+    legacy = cache_dir / f"{app_id}_library_hero.jpg"
+    heroes: list[Path] = [legacy] if legacy.is_file() else []
+    try:
+        heroes += [path for path in (cache_dir / app_id).rglob("library_hero.jpg") if path.is_file()]
+    except OSError:
+        pass
+    # The shallowest is Steam's current copy.
+    return min(heroes, key=lambda path: len(path.parts)) if heroes else None
+
+
 def game_icon_path(app_id: str, *, steam_root: Path | None) -> Path | None:
     """Smallest library-cache JPEG for the app — Steam's 32x32 client icon."""
     if steam_root is None:
