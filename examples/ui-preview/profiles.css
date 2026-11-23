@@ -1,0 +1,363 @@
+/* profiles.css: profiles area styles, layered on the shared tokens in pburn.css. */
+
+/* ---------- Saved profiles card ---------- */
+.profileTools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+.iconButton {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+}
+.iconButton svg {
+  display: block;
+}
+.targetBar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-lg);
+  padding: 0 20px var(--space-lg);
+}
+.targetBar label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-weight: var(--weight-semibold);
+}
+.targetBar select {
+  min-width: 190px;
+}
+.targetBar small {
+  color: var(--secondary);
+}
+label.check {
+  font-weight: var(--weight-regular);
+  cursor: pointer;
+}
+label.check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+label.check:has(input:disabled) {
+  color: var(--quiet);
+  cursor: default;
+}
+.tableHint {
+  padding: 10px 20px 14px;
+  font-size: var(--type-caption);
+  color: var(--secondary);
+  border-top: 1px solid var(--divider);
+}
+
+/* ---------- Profile table ---------- */
+.profileTable :is(th, td).l {
+  text-align: left;
+}
+.profileTable tbody tr {
+  cursor: default;
+}
+/* Measurement columns hug their values; the Profile column takes the
+   slack, so status pills appearing there never move the other columns. */
+.profileTable :is(th, td):not(.c-name) {
+  width: 1%;
+}
+.profileTable:not(.full) :is(th, td):not(.c-name),
+.profileTable :is(th, td).c-tier {
+  padding-left: 24px;
+}
+.profileTable td .pill {
+  margin-left: 10px;
+  vertical-align: 1px;
+}
+.profileTable .missing {
+  color: var(--quiet);
+}
+.profileTable .delta {
+  margin-left: 6px;
+  font-size: var(--type-caption);
+}
+.profileTable .emptyrow {
+  padding: 20px;
+  color: var(--secondary);
+}
+/* Plain-text sortable headers: the arrow shows on hover and when active. */
+.profileTable th button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+/* Numeric headers keep their label flush with the right-aligned values. */
+.profileTable th:not(.l) button {
+  flex-direction: row-reverse;
+}
+.sortArrow {
+  display: inline-block;
+  width: 10px;
+  font-style: normal;
+  opacity: 0;
+}
+.sortArrow::before {
+  content: "↓";
+}
+.profileTable th[aria-sort="ascending"] .sortArrow::before {
+  content: "↑";
+}
+.profileTable th:not([aria-sort="none"]) button {
+  color: var(--ink);
+}
+.profileTable th:not([aria-sort="none"]) .sortArrow {
+  opacity: 1;
+  color: var(--accent);
+}
+.profileTable th button:is(:hover, :focus-visible) .sortArrow {
+  opacity: 1;
+}
+/* A row that just arrived from a scan, verification, edit or import. */
+.profileTable tr.preferred:not(.selected) td {
+  background: color-mix(in srgb, var(--selection) 45%, var(--panel));
+}
+.tierTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.tierTag::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tier);
+}
+.pill.muted {
+  color: var(--secondary);
+}
+.pill.newpill {
+  color: var(--accent);
+}
+
+/* ---------- Selected profile card ---------- */
+.profActions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  padding-top: 0;
+}
+.profileDetail .metrics {
+  padding-top: 2px;
+}
+.profileDetail .cardhead small {
+  max-width: 70ch;
+  white-space: normal;
+}
+.profileNotice {
+  padding: 0 20px;
+  font-size: var(--type-caption);
+  color: var(--secondary);
+}
+.profileNotice:not(:empty) {
+  padding: 10px 20px 14px;
+  border-top: 1px solid var(--divider);
+}
+.profileNotice.bad,
+.dialogError,
+.importStatus.bad {
+  color: var(--loss);
+}
+
+/* ---------- Dialogs ---------- */
+.danger {
+  color: var(--loss);
+  border-color: color-mix(in srgb, var(--loss) 55%, var(--border));
+  font-weight: var(--weight-semibold);
+}
+.danger:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--loss) 22%, var(--control));
+  border-color: var(--loss);
+}
+.deleteList {
+  margin: var(--space-md) 0 0;
+  padding-left: 20px;
+  color: var(--secondary);
+}
+.dialogError {
+  margin-top: var(--space-md);
+}
+.memoryFields output {
+  padding-bottom: 8px;
+  font-size: var(--type-caption);
+  color: var(--secondary);
+  font-variant-numeric: tabular-nums;
+}
+.lactPreview {
+  max-height: 38vh;
+  overflow: auto;
+  margin-top: var(--space-md);
+}
+#profileActions button:disabled,
+#profileActions button:disabled:hover {
+  color: var(--quiet);
+  background: transparent;
+  border-color: transparent;
+}
+#profileActions .startGroup {
+  border-top-color: var(--divider);
+}
+
+/* ---------- Curve editors ---------- */
+#panel:has(.curveEditor) {
+  width: min(900px, 96vw);
+  max-width: none;
+}
+.editorPlot {
+  position: relative;
+  margin-top: var(--space-lg);
+  border: 1px solid var(--divider);
+  border-radius: var(--rad-control);
+  overflow: hidden;
+}
+.curveEditor .editplot {
+  height: clamp(260px, 40vh, 360px);
+  cursor: crosshair;
+}
+.curveEditor .editplot:focus-visible {
+  outline-offset: -2px;
+}
+.shortcutLegend {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 10px 12px;
+  font-size: var(--type-caption);
+  background: color-mix(in srgb, var(--raised) 94%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--rad-panel);
+  pointer-events: none;
+}
+.shortcutLegend dl {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 5px 12px;
+  margin: 0;
+}
+.shortcutLegend dt {
+  text-align: right;
+}
+.shortcutLegend dd {
+  margin: 0;
+  color: var(--secondary);
+}
+.shortcutLegend kbd {
+  padding: 0 5px;
+  font-size: var(--type-caption);
+}
+.editorLegend {
+  padding: 10px 2px 0;
+}
+.editorBar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  margin-top: var(--space-md);
+}
+.editorFields,
+.editorButtons {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+.editorFields label {
+  display: grid;
+  gap: 3px;
+  font-size: var(--type-caption);
+  color: var(--secondary);
+}
+.editorFields input {
+  width: 110px;
+}
+.editorFields output {
+  display: block;
+  min-width: 80px;
+  padding: 8px 0;
+  color: var(--ink);
+  font-size: var(--type-body);
+  font-variant-numeric: tabular-nums;
+}
+.editorStatus {
+  min-height: 18px;
+  margin-top: var(--space-sm);
+  font-size: var(--type-caption);
+  color: var(--secondary);
+  font-variant-numeric: tabular-nums;
+}
+/* Point markers in the external legend (lines use .swatch from pburn.css). */
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+}
+.legend i.marker {
+  display: inline-block;
+  border-top: 0;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin: 0 6px 0 4px;
+  border-radius: 50%;
+}
+.legend i.marker.scatter {
+  width: 6px;
+  height: 6px;
+  background: var(--swatch);
+}
+.legend i.marker.handle {
+  background: var(--ink);
+  box-shadow:
+    0 0 0 2px var(--plotSurface),
+    0 0 0 3.5px var(--swatch);
+}
+.legend i.marker.ring {
+  border: 1.5px solid var(--swatch);
+}
+
+/* ---------- Afterburner import ---------- */
+#importCurve {
+  display: block;
+  width: 100%;
+  height: 240px;
+  background: var(--plotSurface);
+  border: 1px solid var(--divider);
+  border-radius: var(--rad-control);
+}
+.importGrid table th {
+  white-space: nowrap;
+}
+
+@media (max-width: 740px) {
+  .targetBar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .editorBar {
+    align-items: stretch;
+  }
+}
+.curveEditor h2:focus {
+  outline: none;
+}
+.importGrid td:last-child {
+  white-space: normal;
+  min-width: 110px;
+}
+#lactDir {
+  width: 280px;
+}

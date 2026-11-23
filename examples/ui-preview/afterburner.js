@@ -196,6 +196,8 @@ async function chooseImportFolder(input) {
   importDialog();
 }
 function openImport() {
+  if (typeof profilesBusy === "function" && profilesBusy())
+    return info("Import Afterburner", "Finish the current PenguinBurner action before importing Afterburner.");
   if (!afterburnerRows.length && !importMessage)
     setImportSource(exampleAfterburner, "Example Afterburner");
   importDialog();
@@ -233,42 +235,36 @@ function importDialog() {
     <button onclick="document.getElementById('importFolder').click()">Choose directory…</button></div>
     <div class="importGrid"><div class="tableWrap"><table><thead><tr><th>Device profile</th><th>Profile</th><th>Target</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>
     <div><canvas id="importCurve" tabindex="0" role="img" aria-label="Imported voltage and frequency curve, use arrow keys to inspect points"></canvas><small id="importPoint"></small></div></div>
-    <p class="sub" role="status">${esc(importMessage || (entry?.status === "Ready" ? "The selected curve will appear in Profiles." : entry?.status || ""))}</p>
+    <p class="sub importStatus ${importMessage || (entry && entry.status !== "Ready") ? "bad" : ""}" role="status">${esc(importMessage || (entry?.status === "Ready" ? "The selected curve will appear in Profiles." : entry?.status || ""))}</p>
     <div class="dialogfoot"><button onclick="closePanel()">Cancel</button><button class="primary" ${entry?.status === "Ready" ? "" : "disabled"} onclick="acceptImport()">Import</button></div></section>`);
   requestAnimationFrame(drawImportCurve);
 }
+// Same chart spec as every plot: plotSurface, minor/major grid, rounded
+// ticks, the curve in candidateCurve and the flatten point as a ringed
+// handle with value badges.
 function drawImportCurve() {
   const canvas = document.getElementById("importCurve"),
     entry = afterburnerRows[importSelection];
   if (!canvas || !entry?.points.length) return;
   const { ctx, w, h } = canvasContext(canvas),
     points = entry.points,
-    colors = design.colors;
+    colors = design.colors,
+    t = chartTheme();
   const xs = points.map((p) => p[0]),
     ys = points.map((p) => p[1]),
-    x0 = Math.min(...xs),
-    x1 = Math.max(...xs),
-    y0 = Math.min(...ys) - 50,
-    y1 = Math.max(...ys) + 100;
-  const x = (v) => 46 + ((w - 66) * (v - x0)) / Math.max(1, x1 - x0),
-    y = (v) => h - 28 - ((h - 46) * (v - y0)) / Math.max(1, y1 - y0);
-  ctx.fillStyle = colors.plotSurface;
-  ctx.fillRect(0, 0, w, h);
-  ctx.font = "11px system-ui";
-  ctx.fillStyle = colors.secondary;
-  ctx.strokeStyle = colors.gridMajor;
-  for (let i = 0; i < 3; i++) {
-    const mv = x0 + ((x1 - x0) * i) / 2,
-      mhz = y0 + ((y1 - y0) * i) / 2;
-    ctx.textAlign = "center";
-    ctx.fillText(Math.round(mv), x(mv), h - 8);
-    ctx.textAlign = "right";
-    ctx.fillText(Math.round(mhz), 40, y(mhz) + 3);
-    strokePath(ctx, [
-      [46, y(mhz)],
-      [w - 20, y(mhz)],
-    ]);
-  }
+    x0 = Math.floor(Math.min(...xs) / 50) * 50,
+    x1 = Math.ceil(Math.max(...xs) / 50) * 50,
+    y0 = Math.floor((Math.min(...ys) - 50) / 250) * 250,
+    y1 = Math.ceil((Math.max(...ys) + 50) / 250) * 250;
+  const box = { left: 64, right: w - 16, top: 14, bottom: h - 46 };
+  const x = (v) => box.left + ((box.right - box.left) * (v - x0)) / Math.max(1, x1 - x0),
+    y = (v) => box.bottom - ((box.bottom - box.top) * (v - y0)) / Math.max(1, y1 - y0);
+  const xMajor = niceStep(x1 - x0, 4),
+    yMajor = niceStep(y1 - y0, 4);
+  drawChartFrame(ctx, w, h, box, x, y, {
+    x: { lo: x0, hi: x1, minor: xMajor / 2, major: xMajor, title: "Voltage (mV)" },
+    y: { lo: y0, hi: y1, minor: yMajor / 2, major: yMajor, title: "Clock (MHz)" },
+  });
   ctx.strokeStyle = colors.candidateCurve;
   ctx.lineWidth = 2;
   strokePath(
@@ -280,11 +276,23 @@ function drawImportCurve() {
       0,
       points.findIndex((p) => p[0] >= entry.mv),
     );
-  const [v, m] = points[importedPoint];
-  ctx.fillStyle = colors.selectedCurve;
+  const [v, m] = points[importedPoint],
+    px = x(v),
+    py = y(m);
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = t.crosshair;
+  strokePath(ctx, [
+    [Math.round(px) + 0.5, box.top],
+    [Math.round(px) + 0.5, box.bottom],
+  ]);
   ctx.beginPath();
-  ctx.arc(x(v), y(m), 4, 0, 2 * Math.PI);
+  ctx.arc(px, py, 5, 0, 2 * Math.PI);
+  ctx.fillStyle = colors.accent;
   ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = colors.plotSurface;
+  ctx.stroke();
+  drawBadge(ctx, Math.round(m) + " MHz", Math.min(px + 10, box.right - 4), Math.max(box.top + 12, py - 16), px + 90 > box.right ? "right" : "left");
   document.getElementById("importPoint").textContent =
     Math.round(v) + " mV · " + Math.round(m) + " MHz";
   canvas.onclick = (e) => {
@@ -299,13 +307,13 @@ function drawImportCurve() {
     drawImportCurve();
   };
   canvas.onkeydown = (e) => {
-    if (["ArrowLeft", "ArrowRight"].includes(e.key)) {
+    if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) {
       e.preventDefault();
       importedPoint = Math.max(
         0,
         Math.min(
           points.length - 1,
-          importedPoint + (e.key === "ArrowRight" ? 1 : -1),
+          e.key === "Home" ? 0 : e.key === "End" ? points.length - 1 : importedPoint + (e.key === "ArrowRight" ? 1 : -1),
         ),
       );
       drawImportCurve();
@@ -331,18 +339,38 @@ function saveImportedProfile(entry) {
     copy: true,
     vf: structuredClone(entry.points),
     fan: entry.fan?.length ? structuredClone(entry.fan) : undefined,
-    mem: 0,
-    date: "Just now",
+    mem: null, // Afterburner slots carry no editable memory offset
+    gpu: appState.selectedGpu,
+    base: null,
+    assigned: 0,
+    saved: Date.now(),
     deleted: false,
   });
   order.unshift(id);
-  pi = id;
+  // The import moves to the top, highlighted and selected.
+  markPreferred(id);
+  selectProfiles([id]);
+  selAnchor = id;
+  profileTarget = appState.selectedGpu;
   return id;
 }
 function acceptImport() {
   const e = afterburnerRows[importSelection];
   if (e?.status !== "Ready") return;
-  saveImportedProfile(e);
+  const id = saveImportedProfile(e);
   closePanel();
   navigate("Profiles");
+  showPanel(
+    '<h2>Import Afterburner</h2><p class="sub">Imported Afterburner profile ' +
+      esc(e.section) +
+      " from " +
+      esc(e.device) +
+      '.</p><div class="dialogfoot"><button type="button" class="primary" id="importDone">OK</button></div>',
+  );
+  const done = document.getElementById("importDone");
+  done.onclick = () => {
+    closePanel();
+    document.querySelector('[data-profile="' + id + '"]')?.focus({ preventScroll: true });
+  };
+  done.focus();
 }

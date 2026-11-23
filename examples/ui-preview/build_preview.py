@@ -7,12 +7,15 @@ import tomllib
 import webbrowser
 from pathlib import Path
 
+from tokens import FALLBACK_ACCENT, resolve_colors
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 SCRIPTS = (
     "auto-uv-dialogs",
     "shell",
     "library",
+    "history",
     "profiles",
     "auto-uv",
     "overlay",
@@ -21,6 +24,16 @@ SCRIPTS = (
     "afterburner",
     "profile-menu",
     "guide",
+)
+# The shared token layer first, then one stylesheet per feature area.
+STYLES = (
+    "pburn",
+    "auto-uv-dialogs",
+    "history",
+    "library",
+    "profiles",
+    "overlay",
+    "auto-uv",
 )
 ICONS = (
     "penguin-burner",
@@ -53,14 +66,18 @@ def image_assets() -> dict[str, str]:
 
 
 def design_css(design: dict) -> str:
+    """Emit every design token as a CSS custom property on :root."""
     roles = dict(design["colors"])
-    for section, prefix in (
-        ("typography", "type"),
-        ("spacing", "space"),
-        ("radii", "rad"),
+    for section, prefix, unit in (
+        ("typography", "type", "px"),
+        ("weights", "weight", ""),
+        ("spacing", "space", "px"),
+        ("radii", "rad", "px"),
     ):
         for key, value in design[section].items():
-            roles[f"{prefix}-{key}"] = f"{value}px" if isinstance(value, int) else value
+            roles[f"{prefix}-{key}"] = (
+                f"{value}{unit}" if isinstance(value, int) else value
+            )
     return (
         ":root {" + "".join(f"--{key}: {value};" for key, value in roles.items()) + "}"
     )
@@ -70,6 +87,8 @@ def build_preview(output: Path | None = None) -> Path:
     """Return a self-contained file that can also be loaded in the native Qt preview."""
     output = (output or ROOT / "build/ui-preview/index.html").resolve()
     design = json.loads((HERE / "pburn-design.json").read_text())
+    # The frozen prototype reads one flat colour set: the shipped dark look.
+    design["colors"] = resolve_colors("dark", FALLBACK_ACCENT)
     fixture = HERE / "fixtures/Afterburner"
     export = {
         path.relative_to(fixture).as_posix(): path.read_text()
@@ -91,11 +110,7 @@ def build_preview(output: Path | None = None) -> Path:
     )
     scripts = "\n".join((HERE / f"{name}.js").read_text() for name in SCRIPTS)
     styles = "\n".join(
-        [
-            design_css(design),
-            (HERE / "pburn.css").read_text(),
-            (HERE / "auto-uv-dialogs.css").read_text(),
-        ]
+        [design_css(design)] + [(HERE / f"{name}.css").read_text() for name in STYLES]
     )
     template = (HERE / "index.template.html").read_text()
     page = template.replace("/* PREVIEW_STYLES */", styles).replace(

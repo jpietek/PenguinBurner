@@ -5,7 +5,7 @@ const findings = [
     "Keep the library layout",
     "Game artwork and the title make the selection clear. Keep Play prominent, along with the existing launcher, sort and bulk actions. The prototype adds search to exercise returning to a filtered list.",
     "Move history under the game",
-    "The current Perf Profile badge opens a permanent tab. Put median FPS and 1% low next to View history. Preserve the selected game and keyboard focus on return.",
+    "The current Perf Profile badge opens a permanent tab. Put the Perf Profile button beside Play, with a hover peek of median FPS, 1% low and power. Preserve the selected game and keyboard focus on return.",
   ],
   [
     "Profiles",
@@ -21,7 +21,7 @@ const findings = [
     "Keep the scan plot and all 13 columns",
     "Give the base, candidate, previous runs and confirmed tier curves the full plot width. Keep row selection connected to its curve and retain measured values and stock deltas.",
     "Start empty and keep Copy logs visible",
-    "Setup Auto Undervolt opens GPU, scope, preset and advanced settings. Start begins the scan. Replace the large log pane with a single Copy logs action for the entire scan.",
+    "Setup Auto Undervolt opens GPU, scope, preset and advanced settings. Start begins the scan. Start empty; the log pane beside the plot follows the scan and Copy logs copies every line.",
   ],
   [
     "In-Game Overlay",
@@ -115,7 +115,7 @@ function designSystem() {
       "Example preference",
       '<button role="switch" aria-label="Example capture telemetry" class="track" aria-checked="true" onclick="this.setAttribute(\'aria-checked\',this.getAttribute(\'aria-checked\')!==\'true\')"><i></i></button>',
     ) +
-    '<div class="editorControls"><button class="primary" onclick="navigate(\'Auto UV\');openSetup()">Setup Auto Undervolt</button><button onclick="navigate(\'Profiles\')">View profiles</button></div></section>' +
+    '<div class="editorControls"><button class="primary" onclick="navigate(\'Auto UV\');ensureDaemonReady(openSetup)">Setup Auto Undervolt</button><button onclick="navigate(\'Profiles\')">View profiles</button></div></section>' +
     '<section class="card"><h2>Measurements and curves</h2><p>Use green/red on the signed difference from stock. Lower power is favorable. Measured values and signed percentages each have a fixed alignment. Absolute measurements stay neutral; a change under 1% is gray.</p><div class="guideRow"><b>Board power</b><span>267 W <span style="color:' +
     c.gain +
     '">−21.7%</span></span></div><div class="guideRow"><b>Frame rate</b><span>62.6 FPS <span style="color:' +
@@ -135,10 +135,76 @@ function designSystem() {
     '<section class="card"><h2>Auto UV and Profiles</h2><p>Give the V/F plot the available width. Keep the runs table dense enough to compare candidates, with written-out headings and units below. In Profiles, separate selecting a candidate, verifying an edit, applying it and saving it for startup.</p><button onclick="navigate(\'Auto UV\')">Open Auto UV</button></section></div>'
   );
 }
+// Startup checks run once the window has painted: a missing NVIDIA driver
+// gets a plain warning, then an incompatible running service is offered an
+// update. A missing service is left alone until a privileged action needs it.
+function runStartupChecks({ nvidiaGpu = true } = {}) {
+  const daemonCheck = () => {
+    if (appState.daemon === "outdated") ensureDaemonReady(() => {}, "This version of PenguinBurner");
+  };
+  if (nvidiaGpu) return daemonCheck();
+  showPanel(
+    '<div class="errhead"><span class="erricon warn" aria-hidden="true">!</span><div><h2 id="startupTitle">No NVIDIA GPU detected</h2>' +
+      '<p class="sub">PenguinBurner tunes NVIDIA GPUs and could not find one on this system. No NVIDIA kernel driver is loaded.</p>' +
+      '<p class="sub">Install a supported NVIDIA card and the proprietary driver, then restart PenguinBurner. Undervolt scans and profile applies will not work until then.</p></div></div>' +
+      '<div class="dialogfoot"><button id="startupOk">OK</button></div>',
+  );
+  const ok = document.getElementById("startupOk");
+  ok.onclick = () => {
+    closePanel();
+    daemonCheck();
+  };
+  ok.focus();
+}
+// Global error reporting: the first line goes to the status band and the
+// log, and the dialog carries copyable details (exit code, status, log tail).
+function showErrorDetails(title, message, details = "") {
+  const first = String(message).split("\n")[0],
+    copy = [title, "", message, ...(details ? ["", details] : [])].join("\n"),
+    owned = { running: title, detail: first, tone: "error" };
+  logLines.push("[" + new Date().toLocaleTimeString("en-GB") + "] " + title + ": " + message);
+  if (!appState.status) setGlobalStatus(owned);
+  showPanel(
+    '<div class="errhead"><span class="erricon" aria-hidden="true">!</span><div><h2 id="errTitle">' + esc(title) + '</h2><p class="sub">' + esc(message) +
+      '</p></div></div><textarea class="errdetails" id="errDetails" readonly aria-label="Error details" wrap="off"></textarea>' +
+      '<div class="dialogfoot"><span class="copymsg" id="errCopied" role="status"></span><button id="errCopy">Copy error</button><button id="errOk">OK</button></div>',
+  );
+  const field = document.getElementById("errDetails");
+  field.value = copy;
+  document.getElementById("errOk").onclick = closePanel;
+  document.getElementById("errCopy").onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(copy);
+      document.getElementById("errCopied").textContent = "Copied";
+    } catch {
+      field.focus();
+      field.select();
+    }
+  };
+  dlg().addEventListener(
+    "close",
+    () => appState.status === owned && setGlobalStatus(null),
+    { once: true },
+  );
+  document.getElementById("errOk").focus();
+}
+function sampleProcessError() {
+  const tail = Array.from(
+    { length: 80 },
+    (_, i) =>
+      "[21:14:" + String(i % 60).padStart(2, "0") + "] " +
+      (i < 79 ? "Run 14 · Balanced · 850 mV @ 2640 MHz · Q2RTX frame " + (4120 + i * 30) : "Q2RTX exited: VK_ERROR_DEVICE_LOST"),
+  ).join("\n");
+  return [
+    "Auto UV stopped",
+    "The Auto UV scan stopped unexpectedly. The full error details can be copied for troubleshooting.",
+    "Action: Auto UV scan\nExit code: 1\nExit status: CrashExit\n\nRecent logs:\n" + tail,
+  ];
+}
 function shellTools() {
   const busy = stage === "running" || stage === "verifying";
   document.getElementById("shellTools").innerHTML = `
-    <button class="start" ${busy ? "disabled" : ""} onclick="openSetup()">Setup Auto Undervolt</button>
+    <button class="start" ${busy ? "disabled" : ""} onclick="ensureDaemonReady(openSetup)">Setup Auto Undervolt</button>
     <button ${busy ? "" : "disabled"} onclick="stopScan()">Stop</button>
     <button ${busy ? "disabled" : ""} onclick="openImport()">Import Afterburner</button>`;
 }
@@ -161,37 +227,23 @@ if (["#scan-results", "#verification"].includes(location.hash)) {
       );
     }
   }
-  logLines = [
-    "Example full scan · NVIDIA GeForce RTX 5080",
-    ...plan.map(
-      (r, i) =>
-        "Run " +
-        (i + 1) +
-        " · " +
-        r.tier +
-        " · " +
-        r.mv +
-        " mV @ " +
-        r.target +
-        " MHz · " +
-        r.fps.toFixed(2) +
-        " FPS · " +
-        r.power.toFixed(2) +
-        " W · " +
-        (r.passed ? "Passed" : "Average FPS low"),
-    ),
-    stage === "choice"
-      ? "Ready for final verification"
-      : "Final verification passed · " + tiers.join(" · "),
-  ];
 }
 if (location.hash === "#profiles") {
   useExamples = true;
   tab = "Profiles";
 }
 if (location.hash === "#overlay") tab = "In-Game Overlay";
+if (location.hash === "#overlay-live") tab = "In-Game Overlay";
 if (location.hash === "#setup") tab = "Auto UV";
 addEventListener("resize", draw);
 render();
 if (location.hash === "#setup") openSetup();
 if (location.hash === "#verification") verifySetup();
+if (location.hash === "#about") aboutView();
+if (location.hash === "#overlay-live") ovToggleLive();
+if (location.hash === "#startup-checks") {
+  appState.daemon = "outdated";
+  render();
+  runStartupChecks({ nvidiaGpu: false });
+}
+if (location.hash === "#error-details") showErrorDetails(...sampleProcessError());

@@ -48,12 +48,15 @@ def capture(page: Page, directory: Path) -> None:
 
     open_screen("#auto-uv")
     assert page.get_by_text("No runs yet", exact=True).is_visible()
+    # Without the root service About has no energy counter: the purpose shows.
+    page.evaluate("appState.daemon = 'missing'")
     click("About")
     assert page.locator(".aboutPurpose").inner_text() == page.evaluate(
         "design.copy.aboutPurpose"
     )
     shot("about-first-launch", "#panel")
     click("OK")
+    page.evaluate("appState.daemon = 'ready'")
     click("Setup Auto Undervolt")
     assert page.locator(".uvHeader p").inner_text() == page.evaluate(
         "design.copy.setupNote"
@@ -63,23 +66,25 @@ def capture(page: Page, directory: Path) -> None:
     shot("auto-uv-setup", "#panel")
     click("Cancel")
 
+    # Each tier opens its own candidate choice once its descent ends;
+    # #verification is the Efficiency one.
     open_screen("#verification")
-    click("Balanced")
+    assert "Efficiency" in page.locator("#panel h2").first.inner_text()
     page.locator("#uvDuration").fill("7")
-    assert "17 min" in page.locator("#uvTotalTime").inner_text()
     shot("final-verification", "#panel")
 
     open_screen("#scan-results")
     page.locator("#run2").click()
-    assert page.locator(".scanTable tbody tr").count() == 16
+    # 16 probes plus the three tiers' interleaved final verification rows.
+    assert page.locator(".scanTable tbody tr").count() == 19
     assert page.evaluate(
-        "document.querySelector('#vf').getBoundingClientRect().bottom <= document.querySelector('.plotbox+.legend').getBoundingClientRect().top"
+        "document.querySelector('#vf').getBoundingClientRect().bottom <= document.querySelector('#uvLegend').getBoundingClientRect().top"
     )
     assert page.evaluate(
         "document.querySelector('.scanTable').scrollWidth <= document.querySelector('.scanTable').clientWidth + 1"
     )
     shot("auto-uv-browser")
-    click("Copy full log")
+    click("Copy logs")
     assert page.evaluate("navigator.clipboard.readText()") == page.evaluate(
         "logLines.join('\\n')"
     )

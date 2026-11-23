@@ -10,6 +10,9 @@
     border: 1px solid var(--border);
     border-radius: var(--rad-panel);
 }
+#panel:has(.uvCandidates) {
+    width: min(1060px, calc(100% - 28px));
+}
 .uvDialog {
     display: flex;
     flex-direction: column;
@@ -18,11 +21,12 @@
 }
 .uvHeader, .uvFooter {
     flex: none;
-    padding: 16px 22px;
+    padding: var(--space-lg) var(--space-xl);
 }
 .uvHeader { border-bottom: 1px solid var(--divider); }
 .uvHeader h2 {
-    font-size: 21px;
+    font-size: var(--type-section);
+    font-weight: var(--weight-semibold);
     margin: 0;
 }
 .uvHeader h2:focus {outline: none;}
@@ -30,57 +34,90 @@
     margin: 4px 0 0;
     color: var(--secondary);
     line-height: 1.45;
-    font-size: 12px;
+    font-size: var(--type-caption);
 }
 .uvBody {
     overflow: auto;
     min-height: 0;
     overscroll-behavior: contain;
-    padding: 0 22px 16px;
+    padding: 0 var(--space-xl) var(--space-lg);
 }
-.uvGroup { margin: 16px 0 0; }
+.uvGroups {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+.uvGroups:disabled,
+.uvGroups:disabled :is(h3, label, .uvNote, .uvCaution) {
+    color: var(--quiet);
+}
+#panel .uvGroups:disabled .uvPicks [aria-pressed="true"] {
+    color: var(--quiet);
+    background: var(--control);
+    border-color: var(--divider);
+}
+.uvGroup { margin: var(--space-lg) 0 0; }
 .uvGroup > h3 {
-    margin: 0 0 7px;
-    font-size: 13px;
-    font-weight: 650;
+    margin: 0 0 var(--space-sm);
+    font-size: var(--type-body);
+    font-weight: var(--weight-semibold);
 }
-.uvGPU, #uvSettings, .uvCandidates, .uvGroup > .uvField {
+.uvGPU, #uvSettings, .uvCandidates, .uvGroup > .uvField, .uvBody > .uvField {
     background: var(--raised);
     border: 1px solid var(--divider);
     border-radius: var(--rad-panel);
 }
 .uvGPU {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     justify-content: space-between;
-    gap: 4px 12px;
+    gap: 4px var(--space-md);
     flex-wrap: wrap;
-    font-size: 13px;
+    font-size: var(--type-body);
     padding: 10px 13px;
+}
+.uvGPU b {font-weight: var(--weight-semibold);}
+.uvNoGpu {
+    display: grid;
+    gap: 4px;
+    border-color: color-mix(in srgb, var(--warning) 45%, var(--divider));
+}
+.uvNoGpu b {color: var(--warning);}
+.uvGpuPick {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    font-size: var(--type-caption);
+    color: var(--secondary);
+}
+.uvGpuPick select {
+    min-width: 280px;
+    font-size: var(--type-body);
 }
 .uvGPU span, .uvFooter small, .uvPicks small, .uvCandidates small {
     color: var(--secondary);
-    font-size: 12px;
+    font-size: var(--type-caption);
 }
-.uvLimits {margin-top: 6px; font-size: 12px; color: var(--secondary);}
-.uvLimits summary {cursor: pointer; width: fit-content;}
-.uvLimits dl {display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; margin: 6px 0;}
-.uvLimits dd {margin: 0; font-variant-numeric: tabular-nums;}
+.uvLimits {margin: 6px 0 0; font-size: var(--type-caption); color: var(--secondary);}
+.uvLimits summary {width: fit-content;}
+.uvLimits dl {display: grid; grid-template-columns: max-content 1fr; gap: 3px var(--space-lg); margin: 6px 0;}
+.uvLimits dd {margin: 0; color: var(--ink); font-variant-numeric: tabular-nums;}
 .uvPicks {
     display: flex;
-    gap: 5px;
+    gap: 6px;
 }
 #panel .uvPicks button {
     flex: 1;
     min-width: 0;
-    padding: 7px 3px;
-    font-size: 13px;
+    padding: 7px 4px;
+    font-size: var(--type-body);
     line-height: 1.3;
 }
 .uvPicks small {
     display: block;
     margin-top: 3px;
-    font-weight: 400;
+    font-weight: var(--weight-regular);
 }
 #panel .uvPicks [aria-pressed="true"] {
     border-color: var(--accent);
@@ -91,22 +128,32 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px 14px;
+    gap: var(--space-sm) 14px;
     padding: 9px 13px;
 }
-.uvField + .uvField {border-top: 1px solid var(--divider);}
-.uvField label {font-weight: 600; font-size: 13px;}
+.uvField + .uvField, .uvCaution + .uvField {border-top: 1px solid var(--divider);}
+.uvField label {font-weight: var(--weight-semibold); font-size: var(--type-body);}
+.uvField label[title] {text-decoration: underline dotted var(--quiet); text-underline-offset: 3px; cursor: help;}
 .uvField p {margin: 2px 0 0;}
 .uvField output {color: inherit;}
-.uvInputGroup, .uvNumber, .uvActions {display: flex; align-items: center; gap: 8px;}
-.uvNumber {white-space: nowrap; font-size: 12px; color: var(--secondary);}
+.uvCaution {
+    margin: 0;
+    padding: 7px 13px;
+    font-size: var(--type-caption);
+    color: var(--warning);
+    background: color-mix(in srgb, var(--warning) 7%, var(--raised));
+    border-top: 1px solid var(--divider);
+}
+.uvInputGroup, .uvNumber, .uvActions {display: flex; align-items: center; gap: var(--space-sm);}
+.uvNumber {white-space: nowrap; font-size: var(--type-caption); color: var(--secondary);}
 .uvNumber input[type="number"] {
     box-sizing: border-box;
-    width: 85px;
+    width: 88px;
     height: 32px;
     padding: 4px 6px;
     font-variant-numeric: tabular-nums;
 }
+.uvNumber input::placeholder {color: var(--secondary);}
 .uvNumber span {min-width: 3ch;}
 .uvInputGroup input[type="range"] {
     width: clamp(75px, 14vw, 140px);
@@ -117,50 +164,100 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px 16px;
+    gap: var(--space-sm) var(--space-lg);
     border-top: 1px solid var(--divider);
 }
 .uvFooter small, .uvCandidates small {display: block;}
-.uvFooter strong {font-size: 14px;}
+.uvFooter strong {font-size: var(--type-body);}
+
+/* ---------- Final candidate table ---------- */
+.uvIntro {
+    margin: var(--space-lg) 0 var(--space-md);
+    font-size: var(--type-body);
+    line-height: 1.5;
+    color: var(--secondary);
+    max-width: 78ch;
+}
 .uvCandidates {overflow-x: auto;}
 .uvCandidates table {
     width: 100%;
-    min-width: 505px;
+    min-width: 760px;
     border-collapse: collapse;
     font-variant-numeric: tabular-nums;
-    font-size: 13px;
+    font-size: var(--type-table);
 }
 .uvCandidates th, .uvCandidates td {
-    padding: 8px 9px;
+    box-sizing: border-box;
+    height: 32px;
+    padding: 8px 10px;
+    line-height: 16px;
     border: none;
     border-bottom: 1px solid var(--divider);
     white-space: nowrap;
     text-align: right;
+    background: transparent;
 }
-.uvCandidates thead th {font-size: 12px; font-weight: 550;}
-.uvCandidates tr:last-child td, .uvCandidates tr:last-child th[scope="row"] {border-bottom: 0;}
-.uvCandidates th:first-child {text-align: left;}
-.uvCandidates label {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    font-weight: 550;
-    cursor: pointer;
+.uvCandidates thead th {
+    font-weight: var(--weight-semibold);
+    color: var(--secondary);
+    background: var(--raised);
 }
+.uvCandidates tbody td {background: var(--panel); cursor: pointer;}
+.uvCandidates tbody tr:hover td {background: var(--controlHover);}
+.uvCandidates tr:last-child td {border-bottom: 0;}
+.uvCandidates .uvPick {width: 34px; padding-right: 0; text-align: left;}
+.uvCandidates .col-mv {text-align: left;}
+/* Long statuses ("Comparison winner · Measured…") wrap instead of clipping. */
+.uvCandidates .col-status {text-align: left; color: var(--secondary); white-space: normal; min-width: 18ch;}
+.uvCandidates tbody tr.picked td {background: var(--selection);}
+.uvCandidates tbody tr.picked td:first-child {box-shadow: inset 2px 0 0 var(--accent);}
+.uvCandidates tbody tr.picked .col-status {color: var(--ink);}
+/* A block radio keeps the row at 32 px (no baseline strut). */
 .uvCandidates input[type="radio"] {
+    display: block;
     width: 16px;
     height: 16px;
     margin: 0;
     accent-color: var(--accent);
 }
-.uvCandidates tbody tr:has(:checked) {background: var(--selection);}
-.uvCandidates + .uvField {margin-top: 10px;}
+.uvCandidates .metricpair {
+    display: inline-grid;
+    grid-template-columns: auto 6ch;
+    gap: 6px;
+    align-items: baseline;
+}
+.uvCandidates .metricpair .delta {display: block; text-align: right;}
+.uvCandidates th.sortable button {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 0;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    font: inherit;
+}
+.uvCandidates th.sortable button:hover, .uvCandidates th.sorted button {color: var(--ink);}
+.uvCandidates .uvSortArrow {visibility: hidden; opacity: 1; width: 1ch; color: var(--accent);}
+.uvCandidates th.sortable button:is(:hover, :focus-visible) .uvSortArrow,
+.uvCandidates th.sorted .uvSortArrow {visibility: visible;}
+.uvDuration {margin-top: var(--space-md);}
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
 @media (max-width: 570px) {
     #panel:has(.uvDialog) {width: calc(100% - 12px); max-height: calc(100dvh - 12px);}
     .uvDialog {max-height: calc(100dvh - 14px);}
-    .uvHeader, .uvFooter {padding: 12px 14px;}
+    .uvHeader, .uvFooter {padding: var(--space-md) 14px;}
     .uvBody {padding-inline: 14px;}
     .uvField {align-items: flex-start; flex-wrap: wrap;}
+    .uvGpuPick, .uvGpuPick select {min-width: 0; width: 100%;}
     .uvCandidates table {min-width: 0;}
     .uvCandidates thead {
         position: absolute;
@@ -173,21 +270,26 @@
     .uvCandidates tbody tr {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 8px;
+        gap: var(--space-sm);
         padding: 9px 12px;
     }
     .uvCandidates tbody tr + tr {border-top: 1px solid var(--divider);}
-    .uvCandidates tbody th, .uvCandidates tbody td {
+    .uvCandidates tbody td {
+        height: auto;
         border: 0;
         text-align: left;
         padding: 0;
+        background: transparent;
     }
+    .uvCandidates tbody tr.picked {background: var(--selection);}
+    .uvCandidates .uvPick {grid-column: 1 / -1;}
     .uvCandidates td::before {
         content: attr(data-label);
         display: block;
         color: var(--secondary);
-        font-size: 11px;
+        font-size: var(--type-caption);
     }
+    .uvCandidates .col-status {grid-column: 1 / -1;}
     .uvInputGroup {margin-left: auto;}
     .uvFooter {flex-wrap: wrap;}
     .uvActions {margin-left: auto;}

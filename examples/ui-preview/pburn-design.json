@@ -1,34 +1,94 @@
 {
   "name": "PenguinBurner",
-  "colors": {
-    "window": "#121516",
-    "panel": "#191D1E",
-    "raised": "#222829",
-    "control": "#262D2D",
-    "border": "#363F3E",
-    "divider": "#2C3333",
-    "ink": "#EBEFEC",
-    "secondary": "#AFB9B3",
-    "quiet": "#949F99",
-    "primary": "#315F48",
-    "primaryHover": "#3C7156",
-    "onPrimary": "#F1F7F2",
-    "selection": "#24392E",
-    "accent": "#A1D5AF",
-    "focus": "#A8E2B9",
-    "gain": "#91BBA2",
-    "loss": "#D29C9A",
-    "warning": "#D4B583",
-    "baseCurve": "#A9B3AD",
-    "candidateCurve": "#F5F8F6",
-    "selectedCurve": "#CF76FF",
-    "efficiency": "#20DB78",
-    "balanced": "#FFB319",
-    "performance": "#FF5547",
-    "plotSurface": "#101315",
-    "gridMinor": "#1D2323",
-    "gridMajor": "#353E3B",
-    "curveHistory": "#64716C"
+  "appearance": {
+    "theme": "dark",
+    "accent": "system",
+    "font": "custom"
+  },
+  "themes": {
+    "dark": {
+      "window": "#111418",
+      "panel": "#171B21",
+      "raised": "#1E232B",
+      "control": "#252B34",
+      "controlHover": "#303846",
+      "border": "#3A4352",
+      "divider": "#2E3440",
+      "ink": "#E6EDF3",
+      "secondary": "#AEB7C2",
+      "quiet": "#8B94A1",
+      "gain": "#86E0AE",
+      "loss": "#F08A80",
+      "warning": "#E9B75A",
+      "severe": "#F06A63",
+      "plotSurface": "#0D1014",
+      "gridMinor": "#1A1F26",
+      "gridMajor": "#2C333D",
+      "baseCurve": "#9AA4B2",
+      "curveHistory": "#4D5663",
+      "candidateCurve": "#F2F5F7",
+      "selectedCurve": "#F2F5F7",
+      "efficiency": "#5ADB8F",
+      "balanced": "#5BB8E8",
+      "performance": "#F59B42"
+    },
+    "light": {
+      "window": "#EEF1F5",
+      "panel": "#FFFFFF",
+      "raised": "#F3F5F8",
+      "control": "#F6F8FA",
+      "controlHover": "#E6EAF0",
+      "border": "#C5CDD8",
+      "divider": "#DDE2E9",
+      "ink": "#161B22",
+      "secondary": "#4B5563",
+      "quiet": "#687180",
+      "gain": "#1B7F45",
+      "loss": "#C0392B",
+      "warning": "#946000",
+      "severe": "#C62828",
+      "plotSurface": "#FFFFFF",
+      "gridMinor": "#EEF1F4",
+      "gridMajor": "#D5DBE3",
+      "baseCurve": "#6B7685",
+      "curveHistory": "#B3BCC8",
+      "candidateCurve": "#161B22",
+      "selectedCurve": "#161B22",
+      "efficiency": "#1E9A52",
+      "balanced": "#1C78B0",
+      "performance": "#C2620C"
+    }
+  },
+  "accents": {
+    "penguinburner": {
+      "label": "PenguinBurner",
+      "seed": "#2F6F55",
+      "dark": {
+        "primary": "#2F6F55",
+        "primaryHover": "#357C5F",
+        "primaryPressed": "#244D3B",
+        "primaryBorder": "#3D8D6D",
+        "selection": "#263C2F",
+        "accent": "#72D596",
+        "focus": "#8BE3A8"
+      }
+    },
+    "blue": {
+      "label": "Blue",
+      "seed": "#3B82F6"
+    },
+    "violet": {
+      "label": "Violet",
+      "seed": "#8B5CF6"
+    },
+    "pink": {
+      "label": "Pink",
+      "seed": "#DB2777"
+    },
+    "graphite": {
+      "label": "Graphite",
+      "seed": "#64748B"
+    }
   },
   "typography": {
     "family": "Inter",
@@ -37,6 +97,11 @@
     "body": 14,
     "caption": 12,
     "table": 12
+  },
+  "weights": {
+    "regular": 400,
+    "semibold": 600,
+    "bold": 700
   },
   "spacing": {
     "xs": 4,
@@ -54,5 +119,13 @@
     "setupNote": "Auto UV tests lower GPU voltages to reduce power use while checking performance and stability.",
     "aboutPurpose": "PenguinBurner tunes your GPU to use less power while you play.",
     "targetCaution": "Custom voltage or clock targets can cause instability."
+  },
+  "notes": {
+    "selectedCurve": "Fallback for a selected run without a tier. A tiered selected run uses its own tier colour at 3px over a 5px plotSurface halo; other traces dim to 35% alpha.",
+    "severe": "Worst hitch end of the frametime warning-to-severe gradient.",
+    "tierCheck": "Tier colours checked with Machado CVD matrices: min pairwise CIELAB dE deutan 36.9, protan 26.4, tritan 13.4. Performance moved from #F0A04B to #F59B42 because Efficiency/Performance was 23.1 under protanopia; Balanced already passed and stays #5BB8E8.",
+    "themes": "Dark keeps the shipped app's neutral blue-grey surfaces (ui/theme.py); the PenguinBurner accent pins its button greens. Other accents and every light accent derive from a seed in tokens.py. Light tier colours are darker versions of the dark hues.",
+    "fonts": "Inter ships in fonts/ (SIL OFL 1.1). Custom uses it unless another family is picked; System uses the desktop's general font at the token sizes.",
+    "systemAccent": "The default accent follows the desktop (XDG portal org.freedesktop.appearance accent-color, else the Qt palette). With no desktop accent it falls back to the PenguinBurner preset, the shipped app's greens."
   }
 }
