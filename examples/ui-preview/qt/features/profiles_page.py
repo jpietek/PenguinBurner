@@ -50,13 +50,6 @@ from qt.components.profile_model import (
     StatusLines,
     Target,
 )
-from qt.components.profile_style import (
-    apply_style,
-    divider,
-    repolish,
-    text_label,
-    trash_icon,
-)
 from qt.components.profile_table import ProfileTable, TableRow
 from ui.components.page_header import PAGE_MARGINS, PageHeader
 from ui.components.profile_list import (
@@ -64,6 +57,13 @@ from ui.components.profile_list import (
     _profile_name,
     _profile_source_label,
     _to_float,
+)
+from ui.components.profile_style import (
+    apply_style,
+    divider,
+    repolish,
+    text_label,
+    trash_icon,
 )
 from ui.design.style import GAP
 from ui.dialogs.error_details import process_failure_details, show_error_dialog

@@ -8,9 +8,9 @@ cadence) and ``runtime/frame_history.py`` (floor-index percentiles and the
 the figure is restyled to the preview's green design tokens (``ui/design/style.py``).
 
 The model half is pure Python and knows nothing about where a ring comes
-from: a page receives a ``PerfProfileSource`` (the preview passes the sample
-adapter in ``qt.sample.perf_rings``; the real app would pass a daemon
-adapter reading ``runtime/frame_history``).
+from: a page receives a ``PerfProfileSource`` (the app passes
+``ui.features.library.perf_source.RuntimePerfSource`` over
+``runtime/frame_history``; the UI preview passes its sample rings).
 """
 
 from __future__ import annotations
@@ -368,6 +368,7 @@ class _ReferenceAxis(pg.AxisItem):
         return super().boundingRect().adjusted(0, -12, 0, 12)
 
     def drawPicture(self, p, axisSpec, tickSpecs, textSpecs):
+        del axisSpec, tickSpecs  # pyqtgraph's signature; only the labels are drawn
         p.setRenderHint(G.QPainter.RenderHint.TextAntialiasing, True)
         specs = sorted(textSpecs, key=lambda spec: spec[0].center().y())
         if len(specs) == 2:

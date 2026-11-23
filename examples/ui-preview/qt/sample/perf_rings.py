@@ -1,6 +1,6 @@
 """Deterministic sample frame rings for the Perf Profile preview.
 
-Implements ``PerfProfileSource`` from ``qt.components.perf_profile_plot`` for
+Implements ``PerfProfileSource`` from ``ui.components.perf_profile_plot`` for
 the sample Game Library (keys are ``<launcher>:<id>``, as
 ``native_library.GAMES`` and ``ui.components.game_library_panel.game_key``
 build them). The generator follows the browser prototype's
@@ -30,7 +30,7 @@ import zlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from qt.components.perf_profile_plot import (
+from ui.components.perf_profile_plot import (
     QUALIFY_MINUTES,
     PerfRecording,
     PerfSummary,

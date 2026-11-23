@@ -1,5 +1,8 @@
-"""Shared card-page look for the Game Library and In-Game Overlay pages:
-their base style sheet, and preference-group headings moved inside cards."""
+"""Shared look of the Game Library and In-Game Overlay pages.
+
+Base rules for both pages in the current theme, plus the two helpers that put
+a preference group's heading inside its card, as on every other page.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +12,7 @@ from PySide6 import QtWidgets as W
 from ui.design.style import COL, GAP, RAD, TYPE, control_icons
 
 
-class Roles:
+class _Roles:
     """Attribute access to a design dict that reads the current value, so
     rules built after an Appearance change pick up the new theme."""
 
@@ -23,10 +26,10 @@ class Roles:
             raise AttributeError(name) from None
 
 
-c = Roles(COL)
-t = Roles(TYPE)
-sp = Roles(GAP)
-r = Roles(RAD)
+c = _Roles(COL)
+t = _Roles(TYPE)
+sp = _Roles(GAP)
+r = _Roles(RAD)
 
 
 def library_stylesheet() -> str:

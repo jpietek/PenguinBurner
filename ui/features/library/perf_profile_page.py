@@ -17,13 +17,14 @@ from PySide6 import QtCore as C
 from PySide6 import QtGui as G
 from PySide6 import QtWidgets as W
 
-from qt.components.perf_entry import keyboard_focus_ring
-from qt.components.perf_fingerprint import (
+from ui.components.page_header import PAGE_MARGINS
+from ui.components.perf_entry import keyboard_focus_ring
+from ui.components.perf_fingerprint import (
     PerfFingerprint,
     axes_tooltip,
     perf_profile_axes,
 )
-from qt.components.perf_profile_plot import (
+from ui.components.perf_profile_plot import (
     FrametimeFigure,
     LegendSwatch,
     PerfProfileSource,
@@ -37,8 +38,7 @@ from qt.components.perf_profile_plot import (
     tier_label,
     warming_text,
 )
-from qt.components.profile_style import Pill
-from ui.components.page_header import PAGE_MARGINS
+from ui.components.profile_style import Pill
 from ui.design.style import COL, GAP, RAD, TYPE, WEIGHT, focus_visible, qcolor
 
 THREE_COLUMN_WIDTH = 960

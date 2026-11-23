@@ -21,7 +21,7 @@ from PySide6 import QtWidgets as W
 from integrations.launchers.library import LibraryGame
 from integrations.steam.library import game_hero_path
 from integrations.steam.users import default_steam_root
-from ui.components.card_style import (
+from ui.components.library_style import (
     heading_into_card,
     library_stylesheet,
     normalize_group_headings,

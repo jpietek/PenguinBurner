@@ -9,6 +9,7 @@ from cli.runtime_config_file import (
 )
 from common.penguin_burner_paths import default_user_config_dir
 from profiles.uv.profile_store import STOCK_PROFILE_SELECTOR
+from profiles.uv.profile_tiers import adaptive_tier_available
 from runtime.daemon_commands import scan_command
 from ui.assets import asset_image_path
 from ui.components.auto_uv_tier_progress import AutoUvTierProgress
@@ -30,7 +31,6 @@ from ui.features.curves.curve_tabs import CurveTabs
 from ui.features.integrations.afterburner_workflow import AfterburnerImportWorkflow
 from ui.features.profiles.profile_actions import ProfileActionsMixin
 from ui.features.profiles.profiles import (
-    adaptive_profile_tier_labels,
     load_profile_summaries,
     penguin_burner_runtime_is_active,
     runner_status_parts,
@@ -183,14 +183,13 @@ class MainWindow(ProfileActionsMixin):
             QtCore=self.QtCore,
             QtGui=self.QtGui,
             QtWidgets=self.QtWidgets,
-            adaptive_available=lambda gpu_uuid="", include_legacy_profiles=False: len(
-                adaptive_profile_tier_labels(
+            adaptive_available=lambda gpu_uuid="", include_legacy_profiles=False: (
+                adaptive_tier_available(
                     self.profile_summaries,
                     gpu_uuid=gpu_uuid,
                     include_legacy_profiles=include_legacy_profiles,
                 )
-            )
-            >= 1,
+            ),
             gpu_choices=detected_gpu_choices,
         )
         self.game_perf_profile_panel = GamePerfProfilePanel(

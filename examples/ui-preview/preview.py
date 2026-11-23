@@ -22,7 +22,6 @@ from PySide6 import QtWidgets as W
 from qt.components.adaptive_game_picker import AdaptiveGame, AdaptiveGamePicker
 from qt.components.profile_model import STOCK
 from qt.components.table_style import apply_table_spec
-from qt.features.perf_profile_page import PerfProfilePage
 from qt.features.profiles_page import CurveEditors, ProfilesPage
 from qt.sample.perf_rings import LIVE_KEY, SamplePerfSource
 from qt.sample.profiles_source import SampleProfilesSource
@@ -57,6 +56,7 @@ from ui.dialogs import about, afterburner_import, scan_tuning
 from ui.dialogs.appearance import AppearanceDialog
 from ui.dialogs.error_details import process_failure_details, show_error_dialog
 from ui.dialogs.final_choice import select_final_candidate
+from ui.features.library.perf_profile_page import PerfProfilePage
 from ui.features.tuning.tuning import AutoUvNvmlInfo
 from ui.qt import apply_dark_palette
 from ui.shell_window import header_icon_button, label, shell_section
