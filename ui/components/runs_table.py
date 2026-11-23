@@ -2,8 +2,32 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from auto_uv.session.scan_events import probe_decision_label, probe_reason_tooltip
+from auto_uv.session.scan_runs import (
+    format_duration_compact,
+    format_float,
+    format_int,
+    format_oc_progress,
+    format_oc_progress_for_payload,
+    format_signed_mhz,
+    is_active_decision,
+    is_base_baseline,
+    measured_clock_value,
+    oc_from_measured_baseline,
+    payload_oc_progress,
+    payload_progress,
+    perf_cap_reason_text,
+    perf_cap_reason_tooltip,
+    probe_key,
+    progress_label,
+    progress_time_text,
+    to_float,
+)
+from auto_uv.session.scan_runs import (
+    row_state as scan_row_state,
+)
+
 from .. import theme
-from ..models import probe_decision_label, probe_failure_label, probe_reason_tooltip
 from .table_sizing import set_header_fit_column_widths
 
 
@@ -126,32 +150,32 @@ class RunsTable:
         return int(bar.value()) >= int(bar.maximum()) - 1
 
     def record_candidate_curve(self, payload: dict) -> None:
-        if _is_base_baseline(payload):
-            row = self._find_row_by_probe_key(_probe_key(payload))
+        if is_base_baseline(payload):
+            row = self._find_row_by_probe_key(probe_key(payload))
             if row is not None:
                 row_state = (
                     "running"
-                    if _is_active_decision(self._cell_text(row, self.DECISION_COLUMN))
-                    else _row_state(payload, running=False)
+                    if is_active_decision(self._cell_text(row, self.DECISION_COLUMN))
+                    else scan_row_state(payload, running=False)
                 )
                 self._set_base_baseline_oc_cell(row, row_state=row_state)
             return
-        oc_progress = _payload_oc_from_measured_baseline(
+        oc_progress = oc_from_measured_baseline(
             payload,
             self.base_baseline,
         )
         if oc_progress is None:
-            oc_progress = _payload_curve_oc_progress(payload)
+            oc_progress = payload_oc_progress(payload)
         if oc_progress is None:
             return
-        key = _probe_key(payload)
+        key = probe_key(payload)
         self._oc_progress_by_probe[key] = oc_progress
         row = self._find_row_by_probe_key(key)
         if row is not None:
             row_state = (
                 "running"
-                if _is_active_decision(self._cell_text(row, self.DECISION_COLUMN))
-                else _row_state(payload, running=False)
+                if is_active_decision(self._cell_text(row, self.DECISION_COLUMN))
+                else scan_row_state(payload, running=False)
             )
             self._set_oc_cell(
                 row,
@@ -163,8 +187,8 @@ class RunsTable:
         row = self._find_running_row(payload)
         if row is None:
             return
-        progress = self._merged_progress(_probe_key(payload), _payload_progress(payload))
-        self._progress_by_probe[_probe_key(payload)] = progress
+        progress = self._merged_progress(probe_key(payload), payload_progress(payload))
+        self._progress_by_probe[probe_key(payload)] = progress
         self._set_perf_cap_cell(row, payload, row_state="running")
         self._set_status_progress_cell(
             row,
@@ -205,7 +229,7 @@ class RunsTable:
             )
 
     def add_probe_result(self, payload: dict) -> None:
-        if _is_base_baseline(payload):
+        if is_base_baseline(payload):
             self.base_baseline = dict(payload)
         row = self._find_running_row(payload)
         if row is None:
@@ -214,7 +238,7 @@ class RunsTable:
         self._write_row(row, payload, running=False)
 
     def _write_row(self, row: int, payload: dict, *, running: bool) -> None:
-        row_state = _row_state(payload, running=running)
+        row_state = scan_row_state(payload, running=running)
         values = self._row_values(row, payload, running=running)
         if len(values) != len(self.COLUMNS):
             raise RuntimeError(
@@ -226,7 +250,7 @@ class RunsTable:
         self._paint_delta_cell(
             row,
             self.FPS_COLUMN,
-            _to_float(payload.get("fps")),
+            to_float(payload.get("fps")),
             higher_is_better=True,
             bold=False,
             label="FPS",
@@ -234,17 +258,17 @@ class RunsTable:
         self._paint_delta_cell(
             row,
             self.POWER_COLUMN,
-            _to_float(payload.get("power_w")),
+            to_float(payload.get("power_w")),
             higher_is_better=False,
             bold=True,
             label="Power W",
         )
         self._paint_fpsw_cell(row, payload)
         self._set_perf_cap_cell(row, payload, row_state=row_state)
-        key = _probe_key(payload)
-        progress = self._merged_progress(key, _payload_progress(payload))
+        key = probe_key(payload)
+        progress = self._merged_progress(key, payload_progress(payload))
         if not running:
-            label = _progress_label(payload)
+            label = progress_label(payload)
             if label:
                 progress = dict(progress)
                 progress["label"] = label
@@ -264,18 +288,18 @@ class RunsTable:
         decision = "Running" if running else probe_decision_label(payload)
         return [
             f"{int(row) + 1}.",
-            _format_int(payload.get("voltage_mv")),
-            _format_int(payload.get("clock_mhz")),
-            _format_oc_progress_for_payload(
+            format_int(payload.get("voltage_mv")),
+            format_int(payload.get("clock_mhz")),
+            format_oc_progress_for_payload(
                 payload,
                 self._oc_progress_for_payload(payload),
             ),
-            _format_float(_measured_clock_value(payload)),
+            format_float(measured_clock_value(payload)),
             self._metric_text_with_delta(payload.get("fps"), "fps"),
             self._metric_text_with_delta(payload.get("power_w"), "power_w"),
-            _format_float(payload.get("temp_c")),
-            _format_float(payload.get("fan_pct")),
-            _perf_cap_reason_text(
+            format_float(payload.get("temp_c")),
+            format_float(payload.get("fan_pct")),
+            perf_cap_reason_text(
                 payload.get("perf_cap_reason"),
                 payload.get("hw_power_brake_samples"),
             ),
@@ -302,19 +326,19 @@ class RunsTable:
         return progress
 
     def _oc_progress_for_payload(self, payload: dict) -> tuple[int, int] | None:
-        measured_oc = _payload_oc_from_measured_baseline(payload, self.base_baseline)
+        measured_oc = oc_from_measured_baseline(payload, self.base_baseline)
         if measured_oc is not None:
             return measured_oc
-        cached_oc = self._oc_progress_by_probe.get(_probe_key(payload))
+        cached_oc = self._oc_progress_by_probe.get(probe_key(payload))
         if cached_oc is not None:
             return cached_oc
-        payload_oc = _payload_oc_progress(payload)
+        payload_oc = payload_oc_progress(payload)
         if payload_oc is not None:
             return payload_oc
-        return _payload_oc_from_measured_baseline(payload, self.base_baseline)
+        return oc_from_measured_baseline(payload, self.base_baseline)
 
     def _metric_text_with_delta(self, value, baseline_key: str) -> str:
-        value_text = _format_float(value, precision=4 if baseline_key == "efficiency_fps_per_w" else 2)
+        value_text = format_float(value, precision=4 if baseline_key == "efficiency_fps_per_w" else 2)
         if not value_text:
             return ""
         delta_text = self._delta_text(value, baseline_key)
@@ -329,11 +353,11 @@ class RunsTable:
     ) -> str:
         if self.base_baseline is None:
             return ""
-        if _is_base_baseline(self.base_baseline):
-            baseline = _to_float(self.base_baseline.get(baseline_key))
+        if is_base_baseline(self.base_baseline):
+            baseline = to_float(self.base_baseline.get(baseline_key))
         else:
             baseline = None
-        current = _to_float(value)
+        current = to_float(value)
         if current is None or baseline is None or baseline == 0.0:
             return ""
         if current == baseline:
@@ -355,7 +379,7 @@ class RunsTable:
         if item is None or self.base_baseline is None or value is None:
             return
         baseline_key = "fps" if higher_is_better else "power_w"
-        baseline = _to_float(self.base_baseline.get(baseline_key))
+        baseline = to_float(self.base_baseline.get(baseline_key))
         if baseline is None or baseline == 0.0:
             return
         delta_pct = ((float(value) - baseline) / baseline) * 100.0
@@ -378,19 +402,19 @@ class RunsTable:
         item.setForeground(self.QtGui.QColor(color))
         if bold:
             item.setFont(_bold_font(item))
-        base_text = _format_float(baseline)
+        base_text = format_float(baseline)
         if base_text:
             item.setToolTip(f"{label} {delta_pct:+.2f}% vs base {base_text}")
 
     def _paint_fpsw_cell(self, row: int, payload: dict) -> None:
         item = self.widget.item(row, self.FPSW_COLUMN)
-        value = _to_float(payload.get("efficiency_fps_per_w"))
+        value = to_float(payload.get("efficiency_fps_per_w"))
         if item is None or value is None or self.base_baseline is None:
             return
-        baseline = _to_float(self.base_baseline.get("efficiency_fps_per_w"))
+        baseline = to_float(self.base_baseline.get("efficiency_fps_per_w"))
         if baseline is None or baseline == 0.0:
             return
-        if _is_base_baseline(payload):
+        if is_base_baseline(payload):
             item.setToolTip("Base FPS/W reference")
             return
         delta_pct = ((float(value) - baseline) / baseline) * 100.0
@@ -405,7 +429,7 @@ class RunsTable:
         item.setToolTip(f"FPS/W {delta_pct:+.2f}% vs base")
 
     def _set_perf_cap_cell(self, row: int, payload: dict, *, row_state: str) -> None:
-        reason_text = _perf_cap_reason_text(
+        reason_text = perf_cap_reason_text(
             payload.get("perf_cap_reason"),
             payload.get("hw_power_brake_samples"),
         )
@@ -419,7 +443,7 @@ class RunsTable:
             self.widget.setItem(row, self.PERF_CAP_COLUMN, item)
         elif reason_text:
             item.setText(reason_text)
-        tooltip = _perf_cap_reason_tooltip(
+        tooltip = perf_cap_reason_tooltip(
             payload.get("perf_cap_reason"),
             payload.get("hw_power_brake_samples"),
         )
@@ -434,8 +458,8 @@ class RunsTable:
         running: bool,
         row_state: str,
     ) -> None:
-        elapsed = _to_float((progress or {}).get("elapsed_s"))
-        target = _to_float((progress or {}).get("target_duration_s"))
+        elapsed = to_float((progress or {}).get("elapsed_s"))
+        target = to_float((progress or {}).get("target_duration_s"))
         label = str((progress or {}).get("label") or "").strip()
         bar = self._make_progress_bar(row, self.STATUS_COLUMN)
         bar.setTextVisible(True)
@@ -453,11 +477,11 @@ class RunsTable:
                 shown_elapsed = float(target)
             bar.setRange(0, 1000)
             bar.setValue(round(ratio * 1000.0))
-            time_text = _progress_time_text(shown_elapsed, target)
+            time_text = progress_time_text(shown_elapsed, target)
             bar.setFormat(f"{label} {time_text}" if label else time_text)
             bar.setToolTip(
-                f"Stability progress: {_format_duration_compact(shown_elapsed)} / "
-                f"{_format_duration_compact(target)}"
+                f"Stability progress: {format_duration_compact(shown_elapsed)} / "
+                f"{format_duration_compact(target)}"
             )
         elif running:
             self.widget.removeCellWidget(row, self.STATUS_COLUMN)
@@ -482,9 +506,9 @@ class RunsTable:
         self.widget.setCellWidget(row, self.STATUS_COLUMN, bar)
 
     def _find_running_row(self, payload: dict) -> int | None:
-        key = _probe_key(payload)
+        key = probe_key(payload)
         for row in range(self.widget.rowCount() - 1, -1, -1):
-            if not _is_active_decision(self._cell_text(row, self.DECISION_COLUMN)):
+            if not is_active_decision(self._cell_text(row, self.DECISION_COLUMN)):
                 continue
             if self._row_probe_key(row) == key:
                 return row
@@ -507,7 +531,7 @@ class RunsTable:
         return [
             row
             for row in range(self.widget.rowCount())
-            if _is_active_decision(self._cell_text(row, self.DECISION_COLUMN))
+            if is_active_decision(self._cell_text(row, self.DECISION_COLUMN))
         ]
 
     def _row_progress(self, row: int, *, label: str) -> dict:
@@ -627,7 +651,7 @@ class RunsTable:
         row_state: str,
     ) -> None:
         item = self.widget_item(
-            _format_oc_progress(oc_progress),
+            format_oc_progress(oc_progress),
             row_state=row_state,
             column=self.OC_MHZ_COLUMN,
         )
@@ -635,7 +659,7 @@ class RunsTable:
             oc_mhz, _limit_mhz = oc_progress
             item.setToolTip(
                 "Target clock delta from measured baseline: "
-                f"{_format_signed_mhz(int(oc_mhz))}"
+                f"{format_signed_mhz(int(oc_mhz))}"
             )
         self.widget.setItem(row, self.OC_MHZ_COLUMN, item)
 
@@ -671,43 +695,6 @@ class RunsTable:
             item.setBackground(self.QtGui.QColor(theme.SURFACE_BG))
             item.setForeground(self.QtGui.QColor(theme.TEXT))
         return item
-
-
-def _row_state(payload: dict, *, running: bool) -> str:
-    if running:
-        return "running"
-    stage = str(payload.get("stage", "")).lower()
-    decision = str(payload.get("decision", payload.get("status", ""))).lower()
-    severity = str(payload.get("failure_severity", "")).lower()
-    reason = str(payload.get("reason", "")).lower()
-    text = f"{decision} {reason}"
-    if (
-        "base" in stage or "stock" in stage or stage == "baseline"
-    ) and "fail" not in text and "error" not in text:
-        return "baseline"
-    if severity == "recoverable":
-        return "warning"
-    if severity in {"critical", "unsafe"}:
-        return "error"
-    if any(token in text for token in ("fail", "failed", "error", "crash", "stall", "timeout")):
-        return "error"
-    if any(
-        token in text
-        for token in (
-            "warn",
-            "guardrail",
-            "floor",
-            "miss",
-            "retry",
-            "overclock",
-            "reject",
-            "budget",
-        )
-    ):
-        return "warning"
-    if decision in {"accept", "pass"}:
-        return "good"
-    return "neutral"
 
 
 def _row_colors(row_state: str) -> dict[str, str]:
@@ -787,214 +774,3 @@ def _clickable_progress_bar_class(QtWidgets):
             super().mousePressEvent(event)
 
     return RowClickableProgressBar
-
-
-def _is_base_baseline(payload: dict) -> bool:
-    stage = str(payload.get("stage", "")).lower()
-    return stage in {"base-baseline", "stock-baseline"}
-
-
-def _probe_key(payload: dict) -> tuple[str, str]:
-    return (_format_int(payload.get("voltage_mv")), _format_int(payload.get("clock_mhz")))
-
-
-def _is_active_decision(text: str) -> bool:
-    return str(text or "").strip().lower() in {"running", "stopping"}
-
-
-def _progress_label(payload: dict) -> str:
-    stage = str(payload.get("stage", "")).lower()
-    decision = str(payload.get("decision", "")).strip().lower()
-    if decision in {"fail", "failed", "error"}:
-        return probe_failure_label(payload)
-    if "final" in stage:
-        return "Final verification"
-    return ""
-
-
-def _payload_progress(payload: dict) -> dict:
-    return {
-        "elapsed_s": _to_float(payload.get("elapsed_s")),
-        "target_duration_s": _to_float(payload.get("target_duration_s")),
-        "label": _progress_label(payload),
-    }
-
-
-def _payload_curve_oc_progress(payload: dict) -> tuple[int, int] | None:
-    return _payload_oc_progress(payload)
-
-
-def _payload_oc_progress(payload: dict) -> tuple[int, int] | None:
-    return _payload_oc_from_measured_baseline(payload, None)
-
-
-def _payload_oc_from_measured_baseline(
-    payload: dict,
-    baseline_payload: dict | None,
-) -> tuple[int, int] | None:
-    target_clock_mhz = _payload_number(
-        payload,
-        "lock_clock_mhz",
-        "clock_mhz",
-        "target_clock_mhz",
-        "auto_oc_target_clock_mhz",
-    )
-    baseline_clock_mhz = _payload_measured_baseline_clock_mhz(
-        payload,
-        baseline_payload,
-    )
-    if target_clock_mhz is None or baseline_clock_mhz is None:
-        return None
-    delta_mhz = round(float(target_clock_mhz) - float(baseline_clock_mhz))
-    return (delta_mhz, delta_mhz)
-
-
-def _payload_measured_baseline_clock_mhz(
-    payload: dict,
-    baseline_payload: dict | None,
-) -> float | None:
-    baseline_clock_mhz = _payload_number(
-        payload,
-        "auto_oc_baseline_clock_mhz",
-        "measured_baseline_clock_mhz",
-        "baseline_core_clock_mhz",
-        "baseline_clock_mhz",
-        "base_avg_core_clock_mhz",
-    )
-    if baseline_clock_mhz is not None:
-        return baseline_clock_mhz
-    if baseline_payload is None:
-        return None
-    return _payload_number(
-        baseline_payload,
-        "measured_clock_mhz",
-        "avg_core_clock_mhz",
-    )
-
-
-def _progress_time_text(elapsed_s, target_s) -> str:
-    elapsed = _clamped_elapsed_s(elapsed_s, target_s)
-    return f"{_format_duration_compact(elapsed)} / {_format_duration_compact(target_s)}"
-
-
-def _clamped_elapsed_s(elapsed_s, target_s) -> float:
-    try:
-        elapsed = max(0.0, float(elapsed_s))
-        target = max(0.0, float(target_s))
-    except (TypeError, ValueError):
-        return 0.0
-    if target > 0.0:
-        return min(elapsed, target)
-    return elapsed
-
-
-def _format_duration_compact(seconds) -> str:
-    if seconds in (None, ""):
-        return "n/a"
-    try:
-        total_seconds = max(0, round(float(seconds)))
-    except (TypeError, ValueError):
-        return "n/a"
-    if total_seconds < 60:
-        return f"{total_seconds}s"
-    if total_seconds < 3600:
-        minutes, remainder_seconds = divmod(total_seconds, 60)
-        if remainder_seconds:
-            return f"{minutes}min {remainder_seconds}s"
-        return f"{minutes}min"
-    hours, remainder_seconds = divmod(total_seconds, 3600)
-    minutes = round(remainder_seconds / 60.0)
-    if minutes >= 60:
-        hours += 1
-        minutes = 0
-    if minutes:
-        return f"{hours}h {minutes}min"
-    return f"{hours}h"
-
-
-def _measured_clock_value(payload: dict):
-    return payload.get("measured_clock_mhz", payload.get("avg_core_clock_mhz"))
-
-
-def _payload_number(payload: dict, *keys: str):
-    for key in keys:
-        value = _to_float(payload.get(key))
-        if value is not None:
-            return value
-    return None
-
-
-def _perf_cap_reason_text(value, hw_power_brake_samples: object = 0) -> str:
-    text = str(value or "").strip().replace(",", "+")
-    if not _brake_count(hw_power_brake_samples):
-        return text
-    # The summarizer may suppress a sparse power token, but a power-delivery
-    # brake is never something the Cap column should quietly drop.
-    if "power-brake" in text.lower():
-        return text
-    return f"{text}+hw-power-brake" if text and text != "none" else "hw-power-brake"
-
-
-def _perf_cap_reason_tooltip(value, hw_power_brake_samples: object = 0) -> str:
-    text = _perf_cap_reason_text(value, hw_power_brake_samples)
-    if not text:
-        return ""
-    tooltip = f"NVML clocks throttle reason: {text}"
-    brake_samples = _brake_count(hw_power_brake_samples)
-    if brake_samples:
-        tooltip += (
-            f"\nhw-power-brake on {brake_samples} samples: the board's power "
-            "delivery limited the clock, not the configured power limit"
-        )
-    return tooltip
-
-
-def _brake_count(value: object) -> int:
-    number = _to_float(value)
-    return max(0, int(number)) if number is not None else 0
-
-
-def _to_float(value) -> float | None:
-    if value in (None, ""):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _format_int(value) -> str:
-    number = _to_float(value)
-    if number is None:
-        return ""
-    return str(round(number))
-
-
-def _format_oc_progress(value: tuple[int, int] | None) -> str:
-    # Auto-OC runs only as a late stage of a Performance scan, so most rows
-    # (the whole UV sweep, and every Efficiency/Balanced row) have no OC data.
-    # Leave those cells blank rather than showing a zero-like placeholder.
-    if value is None:
-        return ""
-    oc_mhz, _limit_mhz = value
-    return _format_signed_mhz(round(float(oc_mhz)))
-
-
-def _format_oc_progress_for_payload(
-    payload: dict,
-    value: tuple[int, int] | None,
-) -> str:
-    if _is_base_baseline(payload):
-        return "-"
-    return _format_oc_progress(value)
-
-
-def _format_signed_mhz(value: int) -> str:
-    return f"{int(value):+d} MHz"
-
-
-def _format_float(value, *, precision: int = 2) -> str:
-    number = _to_float(value)
-    if number is None:
-        return ""
-    return f"{number:.{precision}f}"

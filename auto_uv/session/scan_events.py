@@ -1,3 +1,5 @@
+"""Parse the Auto-UV scan stream's JSON events into values the UI shows."""
+
 from __future__ import annotations
 
 import math

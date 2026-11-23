@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import shlex
-from pathlib import Path
 
+from auto_uv.persistence.auto_uv_persisted_json_files import auto_uv_stop_request_path
+from auto_uv.session.scan_session import ScanSession, pre_scan_silent_fan
 from cli.runtime_config_file import (
     silent_fan_curve_from_runtime_config,
     silent_fan_curve_to_runtime_config,
 )
-from common.penguin_burner_paths import default_user_config_dir
 from profiles.uv.profile_store import STOCK_PROFILE_SELECTOR
 from runtime.daemon_commands import scan_command
 from ui.assets import asset_image_path
@@ -43,7 +43,6 @@ from ui.features.tuning.gpu_selection import (
     gpu_choices_with_fallback,
     persist_runtime_gpu_index,
 )
-from ui.features.tuning.scan_resume import restore_scan_presentation
 from ui.features.tuning.verify import stop_request_path as verify_stop_request_path
 from ui.startup_checks import run_startup_checks
 
@@ -52,14 +51,6 @@ from .controllers.command import CommandController
 from .controllers.scan import ScanController
 from .controllers.verify import VerifyController
 from .error_reporting import ErrorReporter
-from .models import (
-    candidate_id_from_payload,
-    event_base_points,
-    event_points,
-    stage_title,
-    status_value,
-    top_status_text,
-)
 from .styles import STYLESHEET
 
 
@@ -73,9 +64,8 @@ class MainWindow(ProfileActionsMixin):
         self.QtCore, self.QtGui, self.QtWidgets, self.pg = qt_modules
         self.gpu_index = None if gpu_index is None else max(0, int(gpu_index))
         self.profile_summaries: list[dict] = []
-        self.pending_final_result_payload: dict | None = None
-        self.final_choice_discarded = False
-        self.final_choice_aborted = False
+        self.scan_session = ScanSession()
+        self._pre_scan_silent_fan = False
         self.last_auto_uv_candidate_id = ""
         # True once the user restored stock GPU settings and nothing has been
         # applied since; drives the "Currently running profile: default" status.
@@ -91,7 +81,7 @@ class MainWindow(ProfileActionsMixin):
         self.scan_controller = ScanController(
             QtCore=self.QtCore,
             parent=self.window,
-            stop_request_path=_stop_request_path(),
+            stop_request_path=auto_uv_stop_request_path(),
         )
         self.scan_controller.on_output = self.log_view.append
         self.scan_controller.on_event = self._handle_scan_event
@@ -381,203 +371,120 @@ class MainWindow(ProfileActionsMixin):
             )
             return
         options = {**options, "gpu_index": int(self.gpu_index)}
-        # Remember the silent-fan intent BEFORE the scan: a foreground scan
-        # resets the GPU to stock, so mid-scan the "running" profile reads as
-        # fan-off. Without this, the completion auto-apply recomputes the
-        # checkbox from that stock state and silently drops a fan curve the
-        # user had running. Capture the checkbox OR the live running profile.
-        self._pre_scan_silent_fan = bool(
-            self.profile_list.silent_fan_enabled()
-            or (
-                penguin_burner_runtime_is_active()
-                and running_auto_uv_profile_info().get("silent_fan_curve")
-            )
+        # Remember the silent-fan intent BEFORE the scan resets the GPU to
+        # stock (see pre_scan_silent_fan).
+        self._pre_scan_silent_fan = pre_scan_silent_fan(
+            self.profile_list.silent_fan_enabled(),
+            running_auto_uv_profile_info() if penguin_burner_runtime_is_active() else None,
         )
         # Bring the scan into view: the live runs/curve are on the Auto-UV tab.
         self.tabs.setCurrentIndex(self.auto_uv_tab_index)
         command = scan_command(options)
+        self.scan_session.start(options)
         self.runs_table.clear()
-        if str(options.get("auto_uv_mode") or "") == "adaptive":
-            self.auto_uv_tier_progress.start()
-        else:
-            self.auto_uv_tier_progress.clear()
         self.vf_plot.clear()
-        self.pending_final_result_payload = None
-        self.final_choice_discarded = False
-        self.final_choice_aborted = False
         self.last_auto_uv_candidate_id = ""
         # A scan applies its own curves, so the GPU is no longer at stock.
         self._defaults_restored = False
         self.controls.hide_dependency_progress()
         self.log_view.append("$ " + " ".join(shlex.quote(part) for part in command) + "\n")
-        self.header.set_stage("Starting")
-        self.header.set_candidate("Writing to main Auto-UV profile store")
-        # Show the requested memory offset immediately; the scan later confirms
-        # the actually-applied (post-clamp) value via a memory_offset_applied
-        # event. Full scans carry per-tier offsets; the efficiency (first)
-        # tier's offset is what the scan opens with. NVML offsets are
-        # transfer-rate units (MT/s); the memory clock moves by half.
-        requested_memory_offset_mt_s = options.get("auto_uv_memory_offset_mhz")
-        if requested_memory_offset_mt_s in (None, ""):
-            requested_memory_offset_mt_s = options.get(
-                "auto_uv_efficiency_memory_offset_mhz"
-            )
-        requested_memory_offset_mhz = int(requested_memory_offset_mt_s or 0) // 2
-        self.controls.set_status_text(
-            _memory_offset_status_text(requested_memory_offset_mhz)
-        )
+        self._show_scan_state()
         self.controls.set_running(True)
         self.profile_list.set_runtime_actions_enabled(False)
         if not self.scan_controller.start(command):
-            self.auto_uv_tier_progress.mark_unfinished("failed")
+            self.scan_session.start_failed()
+            self.auto_uv_tier_progress.show_states(self.scan_session.tier_states)
             self.controls.set_running(False)
             self._set_profile_actions_enabled(True)
 
     def stop_scan(self) -> None:
         if self.verify_controller.is_running():
-            self.header.set_stage("Stopping")
-            self.controls.set_status_text("Stopping profile verification.")
+            self.scan_session.request_verification_stop()
+            self.header.set_stage(self.scan_session.stage)
+            self.controls.set_status_text(self.scan_session.status)
             self.verify_controller.stop()
             return
         if not self.scan_controller.is_running():
             return
-        self.header.set_stage("Stopping")
+        update = self.scan_session.request_stop()
         self.runs_table.mark_running_rows_stopping()
-        self.controls.set_status_text("Stopping Auto-UV.")
+        self._apply_scan_update(update)
         self.scan_controller.stop()
 
     def _handle_scan_event(self, payload: dict) -> None:
-        event = str(payload.get("event", ""))
-        if event == "auto_uv_start":
-            self.header.set_stage("Scanning")
-        elif event == "scan_resumed":
-            restore_scan_presentation(self, payload)
-        elif event == "dependency_progress":
-            self._handle_dependency_progress(payload)
-        elif event == "probe_start":
-            self.controls.hide_dependency_progress()
-            self.header.set_stage(stage_title(payload.get("stage", "Probe")))
-            self.header.set_candidate(_probe_text(payload))
-            self.runs_table.add_probe_start(payload)
-            self.vf_plot.set_probe_marker(payload)
-        elif event == "probe_result":
-            self.header.set_stage(stage_title(payload.get("stage", "Probe")))
-            self.runs_table.add_probe_result(payload)
-            self.vf_plot.set_load_markers(payload)
-        elif event == "load_telemetry":
-            self.runs_table.update_probe_progress(payload)
-            self.vf_plot.set_live_load_marker(payload)
-        elif event in {"source_curve", "base_curve"}:
-            self.controls.hide_dependency_progress()
-            points = event_base_points(payload)
-            self.vf_plot.set_source_points(points)
-            self.curve_tabs.set_base_points(points)
-        elif event == "candidate_curve":
-            self.runs_table.record_candidate_curve(payload)
-            self.vf_plot.set_candidate_points(
-                event_points(payload),
-                curve_id=candidate_id_from_payload(payload),
-            )
-        elif event == "memory_offset_applied":
-            self.controls.set_status_text(
-                _memory_offset_status_text(payload.get("offset_mhz"))
-            )
-        elif event == "final_choice_request":
-            self._handle_final_choice_request(payload)
-        elif event == "final_choice_discarded":
-            self.final_choice_discarded = True
-            self.header.set_stage("Discarded")
-            self.header.set_candidate("")
-            self.controls.set_status_text(
-                "Final verification discarded. No Auto-UV profile was saved."
-            )
-        elif event == "final_result":
-            self.pending_final_result_payload = dict(payload)
-            self.last_auto_uv_candidate_id = candidate_id_from_payload(payload)
-            self.header.set_stage("Complete")
-            self.header.set_candidate(_probe_text(payload))
+        update = self.scan_session.handle_event(payload)
+        self._apply_scan_update(update)
+        if update.final_result is not None:
+            self.last_auto_uv_candidate_id = self.scan_session.last_candidate_id
             self._load_profiles()
-        elif event == "tier_started":
-            tier_name = str(payload.get("tier", ""))
-            tier_position = _tier_position_text(payload)
-            self.auto_uv_tier_progress.set_active(tier_name)
-            self.header.set_stage(f"{tier_name.title()} scan{tier_position}")
-            self.controls.set_status_text(
-                f"Scanning {tier_name.title()} profile{tier_position}."
+        if update.final_choice_request is not None:
+            self._handle_final_choice_request(update.final_choice_request)
+
+    def _apply_scan_update(self, update) -> None:
+        """Render one ScanUpdate: the session decides, the widgets show it."""
+        if update.reset:
+            self.runs_table.clear()
+            self.vf_plot.clear()
+        for restored in update.restored:
+            self._apply_scan_update(restored)
+        payload = update.payload
+        if update.event == "probe_start":
+            self.runs_table.add_probe_start(payload)
+        elif update.event == "probe_result":
+            self.runs_table.add_probe_result(payload)
+        elif update.event == "load_telemetry":
+            self.runs_table.update_probe_progress(payload)
+        elif update.event == "candidate_curve":
+            self.runs_table.record_candidate_curve(payload)
+        if update.progress is not None:
+            self.controls.set_dependency_progress(
+                update.progress.percent, detail=update.progress.detail
             )
-        elif event == "tier_descent_reused":
-            tier_name = str(payload.get("tier", ""))
-            source_tier = str(payload.get("source_tier", ""))
-            self.controls.set_status_text(
-                f"{tier_name.title()} reuses the {source_tier.title()} "
-                f"downsweep ({payload.get('voltage_mv')}mV @ "
-                f"{payload.get('target_mhz')}MHz) — starting the Auto-OC climb."
+        elif update.hide_progress:
+            self.controls.hide_dependency_progress()
+        if update.stage is not None:
+            self.header.set_stage(update.stage)
+        if update.candidate is not None:
+            self.header.set_candidate(update.candidate)
+        if update.status is not None:
+            self.controls.set_status_text(update.status)
+        if update.tiers_changed:
+            self.auto_uv_tier_progress.show_states(self.scan_session.tier_states)
+        if update.base_points is not None:
+            self.vf_plot.set_source_points(update.base_points)
+            self.curve_tabs.set_base_points(update.base_points)
+        if update.candidate_curve is not None:
+            curve_id, points = update.candidate_curve
+            self.vf_plot.set_candidate_points(points, curve_id=curve_id)
+        if update.tier_curve is not None:
+            tier, points = update.tier_curve
+            self.vf_plot.add_comparison_points(
+                points,
+                name=f"{tier.title()} tier",
+                color=_TIER_CURVE_COLORS[tier],
+                alpha=220,
+                width=2,
+                # The final tier is also the live candidate. Keep the
+                # persistent tier-colored trace above that identical
+                # green curve so Performance remains visibly red.
+                z_value=5,
             )
-        elif event == "tier_confirmed":
-            tier_name = str(payload.get("tier", ""))
-            self.controls.set_status_text(
-                f"{tier_name.title()} tier confirmed: "
-                f"{payload.get('voltage_mv')}mV @ {payload.get('target_mhz')}MHz"
-            )
-            tier_points = event_points(payload)
-            tier_color = _TIER_CURVE_COLORS.get(tier_name)
-            if tier_points and tier_color:
-                self.vf_plot.add_comparison_points(
-                    tier_points,
-                    name=f"{tier_name.title()} tier",
-                    color=tier_color,
-                    alpha=220,
-                    width=2,
-                    # The final tier is also the live candidate. Keep the
-                    # persistent tier-colored trace above that identical
-                    # green curve so Performance remains visibly red.
-                    z_value=5,
-                )
-        elif event == "tier_completed":
-            tier_name = str(payload.get("tier", ""))
-            next_tier = str(payload.get("next_tier", ""))
-            self.auto_uv_tier_progress.set_completed(tier_name)
-            self.header.set_stage(
-                f"{tier_name.title()} complete{_tier_position_text(payload)}"
-            )
-            self.controls.set_status_text(
-                f"{tier_name.title()} profile complete."
-                + (
-                    f" Continuing with {next_tier.title()}."
-                    if next_tier
-                    else " All selected profiles are complete."
-                )
-            )
-        elif event == "tier_skipped":
-            tier_name = str(payload.get("tier", ""))
-            next_tier = str(payload.get("next_tier", ""))
-            self.auto_uv_tier_progress.set_skipped(tier_name)
-            self.controls.set_status_text(
-                f"{tier_name.title()} tier skipped: "
-                f"{payload.get('reason') or 'no stable candidate found'}"
-                + (f". Continuing with {next_tier.title()}." if next_tier else "")
-            )
+        if update.probe_marker is not None:
+            self.vf_plot.set_probe_marker(update.probe_marker)
+        if update.load_marker is not None:
+            self.vf_plot.set_load_markers(update.load_marker)
+        if update.live_marker is not None:
+            self.vf_plot.set_live_load_marker(update.live_marker)
+
+    def _show_scan_state(self) -> None:
+        session = self.scan_session
+        self.header.set_stage(session.stage)
+        self.header.set_candidate(session.candidate)
+        self.controls.set_status_text(session.status)
+        self.auto_uv_tier_progress.show_states(session.tier_states)
 
     def _handle_human_line(self, line: str) -> None:
-        lower = line.lower()
-        if "final verification" in lower:
-            self.header.set_stage("Final verification")
-        elif "candidate" in lower and "mv" in lower:
-            self.header.set_stage("Undervolting Candidates Sweep")
-            self.header.set_candidate(top_status_text(line))
-        elif "auto-uv final state" in lower:
-            self.header.set_stage("Complete")
-            self.header.set_candidate(top_status_text(line))
-
-    def _handle_dependency_progress(self, payload: dict) -> None:
-        # The download status lives in the progress bar; the status label keeps
-        # showing the applied memory offset so a terminal "Dependencies are
-        # ready" no longer sits in it for the whole run.
-        detail = str(payload.get("detail") or "Downloading dependencies").strip()
-        percent = payload.get("percent", 0)
-        self.header.set_stage("Downloading dependencies")
-        self.header.set_candidate("")
-        self.controls.set_dependency_progress(percent, detail=detail)
+        self._apply_scan_update(self.scan_session.handle_human_line(line))
 
     def _handle_final_choice_request(self, payload: dict) -> None:
         result = handle_final_choice_request(
@@ -590,64 +497,47 @@ class MainWindow(ProfileActionsMixin):
             log_view=self.log_view,
             select_final_candidate_fn=select_final_candidate,
         )
-        if result.discarded:
-            self.final_choice_discarded = True
-        if result.aborted:
-            self.final_choice_aborted = True
+        self.scan_session.record_final_choice(
+            discarded=result.discarded,
+            aborted=result.aborted,
+            selected_candidate_id=result.selected_candidate_id,
+        )
         if result.selected_candidate_id:
             self.last_auto_uv_candidate_id = result.selected_candidate_id
 
     def _scan_finished(self, exit_code, exit_status, stopped_by_user: bool) -> None:
-        apply_final_profile = False
-        status_name = "finished" if int(exit_code) == 0 else "stopped"
-        self.log_view.append(f"\nAuto-UV process {status_name}: exit_code={exit_code}\n")
-        failed = int(exit_code) != 0 and not stopped_by_user
-        if self.final_choice_aborted:
-            # A user-requested abort is not a failure even though the scan
-            # process exits non-zero: label the run "Aborted", never "Failed".
-            self.header.set_stage("Aborted")
+        finish, update = self.scan_session.finish(exit_code, stopped_by_user)
+        self.log_view.append(finish.log_text)
+        label = {
+            "aborted": "Aborted",
+            "failed": "Failed",
+            "discarded": "Discarded",
+            "stopped": "Stopped",
+        }.get(finish.outcome)
+        if label:
             self.runs_table.mark_running_rows_stopped(
-                label="Aborted", row_state="warning"
+                label=label,
+                row_state="warning" if finish.outcome == "aborted" else "error",
             )
-            self.controls.set_status_text("Auto-UV aborted by user.")
-            self.auto_uv_tier_progress.mark_unfinished("stopped")
-        elif failed:
-            self.header.set_stage("Error")
-            self.runs_table.mark_running_rows_stopped(label="Failed")
-            self.controls.set_status_text("Auto-UV failed.")
-            self.auto_uv_tier_progress.mark_unfinished("failed")
+        self._apply_scan_update(update)
+        if finish.show_error:
             self.errors.show_process(
                 title="Auto-UV failed",
                 action_label="Auto-UV scan",
                 exit_code=exit_code,
                 exit_status=exit_status,
             )
-        elif self.final_choice_discarded:
-            self.header.set_stage("Discarded")
-            self.runs_table.mark_running_rows_stopped(label="Discarded")
-        elif self.pending_final_result_payload is not None:
-            self.header.set_stage("Complete")
-            self.controls.set_status_text("Final verification complete.")
+        if finish.apply_profile:
             self.tabs.setCurrentIndex(self.profiles_tab_index)
-            apply_final_profile = True
-        elif stopped_by_user:
-            self.header.set_stage("Stopped")
-            self.runs_table.mark_running_rows_stopped(label="Stopped")
-            self.auto_uv_tier_progress.mark_unfinished("stopped")
-        else:
-            self.header.set_stage("Idle")
         self.controls.set_running(False)
         self.controls.hide_dependency_progress()
         self.profile_list.set_runtime_actions_enabled(False)
-        self.pending_final_result_payload = None
-        self.final_choice_discarded = False
-        self.final_choice_aborted = False
         # The root daemon suspended the exact active RuntimeSpec before starting
         # the scan and restores it before the streaming command exits. That spec
         # may be a transient selected profile or Adaptive mode and can differ from
         # the boot/autostart profile, so the UI must not apply a second fallback.
         self._load_profiles()
-        if apply_final_profile:
+        if finish.apply_profile:
             # Restore the pre-scan silent-fan intent: the reload above may have
             # unticked the checkbox from the mid-scan stock state, and the
             # auto-apply reads the checkbox. A scan must never turn off a fan
@@ -668,34 +558,29 @@ class MainWindow(ProfileActionsMixin):
         self.curve_tabs.close_tab(index)
 
     def _verify_finished(self, exit_code, exit_status, stopped_by_user: bool) -> None:
-        success = int(exit_code) == 0
-        self.log_view.append(f"\nProfile verification finished: exit_code={exit_code}\n")
-        if success:
+        finish = self.scan_session.finish_verification(exit_code, stopped_by_user)
+        self.log_view.append(finish.log_text)
+        session = self.scan_session
+        if finish.passed:
             target = int(self.verify_controller.target_duration_s or 0)
             self.controls.set_verify_progress(
                 100,
                 elapsed_s=target,
                 target_s=target,
-                detail="Profile verification complete.",
+                detail=session.status,
             )
-            self.controls.set_status_text("Profile verification complete.")
-            self.header.set_stage("Idle")
             self.QtCore.QTimer.singleShot(2500, self.controls.hide_dependency_progress)
         else:
             self.controls.hide_dependency_progress()
-            self.controls.set_status_text(
-                "Profile verification stopped."
-                if stopped_by_user
-                else "Profile verification failed."
+        self.controls.set_status_text(session.status)
+        self.header.set_stage(session.stage)
+        if finish.show_error:
+            self.errors.show_process(
+                title="Profile verification failed",
+                action_label="Profile verification",
+                exit_code=exit_code,
+                exit_status=exit_status,
             )
-            self.header.set_stage("Idle" if stopped_by_user else "Error")
-            if not stopped_by_user:
-                self.errors.show_process(
-                    title="Profile verification failed",
-                    action_label="Profile verification",
-                    exit_code=exit_code,
-                    exit_status=exit_status,
-                )
         # The live GPU-position marker only means something while this
         # profile's own verification is running; leaving it up afterward
         # would misleadingly suggest it still reflects the current state.
@@ -704,7 +589,7 @@ class MainWindow(ProfileActionsMixin):
         # verify; clear it here too, or it keeps showing the just-verified
         # profile's name indefinitely, including through unrelated later
         # Apply actions that never touch this label themselves.
-        self.header.set_candidate("")
+        self.header.set_candidate(session.candidate)
         self.controls.set_running(False)
         self._load_profiles()
 
@@ -861,40 +746,8 @@ class MainWindow(ProfileActionsMixin):
     def _set_profile_actions_enabled(self, enabled: bool) -> None:
         self.profile_list.set_runtime_actions_enabled(bool(enabled))
 
-def _probe_text(payload: dict) -> str:
-    voltage = status_value(payload.get("voltage_mv") or payload.get("candidate_voltage_mv"))
-    clock = status_value(payload.get("clock_mhz") or payload.get("lock_clock_mhz"))
-    return f"{voltage or 'n/a'} mV @ {clock or 'n/a'} MHz"
-
-
 _TIER_CURVE_COLORS = {
     "efficiency": theme.TIER_CURVE_EFFICIENCY,
     "balanced": theme.TIER_CURVE_BALANCED,
     "performance": theme.TIER_CURVE_PERFORMANCE,
 }
-
-
-def _memory_offset_status_text(offset_mhz) -> str:
-    """Status-bar text for the memory offset applied during the scan (MHz)."""
-    try:
-        mhz = int(offset_mhz)
-    except (TypeError, ValueError):
-        mhz = 0
-    if mhz == 0:
-        return "Memory offset: none"
-    return f"Memory offset: {mhz:+d} MHz memory clock"
-
-
-def _tier_position_text(payload: dict) -> str:
-    try:
-        position = int(payload.get("position") or 0)
-        total = int(payload.get("total") or 0)
-    except (TypeError, ValueError):
-        return ""
-    if position <= 0 or total <= 0:
-        return ""
-    return f" ({position}/{total})"
-
-
-def _stop_request_path() -> Path:
-    return default_user_config_dir() / "auto-uv-stop-requested"

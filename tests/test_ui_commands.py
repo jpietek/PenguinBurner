@@ -22,9 +22,9 @@ from ui.dialogs.final_choice import (
     sort_candidates_for_final_choice as _sort_candidates_for_final_choice,
 )
 from ui.main import parse_gui_args as _parse_gui_args
-from ui.models import top_status_text as _top_status_text
-from ui.models import probe_decision_label as _probe_decision_label
-from ui.models import probe_failure_label as _probe_failure_label
+from auto_uv.session.scan_events import top_status_text as _top_status_text
+from auto_uv.session.scan_events import probe_decision_label as _probe_decision_label
+from auto_uv.session.scan_events import probe_failure_label as _probe_failure_label
 from ui.styles import STYLESHEET
 from ui.features.tuning.tuning import (
     AUTO_UV_PRESET_ADAPTIVE,
@@ -41,15 +41,14 @@ from ui.features.tuning.tuning import (
     auto_uv_target_default as _auto_uv_target_default,
     auto_uv_performance_preset_tooltip as _auto_uv_performance_preset_tooltip,
 )
-from ui.components.runs_table import (
-    RunsTable,
-    _format_duration_compact,
-    _is_active_decision,
-    _progress_label,
-    _progress_text_color,
-    _progress_time_text,
-    _row_state,
+from auto_uv.session.scan_runs import (
+    format_duration_compact as _format_duration_compact,
+    is_active_decision as _is_active_decision,
+    progress_label as _progress_label,
+    progress_time_text as _progress_time_text,
+    row_state as _row_state,
 )
+from ui.components.runs_table import RunsTable, _progress_text_color
 from ui.components.scan_controls import (
     _clamped_elapsed_s as _scan_controls_clamped_elapsed_s,
 )

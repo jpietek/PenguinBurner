@@ -68,11 +68,11 @@ from integrations.lact.export import (
 from integrations.lact.export import (
     lact_gpu_id_from_config as _lact_gpu_id_from_config,
 )
-from ui.models import candidate_id_from_payload as _candidate_id_from_result
-from ui.models import event_base_points as _event_base_points
-from ui.models import stage_title as _stage_title
-from ui.models import status_value as _status_value
-from ui.models import top_status_text as _top_status_text
+from auto_uv.session.scan_events import candidate_id_from_payload as _candidate_id_from_result
+from auto_uv.session.scan_events import event_base_points as _event_base_points
+from auto_uv.session.scan_events import stage_title as _stage_title
+from auto_uv.session.scan_events import status_value as _status_value
+from auto_uv.session.scan_events import top_status_text as _top_status_text
 from ui.features.profiles.profiles import (
     delete_confirmation_text as _profile_delete_confirmation_text,
 )

@@ -837,7 +837,7 @@ def test_scan_completion_restores_pre_scan_silent_fan(win, monkeypatch) -> None:
         window, "_run_runtime_action", lambda action: applied.append(action)
     )
     # Drive the completion path with a pending final result (auto-apply).
-    window.pending_final_result_payload = {"candidate_id": "c1"}
+    window.scan_session.final_result = {"candidate_id": "c1"}
     window._scan_finished(0, 0, False)
     window.QtCore.QCoreApplication.processEvents()
 
@@ -889,7 +889,7 @@ def test_scan_finish_leaves_exact_runtime_restoration_to_daemon(win, monkeypatch
         window.command_controller, "start",
         lambda *a, **k: started.append((a, k)) or True,
     )
-    window.final_choice_aborted = True
+    window.scan_session.aborted = True
 
     window._scan_finished(1, 0, False)
 

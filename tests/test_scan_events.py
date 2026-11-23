@@ -1,8 +1,8 @@
-"""Coverage for ui/models.py: pure payload->display transforms (no Qt)."""
+"""Coverage for auto_uv/session/scan_events.py: pure payload->display transforms (no Qt)."""
 
 from __future__ import annotations
 
-from ui.models import (
+from auto_uv.session.scan_events import (
     candidate_id_from_payload,
     event_base_points,
     event_points,

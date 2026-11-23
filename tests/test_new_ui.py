@@ -21,10 +21,10 @@ from integrations.lact.export import lact_gpu_id_from_config
 from ui.controllers.scan import ScanController
 from profiles.uv.profile_vf_curve import curve_plan_from_values
 from profiles.uv.profile_vf_curve import curve_points_from_values
-from ui.models import candidate_id_from_payload
-from ui.models import event_points
-from ui.models import fan_points
-from ui.models import stage_title
+from auto_uv.session.scan_events import candidate_id_from_payload
+from auto_uv.session.scan_events import event_points
+from auto_uv.session.scan_events import fan_points
+from auto_uv.session.scan_events import stage_title
 from ui.features.profiles.profiles import profile_can_apply
 from ui.features.profiles.profiles import profile_can_verify
 from ui.features.profiles.profiles import profile_for_selector
