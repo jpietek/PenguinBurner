@@ -1,0 +1,1698 @@
+/* pburn.css: the shared, tokenised layer for the PenguinBurner preview.
+ * Every colour, size and radius comes from pburn-design.json via the CSS
+ * custom properties emitted by build_preview.py. Feature areas layer their own
+ * rules on top in history.css, library.css, profiles.css, overlay.css and
+ * auto-uv.css. Type scale: 26/17/14/12 px, weights 400/600/700.
+ * Radii: 5 px controls, 8 px panels and dialogs, 999 px pills. */
+
+/* ---------- Base ---------- */
+:root {
+  color-scheme: dark;
+  font:
+    var(--type-body) / 1.48 var(--type-family),
+    system-ui,
+    sans-serif;
+  accent-color: var(--primaryHover);
+}
+* {
+  box-sizing: border-box;
+}
+[hidden] {
+  display: none !important;
+}
+body {
+  margin: 0;
+  background: var(--window);
+  color: var(--ink);
+}
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+h1 {
+  font-size: var(--type-title);
+  font-weight: var(--weight-bold);
+  line-height: 1.17;
+  letter-spacing: -0.6px;
+}
+h2 {
+  font-size: var(--type-section);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.2px;
+}
+h3 {
+  font-size: var(--type-body);
+  font-weight: var(--weight-semibold);
+}
+b,
+strong {
+  font-weight: var(--weight-semibold);
+}
+small,
+.caption,
+.muted {
+  font-size: var(--type-caption);
+  color: var(--secondary);
+}
+a:any-link {
+  color: var(--accent);
+}
+a:hover {
+  color: var(--focus);
+}
+::selection {
+  background: var(--primary);
+  color: var(--onPrimary);
+}
+code,
+kbd,
+samp,
+pre {
+  font:
+    var(--type-caption) / 1.45 ui-monospace,
+    monospace;
+}
+kbd {
+  display: inline-block;
+  padding: 1px 7px;
+  color: var(--ink);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--rad-control);
+}
+pre {
+  padding: var(--space-md);
+  background: var(--raised);
+  border: 1px solid var(--divider);
+  border-radius: var(--rad-control);
+  white-space: pre-wrap;
+}
+
+/* ---------- Controls ---------- */
+button,
+select,
+input,
+textarea {
+  font: inherit;
+  color: var(--ink);
+  background: var(--control);
+  border: 1px solid var(--border);
+  border-radius: var(--rad-control);
+  padding: 7px 12px;
+}
+button {
+  cursor: pointer;
+}
+button:hover {
+  background: var(--controlHover);
+  border-color: var(--quiet);
+}
+/* Longhand, so the hover fill keeps the chevron drawn below. */
+select:hover {
+  background-color: var(--controlHover);
+  border-color: var(--quiet);
+}
+button:active {
+  background: var(--raised);
+}
+input[type="checkbox"],
+input[type="radio"],
+input[type="range"] {
+  padding: 0;
+  accent-color: var(--primaryHover);
+}
+/* Select: one token chevron in every renderer (Qt draws the same arrow). */
+select {
+  appearance: none;
+  /* Every select reserves room for the chevron, whatever padding an area
+   * gives it; the one deliberate !important in this layer. */
+  padding-right: 28px !important;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--secondary) 50%),
+    linear-gradient(135deg, var(--secondary) 50%, transparent 50%);
+  background-position:
+    right 15px center,
+    right 10px center;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
+/* Range: a 4 px track filled in primaryHover up to the value (--fill is kept
+ * by shell.js), and an ink thumb ringed in primaryBorder, like the Qt slider. */
+input[type="range"] {
+  appearance: none;
+  height: 16px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: var(--rad-pill);
+  background: linear-gradient(
+    to right,
+    var(--primaryHover) 0 var(--fill, 0%),
+    var(--border) var(--fill, 0%) 100%
+  );
+}
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--ink);
+  border: 2px solid var(--primaryBorder);
+}
+input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: var(--rad-pill);
+  background: var(--border);
+}
+input[type="range"]::-moz-range-progress {
+  height: 4px;
+  border-radius: var(--rad-pill);
+  background: var(--primaryHover);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ink);
+  border: 2px solid var(--primaryBorder);
+}
+input[type="range"]:hover::-webkit-slider-thumb {
+  border-color: var(--accent);
+}
+input[type="range"]:focus-visible {
+  outline: none;
+}
+input[type="range"]:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+input[type="range"]:focus-visible::-moz-range-thumb {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+input[type="range"]:disabled::-webkit-slider-runnable-track {
+  background: var(--divider);
+}
+input[type="range"]:disabled::-webkit-slider-thumb {
+  background: var(--quiet);
+  border-color: var(--divider);
+}
+/* Progress: a bordered control track with a primary fill, like Qt's bar. */
+progress {
+  appearance: none;
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+  background: var(--control);
+  border: 1px solid var(--border);
+  border-radius: var(--rad-pill);
+}
+progress::-webkit-progress-bar {
+  background: var(--control);
+}
+progress::-webkit-progress-value {
+  background: var(--primary);
+  border-radius: var(--rad-pill);
+}
+progress::-moz-progress-bar {
+  background: var(--primary);
+  border-radius: var(--rad-pill);
+}
+textarea {
+  display: block;
+  width: 100%;
+  padding: var(--space-md);
+  margin-block: var(--space-md);
+}
+button[aria-pressed="true"] {
+  border-color: var(--accent);
+}
+/* One focus ring, keyboard only. Programmatic focus() shows nothing. */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+#main:focus {
+  outline: none;
+}
+/* One disabled style: control fill, quiet text, no opacity tricks. */
+button:disabled,
+select:disabled,
+input:disabled,
+textarea:disabled,
+button:disabled:hover {
+  cursor: default;
+  color: var(--quiet);
+  /* background-color only: the shorthand would reset the select chevron's
+     size, position and repeat. */
+  background-color: var(--control);
+  border-color: var(--divider);
+  opacity: 1;
+}
+select:disabled {
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--quiet) 50%),
+    linear-gradient(135deg, var(--quiet) 50%, transparent 50%);
+}
+input[type="range"]:disabled {
+  background: transparent;
+}
+/* At most one filled primary per view. */
+.primary,
+.start {
+  color: var(--onPrimary);
+  background: var(--primary);
+  border: 1px solid var(--primaryBorder);
+  font-weight: var(--weight-semibold);
+}
+.primary:hover,
+.start:hover {
+  background: var(--primaryHover);
+  border-color: var(--primaryBorder);
+}
+.primary:active,
+.start:active {
+  background: var(--primaryPressed);
+}
+.primary:disabled,
+.start:disabled,
+.primary:disabled:hover,
+.start:disabled:hover {
+  color: var(--quiet);
+  background: var(--control);
+  border-color: var(--divider);
+}
+select option {
+  background: var(--panel);
+  color: var(--ink);
+}
+select option:is(:hover, :focus-visible, :checked) {
+  background: var(--selection);
+  color: var(--onPrimary);
+}
+@supports (appearance: base-select) {
+  select,
+  ::picker(select) {
+    appearance: base-select;
+  }
+  /* The chevron is the background drawing above, not the native glyph. */
+  select::picker-icon {
+    display: none;
+  }
+  ::picker(select) {
+    background: var(--panel);
+    color: var(--ink);
+    border: 1px solid var(--border);
+    border-radius: var(--rad-control);
+  }
+  select option {
+    padding: 5px 10px;
+  }
+}
+
+/* Switch: on = primary track, off = quiet outline with a secondary thumb. */
+.track {
+  position: relative;
+  display: inline-block;
+  vertical-align: middle;
+  width: 42px;
+  min-width: 42px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--quiet);
+  border-radius: var(--rad-pill);
+  transition: background 0.14s;
+}
+.track i {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--secondary);
+  transition: transform 0.14s;
+}
+.track:hover {
+  background: var(--controlHover);
+  border-color: var(--secondary);
+}
+.track[aria-checked="true"] {
+  background: var(--primary);
+  border-color: var(--primaryBorder);
+}
+.track[aria-checked="true"]:hover {
+  background: var(--primaryHover);
+}
+.track[aria-checked="true"] i {
+  background: var(--onPrimary);
+  transform: translateX(16px);
+}
+.track:disabled {
+  background: transparent;
+  border-color: var(--divider);
+}
+.track:disabled i {
+  background: var(--quiet);
+}
+
+/* ---------- Shell ---------- */
+.app {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  padding: 12px clamp(16px, 4vw, 70px) 8px;
+  /* Header, status band and tabs share main's 1520 px content box. */
+  padding-inline: max(clamp(16px, 4vw, 70px), calc((100% - 1520px) / 2 + clamp(16px, 4vw, 70px)));
+  background: var(--panel);
+}
+.app .brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.app .brand img {
+  width: 30px;
+  height: 30px;
+}
+.app .brand strong {
+  font-size: var(--type-section);
+  font-weight: var(--weight-bold);
+  letter-spacing: -0.3px;
+}
+.app #aboutBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  color: var(--secondary);
+  background: transparent;
+  border-color: transparent;
+}
+.app #aboutBtn:hover {
+  color: var(--ink);
+  background: var(--controlHover);
+}
+.app #aboutBtn .aboutIcon {
+  flex: none;
+  opacity: 0.85;
+}
+.app #aboutBtn:hover .aboutIcon {
+  opacity: 1;
+}
+.tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-left: auto;
+}
+.app .tools button {
+  padding: 6px 12px;
+}
+/* The header's Setup action is the filled primary only on Auto UV. */
+body:not([data-tab="Auto UV"]) .app .tools .start:not(:disabled) {
+  color: var(--ink);
+  background: var(--control);
+  border-color: var(--accent);
+}
+body:not([data-tab="Auto UV"]) .app .tools .start:not(:disabled):hover {
+  background: var(--controlHover);
+}
+.headprogress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-left: auto;
+  font-size: var(--type-caption);
+  color: var(--secondary);
+  font-variant-numeric: tabular-nums;
+}
+.headprogress progress {
+  width: 150px;
+}
+.headprogress:not([hidden]) + .tools {
+  margin-left: var(--space-md);
+}
+.statusband {
+  display: grid;
+  padding: 0 clamp(16px, 4vw, 70px) 10px;
+  padding-inline: max(clamp(16px, 4vw, 70px), calc((100% - 1520px) / 2 + clamp(16px, 4vw, 70px)));
+  background: var(--panel);
+  line-height: 1.35;
+}
+.statusband span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.statusband span:first-child {
+  font-weight: var(--weight-semibold);
+}
+.statusband span:last-child {
+  font-size: var(--type-caption);
+  color: var(--secondary);
+}
+.statusband:is(.busy, .error, .warn) span:first-child::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin: 0 7px 1px 0;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.statusband.error span:first-child::before {
+  background: var(--loss);
+}
+.statusband.warn span:first-child::before {
+  background: var(--warning);
+}
+.nav {
+  display: flex;
+  gap: 4px;
+  overflow: auto;
+  padding: 0 clamp(16px, 4vw, 70px);
+  padding-inline: max(clamp(16px, 4vw, 70px), calc((100% - 1520px) / 2 + clamp(16px, 4vw, 70px)));
+  background: var(--panel);
+  border-top: 1px solid var(--divider);
+  border-bottom: 1px solid var(--divider);
+}
+.nav button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  white-space: nowrap;
+  padding: 10px 12px 8px;
+  color: var(--secondary);
+  background: transparent;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  font-weight: var(--weight-semibold);
+}
+.nav button:hover {
+  color: var(--ink);
+  background: transparent;
+}
+.nav button[aria-current="page"] {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+.nav button:focus-visible {
+  outline-offset: -2px;
+}
+.nav img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+main {
+  max-width: 1520px;
+  margin: auto;
+  padding: var(--space-xl) clamp(16px, 4vw, 70px) 48px;
+}
+.docfoot {
+  max-width: 1520px;
+  margin: auto;
+  padding: var(--space-lg) clamp(16px, 4vw, 70px);
+  border-top: 1px solid var(--divider);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: var(--type-caption);
+  color: var(--quiet);
+}
+.docfoot button {
+  padding: 3px 4px;
+  color: var(--secondary);
+  background: transparent;
+  border: 0;
+  font-size: var(--type-caption);
+}
+.docfoot button:hover {
+  color: var(--ink);
+  background: transparent;
+}
+.spacer {
+  flex: 1;
+}
+
+/* ---------- Dialogs and menus ---------- */
+dialog {
+  width: min(1150px, 96vw);
+  color: var(--ink);
+  background: var(--window);
+  border: 1px solid var(--border);
+  border-radius: var(--rad-panel);
+}
+dialog::backdrop {
+  background: color-mix(in srgb, var(--window) 82%, transparent);
+}
+dialog img {
+  display: block;
+  width: 100%;
+  max-height: 80vh;
+  object-fit: contain;
+}
+dialog button {
+  float: right;
+  margin-bottom: 10px;
+}
+#panel {
+  max-width: 780px;
+  max-height: 92vh;
+  padding: var(--space-xl);
+  overflow: auto;
+}
+#panel button {
+  float: none;
+  margin: 0;
+}
+#panel .row,
+#panel .cardhead {
+  padding: 12px 16px;
+}
+#panel:has(.aboutView) {
+  width: min(500px, calc(100vw - 28px));
+}
+.dialogfoot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: 20px;
+  clear: both;
+}
+.protoFoot {
+  justify-content: flex-start;
+}
+.protoFoot > :last-child {
+  margin-left: auto;
+}
+.contextMenu {
+  position: fixed;
+  z-index: 5;
+  width: 216px;
+  max-height: calc(100dvh - 10px);
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--rad-panel);
+  box-shadow: 0 6px 24px color-mix(in srgb, var(--window) 70%, transparent);
+}
+.contextMenu button {
+  display: block;
+  width: 100%;
+  padding: 7px 11px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+}
+.contextMenu button:hover,
+.contextMenu button:focus {
+  background: var(--selection);
+  outline: none;
+}
+.contextMenu .startGroup {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+}
+.contextMenu .deleteAction {
+  color: var(--loss);
+}
+.contextMenu button[aria-haspopup]::after {
+  content: "›";
+  float: right;
+}
+.contextMenu button[aria-checked="true"]::after {
+  content: "✓";
+  float: right;
+  color: var(--accent);
+}
+
+/* ---------- Layout and cards ---------- */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(218px, 26%) 1fr;
+  gap: var(--space-xl);
+  align-items: start;
+}
+.card,
+.side,
+.gamepane {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--rad-panel);
+}
+.card,
+.side {
+  overflow: hidden;
+}
+section + section,
+.card + .card {
+  margin-top: var(--space-lg);
+}
+.gap {
+  margin-top: var(--space-lg);
+}
+.cardhead,
+.row,
+.titlebar,
+.metrics,
+.backline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-lg);
+}
+.cardhead,
+.row {
+  padding: var(--space-lg) 20px;
+}
+.row small,
+.cardhead small {
+  display: block;
+}
+.row + .row,
+.divider {
+  border-top: 1px solid var(--divider);
+}
+.row h3,
+.card .row label {
+  font-size: var(--type-body);
+}
+.titlebar {
+  margin-bottom: 20px;
+}
+.titlebar p,
+.sub {
+  margin-top: 4px;
+  font-size: var(--type-caption);
+  color: var(--secondary);
+}
+.backline {
+  justify-content: flex-start;
+  margin-bottom: 14px;
+}
+.section2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-lg);
+  align-items: start;
+}
+.section2 .card {
+  margin-top: 0;
+}
+.section2 > div {
+  display: grid;
+  gap: var(--space-lg);
+}
+.fields,
+.legend,
+.scope {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.fields {
+  align-items: end;
+  gap: var(--space-md);
+}
+.fields label {
+  display: grid;
+  gap: 3px;
+  font-size: var(--type-caption);
+  color: var(--secondary);
+}
+.fields input,
+.fields select {
+  width: 142px;
+}
+.scope {
+  margin: 14px 0;
+}
+.emptymsg {
+  padding: 20px;
+  text-align: center;
+  color: var(--secondary);
+}
+.shortlist button {
+  width: 100%;
+  text-align: left;
+  margin-bottom: 6px !important;
+}
+.copymsg {
+  font-size: var(--type-caption);
+  color: var(--accent);
+}
+
+/* ---------- Metrics, status and pills ---------- */
+.metrics {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: clamp(18px, 4vw, 64px);
+  padding: 0 20px 18px;
+  font-variant-numeric: tabular-nums;
+}
+.metric small {
+  font-size: var(--type-caption);
+}
+.metric strong {
+  display: block;
+  font-size: var(--type-title);
+  font-weight: var(--weight-bold);
+  letter-spacing: -0.5px;
+  font-variant-numeric: tabular-nums;
+}
+.measure {
+  font-size: var(--type-caption);
+  font-weight: var(--weight-regular);
+  letter-spacing: 0;
+  color: var(--secondary);
+}
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  padding: 0 20px var(--space-lg);
+  font-variant-numeric: tabular-nums;
+}
+.stats b {
+  display: block;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--type-caption);
+  font-weight: var(--weight-semibold);
+  color: var(--gain);
+}
+.pill:before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.good {
+  color: var(--gain);
+}
+.bad {
+  color: var(--loss);
+}
+.pending,
+.warm {
+  color: var(--warning);
+}
+/* Pass/Fail reads as dot + label wherever it appears in a table. */
+td:is(.good, .bad, .pending) {
+  font-weight: var(--weight-semibold);
+}
+td:is(.good, .bad, .pending)::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: 1px;
+}
+.delta.gain {
+  color: var(--gain);
+}
+.delta.loss {
+  color: var(--loss);
+}
+.delta.flat {
+  color: var(--quiet);
+}
+details {
+  margin: 14px 20px;
+}
+summary {
+  cursor: pointer;
+  color: var(--accent);
+}
+
+/* ---------- Tables: one density, 32 px rows ---------- */
+.tableWrap {
+  overflow: auto;
+}
+.tableWrap,
+.scanTable {
+  scrollbar-color: var(--border) var(--panel);
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  white-space: nowrap;
+  font-size: var(--type-table);
+  font-variant-numeric: tabular-nums;
+}
+th,
+td {
+  height: 32px;
+  padding: 8px 10px;
+  line-height: 16px;
+  text-align: right;
+  border-top: 1px solid var(--divider);
+}
+th {
+  font-size: var(--type-table);
+  font-weight: var(--weight-semibold);
+  color: var(--secondary);
+  background: var(--raised);
+}
+td {
+  background: var(--panel);
+}
+td:first-child,
+th:first-child {
+  text-align: left;
+}
+td small {
+  display: block;
+}
+/* Sortable headers are plain text; the arrow shows on hover or when active. */
+th button {
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font-weight: inherit;
+}
+th button:hover {
+  color: var(--ink);
+  background: transparent;
+}
+td button {
+  padding: 0 4px;
+  margin: 0 -4px;
+  line-height: 14px;
+  color: inherit;
+  background: transparent;
+  border-color: transparent;
+  font-weight: var(--weight-semibold);
+}
+td button:hover {
+  background: var(--controlHover);
+  border-color: transparent;
+}
+td button[aria-pressed="true"] {
+  border-color: transparent;
+}
+tbody tr:hover td {
+  background: var(--raised);
+}
+tr.selected td,
+tr.selected:hover td {
+  background: var(--selection);
+}
+tr.selected td:first-child {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* ---------- Charts ---------- */
+.plotbox {
+  position: relative;
+  background: var(--plotSurface);
+  font-variant-numeric: tabular-nums;
+}
+.plotbox canvas {
+  display: block;
+  width: 100%;
+  height: clamp(200px, 29vh, 355px);
+}
+.plotbox.empty {
+  min-height: 125px;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  padding: 20px;
+}
+.legend {
+  gap: 10px 20px;
+  padding: 8px 16px;
+  font-size: var(--type-caption);
+  color: var(--secondary);
+  font-variant-numeric: tabular-nums;
+}
+.plotbox + .legend {
+  min-height: 38px;
+  background: var(--panel);
+  border-top: 1px solid var(--divider);
+}
+.legend > span {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+/* Legend swatches are real line samples, never glyphs. */
+.swatch,
+.legend i {
+  display: inline-block;
+  flex: none;
+  width: 20px;
+  height: 0;
+  margin-right: 6px;
+  border: 0;
+  border-top: 2px solid var(--swatch, currentColor);
+  vertical-align: middle;
+}
+.swatch.dashed {
+  border-top-style: dashed;
+}
+.swatch.dot {
+  position: relative;
+}
+.swatch.dot::after {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: -4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--swatch);
+}
+.swatch.area {
+  height: 9px;
+  background: var(--swatch-fill);
+}
+.graph {
+  display: block;
+  width: 100%;
+  height: 160px;
+}
+.axes {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 20px 14px;
+  font-size: var(--type-caption);
+  color: var(--secondary);
+}
+.editplot {
+  display: block;
+  width: 100%;
+  height: 245px;
+  touch-action: none;
+  background: var(--plotSurface);
+}
+.editorControls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: var(--space-md) 0;
+}
+.editorControls input {
+  width: 90px;
+}
+.chip {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  margin-right: 7px;
+  vertical-align: middle;
+  border: 1px solid var(--border);
+  border-radius: var(--rad-control);
+}
+
+/* ---------- Game Library ---------- */
+.libheading,
+.gamehero,
+.historyentry,
+.bulk,
+.guideRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+.libheading {
+  margin-bottom: var(--space-lg);
+}
+.libheading p,
+.gamehero small {
+  font-size: var(--type-caption);
+  color: var(--secondary);
+}
+.classic {
+  grid-template-columns: minmax(260px, 29%) minmax(0, 1fr);
+  gap: var(--space-lg);
+}
+.side {
+  padding: var(--space-lg) var(--space-sm);
+}
+.side h2,
+.side input {
+  margin: 0 8px 15px;
+}
+.side input {
+  width: calc(100% - 16px);
+  margin-bottom: var(--space-sm);
+  background: var(--window);
+}
+.side .list {
+  max-height: clamp(260px, 56vh, 650px);
+  overflow: auto;
+}
+.sidehead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-right: 8px;
+}
+.side .bulk {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 4px;
+  margin: 0 8px 8px;
+}
+.side .bulk button,
+.side .bulk select {
+  padding: 4px 8px;
+  font-size: var(--type-caption);
+}
+.filterbody {
+  margin: var(--space-sm);
+  padding: var(--space-sm);
+  background: var(--raised);
+  border-radius: var(--rad-control);
+}
+.filterbody label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  margin: 4px;
+  font-size: var(--type-caption);
+}
+.filterbody select,
+.filterbody button {
+  padding: 4px 7px;
+  font-size: var(--type-caption);
+}
+.game {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  padding: 7px 9px;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--rad-control);
+}
+.game:hover {
+  background: var(--raised);
+  border-color: transparent;
+}
+.game.active,
+.game.active:hover {
+  background: var(--selection);
+  border-color: transparent;
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.game strong,
+.game small {
+  display: block;
+}
+.game strong {
+  line-height: 1.3;
+}
+.game small {
+  margin-top: 4px;
+}
+.classic .game .gameArt {
+  position: relative;
+  display: block;
+  flex: 0 0 29px;
+  width: 29px;
+  height: 35px;
+}
+.classic .game .cover {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.classic .game .launcherMark {
+  position: absolute;
+  right: -2px;
+  bottom: -1px;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: var(--panel);
+  object-fit: contain;
+}
+.gamepane {
+  min-width: 0;
+  padding: var(--space-xl);
+}
+.gamehero {
+  padding-bottom: var(--space-sm);
+}
+.gamehero h2 {
+  font-size: var(--type-title);
+  font-weight: var(--weight-bold);
+  line-height: 1.17;
+  letter-spacing: -0.6px;
+}
+.launcherLine {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.launcherLine img {
+  width: 15px;
+  height: 15px;
+  object-fit: contain;
+}
+.prefgroup {
+  margin: var(--space-lg) 0 0;
+}
+.prefgroup h2 {
+  margin: 0 0 var(--space-sm);
+  font-size: var(--type-section);
+}
+.prefrows {
+  overflow: hidden;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--rad-panel);
+}
+.prefrows .row {
+  padding: var(--space-md) var(--space-lg);
+}
+.command {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+.command code {
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Performance history (layout only; history.css styles it) ---------- */
+.historyentry {
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: var(--space-md) var(--space-lg);
+}
+.historyentry small,
+.histnums small {
+  display: block;
+  font-size: var(--type-caption);
+}
+.histnums {
+  display: flex;
+  gap: var(--space-lg);
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.histnums span {
+  font-size: var(--type-caption);
+  color: var(--secondary);
+}
+.histnums b {
+  font-size: var(--type-section);
+  color: var(--ink);
+}
+.reporthead {
+  display: grid;
+  grid-template-columns: minmax(265px, 0.85fr) minmax(0, 1.4fr);
+  gap: var(--space-lg);
+}
+.reporthead .card {
+  margin: 0;
+}
+.reporthead .stats {
+  padding: var(--space-lg) 20px;
+  border-top: 1px solid var(--divider);
+}
+.finger {
+  display: block;
+  width: min(255px, 90%);
+  height: 215px;
+  margin: 0 auto var(--space-md);
+}
+.warming {
+  padding: 20px;
+}
+
+/* ---------- Auto UV scan ---------- */
+.verifybar {
+  padding: var(--space-md) 18px;
+  background: var(--panel);
+}
+.lastlog {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+  padding: 6px 18px;
+  font-size: var(--type-caption);
+  background: var(--panel);
+  border-block: 1px solid var(--divider);
+}
+.lastlog span {
+  color: var(--secondary);
+  white-space: nowrap;
+}
+.lastlog samp {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--quiet);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.lastlog button {
+  flex: none;
+  padding: 4px 9px;
+  font-size: var(--type-caption);
+}
+.lastlog .copymsg:empty {
+  display: none;
+}
+.tiers {
+  display: flex;
+  gap: 6px;
+  padding: 5px 14px 13px;
+}
+.tiers div {
+  flex: 1;
+  padding: 6px;
+  font-size: var(--type-caption);
+  color: var(--secondary);
+  border-bottom: 2px solid var(--border);
+}
+.tiers .now {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.tiers .done {
+  color: var(--gain);
+  border-color: var(--primaryBorder);
+}
+.scanTable {
+  max-height: clamp(275px, 39vh, 490px);
+  overflow: auto;
+  font-variant-numeric: tabular-nums;
+}
+.scanTable table {
+  border-spacing: 0;
+}
+.scanTable th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  vertical-align: top;
+  color: var(--ink);
+}
+.scanTable th small {
+  display: block;
+  font-weight: var(--weight-regular);
+  line-height: 1.15;
+  color: var(--quiet);
+}
+.scanTable tr {
+  cursor: pointer;
+}
+.scanTable tr:hover td {
+  background: var(--controlHover);
+}
+.scanTable tr.selected td {
+  background: var(--selection);
+}
+.scanTable :is(td, th):is(:nth-child(1), :nth-child(5), :nth-child(11)) {
+  border-right: 1px solid var(--divider);
+}
+.scanTable td:first-child,
+.scanTable th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+}
+.scanTable th:first-child {
+  z-index: 2;
+}
+.scanTable td small {
+  color: var(--secondary);
+}
+.scanTable td:is(:nth-child(6), :nth-child(7), :nth-child(11)),
+.scanTable th:is(:nth-child(6), :nth-child(7), :nth-child(11)) {
+  padding-inline: 7px;
+}
+.scanTable .metricpair {
+  display: grid;
+  grid-template-columns: minmax(5.7ch, 1fr) 6.8ch;
+  gap: 8px;
+  align-items: baseline;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.scanTable .metricpair .delta {
+  display: block;
+  font-size: var(--type-caption);
+  font-weight: var(--weight-regular);
+}
+.scanTable .metricpair .reading {
+  color: var(--ink);
+}
+.scanTable .units {
+  padding-top: 3px;
+}
+.scanTable .units small {
+  display: block;
+  line-height: 1.1;
+}
+
+/* ---------- Afterburner import ---------- */
+#panel:has(.importDialog) {
+  width: min(1020px, 94%);
+  max-width: none;
+}
+.importSource {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin: 18px 0;
+}
+.importSource strong,
+.importSource small {
+  display: block;
+}
+.importGrid {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr;
+  align-items: start;
+  gap: var(--space-md);
+}
+.importGrid > div {
+  min-width: 0;
+}
+.importGrid table {
+  width: 100%;
+  min-width: 0;
+}
+.importGrid :is(th, td) {
+  text-align: left;
+}
+#importPoint {
+  display: block;
+  text-align: center;
+  color: var(--secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- In-Game Overlay ---------- */
+.ovgroup .row {
+  padding: 9px var(--space-lg);
+}
+.ovgroup select {
+  max-width: 200px;
+}
+.hudarea {
+  position: relative;
+  height: 180px;
+  margin: 0 var(--space-lg);
+  overflow: hidden;
+  background-color: var(--panel);
+  background-image: linear-gradient(165deg, var(--raised) 0%, var(--window) 85%);
+  background-position: center;
+  background-size: cover;
+  border-radius: var(--rad-control);
+}
+.hud {
+  position: absolute;
+  display: grid;
+  gap: 1px;
+  max-height: 100%;
+  padding: 6px 10px;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+.hud span {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+.hud b {
+  color: var(--accent);
+}
+
+/* ---------- About ---------- */
+.aboutView {
+  max-width: 445px;
+  margin-inline: auto;
+  padding: 4px 10px;
+  text-align: center;
+}
+.aboutView > img {
+  width: 112px;
+  height: 112px;
+  margin: 5px auto 10px;
+  object-fit: contain;
+}
+.aboutView h2 {
+  font-size: var(--type-title);
+}
+.aboutVersion,
+.aboutView small,
+.aboutPurpose {
+  color: var(--secondary);
+}
+.aboutReadings {
+  display: flex;
+  justify-content: space-evenly;
+  margin: 17px 0 4px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--rad-panel);
+}
+.aboutReadings strong {
+  display: block;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.aboutLinks {
+  display: grid;
+  gap: var(--space-sm);
+  margin: 18px auto 0;
+}
+.aboutView .dialogfoot {
+  justify-content: center;
+}
+
+/* ---------- Design system and UX audit pages ---------- */
+.sys {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-lg);
+}
+.sys .card {
+  margin: 0;
+  padding: var(--space-lg);
+}
+.sys h2 {
+  margin-bottom: var(--space-md);
+}
+.sys p {
+  margin-bottom: var(--space-md);
+  color: var(--secondary);
+}
+.sys .sample {
+  margin: var(--space-sm) 0;
+}
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+}
+.guideRow {
+  margin: var(--space-sm) 0;
+  align-items: baseline;
+}
+.guideRow :is(h1, h2) {
+  margin: 0;
+}
+.guideRow small {
+  font-variant-numeric: tabular-nums;
+}
+.audit {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-lg);
+}
+.audit .card {
+  margin: 0;
+}
+.audit img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.audit article {
+  padding: 18px;
+}
+.audit p {
+  margin: 8px 0 14px;
+  color: var(--secondary);
+}
+.shot {
+  display: block;
+  width: 100%;
+  padding: 0;
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 850px) {
+  .section2 {
+    grid-template-columns: 1fr;
+  }
+  .tools {
+    margin-left: 0;
+  }
+  .fields input {
+    width: 116px;
+  }
+  .tiers {
+    flex-wrap: wrap;
+  }
+  .ovgroup select {
+    max-width: 160px;
+  }
+}
+@media (max-width: 800px) {
+  .classic,
+  .sys {
+    grid-template-columns: 1fr;
+  }
+  .classic .side .list {
+    max-height: 180px;
+  }
+  .app {
+    gap: 5px;
+  }
+  .app .tools {
+    gap: 4px;
+  }
+  .app .tools button {
+    padding: 5px 8px;
+    font-size: var(--type-caption);
+  }
+  .headprogress progress {
+    width: 90px;
+  }
+  .gamepane {
+    padding: var(--space-lg);
+  }
+  .libheading,
+  .docfoot {
+    flex-wrap: wrap;
+  }
+  .historyentry {
+    justify-content: flex-start;
+  }
+  .histnums {
+    margin-left: 0;
+  }
+  .prefrows .row {
+    gap: var(--space-sm);
+  }
+}
+@media (max-width: 780px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+  .side {
+    padding: 10px;
+  }
+  .side .list {
+    max-height: 180px;
+  }
+  .cardhead,
+  .row,
+  .titlebar {
+    flex-wrap: wrap;
+  }
+  .audit {
+    grid-template-columns: 1fr;
+  }
+  .app {
+    padding: 10px 16px 6px;
+  }
+  .statusband {
+    padding-inline: 16px;
+  }
+  .metrics {
+    gap: var(--space-xl);
+  }
+  .nav {
+    gap: 2px;
+  }
+  .nav button {
+    padding: 10px 7px 8px;
+  }
+  .nav img {
+    display: none;
+  }
+}
+@media (max-width: 740px) {
+  .reporthead,
+  .importGrid {
+    grid-template-columns: 1fr;
+  }
+  .finger {
+    width: 170px;
+  }
+  .scanTable td,
+  .scanTable th {
+    padding: 6px;
+  }
+  .lastlog {
+    padding: 6px 12px;
+  }
+}
+@media (max-width: 500px) {
+  .lastlog {
+    flex-wrap: wrap;
+    gap: 5px 8px;
+  }
+  .lastlog .copymsg:not(:empty) {
+    order: 1;
+    width: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .track,
+  .track i {
+    transition: none;
+  }
+}
