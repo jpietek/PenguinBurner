@@ -26,6 +26,7 @@ from ui.design.style import COL, COPY, GAP, glyph_icon, info_icon, tab_icon
 from ui.design.tokens import AppearanceSettings
 from ui.dialogs import about
 from ui.dialogs.appearance import AppearanceDialog
+from ui.features.overlay.overlay_page import OverlayPage
 from ui.startup_checks import run_startup_checks
 
 # (tab label, painted tab glyph)
@@ -35,6 +36,7 @@ PAGES = (
     ("Game Library", "game-library"),
     ("In-Game Overlay", "overlay"),
 )
+OVERLAY_PAGE = 3
 # AppearanceSettings field -> its [ui] key.
 APPEARANCE_KEYS = {
     "theme": "appearance_theme",
@@ -202,6 +204,9 @@ class ShellWindow(W.QWidget):
     def build_page(self, index: int) -> W.QWidget:
         """The page for tab ``index``. Each ported page adds its branch here;
         the rest offer the classic window."""
+        if index == OVERLAY_PAGE:
+            self.overlay_page = OverlayPage()
+            return self.overlay_page
         return ClassicPlaceholder(PAGES[index][0], open_classic=self.open_classic)
 
     def add_header_action(self, widget: W.QWidget) -> None:

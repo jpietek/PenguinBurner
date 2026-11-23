@@ -21,6 +21,7 @@ from cli import runtime_config_file
 from ui import theme
 from ui.components.toggle_switch import toggle_switch_class
 from ui.design.tokens import AppearanceSettings, resolve_colors
+from ui.features.overlay.overlay_page import OverlayPage
 
 
 @pytest.fixture
@@ -118,7 +119,8 @@ def test_every_tab_offers_the_classic_window_until_its_page_lands(window):
     for index, page in enumerate(window.pages):
         window.tabs.setCurrentIndex(index)
         assert window.stack.currentWidget() is page
-        assert isinstance(page, shell.ClassicPlaceholder)
+        expected = OverlayPage if index == shell.OVERLAY_PAGE else shell.ClassicPlaceholder
+        assert isinstance(page, expected)
     window.pages[1].open_button.click()
     assert window.opened_classic == [True]
 

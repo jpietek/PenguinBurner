@@ -134,6 +134,7 @@ packages = [
   "ui.features",
   "ui.features.curves",
   "ui.features.integrations",
+  "ui.features.overlay",
   "ui.features.profiles",
   "ui.features.tuning",
 ]

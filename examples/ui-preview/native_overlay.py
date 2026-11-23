@@ -1,11 +1,12 @@
 """Native Qt In-Game Overlay page for the UI preview.
 
-The real ``OverlayConfigPanel`` runs under patch with an in-memory
-overlay.toml, simulated telemetry and a simulated live-preview window: the
-same 1 s reload, the same '-' for missing sensors, the same status line, the
-real Keyboard shortcuts dialog (desktop from Prototype controls) and a vkcube
-window. Telemetry is live only while the library plays a wrapped game with
-its overlay on; otherwise the panel shows its sample readings.
+The real page (``ui/features/overlay/overlay_page.py``) runs under patch
+with an in-memory overlay.toml, simulated telemetry and a simulated
+live-preview window: the same 1 s reload, the same '-' for missing sensors,
+the same status line, the real Keyboard shortcuts dialog (desktop from
+Prototype controls) and a vkcube window. Telemetry is live only while the
+library plays a wrapped game with its overlay on; otherwise the panel shows
+its sample readings.
 """
 
 from __future__ import annotations
@@ -15,11 +16,6 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
 
-from native_library import (
-    heading_into_card,
-    library_stylesheet,
-    normalize_group_headings,
-)
 from PySide6 import QtCore as C
 from PySide6 import QtGui as G
 from PySide6 import QtWidgets as W
@@ -33,28 +29,23 @@ from overlay.config import (
 )
 from overlay.gnome_shortcuts import GnomeShortcutSetupResult
 from ui.components import overlay_config as overlay_ui
-from ui.components.overlay_preview import (
-    CANVAS_H,
-    CANVAS_W,
-    MAX_PREVIEW_H,
-    overlay_preview_class,
-)
-from ui.components.page_header import PAGE_MARGINS
-from ui.design.style import COL, GAP, RAD, TYPE, WEIGHT, focus_visible, qcolor
+from ui.components.overlay_preview import CANVAS_H, CANVAS_W, overlay_preview_class
+from ui.design.style import COL
 from ui.dialogs import overlay_shortcuts as shortcuts_ui
+from ui.features.overlay import overlay_page
+from ui.features.overlay.overlay_page import OverlayPanel
 
 CONFIG_PATH = "~/.config/penguin-burner/overlay.toml"
 SAVE_FAILED = (
     "Overlay config save failed: [Errno 13] Permission denied: '" + CONFIG_PATH + "'"
 )
 KEEP_ONE = "Keep at least one overlay item enabled."
-LIVE_RUNNING = "Live preview running. It follows these settings as you change them."
+LIVE_RUNNING = overlay_ui.LIVE_PREVIEW_RUNNING
 LIVE_TITLE = "vkcube · PenguinBurner overlay"
-CAPTION_SAMPLE = "Illustrative preview · sample readings"
-CAPTION_LIVE = "Live readings from a wrapped game"
-KDE_OPENED = (
-    "Opened KDE shortcut settings. PenguinBurner's overlay actions are listed there."
-)
+# The real page's captions and status lines, which the mock tests read here.
+CAPTION_SAMPLE = overlay_page.CAPTION_SAMPLE
+CAPTION_LIVE = overlay_page.CAPTION_LIVE
+KDE_OPENED = overlay_page.KDE_OPENED
 GNOME_DONE = (
     "Overlay shortcuts are ready in GNOME Settings. Existing key assignments were "
     "preserved. Choose an available key for: Cycle background opacity. Its default "
@@ -64,53 +55,6 @@ DESKTOPS = ("kde", "kde-fail", "gnome", "other", "other-flatpak")
 FLATPAK_CLI = "flatpak run --command=penguin-burner-cli io.github.jpietek.PenguinBurner"
 
 c = COL
-
-
-def page_stylesheet() -> str:
-    return f"""
-QLabel#overlayPreviewTitle, QLabel#overlayGroupTitle {{
-    font-size: {TYPE["section"]}px; font-weight: {WEIGHT["semibold"]}; color: {c["ink"]};
-}}
-QWidget#overlayCardHead, QWidget#cardHead {{ background: transparent; }}
-QLabel#overlayEmptyMetrics {{
-    font-size: {TYPE["caption"]}px; color: {c["secondary"]}; padding: 2px 16px 16px;
-}}
-QLabel#overlayNote {{
-    font-size: {TYPE["caption"]}px; color: {c["secondary"]}; padding: 10px 16px 14px;
-    border-top: 1px solid {c["divider"]};
-}}
-QLabel#overlayConfigStatus {{
-    background: {c["raised"]}; border: 1px solid {c["border"]};
-    border-left: 2px solid {c["accent"]}; border-radius: {RAD["control"]}px;
-    padding: 8px 12px; color: {c["ink"]};
-}}
-QLabel#overlayConfigStatus[error="true"] {{ color: {c["loss"]}; border-left-color: {c["loss"]}; }}
-QToolButton#infoButton {{
-    padding: 0; min-width: 20px; min-height: 20px; max-width: 20px; max-height: 20px;
-    border: 1px solid {c["border"]}; border-radius: 10px; background: transparent;
-    color: {c["secondary"]}; font-size: {TYPE["caption"]}px; font-weight: {WEIGHT["semibold"]};
-}}
-QToolButton#infoButton:hover {{ color: {c["ink"]}; border-color: {c["quiet"]}; background: {c["controlHover"]}; }}
-QToolButton#infoButton:pressed, QToolButton#infoButton:checked {{
-    color: {c["ink"]}; background: {c["selection"]}; border-color: {c["accent"]};
-}}
-"""
-
-
-def dialog_stylesheet() -> str:
-    return f"""
-QDialog#overlayShortcutsDialog, QDialog#overlayShortcutsDialog QScrollArea,
-QDialog#overlayShortcutsDialog QScrollArea > QWidget > QWidget {{ background: {c["window"]}; border: none; }}
-QDialog#overlayShortcutsDialog QLabel {{ color: {c["ink"]}; font-size: {TYPE["body"]}px; }}
-QLabel#overlayShortcutError {{
-    background: {c["raised"]}; border: 1px solid {c["border"]}; border-left: 2px solid {c["loss"]};
-    border-radius: {RAD["control"]}px; padding: 8px 12px; color: {c["loss"]};
-}}
-QDialog#overlayShortcutsDialog QLineEdit {{
-    font-family: "DejaVu Sans Mono", monospace; font-size: {TYPE["caption"]}px;
-    color: {c["secondary"]}; background: {c["raised"]};
-}}
-"""
 
 
 def _round(value):
@@ -152,40 +96,6 @@ def sample_telemetry(tick, tier="Default"):
         "cpu_temp_c": str(62 + w(3, 10)),
         "cpu_power_w": str(88 + w(6, 4)),
     }
-
-
-class GameArtworkPreview(overlay_preview_class(C, G, W)):
-    """Keep the app's native HUD painter, replacing its 16:9 scenery only."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.artwork = G.QPixmap()
-
-    def set_artwork(self, artwork):
-        self.artwork = artwork
-        self.update()
-
-    def _paint_scene(self, painter):
-        frame = C.QRectF(0, 0, CANVAS_W, CANVAS_H)
-        if self.artwork.isNull():
-            # A token backdrop (the app's stand-in scene is purple-blue).
-            backdrop = G.QLinearGradient(0, 0, 0, CANVAS_H)
-            backdrop.setColorAt(0, qcolor("raised"))
-            backdrop.setColorAt(1, qcolor("plotSurface"))
-            painter.fillRect(frame, backdrop)
-            return
-        source = C.QRectF(self.artwork.rect())
-        scale = max(frame.width() / source.width(), frame.height() / source.height())
-        source.setSize(C.QSizeF(frame.width() / scale, frame.height() / scale))
-        source.moveCenter(C.QRectF(self.artwork.rect()).center())
-        painter.save()
-        painter.setRenderHint(G.QPainter.RenderHint.SmoothPixmapTransform)
-        painter.drawPixmap(frame, self.artwork, source)
-        shade = G.QLinearGradient(0, 0, 0, CANVAS_H)
-        shade.setColorAt(0, qcolor("window", 0.4))
-        shade.setColorAt(1, qcolor("panel", 0.73))
-        painter.fillRect(frame, shade)
-        painter.restore()
 
 
 # A unit cube: eight corners and the six faces between them.
@@ -257,140 +167,30 @@ class VkcubeCanvas(overlay_preview_class(C, G, W)):
         painter.restore()
 
 
-class FixtureOverlay(overlay_ui.OverlayConfigPanel):
-    """The real panel with an in-memory overlay.toml and simulated runtime."""
+class FixtureOverlay(OverlayPanel):
+    """The real page panel with an in-memory overlay.toml and simulated runtime."""
 
     def __init__(self):
         self.sample_dialog = None
         self.sample_canvas = None
-        self.art_path = None
-        self.game_name = ""
         self.tick = 0
         # A wrapped game with its overlay on is publishing telemetry (the
         # library's session sets this); otherwise the panel shows samples.
         self.publishing = False
-        self.running_tier = "Default"
         self.save_failure = False
         self.vkcube_missing = False
         self.desktop = "kde"
-        with (
-            patch.object(
-                overlay_ui,
-                "load_overlay_config",
-                return_value=default_overlay_config(enabled=True),
-            ),
-            patch.object(
-                overlay_ui, "overlay_preview_class", return_value=GameArtworkPreview
-            ),
+        with patch.object(
+            overlay_ui,
+            "load_overlay_config",
+            return_value=default_overlay_config(enabled=True),
         ):
-            super().__init__(QtCore=C, QtWidgets=W)
+            super().__init__()
+        self.running_tier = "Default"
         # `disk` stands for overlay.toml: shortcuts and the CLI write it, and
         # the panel's 1 s timer pulls it back into the controls.
         self.disk = self.config
-        self._restyle()
         self.refresh_preview()
-
-    # -- page structure ------------------------------------------------------
-
-    def _restyle(self):
-        """One heading style: title-case 17px/600 inside each bordered card."""
-        root = self.widget
-        title = root.findChild(W.QLabel, "overlayPageTitle")
-        if title is not None:
-            title.setText("In-Game Overlay")
-        card = root.findChild(W.QFrame, "overlayPreviewCard")
-        heading = next(
-            (
-                label
-                for label in card.findChildren(W.QLabel, "prefRowTitle")
-                if label.text() == "Preview"
-            ),
-            None,
-        )
-        if heading is not None:
-            heading.setObjectName("overlayPreviewTitle")
-        card.layout().setContentsMargins(16, 14, 16, 16)
-        card.layout().setSpacing(12)
-        # Up to a 640x360 frame (centred by the painter), so the HUD reads at
-        # Scale 100%; overlay.css sizes the browser frame the same way.
-        self.preview.setMaximumSize(16777215, MAX_PREVIEW_H)
-        for group in [*self._settings_groups(), *self.metric_groups]:
-            self._heading_into_card(group)
-        for info in self.metric_infos.values():
-            info.setFixedSize(20, 20)
-        # Rows share the card heading's 16 px edge, as in overlay.css.
-        for row in self.page.findChildren(W.QFrame, "prefRow"):
-            margins = row.layout().contentsMargins()
-            row.layout().setContentsMargins(16, margins.top(), 16, margins.bottom())
-        behaviour = self._settings_groups()[-1].findChild(W.QFrame, "prefGroupCard")
-        note = W.QLabel(
-            "Changes save to overlay.toml right away, and running games update live."
-        )
-        note.setObjectName("overlayNote")
-        note.setWordWrap(True)
-        behaviour.layout().addWidget(note)
-        # One page structure on every tab: the header (title, subtitle,
-        # actions) and the status line scroll with the cards, inside the
-        # shared page margins.
-        outer = root.layout()
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
-        header = outer.takeAt(0).layout()
-        outer.removeWidget(self.status_label)
-        scroll = self._options_scroll
-        grid_page = scroll.takeWidget()
-        content = W.QWidget()
-        content.setObjectName("overlayPage")
-        column = W.QVBoxLayout(content)
-        column.setContentsMargins(*PAGE_MARGINS)
-        column.setSpacing(GAP["md"])
-        column.addLayout(header)
-        column.addWidget(self.status_label)
-        column.addSpacing(GAP["xs"])
-        column.addWidget(grid_page, 1)
-        grid_page.setObjectName("overlayGrid")
-        self.grid.setContentsMargins(0, 0, 0, 0)
-        scroll.setWidget(content)
-        self._layout_columns = 0
-        self._reflow_columns(max(root.width(), 1300))
-
-    def _settings_groups(self):
-        return [
-            group
-            for group in self.appearance.findChildren(W.QWidget)
-            if group.parentWidget() is self.appearance
-            and group.findChild(W.QFrame, "prefGroupCard") is not None
-        ]
-
-    @staticmethod
-    def _heading_into_card(group):
-        heading_into_card(group, "overlayGroupTitle")
-
-    def _reflow_columns(self, width):
-        """A wide settings column beside the metric groups, like overlay.css."""
-        mode = 2 if width >= 880 else 1
-        if mode == self._layout_columns:
-            return
-        self._layout_columns = mode
-        for widget in (self.appearance, self.metrics_a, self.metrics_b):
-            self.grid.removeWidget(widget)
-        for i in range(3):
-            self.grid.setColumnStretch(i, 0)
-            self.grid.setRowStretch(i, 0)
-        top = C.Qt.AlignmentFlag.AlignTop
-        if mode == 2:
-            self.grid.addWidget(self.appearance, 0, 0, 2, 1, top)
-            self.grid.addWidget(self.metrics_a, 0, 1, top)
-            self.grid.addWidget(self.metrics_b, 1, 1, top)
-            self.grid.setColumnStretch(0, 13)
-            self.grid.setColumnStretch(1, 10)
-            # The second metric column takes the slack, like `auto 1fr`.
-            self.grid.setRowStretch(1, 1)
-        else:
-            self.grid.addWidget(self.appearance, 0, 0, top)
-            self.grid.addWidget(self.metrics_a, 1, 0, top)
-            self.grid.addWidget(self.metrics_b, 2, 0, top)
-            self.grid.setColumnStretch(0, 1)
 
     # -- simulated state -----------------------------------------------------
 
@@ -402,20 +202,13 @@ class FixtureOverlay(overlay_ui.OverlayConfigPanel):
             self.desktop = state["overlayDesktop"]
         self.refresh_preview()
 
-    def set_game(self, game):
-        path = None
+    def artwork_path(self, game):
+        """The sample's bundled wide art in place of Steam's cache."""
         if game is not None and game.launcher == "steam":
             candidate = Path(__file__).with_name("artwork") / f"{game.game_id}art.webp"
             if candidate.is_file():
-                path = candidate
-        self.game_name = game.name if game is not None and path is not None else ""
-        self.preview.setAccessibleName(
-            f"{self.game_name or 'Illustrative'} overlay preview"
-        )
-        if path == self.art_path:
-            return
-        self.art_path = path
-        self.preview.set_artwork(G.QPixmap(str(path)) if path else G.QPixmap())
+                return candidate
+        return None
 
     def set_publishing(self, publishing):
         """A wrapped game with its overlay on started (True) or ended."""
@@ -457,15 +250,9 @@ class FixtureOverlay(overlay_ui.OverlayConfigPanel):
             self.preview.set_config(self.config)
             return
         self.disk = self.config
-        if self.status_label.text() != LIVE_RUNNING or self.sample_dialog is None:
-            self._show_status("")
+        self._show_status(LIVE_RUNNING if self.sample_dialog is not None else "")
         self._sync_widgets()
         self.refresh_preview(advance=False)
-
-    def _show_status(self, message, *, error=False):
-        super()._show_status(message, error=error)
-        self.status_label.style().unpolish(self.status_label)
-        self.status_label.style().polish(self.status_label)
 
     # -- the 1 s refresh -----------------------------------------------------
 
@@ -478,18 +265,13 @@ class FixtureOverlay(overlay_ui.OverlayConfigPanel):
         if self.disk != self.config:
             self.config = self.disk
             self._sync_widgets()
-        telemetry = self.telemetry()
-        values = overlay_ui._preview_values(telemetry)
-        self.preview.set_config(self.config)
-        self.preview.set_values(values)
+        self._show_readings(self.telemetry())
+
+    def _show_readings(self, telemetry):
+        super()._show_readings(telemetry)
         if self.sample_canvas is not None:
             self.sample_canvas.set_config(self.config)
-            self.sample_canvas.set_values(values)
-        for key, label in self.item_value_labels.items():
-            label.setText(overlay_ui._sample_text(key, telemetry))
-        caption = self.widget.findChild(W.QLabel, "overlayPreviewCaption")
-        if caption is not None:
-            caption.setText(CAPTION_LIVE if self.publishing else CAPTION_SAMPLE)
+            self.sample_canvas.set_values(self.preview._values)
 
     # -- live preview: a separate vkcube window running the real layer --------
 
@@ -522,8 +304,7 @@ class FixtureOverlay(overlay_ui.OverlayConfigPanel):
         self.sample_dialog = None
         self.sample_canvas = None
         self.live_button.setText(overlay_ui.LIVE_PREVIEW_START)
-        if self.status_label.text() == LIVE_RUNNING:
-            self._show_status("")
+        self._clear_live_preview_status()
 
     # -- keyboard shortcuts --------------------------------------------------
 
@@ -560,18 +341,14 @@ class FixtureOverlay(overlay_ui.OverlayConfigPanel):
             before = getattr(self, "_shortcuts_dialog", None)
             super()._show_shortcuts()
         dialog = getattr(self, "_shortcuts_dialog", None)
-        if dialog is None or dialog is before:
-            if desktop == "kde":
-                self._show_status(KDE_OPENED)
-            return
-        sample_shortcuts_dialog(dialog, kind)
+        if dialog is not None and dialog is not before:
+            sample_shortcuts_dialog(dialog, kind)
 
 
 def sample_shortcuts_dialog(dialog, desktop):
     """Restyle the real dialog, and answer its desktop actions with sample
     results instead of starting host processes."""
     dialog.setProperty("sampleReady", True)
-    dialog.setStyleSheet(focus_visible(dialog_stylesheet()))
     labels = dialog.findChildren(W.QLabel)
     note = next(
         (
@@ -610,23 +387,6 @@ def sample_shortcuts_dialog(dialog, desktop):
         setup.clicked.connect(begin)
 
 
-class OverlayPage(W.QWidget):
+class OverlayPage(overlay_page.OverlayPage):
     def __init__(self, parent=None):
-        super().__init__(parent)
-        layout = W.QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        self.panel = FixtureOverlay()
-        self.setStyleSheet(focus_visible(library_stylesheet() + page_stylesheet()))
-        layout.addWidget(self.panel.widget)
-        normalize_group_headings(self.panel.widget)
-        # The panel's 1 s re-sync runs only while this page is shown.
-        self.panel.timer.stop()
-
-    def showEvent(self, event):
-        super().showEvent(event)
-        self.panel.refresh_preview(advance=False)
-        self.panel.timer.start(1000)
-
-    def hideEvent(self, event):
-        super().hideEvent(event)
-        self.panel.timer.stop()
+        super().__init__(FixtureOverlay(), parent)
