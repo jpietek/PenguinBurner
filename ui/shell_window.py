@@ -191,14 +191,24 @@ class ShellWindow(W.QWidget):
         page.addWidget(strip)
 
         self.stack = W.QStackedWidget()
-        self.pages = [
-            ClassicPlaceholder(text, open_classic=self.open_classic) for text, _ in PAGES
-        ]
+        self.header_divider = divider
+        self.pages = [self.build_page(index) for index in range(len(PAGES))]
         for widget in self.pages:
             self.stack.addWidget(widget)
         page.addWidget(self.stack, 1)
         self.tabs.currentChanged.connect(self.stack.setCurrentIndex)
         self.show_status()
+
+    def build_page(self, index: int) -> W.QWidget:
+        """The page for tab ``index``. Each ported page adds its branch here;
+        the rest offer the classic window."""
+        return ClassicPlaceholder(PAGES[index][0], open_classic=self.open_classic)
+
+    def add_header_action(self, widget: W.QWidget) -> None:
+        """A page's header action (Setup, Stop, Import), placed before the
+        divider in the order pages add them."""
+        layout = self.header_layout
+        layout.insertWidget(layout.indexOf(self.header_divider), widget)
 
     def refresh_pages(self) -> None:
         """Re-read live state after the root service changed (wired pages
