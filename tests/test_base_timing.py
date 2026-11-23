@@ -261,6 +261,13 @@ int main() {
     build_overlay_probe(harness, binary)
     # Publish after compiling so the samples are inside the reader's window.
     publisher = BaseFramePublisher(tmp_path, "700")
+    # A bridge decides the pid's clock base on a fresh frame. Deciding it on
+    # the 180 ms-old first sample below is ambiguous once CLOCK_MONOTONIC and
+    # CLOCK_MONOTONIC_RAW have drifted ~90 ms+ apart (NTP slew on a host with
+    # long uptime): RAW lands closer to now and every later sample misses.
+    now = time.monotonic_ns() // 1000
+    raw_to_monotonic = now - time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW) // 1000
+    assert publisher.clock.map(42, now, now, raw_to_monotonic) == now
     clock = time.monotonic_ns() // 1000 - 180000
     for frame, delta in enumerate((0, 30000, 30000, 90000, 30000), 1):
         clock += delta
