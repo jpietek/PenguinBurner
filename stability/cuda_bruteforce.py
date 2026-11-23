@@ -157,6 +157,11 @@ RAMP_FRACTIONS = (0.125, 0.25, 0.5, 1.0)
 RAMP_STAGE_MIN_S = 0.3
 RAMP_STAGE_MAX_S = 1.0
 HANG_TIMEOUT_S = 8.0
+# Pulsed final-verification mode: step between the full grid and a fractional
+# one so current changes repeatedly while the compute engine stays loaded.
+PULSE_LOW_FRACTION_DEFAULT = 0.125
+PULSE_LOW_FRACTION_MIN = 0.05
+PULSE_LOW_FRACTION_MAX = 0.5
 
 EXIT_OK = 0
 EXIT_SETUP_ERROR = 1
@@ -198,6 +203,44 @@ def ramp_schedule(duration_seconds: float) -> list[RampStage]:
         stages.append(RampStage(fraction, seconds))
         remaining -= seconds
     stages.append(RampStage(RAMP_FRACTIONS[-1], max(RAMP_STAGE_MIN_S, remaining)))
+    return stages
+
+
+def pulse_schedule(
+    duration_seconds: float,
+    *,
+    pulse_on_s: float,
+    pulse_off_s: float,
+    low_fraction: float = PULSE_LOW_FRACTION_DEFAULT,
+) -> list[RampStage]:
+    """Alternate the full grid with a fractional one for the whole duration.
+
+    The low half is a real compute workload, not an idle gap: current steps
+    while the engine stays loaded, and the kernel is still verified at partial
+    occupancy where a marginal undervolt tends to fail first.
+    """
+    value = float(low_fraction)
+    if not (PULSE_LOW_FRACTION_MIN <= value <= PULSE_LOW_FRACTION_MAX):
+        raise ValueError(
+            f"pulse low fraction must be between {PULSE_LOW_FRACTION_MIN} and "
+            f"{PULSE_LOW_FRACTION_MAX}, got {value}"
+        )
+    total = max(1.0, float(duration_seconds))
+    on_s = max(RAMP_STAGE_MIN_S, float(pulse_on_s))
+    off_s = max(RAMP_STAGE_MIN_S, float(pulse_off_s))
+    high = RampStage(1.0, on_s)
+    low = RampStage(value, off_s)
+    stages: list[RampStage] = []
+    remaining = total
+    while remaining > 0:
+        for stage in (high, low):
+            seconds = min(stage.seconds, remaining)
+            if seconds <= 0:
+                continue
+            stages.append(RampStage(stage.fraction, seconds))
+            remaining -= seconds
+            if remaining <= 0:
+                break
     return stages
 
 
@@ -578,6 +621,9 @@ def run_cuda_bruteforce_test(
     driver: _CudaDriver | None = None,
     hang_timeout_s: float = HANG_TIMEOUT_S,
     on_hang=_exit_on_hang,
+    pulse_on_s: float | None = None,
+    pulse_off_s: float | None = None,
+    pulse_low_fraction: float | None = None,
 ) -> None:
     driver = driver or _CudaDriver()
     context = ctypes.c_void_p()
@@ -618,13 +664,37 @@ def run_cuda_bruteforce_test(
         brute_force = functions["brute_force_kernel"]
         compare = functions["compare_u32_kernel"]
         buffers = _Buffers(driver)
-        schedule = ramp_schedule(float(duration_seconds))
+        pulsed = pulse_on_s is not None or pulse_off_s is not None
+        if pulsed:
+            if pulse_on_s is None or pulse_off_s is None:
+                raise ValueError(
+                    "pulse mode needs both --pulse-on-seconds and "
+                    "--pulse-off-seconds"
+                )
+            schedule = pulse_schedule(
+                float(duration_seconds),
+                pulse_on_s=float(pulse_on_s),
+                pulse_off_s=float(pulse_off_s),
+                low_fraction=(
+                    PULSE_LOW_FRACTION_DEFAULT
+                    if pulse_low_fraction is None
+                    else float(pulse_low_fraction)
+                ),
+            )
+            mode = "pulse"
+        else:
+            schedule = ramp_schedule(float(duration_seconds))
+            mode = "ramp"
 
         _log(
             f"starting gpu-index={int(gpu_index)} duration={float(duration_seconds):.1f}s "
             f"stress-elements={DEFAULT_STRESS_ELEMENTS} stress-rounds={DEFAULT_STRESS_ROUNDS} "
-            "redundant-copies=2 "
-            "ramp=" + "/".join(f"{int(stage.fraction * 100)}%:{stage.seconds:.1f}s" for stage in schedule)
+            f"redundant-copies=2 mode={mode} "
+            "schedule="
+            + "/".join(
+                f"{int(stage.fraction * 100)}%:{stage.seconds:.1f}s"
+                for stage in schedule
+            )
         )
 
         def sanity_check() -> None:
@@ -755,6 +825,29 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--gpu-index", type=int, default=0)
     parser.add_argument("--duration-seconds", type=float, default=90.0)
+    parser.add_argument(
+        "--pulse-on-seconds",
+        type=float,
+        default=None,
+        help="Alternate to the full grid for this long, then step down.",
+    )
+    parser.add_argument(
+        "--pulse-off-seconds",
+        type=float,
+        default=None,
+        help="Keep the fractional grid for this long. Requires --pulse-on-seconds.",
+    )
+    parser.add_argument(
+        "--pulse-low-fraction",
+        type=float,
+        default=None,
+        metavar="FRACTION",
+        help=(
+            "Fraction of the full grid used for the low half of each pulse. "
+            f"Default {PULSE_LOW_FRACTION_DEFAULT}, range "
+            f"{PULSE_LOW_FRACTION_MIN}-{PULSE_LOW_FRACTION_MAX}."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -764,6 +857,9 @@ def main(argv: list[str] | None = None) -> int:
         run_cuda_bruteforce_test(
             gpu_index=int(args.gpu_index),
             duration_seconds=float(args.duration_seconds),
+            pulse_on_s=args.pulse_on_seconds,
+            pulse_off_s=args.pulse_off_seconds,
+            pulse_low_fraction=args.pulse_low_fraction,
         )
     except KeyboardInterrupt:
         _log("Interrupted by user.")

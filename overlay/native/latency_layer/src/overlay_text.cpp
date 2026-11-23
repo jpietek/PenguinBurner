@@ -3,6 +3,7 @@
 #include "overlay_metrics.h"
 
 #include <cmath>
+#include <sys/stat.h>
 
 namespace pblayer {
 double parse_overlay_scale(const std::string& value) {
@@ -401,6 +402,23 @@ OverlayGpuState read_overlay_gpu_state() {
         overlay_runtime_path(kOverlayStateEnv, "overlay-state.txt");
     FILE* file = std::fopen(path.c_str(), "r");
     if (!file) {
+        return state;
+    }
+    // Three missed updates at the daemon's maximum 10-second interval.
+    // Stat the opened inode so an atomic replacement cannot lend an old
+    // snapshot a new timestamp. Keep overlay/state.py in agreement.
+    constexpr double max_age_s = 30.0;
+    struct stat metadata{};
+    if (::fstat(::fileno(file), &metadata) != 0) {
+        std::fclose(file);
+        return state;
+    }
+    const double now_s = std::chrono::duration<double>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    const double modified_s = static_cast<double>(metadata.st_mtim.tv_sec)
+        + static_cast<double>(metadata.st_mtim.tv_nsec) / 1000000000.0;
+    if (std::abs(now_s - modified_s) > max_age_s) {
+        std::fclose(file);
         return state;
     }
     state.available = true;

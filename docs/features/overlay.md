@@ -172,6 +172,10 @@ Each of these is omitted when the box cannot answer: a machine without RAPL, or
 with its sensors behind a driver we do not recognise, simply has no such row. A
 missing row is honest; a zero would read as a real measurement.
 
+If the daemon stops updating telemetry for more than 30 seconds, the overlay
+discards its old readings. FPS falls back to live Vulkan present timing; daemon
+readings become unavailable. Updates resume automatically when telemetry returns.
+
 ## Changing the overlay without leaving the game
 
 PenguinBurner captures no keyboard input. Instead it ships one-shot commands

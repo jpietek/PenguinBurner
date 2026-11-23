@@ -214,7 +214,7 @@ def test_performance_preserves_chosen_rung_instead_of_merging_earlier_rungs(
     assert bool(choices) == require_choice
 
 
-@pytest.mark.parametrize("status", ["passed", "blocked", "critical"])
+@pytest.mark.parametrize("status", ["passed", "blocked", "critical", "pulses"])
 @pytest.mark.parametrize(
     "voltage,clock,cap,tail,tier",
     [
@@ -246,9 +246,18 @@ def test_final_soak_preserves_selected_curve_and_power_limit(
             assert kwargs["candidate_plan"] == original
             assert kwargs["power_limit_w"] == cap
         voltage, clock = kwargs["candidate_voltage_mv"], kwargs["lock_clock_mhz"]
-        return _summary(voltage, clock), stable_probe_result(
+        result = stable_probe_result(
             clock_mhz=clock, fps=selected_probe.avg_fps
         )
+        result["companion_telemetry_samples"] = (
+            [SimpleNamespace(power_w=200.0) for _ in range(10)]
+            if status == "pulses"
+            else [
+                SimpleNamespace(power_w=value)
+                for value in (200.0, 100.0, 200.0, 100.0, 200.0, 100.0)
+            ]
+        )
+        return _summary(voltage, clock), result
 
     def save(**kwargs):
         assert stages[-1] == "final-verify"
@@ -292,9 +301,12 @@ def test_final_soak_preserves_selected_curve_and_power_limit(
                 }
             ],
         )
-    expected_error = (
-        "cached unsafe point" if status == "blocked" else "critical probe failure"
-    )
+    if status == "blocked":
+        expected_error = "cached unsafe point"
+    elif status == "pulses":
+        expected_error = "CUDA pulses never moved the load"
+    else:
+        expected_error = "critical probe failure"
     with (
         pytest.raises(final_loop.AutoUvError, match=expected_error)
         if status != "passed"
@@ -336,6 +348,14 @@ def test_final_soak_preserves_selected_curve_and_power_limit(
     if status == "critical":
         assert stages == ["final-verify"]
         assert not saved
+        assert not final_verification_failure_can_offer_retry(
+            failure.value
+        )
+        return
+    if status == "pulses":
+        assert stages == ["final-verify"]
+        assert not saved
+        # A pulse harness fault must not retreat to a higher-voltage curve.
         assert not final_verification_failure_can_offer_retry(
             failure.value
         )

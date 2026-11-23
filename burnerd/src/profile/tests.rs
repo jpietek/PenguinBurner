@@ -164,6 +164,50 @@ fn runtime_state_file_is_published_with_the_overlay_hud_off() {
     let _ = std::fs::remove_file(&state_path);
 }
 
+#[test]
+fn periodic_debug_logging_preserves_runtime_state_and_events() {
+    // Separate processes isolate the daemon-wide logging setting and capture
+    // the actual stdout sink, including both runtime-loop statistics lines.
+    for enabled in [false, true] {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "profile::tests::debug_logging_loop_fixture",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("PB_TEST_DEBUG_LOGGING", if enabled { "1" } else { "0" })
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(output.status.success(), "{stdout}\n{:?}", output.stderr);
+        assert_eq!(
+            stdout.lines().any(|line| line.starts_with("telemetry |")),
+            enabled,
+            "{stdout}"
+        );
+        assert_eq!(
+            stdout.lines().any(|line| line.starts_with("status |")),
+            enabled,
+            "{stdout}"
+        );
+        assert!(stdout.contains("Running GPU 0"), "{stdout}");
+        // The mock records recovery writes but retains its original readback;
+        // that verification error must remain visible with debug mode off.
+        assert!(stdout.contains("event=vf-curve-reapply-error"), "{stdout}");
+    }
+}
+
+#[test]
+#[ignore = "subprocess fixture for periodic_debug_logging_preserves_runtime_state_and_events"]
+fn debug_logging_loop_fixture() {
+    crate::logging::set_debug_enabled(std::env::var("PB_TEST_DEBUG_LOGGING").unwrap() == "1");
+    // These assertions verify the state file is still fresh and recovery still
+    // performs its mock GPU writes in both logging modes.
+    runtime_state_file_is_published_with_the_overlay_hud_off();
+    loop_reapplies_vf_curve_when_driver_resets_offsets();
+}
+
 /// Build a VF-drifted policy whose applied mem offset is `mem_offset`, so the VF
 /// reapply guard fires and the mem-offset guard has a target to check.
 fn vf_reapply_policy(mem_offset: i64) -> (Vec<PlanItem>, VfPolicyResult<'static>) {

@@ -313,3 +313,47 @@ def test_verified_candidate_payload_records_power_regime() -> None:
     # only by absence of the key in truly old files.
     assert capped["configured_power_limit_w"] == 503
     assert unrecorded["configured_power_limit_w"] is None
+
+
+def test_cuda_pulse_cycles_count_steps_and_ignore_idle_samples() -> None:
+    from auto_uv.final_verification.transient_check import power_pulse_cycle_count
+
+    idle = [{"power_w": 40.0}, {"power_w": 40.0}]
+    loaded = [
+        {"power_w": 200.0},
+        {"power_w": 100.0},
+        {"power_w": 200.0},
+        {"power_w": 100.0},
+        {"power_w": 200.0},
+        {"power_w": 100.0},
+        {"power_w": 200.0},
+    ]
+    assert power_pulse_cycle_count(idle + loaded + idle) == 3
+
+    flat = [{"power_w": 200.0} for _ in range(20)]
+    assert power_pulse_cycle_count(flat) == 0
+
+    noise = [{"power_w": 200.0}, {"power_w": 205.0}] * 10
+    assert power_pulse_cycle_count(noise) == 0
+
+
+def test_required_cuda_pulse_cycles_scale_to_the_cuda_budget() -> None:
+    from auto_uv.final_verification.transient_check import required_pulse_cycles
+
+    # The first high phase does not return, so a 15 s window fits one complete
+    # low-to-high return, not two.
+    assert required_pulse_cycles(15, pulse_on_s=4.0, pulse_off_s=3.0) == 1
+    assert required_pulse_cycles(45, pulse_on_s=4.0, pulse_off_s=3.0) == 5
+    assert required_pulse_cycles(75, pulse_on_s=4.0, pulse_off_s=3.0) == 5
+    assert required_pulse_cycles(3, pulse_on_s=4.0, pulse_off_s=3.0) == 1
+
+
+def test_missing_cuda_pulse_cycles_names_the_shortfall() -> None:
+    from auto_uv.final_verification.transient_check import (
+        missing_pulse_cycles_reason,
+    )
+
+    assert missing_pulse_cycles_reason(5, 5) is None
+    reason = missing_pulse_cycles_reason(1, 5)
+    assert reason is not None
+    assert "cycles=1" in reason and "required=5" in reason
