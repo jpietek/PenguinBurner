@@ -183,3 +183,15 @@ def test_appearance_waits_for_a_running_action(window, config):
     QTest.qWait(1200)
     assert shell.CURRENT["window"] is not window
     assert design.MODE["current"] == "light"
+
+
+def test_pages_are_wired_together(window, monkeypatch):
+    games, summaries = [], []
+    monkeypatch.setattr(
+        window.library_tab.library, "set_profile_summaries", summaries.append
+    )
+    monkeypatch.setattr(window.overlay_page.panel, "set_game", games.append)
+    window.library_tab.library.selected_game_changed.emit("game")
+    window.profiles_tab.page.adaptive_tiers_changed.emit(["Balanced"])
+    assert games == ["game"]
+    assert summaries == [None]

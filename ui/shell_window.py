@@ -206,6 +206,7 @@ class ShellWindow(W.QWidget):
             self.stack.addWidget(widget)
         page.addWidget(self.stack, 1)
         self.tabs.currentChanged.connect(self.stack.setCurrentIndex)
+        self.connect_pages()
         self.show_status()
 
     def build_page(self, index: int) -> W.QWidget:
@@ -232,6 +233,22 @@ class ShellWindow(W.QWidget):
             )
             return self.profiles_tab.page
         return ClassicPlaceholder(PAGES[index][0], open_classic=self.open_classic)
+
+    def connect_pages(self) -> None:
+        """Cross-page wiring, for the pages that are built."""
+        library = getattr(self, "library_tab", None)
+        overlay = getattr(self, "overlay_page", None)
+        profiles = getattr(self, "profiles_tab", None)
+        if library is not None and overlay is not None:
+            # The overlay settings show the game picked in Game Library.
+            library.library.selected_game_changed.connect(
+                lambda game: overlay.panel.set_game(game)
+            )
+        if library is not None and profiles is not None:
+            # Adaptive per game needs a tier profile on that game's GPU.
+            profiles.page.adaptive_tiers_changed.connect(
+                lambda _tiers: library.library.set_profile_summaries(None)
+            )
 
     def add_header_action(self, widget: W.QWidget) -> None:
         """A page's header action (Setup, Stop, Import), placed before the
