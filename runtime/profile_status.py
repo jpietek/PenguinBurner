@@ -35,6 +35,20 @@ def empty_profile_info() -> dict[str, object]:
     return {"selector": "", "silent_fan_curve": False, "adaptive_auto_uv": False}
 
 
+def live_profile_status(
+    gpu_uuids: Iterable[str],
+) -> tuple[dict[str, object], dict[str, dict[str, object]]]:
+    """What runs now (the empty info when no runtime is active) and the boot
+    entries of ``gpu_uuids`` plus "" (the daemon's active one), as the
+    Profiles views poll them."""
+    running = (
+        running_auto_uv_profile_info()
+        if penguin_burner_runtime_is_active()
+        else _with_override_defaults(empty_profile_info())
+    )
+    return running, autostart_profile_infos(["", *gpu_uuids])
+
+
 # ---------------------------------------------------------------------------
 # Boot (autostart) entries
 # ---------------------------------------------------------------------------

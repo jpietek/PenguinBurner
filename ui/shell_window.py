@@ -26,6 +26,7 @@ from ui.design.style import COL, COPY, GAP, glyph_icon, info_icon, tab_icon
 from ui.design.tokens import AppearanceSettings
 from ui.dialogs import about
 from ui.dialogs.appearance import AppearanceDialog
+from ui.features.profiles.profiles_shell import PROFILES_TAB, ProfilesTab
 from ui.startup_checks import run_startup_checks
 
 # (tab label, painted tab glyph)
@@ -192,6 +193,8 @@ class ShellWindow(W.QWidget):
 
         self.stack = W.QStackedWidget()
         self.header_divider = divider
+        # Wired pages re-read live state here after the root service changed.
+        self.page_refreshers: list = []
         self.pages = [self.build_page(index) for index in range(len(PAGES))]
         for widget in self.pages:
             self.stack.addWidget(widget)
@@ -202,6 +205,10 @@ class ShellWindow(W.QWidget):
     def build_page(self, index: int) -> W.QWidget:
         """The page for tab ``index``. Each ported page adds its branch here;
         the rest offer the classic window."""
+        if index == PROFILES_TAB:
+            self.profiles_tab = ProfilesTab(self)
+            self.page_refreshers.append(self.profiles_tab.refresh)
+            return self.profiles_tab.page
         return ClassicPlaceholder(PAGES[index][0], open_classic=self.open_classic)
 
     def add_header_action(self, widget: W.QWidget) -> None:
@@ -213,6 +220,8 @@ class ShellWindow(W.QWidget):
     def refresh_pages(self) -> None:
         """Re-read live state after the root service changed (wired pages
         reload here)."""
+        for refresh in self.page_refreshers:
+            refresh()
 
     # ---------- window status ----------
 

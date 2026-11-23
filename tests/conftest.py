@@ -120,3 +120,64 @@ def native_launcher_installed(monkeypatch):
         installation, "host_command_path", lambda name: f"/usr/bin/{name}"
     )
     installation.native_command.cache_clear()
+
+
+@pytest.fixture
+def isolated_theme(qapp):
+    """install_theme restyles the whole process (app style sheet, palette,
+    font, the classic ui.theme colours and the switch). The two windows run
+    in separate processes, but tests share one, so put everything back."""
+    from PySide6 import QtCore as C
+    from PySide6 import QtGui as G
+    from PySide6 import QtWidgets as W
+
+    import ui.design.style as design
+    from ui import theme
+    from ui.components.toggle_switch import toggle_switch_class
+
+    switch = toggle_switch_class(C, G, W)
+    saved = (
+        {name: getattr(theme, name) for name in dir(theme) if name.isupper()},
+        qapp.styleSheet(),
+        G.QPalette(qapp.palette()),
+        G.QFont(qapp.font()),
+        switch.__dict__.get("_colors"),
+        dict(design.COL),
+        dict(design.TYPE),
+        dict(design.TIER_COLORS),
+        dict(design.MODE),
+        design.APPEARANCE,
+    )
+    yield qapp
+    constants, qss, palette, font, colors, col, type_, tiers, mode, appearance = saved
+    for name, value in constants.items():
+        setattr(theme, name, value)
+    qapp.setStyleSheet(qss)
+    qapp.setPalette(palette)
+    qapp.setFont(font)
+    if colors is not None:
+        switch._colors = colors
+    for live, value in (
+        (design.COL, col),
+        (design.TYPE, type_),
+        (design.TIER_COLORS, tiers),
+        (design.MODE, mode),
+    ):
+        live.clear()
+        live.update(value)
+    design.APPEARANCE = appearance
+
+
+@pytest.fixture
+def offline_profiles(monkeypatch):
+    """The new window's Profiles source without a daemon or GPUs: no saved
+    profiles, nothing running or saved for boot, and no status poll."""
+    import ui.features.profiles.runtime_profiles_source as source_mod
+
+    monkeypatch.setattr(source_mod, "detected_gpu_choices", lambda: [])
+    monkeypatch.setattr(source_mod, "read_auto_uv_profile_summaries", lambda: [])
+    monkeypatch.setattr(
+        source_mod, "live_profile_status", lambda _uuids: ({}, {"": {}})
+    )
+    monkeypatch.setattr(source_mod, "STATUS_POLL_MS", 0)
+    return source_mod

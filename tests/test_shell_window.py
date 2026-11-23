@@ -10,55 +10,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import tomllib
 
 import pytest
-from PySide6 import QtCore as C
-from PySide6 import QtGui as G
 from PySide6 import QtWidgets as W
 from PySide6.QtTest import QTest
 
 import ui.design.style as design
 import ui.shell_window as shell
 from cli import runtime_config_file
-from ui import theme
-from ui.components.toggle_switch import toggle_switch_class
 from ui.design.tokens import AppearanceSettings, resolve_colors
-
-
-@pytest.fixture
-def isolated_theme(qapp):
-    """install_theme restyles the whole process (app style sheet, palette,
-    font, the classic ui.theme colours and the switch). The two windows run
-    in separate processes, but tests share one, so put everything back."""
-    switch = toggle_switch_class(C, G, W)
-    saved = (
-        {name: getattr(theme, name) for name in dir(theme) if name.isupper()},
-        qapp.styleSheet(),
-        G.QPalette(qapp.palette()),
-        G.QFont(qapp.font()),
-        switch.__dict__.get("_colors"),
-        dict(design.COL),
-        dict(design.TYPE),
-        dict(design.TIER_COLORS),
-        dict(design.MODE),
-        design.APPEARANCE,
-    )
-    yield qapp
-    constants, qss, palette, font, colors, col, type_, tiers, mode, appearance = saved
-    for name, value in constants.items():
-        setattr(theme, name, value)
-    qapp.setStyleSheet(qss)
-    qapp.setPalette(palette)
-    qapp.setFont(font)
-    if colors is not None:
-        switch._colors = colors
-    for live, value in (
-        (design.COL, col),
-        (design.TYPE, type_),
-        (design.TIER_COLORS, tiers),
-        (design.MODE, mode),
-    ):
-        live.clear()
-        live.update(value)
-    design.APPEARANCE = appearance
+from ui.features.profiles.profiles_page import ProfilesPage
 
 
 @pytest.fixture
@@ -70,7 +29,7 @@ def config(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def window(isolated_theme, config):
+def window(isolated_theme, config, offline_profiles):
     qapp = isolated_theme
     opened = []
     design.install_theme(qapp, AppearanceSettings())
@@ -118,13 +77,19 @@ def test_every_tab_offers_the_classic_window_until_its_page_lands(window):
     for index, page in enumerate(window.pages):
         window.tabs.setCurrentIndex(index)
         assert window.stack.currentWidget() is page
-        assert isinstance(page, shell.ClassicPlaceholder)
-    window.pages[1].open_button.click()
+        assert isinstance(page, ProfilesPage) == (index == 1)
+        assert isinstance(page, shell.ClassicPlaceholder) == (index != 1)
+    window.pages[0].open_button.click()
     assert window.opened_classic == [True]
 
 
 def test_status_band_shows_only_what_a_page_reports(window):
     window.show()
+    # Profiles always reports what runs now and at startup.
+    assert window.status_running.full_text() == (
+        "No running/autostart profile available yet."
+    )
+    window.set_global_status(None, "profiles")
     assert not window.status_band.isVisible()
     window.set_global_status({"running": "Running Balanced", "detail": "GPU 0"}, "profiles")
     assert window.status_band.isVisible()

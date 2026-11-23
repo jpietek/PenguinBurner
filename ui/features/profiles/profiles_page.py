@@ -1322,8 +1322,10 @@ class ProfilesPage(W.QWidget):
         self._verify_gpus[profile_id] = self.target.uuid
         self.verify_requested.emit(profile_id, label, row, int(minutes))
 
-    def verification_finished(self, profile_id: str, passed: bool) -> None:
-        """Auto UV reports the end of a Profiles verification."""
+    def verification_finished(
+        self, profile_id: str, passed: bool, stopped: bool = False
+    ) -> None:
+        """The verification host reports the end of a Profiles verification."""
         uuid = self._verify_gpus.pop(profile_id, self.target.uuid)
         self.source.finish_verification(profile_id, uuid, bool(passed))
         if passed:
@@ -1331,6 +1333,11 @@ class ProfilesPage(W.QWidget):
             self.notice = (
                 "Profile verification passed. It can be applied now.",
                 "accent",
+            )
+        elif stopped:
+            self.notice = (
+                "Profile verification stopped. The profile is unchanged.",
+                "",
             )
         else:
             self.notice = (
