@@ -717,16 +717,28 @@ def tiered_short_verification_duration_s(
     return max(1, int(base_duration) * int(multiplier))
 
 
+# How long an unreadable response is re-read before it counts as empty.
+# Both answer writers are atomic, so this only covers a writer that is not.
+FINAL_CHOICE_READ_RETRY_S = 2.0
+
+
 def wait_for_final_choice_response(response_path) -> dict:
     while not response_path.exists():
         if auto_uv_stop_requested():
             raise KeyboardInterrupt()
         time.sleep(0.25)
-    try:
-        response = json.loads(response_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return response if isinstance(response, dict) else {}
+    deadline = time.monotonic() + FINAL_CHOICE_READ_RETRY_S
+    while True:
+        try:
+            response = json.loads(response_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            # A half-written answer must not become the default candidate:
+            # read again until it parses or the retry window ends.
+            if time.monotonic() >= deadline:
+                return {}
+            time.sleep(0.05)
+            continue
+        return response if isinstance(response, dict) else {}
 
 
 def final_choice_discarded(response: dict) -> bool:

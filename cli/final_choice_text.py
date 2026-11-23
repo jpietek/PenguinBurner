@@ -6,17 +6,17 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
-from auto_uv.persistence.auto_uv_persisted_json_files import safe_json_write
-from auto_uv.scan_mode.auto_uv_mode import (
-    AUTO_UV_MODE_PERFORMANCE,
-    normalize_auto_uv_mode,
-)
-from ui.features.auto_uv.final_choice_ranking import (
+from auto_uv.final_verification.final_choice_ranking import (
     best_final_choice_candidate_id,
     candidate_oc_mhz,
     candidate_short_duration_s,
     final_choice_shows_oc_column,
     sort_candidates_for_final_choice,
+)
+from auto_uv.persistence.auto_uv_persisted_json_files import safe_json_write
+from auto_uv.scan_mode.auto_uv_mode import (
+    AUTO_UV_MODE_PERFORMANCE,
+    normalize_auto_uv_mode,
 )
 
 InputFn = Callable[[str], str]

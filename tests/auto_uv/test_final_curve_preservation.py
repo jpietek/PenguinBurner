@@ -24,8 +24,8 @@ from auto_uv.main_loop import (
     select_final_scan_candidate,
 )
 from auto_uv.run.voltage_sweep_state import VoltageProbeOutcome
-from ui.features.auto_uv import candidate_choice
-from ui.features.auto_uv.candidate_choice import candidate_record_from_probe
+from auto_uv.final_verification import candidate_choice
+from auto_uv.final_verification.candidate_choice import candidate_record_from_probe
 from stability.q2rtx.models import Q2RTXStabilityConfig
 from auto_uv_test_data import rtx_5080_20260524_high_oc_base_curve, stable_probe_result
 

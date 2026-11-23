@@ -101,7 +101,7 @@ COMPARISON_WINDOW_PCT = 2.0
 COMPARISON_RUNS = 2
 COMPARISON_CUDA_S = 5
 LOG_LIMIT = 6000
-# ui/features/auto_uv defaults: Efficiency 1 min, Balanced 3 min, Performance 5 min.
+# auto_uv/final_verification defaults: Efficiency 1 min, Balanced 3 min, Performance 5 min.
 FINAL_MINUTES = {"Efficiency": 1, "Balanced": 3, "Performance": 5}
 MODE_TO_TIER = {
     "efficiency": "Efficiency",

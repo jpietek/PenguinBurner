@@ -18,7 +18,7 @@ from auto_uv.run import performance_comparison as comparison
 from auto_uv.run.voltage_sweep_state import VoltageProbeOutcome
 from cli.final_choice_text import format_cli_final_choice_request
 from stability.q2rtx.models import Q2RTXStabilityConfig
-from ui.features.auto_uv.candidate_choice import (
+from auto_uv.final_verification.candidate_choice import (
     candidate_record_from_probe,
     candidate_selection_summary,
     candidate_short_verification_duration_s,

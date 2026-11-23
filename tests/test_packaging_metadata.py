@@ -959,7 +959,6 @@ def test_package_installs_shared_subprocess_locale_helper() -> None:
         "integrations",
         "stability",
         "stability.q2rtx",
-        "ui.features.auto_uv",
     } <= packages
 
 
