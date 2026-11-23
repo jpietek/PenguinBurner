@@ -9,7 +9,7 @@ import sys
 from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, ClassVar, TypedDict
+from typing import Any, TypedDict
 from unittest.mock import patch
 
 # Use the active checkout's widgets even when a different PenguinBurner wheel is installed.
@@ -21,7 +21,6 @@ from PySide6 import QtGui as G
 from PySide6 import QtWidgets as W
 from qt.components.adaptive_game_picker import AdaptiveGame, AdaptiveGamePicker
 from qt.components.profile_model import STOCK
-from qt.components.table_style import apply_table_spec
 from qt.features.perf_profile_page import PerfProfilePage
 from qt.features.profiles_page import CurveEditors, ProfilesPage
 from qt.sample.perf_rings import LIVE_KEY, SamplePerfSource
@@ -30,23 +29,26 @@ from qt.sample.prototype_controls import PrototypeControlsDialog, PrototypeState
 
 import ui.design.style as design
 from auto_uv.scan_mode.auto_uv_mode import adaptive_tier_option_key
+from auto_uv.session.scan_runs import format_duration_compact
 from integrations.afterburner.profile_import import afterburner_fan_curve_payload
 from ui.assets import asset_image_path
 from ui.components import fan_curve_editor, vf_curve_editor
 from ui.components.elided_label import ElidedLabel
-from ui.components.page_header import PAGE_MARGINS, PageHeader
+from ui.components.scan_runs_table import (
+    RESULT_COLORS,
+    MeasurementLanes,
+    RunCells,
+    write_run_cells,
+)
+from ui.components.table_style import apply_table_spec
 from ui.design.style import (
     COL,
     COPY,
-    DIM_ALPHA,
     GAP,
-    RAD,
     TIER_COLORS,
     TYPE,
-    WEIGHT,
     ChartLegend,
     DemoCurvePlot,
-    focus_visible,
     glyph_icon,
     info_icon,
     install_theme,
@@ -57,6 +59,15 @@ from ui.dialogs import about, afterburner_import, scan_tuning
 from ui.dialogs.appearance import AppearanceDialog
 from ui.dialogs.error_details import process_failure_details, show_error_dialog
 from ui.dialogs.final_choice import select_final_candidate
+from ui.features.tuning.auto_uv_view import (
+    EMPTY_RUNS_META,
+    IDLE_DETAIL,
+    IDLE_TITLE,
+    AutoUvView,
+    VisibleWhileEnabled,
+    button,
+    fit_choice_dialog,
+)
 from ui.features.tuning.tuning import AutoUvNvmlInfo
 from ui.qt import apply_dark_palette
 from ui.shell_window import header_icon_button, label, shell_section
@@ -140,15 +151,6 @@ FINAL_FAILURE = dict(
     reason="final verification ended early",
     fatal=["VK_ERROR_DEVICE_LOST"],
 )
-TIER_STATE_LABELS = {
-    "pending": "Pending",
-    "active": "Scanning",
-    "complete": "✓ Complete",
-    "skipped": "Skipped",
-    "stopped": "Stopped",
-    "failed": "Failed",
-    "not-run": "Not run",
-}
 RUN_STATE_LABELS = {
     "running": "Running",
     "stopping": "Stopping",
@@ -266,432 +268,6 @@ def setup_options(parent, *, gpu_count=1, no_gpu=False, gpu_index=0):
         return scan_tuning.select_scan_tuning(
             QtCore=C, QtGui=G, QtWidgets=W, parent=parent, gpu_index=selected
         )
-
-
-def button(text, slot, role=None):
-    widget = W.QPushButton(text)
-    if role:
-        widget.setObjectName(role)
-    widget.clicked.connect(slot)
-    return widget
-
-
-class VisibleWhileEnabled(C.QObject):
-    """Keeps a button shown only while it is enabled."""
-
-    def __init__(self, button):
-        super().__init__(button)
-        button.installEventFilter(self)
-        button.setVisible(button.isEnabled())
-
-    def eventFilter(self, watched, event):
-        if event.type() == C.QEvent.Type.EnabledChange:
-            watched.setVisible(watched.isEnabled())
-        return False
-
-
-TABLE_HEADERS = (
-    "Run",
-    "Voltage\nmV",
-    "Target clock\nMHz",
-    "Core offset\nMHz",
-    "Measured clock\nMHz",
-    "Frame rate\nFPS",
-    "Board power\nW",
-    "Temperature\n°C",
-    "Fan speed\n%",
-    "Power cap reason",
-    "Efficiency\nFPS/W",
-    "Result",
-    "Status",
-)
-GROUP_ENDS = {0, 4, 10}
-
-
-def draw_group_edge(painter, rect):
-    painter.save()
-    painter.setPen(G.QColor(COL["border"]))
-    painter.drawLine(rect.topRight(), rect.bottomRight())
-    painter.restore()
-
-
-DELTA_ROLE = int(C.Qt.ItemDataRole.UserRole) + 1
-PROGRESS_ROLE = DELTA_ROLE + 1
-TONE_ROLE = DELTA_ROLE + 2
-RESULT_ROLE = DELTA_ROLE + 3
-FINAL_ROLE = DELTA_ROLE + 4
-
-
-def delta_color(column, change):
-    if abs(change) < 1:
-        return COL["quiet"]
-    improves = change < 0 if column == 6 else change > 0
-    return COL["gain"] if improves else COL["loss"]
-
-
-class MeasurementLanes:
-    """All rows in one measurement column share the same numeric anchors."""
-
-    units: ClassVar[dict[int, str]] = {5: "FPS", 6: "W", 10: "FPS/W"}
-
-    def __init__(self):
-        self.font = G.QFont(TYPE["family"])
-        self.font.setPixelSize(TYPE["table"])
-        self.font.setFeature(G.QFont.Tag.fromString("tnum"), 1)
-        metrics = G.QFontMetrics(self.font)
-        self.delta_width = {}
-        self.minimum_width = {}
-        for col, unit in self.units.items():
-            rows = [BASE, *SAMPLE["rows"]]
-            numbers = [
-                r["fps"]
-                if col == 5
-                else r["power"]
-                if col == 6
-                else r["fps"] / r["power"]
-                for r in rows
-            ]
-            digits = 4 if col == 10 else 2
-            deltas = [
-                "Δ stock",
-                *[f"{100 * (v / numbers[0] - 1):+.1f}%" for v in numbers[1:]],
-            ]
-            self.delta_width[col] = max(metrics.horizontalAdvance(v) for v in deltas)
-            absolute_width = max(
-                metrics.horizontalAdvance(v)
-                for v in [unit, *[f"{n:.{digits}f}" for n in numbers]]
-            )
-            self.minimum_width[col] = absolute_width + 8 + self.delta_width[col] + 10
-
-    def cells(self, rect, col):
-        bounds = rect.adjusted(5, 0, -5, 0)
-        delta = C.QRect(bounds)
-        delta.setLeft(delta.right() - self.delta_width[col] + 1)
-        value = C.QRect(bounds)
-        value.setRight(delta.left() - 9)
-        return value, delta
-
-
-class RunDelegate(W.QStyledItemDelegate):
-    def __init__(self, table, lanes):
-        super().__init__(table)
-        self.lanes = lanes
-
-    def paint(self, painter, option, index):
-        col = index.column()
-        if col in (11, 12):
-            self.paint_status(painter, option, index)
-        elif col not in self.lanes.units:
-            super().paint(painter, option, index)
-        else:
-            opts = W.QStyleOptionViewItem(option)
-            self.initStyleOption(opts, index)
-            value = opts.text.partition(" ")[0]
-            opts.text = ""
-            style = opts.widget.style() if opts.widget else W.QApplication.style()
-            style.drawControl(
-                W.QStyle.ControlElement.CE_ItemViewItem, opts, painter, opts.widget
-            )
-            value_rect, delta_rect = self.lanes.cells(opts.rect, col)
-            align = C.Qt.AlignmentFlag.AlignRight | C.Qt.AlignmentFlag.AlignVCenter
-            painter.save()
-            painter.setFont(self.lanes.font)
-            painter.setPen(
-                opts.palette.highlightedText().color()
-                if opts.state & W.QStyle.StateFlag.State_Selected
-                else opts.palette.text().color()
-            )
-            painter.drawText(value_rect, align, value)
-            change = index.data(DELTA_ROLE)
-            if change is not None:
-                painter.setPen(G.QColor(delta_color(col, change)))
-                painter.drawText(delta_rect, align, f"{change:+.1f}%")
-            painter.restore()
-        if col == 0:
-            # Selected rows carry the 2 px accent bar; final verification
-            # rows a 2 px border bar, as in the browser.
-            selected = bool(option.state & W.QStyle.StateFlag.State_Selected)
-            if selected or index.data(FINAL_ROLE):
-                bar = C.QRect(option.rect)
-                bar.setWidth(2)
-                painter.fillRect(bar, qcolor("accent" if selected else "border"))
-        if col in GROUP_ENDS:
-            draw_group_edge(painter, option.rect)
-
-    def paint_status(self, painter, option, index):
-        """Result: dot + label. Status: a progress bar to the run's duration."""
-        opts = W.QStyleOptionViewItem(option)
-        self.initStyleOption(opts, index)
-        text, opts.text = opts.text, ""
-        style = opts.widget.style() if opts.widget else W.QApplication.style()
-        style.drawControl(
-            W.QStyle.ControlElement.CE_ItemViewItem, opts, painter, opts.widget
-        )
-        painter.save()
-        painter.setRenderHint(G.QPainter.RenderHint.Antialiasing)
-        painter.setFont(self.lanes.font)
-        rect = opts.rect.adjusted(8, 0, -8, 0)
-        if index.column() == 11:
-            color = qcolor(index.data(RESULT_ROLE) or "secondary")
-            painter.setPen(C.Qt.PenStyle.NoPen)
-            painter.setBrush(color)
-            painter.drawEllipse(
-                C.QPointF(rect.left() + 3.5, rect.center().y() + 0.5), 3.5, 3.5
-            )
-            font = G.QFont(self.lanes.font)
-            font.setWeight(G.QFont.Weight.DemiBold)
-            painter.setFont(font)
-            painter.setPen(color)
-            painter.drawText(
-                rect.adjusted(13, 0, 0, 0),
-                C.Qt.AlignmentFlag.AlignLeft | C.Qt.AlignmentFlag.AlignVCenter,
-                text,
-            )
-        else:
-            bar = C.QRectF(rect.adjusted(0, 6, 0, -6))
-            painter.setPen(C.Qt.PenStyle.NoPen)
-            painter.setBrush(qcolor("control"))
-            painter.drawRoundedRect(bar, RAD["control"], RAD["control"])
-            token, amount = PROGRESS_FILL.get(
-                index.data(TONE_ROLE) or "good", ("gain", 0.18)
-            )
-            fill = C.QRectF(bar)
-            fill.setWidth(bar.width() * float(index.data(PROGRESS_ROLE) or 0))
-            painter.setBrush(mixed(token, amount, "control"))
-            painter.setClipRect(fill)
-            painter.drawRoundedRect(bar, RAD["control"], RAD["control"])
-            painter.setClipping(False)
-            painter.setPen(qcolor("ink"))
-            painter.drawText(bar, C.Qt.AlignmentFlag.AlignCenter, text)
-        painter.restore()
-
-
-class RunHeader(W.QHeaderView):
-    def __init__(self, table, lanes):
-        super().__init__(C.Qt.Orientation.Horizontal, table)
-        self.lanes = lanes
-
-    def paintSection(self, painter, rect, column):
-        if column in self.lanes.units:
-            painter.save()
-            painter.setFont(self.lanes.font)
-            painter.fillRect(rect, G.QColor(COL["raised"]))
-            upper, lower = C.QRect(rect), C.QRect(rect)
-            upper.setBottom(rect.center().y())
-            lower.setTop(upper.bottom() + 1)
-            painter.setPen(G.QColor(COL["ink"]))
-            painter.drawText(
-                upper,
-                C.Qt.AlignmentFlag.AlignBottom | C.Qt.AlignmentFlag.AlignHCenter,
-                TABLE_HEADERS[column].splitlines()[0],
-            )
-            painter.setPen(G.QColor(COL["secondary"]))
-            val, delta = self.lanes.cells(lower, column)
-            for region, text in [(val, self.lanes.units[column]), (delta, "Δ stock")]:
-                painter.drawText(
-                    region,
-                    C.Qt.AlignmentFlag.AlignTop | C.Qt.AlignmentFlag.AlignRight,
-                    text,
-                )
-            painter.setPen(G.QColor(COL["border"]))
-            painter.drawLine(rect.bottomLeft(), rect.bottomRight())
-            painter.restore()
-        else:
-            super().paintSection(painter, rect, column)
-        if column in GROUP_ENDS:
-            draw_group_edge(painter, rect)
-
-
-class StatusDot(W.QWidget):
-    """Stage dot: accent while running, gain/warning/loss for outcomes."""
-
-    TONES: ClassVar[dict[str, str]] = {
-        "running": "accent",
-        "good": "gain",
-        "warning": "warning",
-        "error": "loss",
-        "idle": "quiet",
-    }
-
-    def __init__(self):
-        super().__init__()
-        self.tone = "idle"
-        self.setFixedSize(10, 10)
-
-    def set_tone(self, tone):
-        self.tone = tone if tone in self.TONES else "idle"
-        self.update()
-
-    def paintEvent(self, _event):
-        painter = G.QPainter(self)
-        painter.setRenderHint(G.QPainter.RenderHint.Antialiasing)
-        painter.setPen(C.Qt.PenStyle.NoPen)
-        painter.setBrush(qcolor(self.TONES[self.tone]))
-        painter.drawEllipse(C.QRectF(1, 1, 8, 8))
-        painter.end()
-
-
-class TierStrip(W.QWidget):
-    """Full scan progress: three segments with a 3 px state bar, as in the browser."""
-
-    def __init__(self):
-        super().__init__()
-        self.setObjectName("autoUvTierProgress")
-        self.states = dict.fromkeys(TIERS, "pending")
-        self.final_tier = None
-        self.font_title = G.QFont(TYPE["family"])
-        self.font_title.setPixelSize(TYPE["caption"])
-        self.font_bold = G.QFont(self.font_title)
-        self.font_bold.setWeight(G.QFont.Weight.DemiBold)
-        self.setFixedHeight(32)
-        self.hide()
-
-    def set_states(self, states, final_tier=None):
-        self.states = {tier: states.get(tier, "pending") for tier in TIERS}
-        self.final_tier = final_tier
-        self.setAccessibleName(
-            "Full scan progress: "
-            + ", ".join(f"{t} {self.label_for(t)}" for t in TIERS)
-        )
-        self.update()
-
-    def label_for(self, tier):
-        state = self.states[tier]
-        if state == "active" and self.final_tier == tier:
-            return "Final verification"
-        return TIER_STATE_LABELS[state]
-
-    def paintEvent(self, _event):
-        painter = G.QPainter(self)
-        painter.setRenderHint(G.QPainter.RenderHint.Antialiasing)
-        metrics = G.QFontMetrics(self.font_title)
-        title_w = metrics.horizontalAdvance("Full scan") + GAP["md"]
-        painter.setFont(self.font_title)
-        painter.setPen(qcolor("secondary"))
-        text_rect = C.QRect(0, 0, title_w, self.height() - 6)
-        painter.drawText(
-            text_rect,
-            C.Qt.AlignmentFlag.AlignLeft | C.Qt.AlignmentFlag.AlignVCenter,
-            "Full scan",
-        )
-        gap = GAP["md"]
-        width = (self.width() - title_w - 2 * gap) / 3
-        for i, tier in enumerate(TIERS):
-            state = self.states[tier]
-            x = title_w + i * (width + gap)
-            seg = C.QRectF(x, 0, width, self.height())
-            bar = C.QRectF(x, self.height() - 3, width, 3)
-            color = {
-                "active": qcolor(TIER_COLORS[tier]),
-                "complete": qcolor(TIER_COLORS[tier], 0.7),
-                "stopped": qcolor("warning"),
-                "failed": qcolor("loss"),
-            }.get(state, qcolor("border" if state == "skipped" else "divider"))
-            if state == "skipped":
-                pen = G.QPen(color, 3, C.Qt.PenStyle.DashLine)
-                painter.setPen(pen)
-                painter.drawLine(
-                    C.QPointF(bar.left(), bar.center().y()),
-                    C.QPointF(bar.right(), bar.center().y()),
-                )
-            else:
-                painter.fillRect(bar, color)
-            text = seg.adjusted(2, 0, -2, -6)
-            painter.setFont(self.font_bold)
-            painter.setPen(qcolor("quiet" if state == "not-run" else "ink"))
-            painter.drawText(
-                text,
-                C.Qt.AlignmentFlag.AlignLeft | C.Qt.AlignmentFlag.AlignVCenter,
-                f"{i + 1}. {tier}",
-            )
-            painter.setFont(self.font_title)
-            painter.setPen(
-                qcolor(
-                    {
-                        "active": "ink",
-                        "complete": "gain",
-                        "stopped": "warning",
-                        "failed": "loss",
-                    }.get(
-                        state,
-                        "quiet" if state in ("skipped", "not-run") else "secondary",
-                    )
-                )
-            )
-            painter.drawText(
-                text,
-                C.Qt.AlignmentFlag.AlignRight | C.Qt.AlignmentFlag.AlignVCenter,
-                self.label_for(tier),
-            )
-        painter.end()
-
-
-def mixed(token, amount, base="panel"):
-    """Token colour blended over a surface, like CSS color-mix()."""
-    top, under = qcolor(token), qcolor(base)
-    return G.QColor(
-        round(under.red() + (top.red() - under.red()) * amount),
-        round(under.green() + (top.green() - under.green()) * amount),
-        round(under.blue() + (top.blue() - under.blue()) * amount),
-    )
-
-
-ROW_BACKGROUNDS = {
-    "running": ("accent", 0.08),
-    "warning": ("warning", 0.08),
-    "error": ("loss", 0.09),
-    "baseline": ("raised", 1.0),
-}
-PROGRESS_FILL = {
-    "running": ("primary", 1.0),
-    "good": ("gain", 0.18),
-    "baseline": ("secondary", 0.16),
-    "warning": ("warning", 0.26),
-    "error": ("loss", 0.28),
-    "neutral": ("raised", 1.0),
-}
-RESULT_COLORS = {
-    "Pass": "gain",
-    "Running": "accent",
-    "Failed": "loss",
-    "Stopping": "warning",
-    "Stopped": "warning",
-    "Aborted": "warning",
-    "Discarded": "quiet",
-}
-
-
-def nice_step(span, count):
-    """charts.js niceStep: a 1/2/5 x 10^n step so ticks are round numbers."""
-    raw = abs(span) / max(1, count)
-    power = 10 ** math.floor(math.log10(raw or 1))
-    unit = raw / power
-    return (1 if unit <= 1 else 2 if unit <= 2 else 5 if unit <= 5 else 10) * power
-
-
-class ScanPlot(DemoCurvePlot):
-    """The Auto UV V/F plot: browser tick steps, and a selection that also
-    dims the live candidate."""
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        if not hasattr(self, "plot"):
-            return
-        # plotVF: y major = niceStep(span, 8) with halves; x major follows the
-        # width (one label per ~110 px) with fifths.
-        self.plot.getAxis("left").tickSpacing = lambda lo, hi, size: [
-            (major := nice_step(hi - lo, 8), 0),
-            (major / 2, 0),
-        ]
-        self.plot.getAxis("bottom").tickSpacing = lambda lo, hi, size: [
-            (major := nice_step(hi - lo, max(3, round(size / 110))), 0),
-            (major / 5, 0),
-        ]
-
-    def _apply_curve_highlights(self):
-        super()._apply_curve_highlights()
-        if self.candidate_curve is not None:
-            self.candidate_curve.setOpacity(DIM_ALPHA if self._emphasis() else 1.0)
 
 
 class ExternalLegendPlot(DemoCurvePlot):
@@ -916,43 +492,29 @@ def repolish(widget):
     style.polish(widget)
 
 
-def scan_page_stylesheet():
-    """Auto UV page cards, log and scrollbars. The production setup and
-    final-choice dialogs are children of the page, so they inherit the
-    group-box, caution and focus rules too."""
-    c, r, t, w = COL, RAD, TYPE, WEIGHT
-    caution = mixed("warning", 0.07, "raised").name()
-    return f"""
-        QFrame#uvCard{{background:{c["panel"]};border:1px solid {c["border"]};border-radius:{r["panel"]}px}}
-        QStackedWidget#uvPlotStack{{border-top:1px solid {c["divider"]}}}
-        QSplitter#uvCards::handle{{background:transparent}}
-        QSplitter#uvPlotLog::handle{{background:{c["divider"]}}}
-        QSplitter#uvPlotLog::handle:hover{{background:{c["accent"]}}}
-        QLabel#uvCandidate{{font-size:{t["body"]}px;color:{c["ink"]};padding-left:{GAP["sm"]}px;border-left:1px solid {c["border"]};margin-left:{GAP["xs"]}px}}
-        QFrame#uvLogPane{{background:{c["window"]};border:none;border-bottom-right-radius:{r["panel"] - 1}px}}
-        QLabel#uvLogTitle{{font-weight:{w["semibold"]}}}
-        QLabel#uvLogCount{{font-size:{t["caption"]}px;color:{c["quiet"]}}}
-        QPushButton#copyLogs{{font-size:{t["caption"]}px;padding:3px 10px}}
-        QPushButton#copyLogs:focus{{padding:2px 9px}}
-        QPlainTextEdit#uvLog{{background:{c["window"]};color:{c["secondary"]};border:none;border-top:1px solid {c["divider"]};padding:4px 6px;font-family:"JetBrains Mono","DejaVu Sans Mono","Noto Sans Mono",monospace;font-size:{t["caption"]}px}}
-        QTableWidget#scanRunsTable{{background:{c["panel"]};border:none;border-top:1px solid {c["divider"]};border-bottom-left-radius:{r["panel"] - 1}px;border-bottom-right-radius:{r["panel"] - 1}px}}
-        QTableWidget#scanRunsTable:focus{{border:2px solid {c["focus"]}}}
-        QGroupBox{{border:1px solid {c["border"]};border-radius:{r["panel"]}px;margin-top:0;padding-top:34px;font-size:{t["section"]}px;font-weight:{w["semibold"]}}}
-        QGroupBox *{{font-weight:{w["regular"]}}}
-        QGroupBox::title{{subcontrol-origin:padding;subcontrol-position:top left;left:14px;top:12px;padding:0;color:{c["ink"]}}}
-        QLabel#autoUvTargetCaution{{color:{c["warning"]};background:{caution};border:none;border-radius:{r["control"]}px;padding:7px 13px;font-size:{t["caption"]}px;qproperty-alignment:'AlignLeft|AlignVCenter'}}
-        QTableView:focus{{border:2px solid {c["focus"]}}}
-    """
+def sample_lanes():
+    """The runs table's lanes sized to the sample's widest numbers."""
+    rows = [BASE, *SAMPLE["rows"]]
+    values, deltas = {}, {}
+    for col in MeasurementLanes.units:
+        numbers = [
+            r["fps"] if col == 5 else r["power"] if col == 6 else r["fps"] / r["power"]
+            for r in rows
+        ]
+        digits = 4 if col == 10 else 2
+        values[col] = [f"{n:.{digits}f}" for n in numbers]
+        deltas[col] = [f"{100 * (v / numbers[0] - 1):+.1f}%" for v in numbers[1:]]
+    return MeasurementLanes(values, deltas)
 
 
-class ScanPage(W.QWidget):
+class ScanPage(AutoUvView):
     """Native Auto UV page. A simulated backend replays sample.json through the
     per-tier sequence of auto_uv/main_loop.py: each tier's descent opens the
     real candidate dialog, runs that tier's final verification and saves the
-    profile before the next tier starts."""
+    profile before the next tier starts. The layout is the real page's
+    (ui/features/tuning/auto_uv_view.py)."""
 
     show_profiles = C.Signal()
-    import_requested = C.Signal()
     show_scan = C.Signal()
     # tier, row, memory MHz, verification minutes, scanned GPU index
     profile_saved = C.Signal(str, object, float, int, int)
@@ -966,7 +528,7 @@ class ScanPage(W.QWidget):
     profile_verified = C.Signal(int, bool)
 
     def __init__(self):
-        super().__init__()
+        super().__init__(sample_lanes(), "GPU 0 · " + GPU)
         self.stage = "idle"
         self.phase = ""
         self.options = None
@@ -991,7 +553,6 @@ class ScanPage(W.QWidget):
         self.header_stage: str = ""
         self.candidate_text: str = ""
         self.status_text: str = ""
-        self.log_lines = []
         self.gpu_index = 0
         self.import_ready = True
         self.live_mv, self.live_mhz = 0, 0.0
@@ -999,225 +560,21 @@ class ScanPage(W.QWidget):
         self.timer.setInterval(250)
         self.timer.timeout.connect(self.tick)
 
-        page = W.QVBoxLayout(self)
-        page.setContentsMargins(*PAGE_MARGINS)
-        page.setSpacing(GAP["md"])
-        self.header = PageHeader("Auto UV", "GPU 0 · " + GPU)
-        self.gpu_caption = self.header.subtitle
-        page.addWidget(self.header)
-        self.setup_button = button("Setup Auto Undervolt", self.setup, "setupScan")
-        self.stop_button = button("Stop", self.stop)
-        self.import_button = button("Import Afterburner", self.import_requested.emit)
-
-        # Card 1: status, tier strip, then plot | log (as the browser's panel).
-        self.scan_card = W.QFrame()
-        self.scan_card.setObjectName("uvCard")
-        card = W.QVBoxLayout(self.scan_card)
-        card.setContentsMargins(1, 1, 1, 1)
-        card.setSpacing(0)
-        head = W.QVBoxLayout()
-        head.setContentsMargins(GAP["lg"] + 4, GAP["lg"], GAP["lg"] + 4, GAP["md"])
-        head.setSpacing(GAP["md"])
-        card.addLayout(head)
-        status = W.QVBoxLayout()
-        status.setSpacing(2)
-        stage_row = W.QHBoxLayout()
-        stage_row.setSpacing(GAP["sm"])
-        self.stage_dot = StatusDot()
-        stage_row.addWidget(self.stage_dot)
-        self.stage_label = label("", "sectionTitle")
-        stage_row.addWidget(self.stage_label)
-        self.candidate_label = label("", "uvCandidate")
-        self.candidate_label.setTextInteractionFlags(
-            C.Qt.TextInteractionFlag.TextSelectableByMouse
-        )
-        self.candidate_label.setToolTip(
-            "Current candidate. Select or right-click to copy."
-        )
-        stage_row.addWidget(self.candidate_label)
-        stage_row.addStretch()
-        status.addLayout(stage_row)
-        self.stage_detail = label("", "caption")
-        self.stage_detail.setSizePolicy(
-            W.QSizePolicy.Policy.Ignored, W.QSizePolicy.Policy.Preferred
-        )
-        status.addWidget(self.stage_detail)
-        head.addLayout(status)
-        self.tier_strip = TierStrip()
-        head.addWidget(self.tier_strip)
-
-        self.plot = ScanPlot(
-            QtWidgets=W,
-            pg=pg,
-            x_label="Voltage",
-            x_units="mV",
-            y_label="Clock",
-            y_units="MHz",
-        )
-        self.plot.plot.plotItem.legend.setVisible(False)
-        self.plot_stack = W.QStackedWidget()
-        self.plot_stack.setObjectName("uvPlotStack")
-        empty = W.QWidget()
-        v = W.QVBoxLayout(empty)
-        # A card heading like every other: left-aligned at the top.
-        v.setContentsMargins(GAP["lg"] + 4, GAP["lg"], GAP["lg"] + 4, GAP["lg"])
-        v.setSpacing(2)
-        for title, role in [
-            ("Voltage / frequency curve", "sectionTitle"),
-            ("The base curve appears when the scan starts measuring.", "caption"),
-        ]:
-            v.addWidget(label(title, role))
-        v.addStretch()
-        self.plot_stack.addWidget(empty)
-        plot_panel = W.QWidget()
-        plot_layout = W.QVBoxLayout(plot_panel)
-        plot_layout.setContentsMargins(0, 0, 0, 0)
-        plot_layout.setSpacing(2)
-        plot_layout.addWidget(self.plot.widget, 1)
-        self.legend = ChartLegend()
-        plot_layout.addWidget(self.legend)
-        # Full scrollable log beside the plot, like the app's log view.
-        self.log_pane = W.QFrame()
-        self.log_pane.setObjectName("uvLogPane")
-        log_layout = W.QVBoxLayout(self.log_pane)
-        log_layout.setContentsMargins(0, 0, 0, 0)
-        log_layout.setSpacing(0)
-        log_head = W.QHBoxLayout()
-        log_head.setContentsMargins(GAP["md"], GAP["xs"], GAP["xs"], GAP["xs"])
-        log_head.setSpacing(GAP["sm"])
-        log_head.addWidget(label("Log", "uvLogTitle"))
-        self.log_count = label("0 lines", "uvLogCount")
-        log_head.addWidget(self.log_count)
-        log_head.addStretch()
-        self.copy_button = button("Copy logs", self.copy_logs, "copyLogs")
-        log_head.addWidget(self.copy_button)
-        log_layout.addLayout(log_head)
-        self.log_view = W.QPlainTextEdit()
-        self.log_view.setObjectName("uvLog")
-        self.log_view.setReadOnly(True)
-        self.log_view.setMaximumBlockCount(LOG_LIMIT)
-        # Long lines wrap at the pane edge instead of scrolling sideways.
-        self.log_view.setLineWrapMode(W.QPlainTextEdit.LineWrapMode.WidgetWidth)
-        self.log_view.setHorizontalScrollBarPolicy(
-            C.Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
-        mono = G.QFontDatabase.systemFont(G.QFontDatabase.SystemFont.FixedFont)
-        mono.setPixelSize(TYPE["caption"])
-        self.log_view.setFont(mono)
-        self.log_view.setAccessibleName("Scan log")
-        log_layout.addWidget(self.log_view, 1)
-        self.plot_log = W.QSplitter(C.Qt.Orientation.Horizontal)
-        self.plot_log.setObjectName("uvPlotLog")
-        self.plot_log.setHandleWidth(1)
-        self.plot_log.addWidget(plot_panel)
-        self.plot_log.addWidget(self.log_pane)
-        self.plot_log.setChildrenCollapsible(False)
-        self.plot_log.setStretchFactor(0, 2)
-        self.plot_log.setStretchFactor(1, 1)
-        self.plot_log.setSizes([720, 380])
-        self.plot_stack.addWidget(self.plot_log)
-        card.addWidget(self.plot_stack, 1)
-        self.splitter = W.QSplitter(C.Qt.Orientation.Vertical)
-        self.splitter.setObjectName("uvCards")
-        self.splitter.setHandleWidth(GAP["md"])
-        self.splitter.addWidget(self.scan_card)
-
-        # Card 2: the runs table.
-        table_frame = W.QFrame()
-        table_frame.setObjectName("uvCard")
-        layout = W.QVBoxLayout(table_frame)
-        layout.setContentsMargins(1, GAP["lg"], 1, 1)
-        layout.setSpacing(2)
-        for widget in (
-            label("Undervolting runs", "sectionTitle"),
-            runs_meta := label("", "caption"),
-        ):
-            widget.setContentsMargins(GAP["lg"] + 3, 0, GAP["lg"] + 3, 0)
-            layout.addWidget(widget)
-        self.runs_meta = runs_meta
-        layout.addSpacing(GAP["md"])
-        self.table = W.QTableWidget(0, len(TABLE_HEADERS))
-        self.table.setObjectName("scanRunsTable")
-        self.lanes = MeasurementLanes()
-        self.table.setHorizontalHeader(RunHeader(self.table, self.lanes))
-        self.table.setItemDelegate(RunDelegate(self.table, self.lanes))
-        self.table.setHorizontalHeaderLabels(TABLE_HEADERS)
-        self.table.setHorizontalScrollMode(
-            W.QAbstractItemView.ScrollMode.ScrollPerPixel
-        )
-        self.table.setEditTriggers(W.QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setSelectionBehavior(
-            W.QAbstractItemView.SelectionBehavior.SelectRows
-        )
-        self.table.setSelectionMode(W.QAbstractItemView.SelectionMode.SingleSelection)
-        self.table.setShowGrid(False)
-        self.table.verticalHeader().setMinimumSectionSize(20)
-        self.table.verticalHeader().setDefaultSectionSize(32)
-        self.table.verticalHeader().hide()
-        self.table.horizontalHeader().setSectionResizeMode(
-            W.QHeaderView.ResizeMode.Interactive
-        )
-        header_font = G.QFont(TYPE["family"])
-        header_font.setPixelSize(TYPE["table"])
-        header_metrics = G.QFontMetrics(header_font)
-        for col, width in enumerate(
-            [34, 52, 75, 68, 94, 100, 101, 80, 65, 96, 111, 78, 136]
-        ):
-            label_width = max(
-                header_metrics.horizontalAdvance(line)
-                for line in TABLE_HEADERS[col].splitlines()
-            )
-            self.table.setColumnWidth(
-                col, max(width, label_width + 9, self.lanes.minimum_width.get(col, 0))
-            )
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.currentCellChanged.connect(self.highlight)
-        self.table.setMinimumHeight(3 * 32 + 47 + 16)
-        layout.addWidget(self.table)
-        # Empty state, centred over the table body like the browser's.
-        self.runs_empty = label("No runs yet", "caption")
-        self.runs_empty.setParent(self.table.viewport())
-        self.runs_empty.setAlignment(C.Qt.AlignmentFlag.AlignCenter)
-        self.table.viewport().installEventFilter(self)
-        self.splitter.addWidget(table_frame)
-        self.splitter.setChildrenCollapsible(False)
-        self.splitter.setStretchFactor(0, 3)
-        self.splitter.setStretchFactor(1, 2)
-        self.splitter.setSizes([440, 300])
-        page.addWidget(self.splitter, 1)
-        self.setStyleSheet(focus_visible(scan_page_stylesheet()))
         self.refresh()
 
     # ---------- shared helpers ----------
 
-    def eventFilter(self, watched, event):
-        if watched is self.table.viewport() and event.type() == C.QEvent.Type.Resize:
-            self.runs_empty.setGeometry(watched.rect())
-        return super().eventFilter(watched, event)
-
     def fit_plot(self, rows=None):
         """The browser's plotDataBounds: data x range, y padded 6% to 100 MHz."""
-        curves = [BASE["points"], *(r["points"] for r in (rows or self.plan[1:]))]
-        xs = [v for points in curves for v, _ in points]
-        ys = [m for points in curves for _, m in points]
-        pad = (max(ys) - min(ys)) * 0.06
-        self.plot.plot.setRange(
-            xRange=(min(xs), max(xs)),
-            yRange=(
-                math.floor((min(ys) - pad) / 100) * 100,
-                math.ceil((max(ys) + pad) / 100) * 100,
-            ),
-            padding=0,
+        self.plot.fit_to(
+            [BASE["points"], *(r["points"] for r in (rows or self.plan[1:]))]
         )
 
     def busy(self):
         return self.stage in ("running", "verifying")
 
     def log(self, message):
-        line = f"[{C.QTime.currentTime().toString('HH:mm:ss')}] {message}"
-        self.log_lines.append(line)
-        del self.log_lines[:-LOG_LIMIT]
-        self.log_view.appendPlainText(line)
+        self.append_log(f"[{C.QTime.currentTime().toString('HH:mm:ss')}] {message}")
 
     def set_prototype(self, state):
         """Simulation switches from the browser's prototype controls."""
@@ -1826,7 +1183,7 @@ class ScanPage(W.QWidget):
         )
         self.candidate_text = probe_text(row)
         self.status_text = (
-            f"Verifying {tier} for {fmt_duration(minutes * 60)}. Accelerated replay."
+            f"Verifying {tier} for {format_duration_compact(minutes * 60)}. Accelerated replay."
         )
         self.log(
             f"probe_start {'resume-verify' if kind == 'resume' else 'final'} {probe_text(row)}"
@@ -1876,7 +1233,7 @@ class ScanPage(W.QWidget):
         run["state"] = "fail"
         run["failure"] = dict(
             FINAL_FAILURE,
-            reason=f"final verification ended early after {fmt_duration(run['elapsed'])}",
+            reason=f"final verification ended early after {format_duration_compact(run['elapsed'])}",
         )
         self.write_row(self.active_run)
         self.active_run = -1
@@ -2090,7 +1447,7 @@ class ScanPage(W.QWidget):
 
     def profile_progress_text(self):
         job = self.profile_job
-        return f"Verifying profile {fmt_duration(job['elapsed'])} / {fmt_duration(job['duration'])}"
+        return f"Verifying profile {format_duration_compact(job['elapsed'])} / {format_duration_compact(job['duration'])}"
 
     def profile_tick(self):
         job = self.profile_job
@@ -2121,7 +1478,7 @@ class ScanPage(W.QWidget):
         if result == "passed":
             self.header_stage = "Idle"
             self.status_text = "Profile verification complete."
-            duration = fmt_duration(job["duration"])
+            duration = format_duration_compact(job["duration"])
             self.progress_changed.emit(
                 f"Verifying profile {duration} / {duration}", 100, self.status_text
             )
@@ -2186,7 +1543,7 @@ class ScanPage(W.QWidget):
         status = (
             run["failure"]["label"]
             if state == "fail"
-            else f"{stage_name}{fmt_duration(run['elapsed'])} / {fmt_duration(run['duration'])}"
+            else f"{stage_name}{format_duration_compact(run['elapsed'])} / {format_duration_compact(run['duration'])}"
             if state in ("running", "pass")
             else RUN_STATE_LABELS.get(state, state)
         )
@@ -2235,66 +1592,40 @@ class ScanPage(W.QWidget):
                 )
             ),
         }
-        scroll = self.table.verticalScrollBar()
-        follow = scroll.maximum() - scroll.value() <= 1 and self.table.currentRow() < 0
-        old_top = scroll.value()
-        if i >= self.table.rowCount():
-            self.table.insertRow(i)
-        background = ROW_BACKGROUNDS.get(tone)
-        for col, value in enumerate(data):
-            cell = self.table.item(i, col)
-            if cell is None:
-                cell = W.QTableWidgetItem()
-                self.table.setItem(i, col, cell)
-            cell.setText(value)
-            cell.setToolTip(tips.get(col) or (tip if is_base and col == 0 else value))
-            if is_base and col == 0:
-                cell.setToolTip("Baseline reference run")
-            cell.setBackground(mixed(*background) if background else G.QBrush())
-            cell.setForeground(
-                qcolor(
-                    "secondary"
-                    if run.get("restored") and 0 < col < 11 or tone == "neutral"
-                    else "ink"
+        tooltips = {col: tips.get(col) or value for col, value in enumerate(data)}
+        if is_base:
+            tooltips[0] = "Baseline reference run"
+        deltas = {}
+        for col, (raw, reference) in {
+            5: (r["fps"], BASE["fps"]),
+            6: (r["power"], BASE["power"]),
+            10: (r["fps"] / r["power"], BASE["fps"] / BASE["power"]),
+        }.items():
+            change = 100 * (raw / reference - 1) if not is_base and measured else None
+            deltas[col] = change
+            if change is not None:
+                tooltips[col] = (
+                    f"{raw:.5f} · {change:+.3f}% vs stock baseline {reference:.5f}"
                 )
-            )
-            if col in (5, 6, 10):
-                raw, reference = {
-                    5: (r["fps"], BASE["fps"]),
-                    6: (r["power"], BASE["power"]),
-                    10: (r["fps"] / r["power"], BASE["fps"] / BASE["power"]),
-                }[col]
-                change = (
-                    100 * (raw / reference - 1) if not is_base and measured else None
-                )
-                cell.setData(DELTA_ROLE, change)
-                if change is not None:
-                    cell.setToolTip(
-                        f"{raw:.5f} · {change:+.3f}% vs stock baseline {reference:.5f}"
-                    )
-            if 0 < col < 11:
-                cell.setTextAlignment(
-                    C.Qt.AlignmentFlag.AlignRight | C.Qt.AlignmentFlag.AlignVCenter
-                )
-            if col == 11:
-                result_tone = (
+        write_run_cells(
+            self.table,
+            i,
+            RunCells(
+                texts=data,
+                tooltips=tooltips,
+                deltas=deltas,
+                tone=tone,
+                result_tone=(
                     "warning"
                     if state == "fail"
                     and (run.get("failure") or {}).get("severity") == "recoverable"
                     else RESULT_COLORS.get(str(result), "loss")
-                )
-                cell.setData(RESULT_ROLE, result_tone)
-            if col == 0:
-                cell.setData(FINAL_ROLE, run["kind"] in ("final", "resume"))
-            if col == 12:
-                cell.setData(
-                    PROGRESS_ROLE, max(0.0, min(1.0, run["elapsed"] / run["duration"]))
-                )
-                cell.setData(TONE_ROLE, tone)
-        if follow:
-            self.table.scrollToBottom()
-        else:
-            scroll.setValue(old_top)
+                ),
+                progress=run["elapsed"] / run["duration"],
+                final=run["kind"] in ("final", "resume"),
+                muted=bool(run.get("restored")),
+            ),
+        )
 
     def highlight(self, row, *_):
         run = self.runs[row] if 0 <= row < len(self.runs) else None
@@ -2347,16 +1678,6 @@ class ScanPage(W.QWidget):
             )
             self.tier_traces[tier] = self.plot.comparison_curves[-1]
 
-    def copy_logs(self):
-        W.QApplication.clipboard().setText("\n".join(self.log_lines))
-        message = f"Copied the full scan log ({len(self.log_lines)} lines)"
-        self.copy_button.setText("Log copied")
-        self.copy_button.setAccessibleDescription(message)
-        announcement = getattr(G, "QAccessibleAnnouncementEvent", None)
-        if announcement:
-            G.QAccessible.updateAccessibility(announcement(self.copy_button, message))
-        C.QTimer.singleShot(1400, lambda: self.copy_button.setText("Copy logs"))
-
     def stage_tone(self):
         if self.stage == "failed" or self.header_stage == "Error":
             return "error"
@@ -2376,53 +1697,31 @@ class ScanPage(W.QWidget):
             and self.stage == "idle"
             and not self.log_lines
         )
-        self.stage_label.setText(
-            "Ready to scan" if idle else self.header_stage or "Idle"
+        self.show_stage(
+            title=IDLE_TITLE if idle else self.header_stage or "Idle",
+            tone=self.stage_tone(),
+            candidate=self.candidate_text,
+            detail=IDLE_DETAIL if idle else self.status_text,
+            detail_tooltip=self.status_text,
         )
-        self.stage_dot.set_tone(self.stage_tone())
-        self.candidate_label.setText(self.candidate_text)
-        self.candidate_label.setVisible(bool(self.candidate_text))
-        self.stage_detail.setText(
-            "No Auto UV runs in this session. Choose a GPU and scan scope to get started."
-            if idle
-            else self.status_text
-        )
-        self.stage_detail.setToolTip(self.status_text)
         self.tier_strip.setVisible(self.full and bool(self.tier_state))
         self.tier_strip.set_states(
             self.tier_state, self.final_job["tier"] if self.final_job else None
         )
         busy = self.busy()
-        self.setup_button.setEnabled(not busy)
-        self.stop_button.setEnabled(
-            busy and self.phase not in ("stopping", "profile-stopping")
+        self.show_actions(
+            busy=busy,
+            stopping=self.phase in ("stopping", "profile-stopping"),
+            import_ready=self.import_ready,
         )
-        self.import_button.setEnabled(not busy and self.import_ready)
-        self.copy_button.setEnabled(bool(self.log_lines))
-        self.copy_button.setToolTip(
-            f"Copy the full scan log ({len(self.log_lines)} lines)"
-        )
-        self.log_count.setText(
-            f"{len(self.log_lines)} line{'s' if len(self.log_lines) != 1 else ''}"
-        )
-        self.plot_stack.setCurrentIndex(0 if idle else 1)
-        # Idle: a compact placeholder instead of an empty plot.
-        if idle:
-            self.plot_stack.setFixedHeight(125)
-            self.scan_card.setMaximumHeight(self.scan_card.sizeHint().height())
-        elif self.scan_card.maximumHeight() < 16777215:
-            # Leaving the idle layout: give the plot card 60% again.
-            self.plot_stack.setMinimumHeight(150)
-            self.plot_stack.setMaximumHeight(16777215)
-            self.scan_card.setMaximumHeight(16777215)
-            total = max(self.splitter.height(), 600)
-            self.splitter.setSizes([round(total * 0.6), round(total * 0.4)])
-        self.runs_empty.setVisible(not self.runs)
+        self.show_log_state()
         finished = sum(r["state"] not in ("running", "stopping") for r in self.runs)
-        self.runs_meta.setText(
-            "Measurements and results appear here during a scan."
+        self.show_layout(
+            idle=idle,
+            has_runs=bool(self.runs),
+            runs_meta=EMPTY_RUNS_META
             if not self.plan
-            else f"{'Full scan' if self.full else 'Selected profile'} · {finished} completed run{'s' if finished != 1 else ''}"
+            else f"{'Full scan' if self.full else 'Selected profile'} · {finished} completed run{'s' if finished != 1 else ''}",
         )
         self.update_legend()
         if busy:
@@ -2438,66 +1737,6 @@ class ScanPage(W.QWidget):
             )
         else:
             self.status_changed.emit(None)
-
-
-def fit_choice_dialog():
-    """Give the production final-choice dialog room for every column: content
-    widths with Status stretching last, no sideways scroll, no blank rows."""
-    dialog = W.QApplication.activeModalWidget()
-    if not isinstance(dialog, W.QDialog):
-        return
-    width = dialog.width()
-    for table in dialog.findChildren(W.QTableView):
-        apply_table_spec(table)
-        header = table.horizontalHeader()
-        last = header.count() - 1
-        for col in range(last):
-            header.setSectionResizeMode(col, W.QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(last, W.QHeaderView.ResizeMode.Stretch)
-        # One table density: 32 px rows, one line each.
-        table.setWordWrap(False)
-        table.verticalHeader().setSectionResizeMode(W.QHeaderView.ResizeMode.Fixed)
-        needed = (
-            sum(
-                header.sectionSize(col)
-                for col in range(last)
-                if not header.isSectionHidden(col)
-            )
-            + max(
-                header.sectionSizeFromContents(last).width(),
-                table.sizeHintForColumn(last),
-            )
-            + 2 * table.frameWidth()
-            + 24
-        )
-        dialog_layout = dialog.layout()
-        margins = dialog_layout.contentsMargins() if dialog_layout else None
-        width = max(
-            width, 1040, needed + (margins.left() + margins.right() if margins else 0)
-        )
-        rows = table.verticalHeader().length()
-        table.setMinimumHeight(0)
-        table.setFixedHeight(header.height() + rows + 2 * table.frameWidth() + 2)
-    layout = dialog.layout()
-    dialog.setMinimumHeight(0)
-    dialog.resize(
-        width,
-        layout.heightForWidth(width)
-        if layout is not None and layout.hasHeightForWidth()
-        else dialog.sizeHint().height(),
-    )
-
-
-def fmt_duration(seconds):
-    """ui/components/scan_controls.py _format_duration_compact."""
-    total = max(0, round(float(seconds or 0)))
-    if total < 60:
-        return f"{total}s"
-    minutes, rest = divmod(total, 60)
-    if minutes < 60:
-        return f"{minutes}min {rest}s" if rest else f"{minutes}min"
-    hours, mins = divmod(minutes, 60)
-    return f"{hours}h {mins}min" if mins else f"{hours}h"
 
 
 def probe_text(row):

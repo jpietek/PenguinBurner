@@ -17,6 +17,9 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from qt.features.profiles_page import ProfileDialogs
 
+from ui.components.scan_runs_table import PROGRESS_ROLE, RESULT_ROLE, delta_color
+from ui.design.style import DIM_ALPHA
+
 
 @pytest.fixture(scope="module")
 def app():
@@ -258,10 +261,10 @@ def test_full_scan_interleaves_tiers_and_discard_skips_one(app, monkeypatch):
         assert kinds.count("final") == 2 and kinds[0] == "baseline"
         # Results paint a coloured dot; status cells carry a progress fraction.
         failed = next(i for i, r in enumerate(page.runs) if r["state"] == "fail")
-        assert cell(page.table, failed, 11).data(preview.RESULT_ROLE) == "warning"
+        assert cell(page.table, failed, 11).data(RESULT_ROLE) == "warning"
         assert cell(page.table, failed, 12).text() == "Clock too low"
         assert "kind: low-clock" in cell(page.table, failed, 11).toolTip()
-        assert cell(page.table, 1, 12).data(preview.PROGRESS_ROLE) == 1.0
+        assert cell(page.table, 1, 12).data(PROGRESS_ROLE) == 1.0
         assert page.legend.labels()[:2] == ["Stock", "Previous runs"]
     finally:
         page.close()
@@ -427,7 +430,7 @@ def test_selection_dims_the_live_candidate_and_marks_the_row(app, monkeypatch):
             .widget()
         )
         assert swatch.style == "selected"
-        assert page.plot.candidate_curve.opacity() == pytest.approx(preview.DIM_ALPHA)
+        assert page.plot.candidate_curve.opacity() == pytest.approx(DIM_ALPHA)
         assert page.runs_empty.isHidden()
         image = page.table.viewport().grab().toImage()
         rect = page.table.visualRect(page.table.model().index(1, 0))
@@ -526,10 +529,10 @@ def test_run_delta_lanes_and_legend(app):
             page.plot.source_curve.opts["pen"].color().name().lower()
             == preview.COL["baseCurve"].lower()
         )
-        assert preview.delta_color(5, 0.9) == preview.COL["quiet"]
-        assert preview.delta_color(5, 6) == preview.COL["gain"]
-        assert preview.delta_color(6, -6) == preview.COL["gain"]
-        assert preview.delta_color(10, -6) == preview.COL["loss"]
+        assert delta_color(5, 0.9) == preview.COL["quiet"]
+        assert delta_color(5, 6) == preview.COL["gain"]
+        assert delta_color(6, -6) == preview.COL["gain"]
+        assert delta_color(10, -6) == preview.COL["loss"]
     finally:
         page.close()
 
