@@ -167,3 +167,19 @@ def test_refresh_pages_reloads_the_library(window, monkeypatch):
     monkeypatch.setattr(window.library_tab, "refresh", lambda: refreshed.append(True))
     window.refresh_pages()
     assert refreshed == [True]
+
+
+def test_appearance_waits_for_a_running_action(window, config):
+    """A rebuild deletes the pages, so it never runs under an Apply,
+    verification or scan; it happens once they finish."""
+    window.show()
+    running = [True]
+    window.busy_checks.append(lambda: running[0])
+    window.apply_appearance(AppearanceSettings(theme="light"))
+    assert shell.CURRENT["window"] is window
+    assert window.status_running.full_text() == "Appearance saved"
+    assert tomllib.loads(config.read_text())["ui"]["appearance_theme"] == "light"
+    running[0] = False
+    QTest.qWait(1200)
+    assert shell.CURRENT["window"] is not window
+    assert design.MODE["current"] == "light"

@@ -133,7 +133,7 @@ class ShellWindow(W.QWidget):
         page.setSpacing(0)
         # Window status sources, highest priority first; pages report here.
         self.status_sources: dict[str, dict | None] = dict.fromkeys(
-            ("scan", "profilesBusy", "library", "profiles")
+            ("scan", "profilesBusy", "appearance", "library", "profiles")
         )
 
         header = shell_section("shellHeader")
@@ -198,6 +198,9 @@ class ShellWindow(W.QWidget):
         self.header_divider = divider
         # Wired pages re-read live state here after the root service changed.
         self.page_refreshers: list = []
+        # Pages report whether a command, verification or scan is running;
+        # the window is never rebuilt under one.
+        self.busy_checks: list = []
         self.pages = [self.build_page(index) for index in range(len(PAGES))]
         for widget in self.pages:
             self.stack.addWidget(widget)
@@ -223,6 +226,10 @@ class ShellWindow(W.QWidget):
         if index == PROFILES_TAB:
             self.profiles_tab = ProfilesTab(self)
             self.page_refreshers.append(self.profiles_tab.refresh)
+            self.busy_checks.append(
+                lambda: self.profiles_tab.page.busy()
+                or self.profiles_tab.verifier.is_running()
+            )
             return self.profiles_tab.page
         return ClassicPlaceholder(PAGES[index][0], open_classic=self.open_classic)
 
@@ -296,6 +303,9 @@ class ShellWindow(W.QWidget):
         dialog.open()
         self.appearance_dialog = dialog
 
+    def is_busy(self) -> bool:
+        return any(check() for check in self.busy_checks)
+
     def apply_appearance(self, settings: AppearanceSettings) -> None:
         try:
             save_appearance(settings)
@@ -304,7 +314,15 @@ class ShellWindow(W.QWidget):
                 self, "Appearance", f"Could not save the appearance setting:\n{exc}"
             )
             return
-        rebuild_window(self, settings)
+        if self.is_busy():
+            self.set_global_status(
+                {
+                    "running": "Appearance saved",
+                    "detail": "It applies when the current action finishes.",
+                },
+                "appearance",
+            )
+        rebuild_when_idle(self, settings)
 
 
 # The live window, so Apply and a desktop colour-scheme change can rebuild it.
@@ -335,13 +353,24 @@ def rebuild_window(
     return replacement
 
 
+def rebuild_when_idle(
+    window: ShellWindow, settings: AppearanceSettings | None = None
+) -> None:
+    """Rebuild now, or once nothing runs: a rebuild deletes the pages and
+    with them a running Apply, verification or scan."""
+    if window.is_busy():
+        C.QTimer.singleShot(1000, window, lambda: rebuild_when_idle(window, settings))
+        return
+    rebuild_window(window, settings)
+
+
 def follow_desktop_scheme(_scheme=None) -> None:
     """Auto theme: rebuild when the desktop switches light/dark."""
     window = CURRENT["window"]
     if window is None or design.APPEARANCE.theme != "auto":
         return
     if design.resolved_mode(design.APPEARANCE) != design.MODE["current"]:
-        rebuild_window(window)
+        rebuild_when_idle(window)
 
 
 def open_shell_window(app: W.QApplication, *, gpu_index: int | None) -> ShellWindow:
