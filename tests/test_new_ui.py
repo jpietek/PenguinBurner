@@ -25,11 +25,11 @@ from ui.models import candidate_id_from_payload
 from ui.models import event_points
 from ui.models import fan_points
 from ui.models import stage_title
-from ui.features.profiles.profiles import profile_can_apply
-from ui.features.profiles.profiles import profile_can_verify
-from ui.features.profiles.profiles import profile_for_selector
-from ui.features.profiles.profiles import profile_verify_selector
-from ui.features.profiles.profiles import runner_status_text
+from profiles.uv.profile_rules import profile_can_apply
+from profiles.uv.profile_rules import profile_can_verify
+from profiles.uv.profile_rules import profile_for_selector
+from profiles.uv.profile_rules import profile_verify_selector
+from profiles.uv.profile_rules import runner_status_text
 from ui.features.tuning.verify import elapsed_from_line
 from ui.features.tuning.verify import progress_percent
 from ui.features.tuning.verify import workload_label

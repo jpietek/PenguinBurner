@@ -70,7 +70,7 @@ def test_parse_gui_args_returns_qt_argv() -> None:
 def main_window(qapp, monkeypatch):
     monkeypatch.setattr(
         window_mod,
-        "load_profile_summaries",
+        "read_auto_uv_profile_summaries",
         lambda: [{"profile_id": "p1", "display_name": "P1", "candidate_id": "c1"}],
     )
     monkeypatch.setattr(

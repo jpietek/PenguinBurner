@@ -15,15 +15,6 @@ from PySide6 import QtCore as C
 from PySide6 import QtGui as G
 from PySide6 import QtWidgets as W
 
-from qt.components.profile_model import (
-    COLUMNS,
-    POWER,
-    PROFILE,
-    RIGHT_ALIGNED,
-    SORTABLE_COLUMNS,
-    TIER,
-    Cell,
-)
 from ui.components.profile_style import (
     CELL_PAD_X,
     PILL_HEIGHT,
@@ -33,6 +24,15 @@ from ui.components.profile_style import (
     tier_color,
 )
 from ui.design.style import TYPE, WEIGHT, qcolor
+from ui.features.profiles.profile_model import (
+    COLUMNS,
+    POWER,
+    PROFILE,
+    RIGHT_ALIGNED,
+    SORTABLE_COLUMNS,
+    TIER,
+    Cell,
+)
 
 ID_ROLE = int(C.Qt.ItemDataRole.UserRole)
 PILLS_ROLE = ID_ROLE + 1

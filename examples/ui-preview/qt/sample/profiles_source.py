@@ -50,7 +50,7 @@ from profiles.uv.profile_vf_curve import (
     base_curve_points_from_payload,
     curve_plan_from_payload,
 )
-from qt.components.profile_model import (
+from ui.features.profiles.profile_model import (
     STOCK,
     BootEntry,
     CommandResult,
@@ -172,6 +172,8 @@ class SampleProfilesSource:
         self.assignments: dict[str, dict[str, str]] = {}
         self.disabled: dict[str, set[str]] = {}
         self.boot: dict[str, BootEntry] = {}
+        # The GPU whose boot entry was written last: the daemon's active one.
+        self.active_boot_gpu = ""
         self.main_gpu = ""
         self.state = RuntimeState()
         self.silent_fan = False
@@ -397,6 +399,9 @@ class SampleProfilesSource:
         return self.state
 
     def boot_entry(self, gpu_uuid: str) -> BootEntry | None:
+        if not gpu_uuid:
+            # The daemon's active boot entry: the main GPU's, else the last saved.
+            gpu_uuid = self.main_gpu or self.active_boot_gpu
         entry = self.boot.get(gpu_uuid)
         if entry is None:
             return None
@@ -432,6 +437,10 @@ class SampleProfilesSource:
         payload = self._fan(profile_id)
         return payload is not None and fan_payload_has_silent_runtime_fields(payload)
 
+    def memory_offset_range(self, gpu_uuid: str) -> tuple[int, int]:
+        gpu = next((g for g in self.gpus() if g.uuid == gpu_uuid), None)
+        return (0, 2000) if gpu is None else gpu.memory_offset_range
+
     def lact_directories(self) -> list[str]:
         return ["/etc/lact", "~/.config/PenguinBurner"]
 
@@ -439,6 +448,14 @@ class SampleProfilesSource:
 
     def set_silent_fan_preference(self, enabled: bool) -> None:
         self.silent_fan = bool(enabled)
+
+    def remember_apply_on_startup(self, enabled: bool) -> None:
+        """The app keeps this documented preference in its config; the
+        sample has nothing to keep."""
+
+    def remember_target_gpu(self, gpu_index: int) -> None:
+        """The app saves the chosen GPU as its runtime GPU; the sample keeps
+        the choice on the page."""
 
     def _bind_legacy(self, profile_id: str, gpu_uuid: str) -> None:
         payload = self.payloads.get(profile_id)
@@ -460,6 +477,7 @@ class SampleProfilesSource:
             # Every apply sends --boot or --clear-boot.
             if persist_on_startup:
                 self.boot[gpu_uuid] = BootEntry(profile_id, silent_fan=bool(silent_fan))
+                self.active_boot_gpu = gpu_uuid
             else:
                 self.boot.pop(gpu_uuid, None)
             return CommandResult(True, "Apply selected profile complete.", profile_id)
@@ -526,6 +544,7 @@ class SampleProfilesSource:
                 defaults_restored=True,
             )
             self.boot[gpu_uuid] = BootEntry(STOCK)
+            self.active_boot_gpu = gpu_uuid
             return CommandResult(True, "Restore defaults complete.")
 
         self._later(work, done)

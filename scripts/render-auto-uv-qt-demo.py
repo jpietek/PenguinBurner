@@ -310,7 +310,7 @@ def _stub_external_state(*, live_game_library: bool) -> None:
         )
     overlay_config_mod.load_overlay_config = lambda *_args, **_kwargs: DEMO_OVERLAY_CONFIG
     overlay_config_mod.read_overlay_state = lambda: dict(DEMO_OVERLAY_STATE)
-    window_mod.load_profile_summaries = list
+    window_mod.read_auto_uv_profile_summaries = list
     window_mod.systemd_autostart_profile_info = lambda: {
         "selector": "",
         "silent_fan_curve": False,

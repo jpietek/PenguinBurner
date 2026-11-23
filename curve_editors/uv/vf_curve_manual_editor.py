@@ -35,6 +35,27 @@ def editable_anchor_from_profile(profile: dict) -> tuple[int, int] | None:
     return voltage_mv, clock_mhz
 
 
+def manual_edit_control_voltage_mvs(manual_edit) -> tuple[int, ...]:
+    """The control-point voltages a saved manual edit was made with, in order."""
+    if not isinstance(manual_edit, dict):
+        return ()
+    raw_values = manual_edit.get("control_voltage_mvs")
+    if not isinstance(raw_values, (list, tuple)):
+        return ()
+    values = []
+    seen = set()
+    for raw_value in raw_values:
+        try:
+            value = round(float(raw_value))
+        except (TypeError, ValueError):
+            continue
+        if value in seen:
+            continue
+        seen.add(value)
+        values.append(value)
+    return tuple(values)
+
+
 def manual_drag_anchor_edit(
     plan: list[dict],
     *,

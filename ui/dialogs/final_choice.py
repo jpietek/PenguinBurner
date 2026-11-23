@@ -19,12 +19,12 @@ from auto_uv.scan_mode.auto_uv_mode import (
     AUTO_UV_MODE_PERFORMANCE,
     normalize_auto_uv_mode,
 )
-
-from ..components.profile_list import (
-    _format_profile_metric_with_delta,
-    _paint_profile_delta_item,
-    _profile_base_metric,
+from profiles.uv.profile_presentation import (
+    format_profile_metric_with_delta,
+    profile_base_metric,
 )
+
+from ..components.profile_list import _paint_profile_delta_item
 from ..components.table_sizing import set_header_fit_column_widths
 from ..constants import (
     DEFAULT_FINAL_VERIFICATION_DURATION_S,
@@ -397,7 +397,7 @@ def create_final_choice_table(
                     item,
                     QtGui,
                     candidate.get("efficiency_fps_per_w"),
-                    _profile_base_metric(candidate, "efficiency_fps_per_w"),
+                    profile_base_metric(candidate, "efficiency_fps_per_w"),
                     label="FPS/W",
                 )
             if QtGui is not None and column == FINAL_CHOICE_FPS_SORT_COLUMN:
@@ -405,7 +405,7 @@ def create_final_choice_table(
                     item,
                     QtGui,
                     candidate.get("avg_fps"),
-                    _profile_base_metric(candidate, "avg_fps"),
+                    profile_base_metric(candidate, "avg_fps"),
                     label="FPS",
                 )
             if QtGui is not None and column == 6:
@@ -413,7 +413,7 @@ def create_final_choice_table(
                     item,
                     QtGui,
                     candidate.get("avg_power_w"),
-                    _profile_base_metric(candidate, "avg_power_w"),
+                    profile_base_metric(candidate, "avg_power_w"),
                     label="Power W",
                     lower_is_better=True,
                 )
@@ -435,9 +435,9 @@ def _candidate_metric_text(
     precision: int,
     lower_is_better: bool = False,
 ) -> str:
-    return _format_profile_metric_with_delta(
+    return format_profile_metric_with_delta(
         candidate.get(metric),
-        _profile_base_metric(candidate, metric),
+        profile_base_metric(candidate, metric),
         precision=precision,
         lower_is_better=lower_is_better,
     )

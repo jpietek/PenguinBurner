@@ -265,7 +265,7 @@ def test_failure_then_scan_click_restores_table_plot_and_long_verifies_safer_poi
     monkeypatch.setattr(runner_module, "probe_voltage_candidate", probe)
     monkeypatch.setattr(main, "probe_voltage_candidate", probe)
     monkeypatch.setattr(final_module, "apply_plan_and_refresh", lambda *_args: None)
-    monkeypatch.setattr(window_module, "load_profile_summaries", lambda: [])
+    monkeypatch.setattr(window_module, "read_auto_uv_profile_summaries", lambda: [])
     monkeypatch.setattr(
         window_module, "gpu_choices_with_fallback", lambda **_kw: ([], 0)
     )

@@ -1,19 +1,35 @@
 from __future__ import annotations
 
-from datetime import datetime
 from math import isfinite
 
 from profiles.gpu_identity import (
-    GPU_COMPATIBILITY_LEGACY,
-    GPU_COMPATIBILITY_MATCH,
-    profile_gpu_compatibility,
     profile_gpu_label,
     profile_gpu_uuid,
 )
-from profiles.uv.profile_store import profile_presentation_name
-from profiles.uv.profile_tiers import (
-    normalize_profile_tier,
-    resolve_profile_tier_profiles,
+from profiles.uv.profile_presentation import (
+    PROFILE_COLUMNS,
+    PROFILE_SORTABLE_COLUMNS,
+    date_text,
+    format_number,
+    format_profile_metric_with_delta,
+    format_signed_memory_clock,
+    metric_delta_percent,
+    profile_base_metric,
+    profile_matches_preference,
+    profile_metric_tooltip,
+    profile_name,
+    profile_sort_values,
+    profile_source_label,
+    profile_tier_column_label,
+    promote_preferred_profile,
+    sort_value_less,
+    to_float,
+)
+from profiles.uv.profile_rules import (
+    profile_matches_gpu_target,
+    profile_row_applicable,
+    profile_row_deletable,
+    tier_winner_ids,
 )
 
 from .. import theme
@@ -21,24 +37,10 @@ from .. import theme
 GOOD_DELTA_COLOR = theme.GOOD
 BAD_DELTA_COLOR = theme.ERROR
 PROFILE_SORT_ROLE = 261
-PROFILE_SORTABLE_COLUMNS = frozenset({0, 2, 3, 4, 5, 6, 7, 8})
 
 
 class ProfileList:
-    COLUMNS = (
-        "Date",
-        "Profile",
-        "GPU",
-        "mV",
-        "Target MHz",
-        "Effective MHz",
-        "FPS/W",
-        "FPS",
-        "Power W",
-        "Mem",
-        "Tier",
-        "Source",
-    )
+    COLUMNS = PROFILE_COLUMNS
     DATE_COLUMN = 0
     PROFILE_COLUMN = 1
     GPU_COLUMN = 2
@@ -191,7 +193,7 @@ class ProfileList:
         silent_fan_checked_before = self.silent_fan_checkbox.isChecked()
         sort_column = self._active_sort_column()
         sort_order = self._sort_order
-        profiles = _promote_preferred_profile(
+        profiles = promote_preferred_profile(
             profiles,
             preferred_candidate_id=preferred_candidate_id,
             preferred_profile_id=preferred_profile_id,
@@ -210,7 +212,7 @@ class ProfileList:
                 self.FPSW_COLUMN: "efficiency_fps_per_w",
                 self.FPS_COLUMN: "avg_fps",
             }
-            tier_winner_ids = _resolved_tier_winner_ids(
+            winner_ids = tier_winner_ids(
                 profiles,
                 include_legacy_profiles=self.single_physical_gpu(),
             )
@@ -220,18 +222,14 @@ class ProfileList:
                 profile_id = str(profile.get("profile_id", ""))
                 candidate_id = str(profile.get("candidate_id", ""))
                 profile_path = str(profile.get("path", ""))
-                is_deletable = bool(profile_path) or str(
-                    profile.get("runtime_source", "")
-                ) == "afterburner"
-                is_applicable = bool(profile.get("final_verified", False)) or str(
-                    profile.get("runtime_source", "")
-                ) == "afterburner"
-                is_preferred = row == 0 and _profile_matches_preference(
+                is_deletable = profile_row_deletable(profile)
+                is_applicable = profile_row_applicable(profile)
+                is_preferred = row == 0 and profile_matches_preference(
                     profile,
                     preferred_candidate_id=preferred_candidate_id,
                     preferred_profile_id=preferred_profile_id,
                 )
-                stock_limit_w = _to_float(
+                stock_limit_w = to_float(
                     stock_limits.get(profile_gpu_uuid(profile).casefold())
                 )
                 if stock_limit_w is not None and (
@@ -239,24 +237,24 @@ class ProfileList:
                 ):
                     stock_limit_w = None
                 values = [
-                    _date_text(profile),
-                    _profile_name(profile),
+                    date_text(profile),
+                    profile_name(profile),
                     profile_gpu_label(profile),
-                    _format_number(profile.get("candidate_voltage_mv"), precision=0),
-                    _format_number(profile.get("lock_clock_mhz"), precision=0),
-                    _format_number(profile.get("avg_core_clock_mhz"), precision=2),
-                    _format_number(profile.get("efficiency_fps_per_w"), precision=4),
-                    _format_number(profile.get("avg_fps"), precision=2),
-                    _format_profile_metric_with_delta(
+                    format_number(profile.get("candidate_voltage_mv"), precision=0),
+                    format_number(profile.get("lock_clock_mhz"), precision=0),
+                    format_number(profile.get("avg_core_clock_mhz"), precision=2),
+                    format_number(profile.get("efficiency_fps_per_w"), precision=4),
+                    format_number(profile.get("avg_fps"), precision=2),
+                    format_profile_metric_with_delta(
                         profile.get("avg_power_w"), stock_limit_w, precision=2
                     ),
-                    _format_signed_memory_clock(
+                    format_signed_memory_clock(
                         profile.get("memory_offset_mhz"),
                     ),
-                    _profile_tier_label(profile, tier_winner_ids),
-                    _profile_source_label(profile),
+                    profile_tier_column_label(profile, winner_ids),
+                    profile_source_label(profile),
                 ]
-                sort_values = _profile_sort_values(profile)
+                sort_values = profile_sort_values(profile)
                 for column, value in enumerate(values):
                     item = self._item_class(str(value))
                     item.setData(self.PROFILE_ID_ROLE, profile_id)
@@ -284,15 +282,15 @@ class ProfileList:
                     metric = metric_columns.get(column)
                     if metric is not None:
                         item.setToolTip(
-                            _profile_metric_tooltip(
+                            profile_metric_tooltip(
                                 profile.get(metric),
-                                _profile_base_metric(profile, metric),
+                                profile_base_metric(profile, metric),
                                 label=self.COLUMNS[column],
                                 precision=4 if column == self.FPSW_COLUMN else 2,
                             )
                         )
                     if column == self.POWER_COLUMN:
-                        delta = _metric_delta_percent(profile.get("avg_power_w"), stock_limit_w)
+                        delta = metric_delta_percent(profile.get("avg_power_w"), stock_limit_w)
                         if delta is not None and stock_limit_w is not None:
                             item.setToolTip(
                                 f"{delta:+.2f}% relative to this GPU's factory/default "
@@ -419,12 +417,12 @@ class ProfileList:
         return len(self._gpu_choices) == 1
 
     def profile_matches_target(self, profile: dict) -> bool:
-        compatibility = profile_gpu_compatibility(profile, self._target_gpu_uuid)
-        if compatibility == GPU_COMPATIBILITY_MATCH:
-            return self._target_gpu_index is not None
-        if compatibility == GPU_COMPATIBILITY_LEGACY:
-            return len(self._gpu_choices) == 1 and self._target_gpu_index is not None
-        return False
+        return profile_matches_gpu_target(
+            profile,
+            self._target_gpu_uuid,
+            target_chosen=self._target_gpu_index is not None,
+            single_gpu=self.single_physical_gpu(),
+        )
 
     def _populate_target_gpu_combo(self, target_uuid: str) -> None:
         blocked = self.target_gpu_combo.blockSignals(True)
@@ -768,32 +766,13 @@ def _sortable_item_class(QtWidgets, sort_role: int):
             other_value = (
                 other.data(sort_role) if hasattr(other, "data") else str(other.text())
             )
-            return _sort_value_less(
+            return sort_value_less(
                 self.data(sort_role),
                 other_value,
                 descending=bool(self.sort_descending),
             )
 
     return SortableTableWidgetItem
-
-
-def _sort_value_less(left, right, *, descending: bool = False) -> bool:
-    left_missing = left in (None, "")
-    right_missing = right in (None, "")
-    if left_missing != right_missing:
-        return left_missing if descending else right_missing
-    if left_missing and right_missing:
-        return False
-    left_key = _sort_key(left)
-    right_key = _sort_key(right)
-    return left_key < right_key
-
-
-def _sort_key(value) -> tuple[int, float, str]:
-    number = _to_float(value)
-    if number is not None:
-        return (0, float(number), "")
-    return (1, 0.0, str(value).casefold())
 
 
 def _selection_flags(QtCore, *names: str):
@@ -825,125 +804,13 @@ def _should_preserve_single_selection_toggle(
     )
 
 
-def _date_text(profile: dict) -> str:
-    value = str(
-        profile.get("profile_created_at") or profile.get("verified_at") or ""
-    ).strip()
-    if not value:
-        return ""
-    try:
-        return datetime.fromisoformat(value).strftime("%Y-%m-%d %H:%M:%S")
-    except ValueError:
-        return value[:19].replace("T", " ")
-
-
-def _format_number(value, *, precision: int) -> str:
-    if value in (None, ""):
-        return ""
-    number = _to_float(value)
-    if number is None:
-        return ""
-    precision = max(0, min(int(precision), 4))
-    if precision <= 0:
-        return str(round(number))
-    return f"{number:.{precision}f}"
-
-
-def _format_signed_number(value, *, precision: int) -> str:
-    text = _format_number(value, precision=precision)
-    if not text:
-        return ""
-    number = _to_float(value)
-    if number is None:
-        return text
-    if abs(number) < 0.5:
-        return "0"
-    return f"+{text}" if number > 0 else text
-
-
-def _format_signed_memory_clock(value) -> str:
-    # The stored memory offset is an NVML transfer-rate value (MT/s); the
-    # realized memory clock moves by half of it (verified on Blackwell,
-    # issue #20). Show the memory-clock MHz, matching the Auto-UV dialog.
-    number = _to_float(value)
-    if number is None:
-        return ""
-    text = _format_signed_number(number / 2, precision=0)
-    if not text:
-        return ""
-    return f"{text} MHz"
-
-
-def _to_float(value) -> float | None:
-    if value in (None, ""):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _metric_delta_percent(
-    current,
-    baseline,
-) -> float | None:
-    current_number = _to_float(current)
-    baseline_number = _to_float(baseline)
-    if current_number is None or baseline_number in (None, 0.0):
-        return None
-    return (
-        (current_number - float(baseline_number)) / float(baseline_number)
-    ) * 100.0
-
-
-def _profile_metric_tooltip(
-    current,
-    baseline,
-    *,
-    label: str,
-    precision: int = 2,
-) -> str:
-    delta = _metric_delta_percent(
-        current,
-        baseline,
-    )
-    if delta is None:
-        return ""
-    value_text = _format_number(current, precision=precision)
-    base_text = _format_number(baseline, precision=precision)
-    return (
-        f"{label}: {value_text}\n"
-        f"{delta:+.2f}% vs this scan's baseline: {base_text}.\n"
-        "Baselines differ between scans; these percentages do not compare profiles."
-    )
-
-
-def _format_profile_metric_with_delta(
-    current,
-    baseline,
-    *,
-    precision: int,
-    lower_is_better: bool = False,
-) -> str:
-    value_text = _format_number(current, precision=precision)
-    if not value_text:
-        return ""
-    delta = _metric_delta_percent(
-        current,
-        baseline,
-    )
-    if delta is None:
-        return value_text
-    return f"{value_text} ({delta:+.2f}%)"
-
-
 def _profile_metric_delta_color(
     current,
     baseline,
     *,
     lower_is_better: bool = False,
 ) -> str:
-    delta = _metric_delta_percent(
+    delta = metric_delta_percent(
         current,
         baseline,
     )
@@ -972,7 +839,7 @@ def _paint_profile_delta_item(
         baseline,
         lower_is_better=lower_is_better,
     )
-    delta = _metric_delta_percent(
+    delta = metric_delta_percent(
         current,
         baseline,
     )
@@ -980,7 +847,7 @@ def _paint_profile_delta_item(
         return
     if color:
         item.setForeground(QtGui.QColor(color))
-    base_text = _format_number(baseline, precision=2)
+    base_text = format_number(baseline, precision=2)
     if lower_is_better:
         comparison_text = "lower" if delta < 0.0 else "higher"
         if label == "Power W" and delta < 0.0:
@@ -990,189 +857,3 @@ def _paint_profile_delta_item(
         )
     else:
         item.setToolTip(f"{label} {delta:+.2f}% vs base {base_text}")
-
-
-def _profile_base_metric(profile: dict, metric: str):
-    lookup = {
-        "candidate_voltage_mv": (
-            "base_candidate_voltage_mv",
-            "baseline_candidate_voltage_mv",
-            "baseline_voltage_mv",
-            "base_voltage_mv",
-        ),
-        "avg_core_clock_mhz": (
-            "base_avg_core_clock_mhz",
-            "baseline_avg_core_clock_mhz",
-            "baseline_core_clock_mhz",
-        ),
-        "efficiency_fps_per_w": (
-            "base_efficiency_fps_per_w",
-            "baseline_efficiency_fps_per_w",
-            "baseline_fps_per_w",
-        ),
-        "avg_power_w": (
-            "base_avg_power_w",
-            "baseline_avg_power_w",
-            "baseline_power_w",
-        ),
-        "avg_fps": (
-            "base_avg_fps",
-            "baseline_avg_fps",
-            "baseline_fps",
-        ),
-    }
-    for key in lookup.get(str(metric), ()):
-        value = profile.get(key)
-        if _to_float(value) is not None:
-            return value
-    return None
-
-
-def _date_sort_value(profile: dict) -> float:
-    value = str(
-        profile.get("profile_created_at") or profile.get("verified_at") or ""
-    ).strip()
-    if not value:
-        return 0.0
-    try:
-        return float(datetime.fromisoformat(value).timestamp())
-    except ValueError:
-        return 0.0
-
-
-def _profile_value_sort_value(profile: dict, metric: str) -> float | str:
-    value = _to_float(profile.get(metric))
-    return "" if value is None else float(value)
-
-
-def _profile_sort_values(profile: dict) -> list[float | str]:
-    return [
-        _date_sort_value(profile),
-        "",
-        profile_gpu_label(profile).casefold(),
-        _profile_value_sort_value(profile, "candidate_voltage_mv"),
-        _profile_value_sort_value(profile, "lock_clock_mhz"),
-        _profile_value_sort_value(profile, "avg_core_clock_mhz"),
-        _profile_value_sort_value(profile, "efficiency_fps_per_w"),
-        _profile_value_sort_value(profile, "avg_fps"),
-        _profile_value_sort_value(profile, "avg_power_w"),
-        "",
-        "",
-        "",
-    ]
-
-
-def _profile_source_label(profile: dict) -> str:
-    source = str(profile.get("profile_source", "")).strip()
-    labels = {
-        "auto-uv-final": "Auto UV",
-        "user-edited": "User edited",
-    }
-    return labels.get(source, source)
-
-
-def _resolved_tier_winner_ids(
-    profiles: list[dict],
-    *,
-    include_legacy_profiles: bool = False,
-) -> dict[str, str]:
-    # Adaptive mode collapses every tier down to a single profile (see
-    # resolve_profile_tier_profiles); the table mirrors that so each tier label
-    # appears on exactly one row -- the profile adaptive mode would actually
-    # pick. Superseded duplicates fall back to a blank tier in the UI.
-    winners: dict[str, str] = {}
-    gpu_uuids = {profile_gpu_uuid(profile) for profile in profiles}
-    if include_legacy_profiles and gpu_uuids - {""}:
-        # A single-GPU host resolves legacy and bound profiles as one merged
-        # population (the game-launch rule), so the tier label must land on
-        # the row adaptive would actually pick regardless of its binding.
-        gpu_uuids -= {""}
-    for gpu_uuid in gpu_uuids:
-        resolved = resolve_profile_tier_profiles(
-            profiles,
-            gpu_uuid=gpu_uuid,
-            include_legacy_profiles=include_legacy_profiles,
-        )
-        for tier, profile in resolved.items():
-            if not isinstance(profile, dict):
-                continue
-            profile_id = str(profile.get("profile_id") or "").strip()
-            if not profile_id:
-                continue
-            winners[f"{gpu_uuid}\0{tier}" if gpu_uuid else tier] = profile_id
-            if include_legacy_profiles and gpu_uuid:
-                # Legacy rows look up by bare tier; mirror the merged winner
-                # so the superseded population blanks consistently.
-                winners[tier] = profile_id
-    return winners
-
-
-def _profile_tier_label(
-    profile: dict,
-    tier_winner_ids: dict[str, str] | None = None,
-) -> str:
-    if _truthy(profile.get("profile_tier_disabled")):
-        return ""
-    assigned = str(profile.get("assigned_profile_tier") or "").strip()
-    label = (
-        assigned
-        or str(profile.get("profile_tier") or "").strip()
-        or str(profile.get("generated_profile_tier") or "").strip()
-    )
-    if not label:
-        return ""
-    if tier_winner_ids:
-        tier_key = normalize_profile_tier(label)
-        gpu_uuid = profile_gpu_uuid(profile)
-        winner_key = f"{gpu_uuid}\0{tier_key}" if gpu_uuid else tier_key
-        winner_id = str(tier_winner_ids.get(winner_key) or "").strip()
-        profile_id = str(profile.get("profile_id") or "").strip()
-        # Only the resolved winner keeps the tier; duplicates show no tier so
-        # the column stays unique and matches adaptive mode's choice.
-        if winner_id and profile_id and winner_id != profile_id:
-            return ""
-    return label
-
-
-def _truthy(value: object) -> bool:
-    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _profile_name(profile: dict) -> str:
-    return profile_presentation_name(profile)
-
-
-def _profile_matches_preference(
-    profile: dict,
-    *,
-    preferred_candidate_id: str = "",
-    preferred_profile_id: str = "",
-) -> bool:
-    profile_id = str(profile.get("profile_id", ""))
-    candidate_id = str(profile.get("candidate_id", ""))
-    if preferred_profile_id and profile_id == str(preferred_profile_id):
-        return True
-    return bool(preferred_candidate_id and candidate_id == str(preferred_candidate_id))
-
-
-def _promote_preferred_profile(
-    profiles: list[dict],
-    *,
-    preferred_candidate_id: str = "",
-    preferred_profile_id: str = "",
-) -> list[dict]:
-    if not preferred_candidate_id and not preferred_profile_id:
-        return list(profiles)
-    promoted_index = None
-    for index, profile in enumerate(profiles):
-        if _profile_matches_preference(
-            profile,
-            preferred_candidate_id=preferred_candidate_id,
-            preferred_profile_id=preferred_profile_id,
-        ):
-            promoted_index = index
-            break
-    if promoted_index is None:
-        return list(profiles)
-    promoted = profiles[promoted_index]
-    return [promoted, *profiles[:promoted_index], *profiles[promoted_index + 1 :]]

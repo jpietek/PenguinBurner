@@ -27,6 +27,7 @@ from ui.design.tokens import AppearanceSettings
 from ui.dialogs import about
 from ui.dialogs.appearance import AppearanceDialog
 from ui.features.overlay.overlay_page import OverlayPage
+from ui.features.profiles.profiles_shell import PROFILES_TAB, ProfilesTab
 from ui.startup_checks import run_startup_checks
 
 # (tab label, painted tab glyph)
@@ -195,6 +196,8 @@ class ShellWindow(W.QWidget):
 
         self.stack = W.QStackedWidget()
         self.header_divider = divider
+        # Wired pages re-read live state here after the root service changed.
+        self.page_refreshers: list = []
         self.pages = [self.build_page(index) for index in range(len(PAGES))]
         for widget in self.pages:
             self.stack.addWidget(widget)
@@ -209,6 +212,7 @@ class ShellWindow(W.QWidget):
             from ui.features.library.library_tab import GameLibraryTab
 
             self.library_tab = GameLibraryTab()
+            self.page_refreshers.append(lambda: self.library_tab.refresh())
             self.library_tab.library.status_changed.connect(
                 lambda status: self.set_global_status(status, "library")
             )
@@ -216,6 +220,10 @@ class ShellWindow(W.QWidget):
         if index == OVERLAY_PAGE:
             self.overlay_page = OverlayPage()
             return self.overlay_page
+        if index == PROFILES_TAB:
+            self.profiles_tab = ProfilesTab(self)
+            self.page_refreshers.append(self.profiles_tab.refresh)
+            return self.profiles_tab.page
         return ClassicPlaceholder(PAGES[index][0], open_classic=self.open_classic)
 
     def add_header_action(self, widget: W.QWidget) -> None:
@@ -227,7 +235,8 @@ class ShellWindow(W.QWidget):
     def refresh_pages(self) -> None:
         """Re-read live state after the root service changed (wired pages
         reload here)."""
-        self.library_tab.refresh()
+        for refresh in self.page_refreshers:
+            refresh()
 
     # ---------- window status ----------
 
