@@ -40,6 +40,10 @@ classifiers = [
 ]
 dependencies = [
   "PySide6-Essentials>=6.7",
+  # PySide6 6.12.0 drops a reference to None on calls such as QLabel.setText.
+  # Python 3.11 aborts when that count reaches zero; 3.12+ made None immortal.
+  # shortcut: caps every 6.12.x on 3.11, lift it once a fixed release is verified.
+  "PySide6-Essentials<6.12; python_version<'3.12'",
   "PyYAML>=6.0",
   "colorama>=0.4",
   "pyqtgraph>=0.13",
