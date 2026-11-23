@@ -40,9 +40,9 @@ const METER_MARKER_FPS_MAX_PRESENT_RATIO: f64 = 1.25;
 const DRIVER_REPORT_RING_SPAN: i64 = 256;
 const FRAMEGEN_CADENCE_RATIO: f64 = 1.5;
 const DXVK_NVAPI_VKREFLEX_SOURCE: &str = "dxvk-nvapi-vkreflex";
-const NVAPI_MARKER_SOURCE: &str = "nvapi-marker-log";
+pub(crate) const NVAPI_MARKER_SOURCE: &str = "nvapi-marker-log";
 
-const BASE_FRAME_MARKER_PRIORITY: [&str; 3] =
+pub(crate) const BASE_FRAME_MARKER_PRIORITY: [&str; 3] =
     ["oob-present-start", "present-start", "rendersubmit-start"];
 const FRAMEGEN_ACTIVE_KEYS: [&str; 3] = ["framegen_active", "frame_generation_active", "fg_active"];
 const FRAMEGEN_MARKER_KEYS: [&str; 3] = ["framegen_frame", "generated_frame", "fg_frame"];
@@ -1177,6 +1177,7 @@ fn receive_available(sock: &UnixDatagram, buf: &mut [u8], meter: &Arc<Mutex<Mete
         if map.get("type").and_then(Value::as_str) != Some("timing") {
             continue;
         }
+        crate::frame_history::record_frame(&map);
         meter
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())

@@ -207,6 +207,10 @@ class WrapperManager:
     def set_game_overlay(self, game_id: str, overlay: bool) -> ApplyResult:
         return self._update(game_id, overlay=bool(overlay))
 
+    def set_game_telemetry(self, game_id: str, telemetry: bool) -> ApplyResult:
+        """Frame-history capture opt-out; takes effect on the next launch."""
+        return self._update(game_id, telemetry=bool(telemetry))
+
     def set_game_target_fps(self, game_id: str, target_fps: float | None) -> ApplyResult:
         return self._update(
             game_id,

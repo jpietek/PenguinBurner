@@ -134,6 +134,17 @@ def test_inheritance_that_changed_while_enabled_is_resumed_not_frozen(
     assert not wrapper_present(row.command)
 
 
+def test_the_telemetry_opt_out_is_stored_without_touching_the_command(tmp_path) -> None:
+    launcher = _launcher(tmp_path)
+    assert launcher.set_game_enabled("1", True).ok
+    command = launcher.commands["1"]
+
+    assert launcher.set_game_telemetry("1", False).ok
+
+    assert launcher.commands["1"] == command
+    assert _settings(tmp_path)["1"].telemetry is False
+
+
 def test_an_option_change_while_inheriting_still_resumes_inheritance(
     tmp_path,
 ) -> None:

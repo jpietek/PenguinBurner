@@ -193,6 +193,29 @@ def test_game_runtime_profile_argv_reads_setting(
     assert "--adaptive-auto-uv" in argv
 
 
+def test_game_runtime_profile_argv_appends_the_telemetry_opt_out(
+    steam_home: Path, tmp_path: Path, monkeypatch
+) -> None:
+    _stub_adaptive_profiles(monkeypatch)
+    settings_path = tmp_path / "steam-game-settings.json"
+    env = {"SteamAppId": "1089130", "SteamUser": "jan_pietek"}
+
+    def argv_for(setting: SteamGameSetting) -> list[str]:
+        store_steam_game_setting(ACCOUNT_ID, "1089130", setting, path=settings_path)
+        resolved = game_runtime_profile_argv(
+            env, home=steam_home, settings_path=settings_path
+        )
+        assert resolved is not None
+        return resolved[0]
+
+    opted_out = argv_for(SteamGameSetting(enabled=True, mode="adaptive", telemetry=False))
+    assert opted_out[-1] == "--no-game-telemetry"
+    # Default stays flag-free: capture is on unless the user opted out.
+    assert "--no-game-telemetry" not in argv_for(
+        SteamGameSetting(enabled=True, mode="adaptive")
+    )
+
+
 def test_game_runtime_profile_argv_keeps_legacy_profile_on_single_gpu(
     steam_home: Path,
     tmp_path: Path,

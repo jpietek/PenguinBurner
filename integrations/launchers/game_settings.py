@@ -43,6 +43,8 @@ class LauncherGameSetting:
     enabled: bool = False
     mode: str = GAME_MODE_ADAPTIVE
     overlay: bool = False
+    # Frame-history capture (Game Perf Profile). On unless the user opts out.
+    telemetry: bool = True
     # Launch-line read-back for marker capture. Managed writes derive this from
     # the mode: Adaptive enables it and fixed modes do not. The stored field
     # keeps old settings and exact raw-command parsing compatible.
@@ -204,6 +206,7 @@ def _setting_from_entry(
         ),
         mode=stored_mode if stored_mode in GAME_MODES else GAME_MODE_ADAPTIVE,
         overlay=bool(entry.get("overlay")),
+        telemetry=bool(entry.get("telemetry", True)),
         # Absent in files written before this key existed. The command we
         # injected is stored beside it and carries the answer, so an upgrade
         # reads the flag off that rather than defaulting it off -- which would
@@ -229,6 +232,7 @@ def _payload_for(settings: dict[str, LauncherGameSetting]) -> dict:
                 "enabled": setting.enabled,
                 "mode": setting.mode,
                 "overlay": setting.overlay,
+                "telemetry": setting.telemetry,
                 "ingame_latency": setting.ingame_latency,
                 **(
                     {"target_fps": setting.target_fps}
