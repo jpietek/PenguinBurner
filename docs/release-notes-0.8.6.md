@@ -1,0 +1,5 @@
+- **Auto-UV now tests sudden GPU load changes.** After the sustained Q2RTX test, final verification alternates between full and reduced CUDA load. PenguinBurner checks that board power repeatedly fell and rose before saving the profile. This helps catch undervolts that pass a steady workload.
+- Fixed a Vulkan overlay startup crash on systems using Mesa device selection. The overlay also recovers when FPS or other readings go stale.
+- Fixed a race that could cause Auto-UV to use the default final candidate after you clicked **Discard** or **Abort**.
+- Reduced system journal noise. Periodic daemon status messages are now available through debug logging.
+- Added Fedora 45 package builds, fixed PySide6 dependency selection on Python 3.11, and corrected packaging for Ubuntu PPA Vulkan headers and the 32-bit Flatpak overlay.

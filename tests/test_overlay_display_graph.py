@@ -630,13 +630,10 @@ int main() {
 
 
 def test_instance_injects_surface_capabilities2_when_application_did_not(tmp_path, build_overlay_probe):
-    """The layer enables VK_KHR_get_surface_capabilities2 itself for native games.
+    """Create through a next layer that requires live instances for lookups.
 
-    Driven through layer_create_instance with a stubbed next layer: appended
-    when enumerated or when the chain offers no
-    vkEnumerateInstanceExtensionProperties at all; passed through when the
-    application already asked or the next layer reports it absent; an
-    EXTENSION_NOT_PRESENT on the extended list retries with the original.
+    Covers Mesa's pre-instance constraint, extension injection/pass-through,
+    a consumed chain on retry, and propagation of application/driver errors.
     """
     harness = tmp_path / 'instance_caps2.cpp'
     harness.write_text(r"""
@@ -648,38 +645,43 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_instance(
 }
 using namespace pblayer;
 static const char* kCaps2 = VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME;
-static std::vector<std::string> advertised;
-static bool enumerate_available = true;
 static bool reject_caps2 = false;
-static std::vector<std::vector<std::string>> creates; // Extension list per next-layer create call.
-static VkResult VKAPI_CALL enumerate(const char*, uint32_t* count, VkExtensionProperties* props) {
-    if (!props) { *count = advertised.size(); return VK_SUCCESS; }
-    const uint32_t n = std::min<uint32_t>(*count, advertised.size());
-    for (uint32_t i = 0; i < n; ++i) {
-        std::memset(props[i].extensionName, 0, sizeof(props[i].extensionName));
-        std::strncpy(props[i].extensionName, advertised[i].c_str(), VK_MAX_EXTENSION_NAME_SIZE - 1);
-    }
-    *count = n;
-    return n < advertised.size() ? VK_INCOMPLETE : VK_SUCCESS;
-}
+static bool missing_create = false;
+static VkResult driver_result = VK_SUCCESS;
+static VkLayerInstanceLink downstream{};
+static VkInstance live_instance = VK_NULL_HANDLE;
+static uintptr_t instance_id = 100;
+static std::vector<std::vector<std::string>> creates;
 static VkResult VKAPI_CALL create(const VkInstanceCreateInfo* info, const VkAllocationCallbacks*, VkInstance* out) {
+    // Model a downstream layer consuming its link even on a failed attempt.
+    // The retry must restore it before re-entering the lower layer.
+    auto* chain = find_layer_chain_entry(info);
+    assert(chain && chain->u.pLayerInfo == &downstream);
+    chain->u.pLayerInfo = downstream.pNext;
     std::vector<std::string> names;
     for (uint32_t i = 0; i < info->enabledExtensionCount; ++i) names.push_back(info->ppEnabledExtensionNames[i]);
     creates.push_back(names);
     const bool has_caps2 = std::find(names.begin(), names.end(), kCaps2) != names.end();
     if (has_caps2 && reject_caps2) return VK_ERROR_EXTENSION_NOT_PRESENT;
-    *out = reinterpret_cast<VkInstance>(static_cast<uintptr_t>(100 + creates.size()));
+    if (driver_result != VK_SUCCESS) return driver_result;
+    live_instance = reinterpret_cast<VkInstance>(++instance_id);
+    *out = live_instance;
     return VK_SUCCESS;
 }
-static PFN_vkVoidFunction VKAPI_CALL gipa(VkInstance, const char* name) {
-    if (!std::strcmp(name, "vkCreateInstance")) return reinterpret_cast<PFN_vkVoidFunction>(create);
-    if (!std::strcmp(name, "vkEnumerateInstanceExtensionProperties") && enumerate_available)
-        return reinterpret_cast<PFN_vkVoidFunction>(enumerate);
+static PFN_vkVoidFunction VKAPI_CALL gipa(VkInstance instance, const char* name) {
+    // Regression for #150: Mesa device-select crashes on the extension
+    // enumeration lookup with a null instance, before vkCreateInstance.
+    if (instance == VK_NULL_HANDLE) {
+        assert(!std::strcmp(name, "vkCreateInstance"));
+        return missing_create ? nullptr : reinterpret_cast<PFN_vkVoidFunction>(create);
+    }
+    assert(instance == live_instance);
     return nullptr;
 }
-static bool run(const char* const* app, uint32_t count) {
+static bool run(const char* const* app, uint32_t count, VkResult expected = VK_SUCCESS) {
     VkLayerInstanceLink link{};
     link.pfnNextGetInstanceProcAddr = gipa;
+    link.pNext = &downstream;
     VkLayerInstanceCreateInfo chain{};
     chain.sType = VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO;
     chain.function = VK_LAYER_LINK_INFO;
@@ -689,14 +691,24 @@ static bool run(const char* const* app, uint32_t count) {
     info.pNext = &chain;
     info.enabledExtensionCount = count;
     info.ppEnabledExtensionNames = app;
-    std::vector<std::string> before(app, app + count);
+    std::vector<std::string> before;
+    for (uint32_t i = 0; i < count; ++i) before.emplace_back(app[i]);
     creates.clear();
+    live_instance = VK_NULL_HANDLE;
+    const auto contexts_before = g_instances.size();
     VkInstance instance{};
-    assert(layer_create_instance(&info, nullptr, &instance) == VK_SUCCESS);
+    assert(layer_create_instance(&info, nullptr, &instance) == expected);
     // The caller's create info and extension array are never mutated.
     assert(info.enabledExtensionCount == count && info.ppEnabledExtensionNames == app);
-    assert(std::vector<std::string>(app, app + count) == before);
-    return g_instances.at(instance).surface_capabilities2_enabled;
+    for (uint32_t i = 0; i < count; ++i) assert(before[i] == app[i]);
+    if (expected != VK_SUCCESS) {
+        assert(g_instances.size() == contexts_before);
+        return false;
+    }
+    assert(g_instances.size() == contexts_before + 1);
+    const bool enabled = g_instances.at(instance).surface_capabilities2_enabled;
+    g_instances.erase(instance);
+    return enabled;
 }
 int main() {
     const char* surface_only[] = {VK_KHR_SURFACE_EXTENSION_NAME};
@@ -704,39 +716,45 @@ int main() {
     const std::vector<std::string> surface_list{VK_KHR_SURFACE_EXTENSION_NAME};
     const std::vector<std::string> extended{VK_KHR_SURFACE_EXTENSION_NAME, kCaps2};
 
-    // (a) Not requested, next layer enumerates it: appended, originals kept, flag set.
-    advertised = {VK_KHR_SURFACE_EXTENSION_NAME, kCaps2, "VK_KHR_wayland_surface"};
+    // Inject for native apps without any pre-instance extension query.
     assert(run(surface_only, 1));
     assert(creates.size() == 1 && creates[0] == extended);
-    // Zero application extensions (null array) still gets the extension alone.
     assert(run(nullptr, 0));
     assert(creates.size() == 1 && creates[0] == std::vector<std::string>{kCaps2});
 
-    // (b) Next layer does not enumerate it (a layer below us answering the
-    // pre-instance query with only its own list): still injected; genuine
-    // absence is handled by the EXTENSION_NOT_PRESENT retry in (e).
-    advertised = {VK_KHR_SURFACE_EXTENSION_NAME};
-    assert(run(surface_only, 1));
-    assert(creates.size() == 1 && creates[0] == extended);
-
-    // (c) Application requested it: passed through unchanged, no duplicate.
-    advertised = {VK_KHR_SURFACE_EXTENSION_NAME, kCaps2};
-    assert(run(with_caps2, 2));
-    assert(creates.size() == 1 && creates[0] == extended);
-    advertised = {VK_KHR_SURFACE_EXTENSION_NAME}; // The application's request is its own.
+    // Application request passes through without a duplicate.
     assert(run(with_caps2, 2));
     assert(creates.size() == 1 && creates[0] == extended);
 
-    // (d) No enumerate entry point below us (loader terminator): inject anyway.
-    enumerate_available = false;
-    assert(run(surface_only, 1));
-    assert(creates.size() == 1 && creates[0] == extended);
-    // (e) ...and an EXTENSION_NOT_PRESENT on the extended list retries with the original.
+    // Unsupported optional extension retries with the original list and chain.
     reject_caps2 = true;
     assert(!run(surface_only, 1));
     assert(creates.size() == 2 && creates[0] == extended && creates[1] == surface_list);
+    assert(!run(nullptr, 0));
+    assert(creates.size() == 2 && creates[1].empty());
+
+    // Never remove an extension the application requested itself.
+    run(with_caps2, 2, VK_ERROR_EXTENSION_NOT_PRESENT);
+    assert(creates.size() == 1 && creates[0] == extended);
+
+    // A failed retry is returned without publishing an instance context.
+    driver_result = VK_ERROR_INCOMPATIBLE_DRIVER;
+    run(surface_only, 1, driver_result);
+    assert(creates.size() == 2);
     reject_caps2 = false;
-    enumerate_available = true;
+
+    // Other failures are propagated immediately, without retry.
+    for (VkResult error : {VK_ERROR_INCOMPATIBLE_DRIVER, VK_ERROR_INITIALIZATION_FAILED,
+                          VK_ERROR_OUT_OF_HOST_MEMORY}) {
+        driver_result = error;
+        run(surface_only, 1, error);
+        assert(creates.size() == 1);
+    }
+    driver_result = VK_SUCCESS;
+    missing_create = true;
+    run(surface_only, 1, VK_ERROR_INITIALIZATION_FAILED);
+    assert(creates.empty());
+    missing_create = false;
 
     // Pure helper: `inject` false leaves the create info untouched.
     VkInstanceCreateInfo plain{};
@@ -749,11 +767,6 @@ int main() {
     assert(setup.injected && setup.info.enabledExtensionCount == 2
         && std::string(setup.info.ppEnabledExtensionNames[1]) == kCaps2
         && plain.enabledExtensionCount == 1 && plain.ppEnabledExtensionNames == surface_only);
-    assert(instance_extension_availability(nullptr, kCaps2) == InstanceExtensionAvailability::Unknown);
-    advertised = {kCaps2};
-    assert(instance_extension_availability(enumerate, kCaps2) == InstanceExtensionAvailability::Advertised);
-    advertised.clear();
-    assert(instance_extension_availability(enumerate, kCaps2) == InstanceExtensionAvailability::Absent);
 }
 """)
     binary = tmp_path / 'instance_caps2'

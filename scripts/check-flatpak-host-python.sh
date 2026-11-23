@@ -58,7 +58,7 @@ scenario_bootstrap() {
             echo "dnf -q install -y python3 >/dev/null"
             ;;
         arch)
-            echo "pacman -Sy --noconfirm --needed python >/dev/null"
+            echo "pacman -Syu --noconfirm --needed python >/dev/null"
             ;;
     esac
 }

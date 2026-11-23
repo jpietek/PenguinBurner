@@ -911,13 +911,15 @@ fn run_fan_control_loop(
             .filter(|&v| v != 0.0)
             .or(telemetry_voltage);
 
-        engine_log(&format_log_line(
-            "telemetry",
-            &[
-                Some(local_timestamp()),
-                Some(single_line_text(&telemetry_text)),
-            ],
-        ));
+        if logging::debug_enabled() {
+            engine_log(&format_log_line(
+                "telemetry",
+                &[
+                    Some(local_timestamp()),
+                    Some(single_line_text(&telemetry_text)),
+                ],
+            ));
+        }
 
         // A stop request may have arrived while a backend call above was blocked
         // (a wedged NVML call can outlive `EngineHandle::stop`'s timeout).
@@ -972,6 +974,9 @@ fn run_fan_control_loop(
 
         // Fan decision (runtime_loop.py §5.7).
         let emit = |fan_pct: Option<f64>, fan_mode: &str, sig: &mut Option<StatusSignature>| {
+            if !logging::debug_enabled() {
+                return;
+            }
             let tier = if current_tier_label.is_empty() {
                 None
             } else {

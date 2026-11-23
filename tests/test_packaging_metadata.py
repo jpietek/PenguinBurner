@@ -21,6 +21,7 @@ def test_base_package_installs_gui_dependencies() -> None:
     dependencies = set(metadata["project"]["dependencies"])
 
     assert "PySide6-Essentials>=6.7" in dependencies
+    assert "PySide6-Essentials<6.12; python_version<'3.12'" in dependencies
     assert "colorama>=0.4" in dependencies
     assert "pyqtgraph>=0.13" in dependencies
 

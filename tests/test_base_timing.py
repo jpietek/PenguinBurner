@@ -204,16 +204,25 @@ def test_clock_base_is_redecided_after_eight_consecutive_misses():
     assert QpcClockMapper().map(42, NOW - 5_000_000, NOW, 0) is None
 
 
+def prime_monotonic_publisher_clock(publisher, pid):
+    # The synthetic frames below are backdated. A fresh marker identifies the
+    # source clock without depending on the host's accumulated clock slew.
+    now = time.monotonic_ns() // 1000
+    raw_offset = now - time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW) // 1000
+    assert publisher.clock.map(pid, now, now, raw_offset) == now
+
+
 def test_publish_writes_only_samples_on_the_host_monotonic_clock(tmp_path):
     publisher = BaseFramePublisher(tmp_path, "700")
     path = tmp_path / "base-timing.700.bin"
     assert publisher.path == path
+    prime_monotonic_publisher_clock(publisher, 42)
     now = time.monotonic_ns() // 1000
     publisher.publish(1, now - 3_000_000, 42)  # Older than the 2 s window on both bases.
     publisher.publish(2, now + 5_000_000, 42)  # 5 s in the future on both bases.
     publisher.publish(3, 0, 42)
     assert publisher.mapping is None and not path.exists()  # Nothing mapped yet.
-    publisher.publish(4, now - 100_000, 42)  # CLOCK_MONOTONIC base decides the pid.
+    publisher.publish(4, now - 100_000, 42)
     publisher.publish(5, now - 92_000, 42)
     assert publisher.mapping is not None and path.stat().st_size == 8232
     state = header(publisher.mapping)
@@ -261,6 +270,7 @@ int main() {
     build_overlay_probe(harness, binary)
     # Publish after compiling so the samples are inside the reader's window.
     publisher = BaseFramePublisher(tmp_path, "700")
+    prime_monotonic_publisher_clock(publisher, 42)
     clock = time.monotonic_ns() // 1000 - 180000
     for frame, delta in enumerate((0, 30000, 30000, 90000, 30000), 1):
         clock += delta

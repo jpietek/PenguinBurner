@@ -4,6 +4,8 @@ import base64
 import json
 from pathlib import Path
 import subprocess
+import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -879,6 +881,35 @@ def test_flatpak_normal_operations_never_request_elevation(
         assert "sudo" not in joined
         assert "flatpak-spawn" not in joined
         assert "systemctl" not in joined
+
+
+def test_final_choice_response_waits_out_a_half_written_answer(tmp_path) -> None:
+    """A partial read must not become the default candidate: the reader
+    re-reads until the answer parses (here a Discard)."""
+    response_path = tmp_path / "final-choice-response.json"
+    response_path.write_text('{"action": "dis', encoding="utf-8")
+
+    def finish_writing() -> None:
+        time.sleep(0.2)
+        response_path.write_text('{"action": "discard"}', encoding="utf-8")
+
+    writer = threading.Thread(target=finish_writing)
+    writer.start()
+    try:
+        response = candidate_choice.wait_for_final_choice_response(response_path)
+    finally:
+        writer.join()
+    assert response == {"action": "discard"}
+    assert candidate_choice.final_choice_discarded(response)
+
+
+def test_final_choice_response_that_never_parses_is_empty(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(candidate_choice, "FINAL_CHOICE_READ_RETRY_S", 0.1)
+    response_path = tmp_path / "final-choice-response.json"
+    response_path.write_text("not json", encoding="utf-8")
+    assert candidate_choice.wait_for_final_choice_response(response_path) == {}
 
 
 def test_final_choice_performance_mode_sorts_by_fps() -> None:

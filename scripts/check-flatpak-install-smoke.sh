@@ -89,7 +89,7 @@ scenario_bootstrap() {
             echo "apt-get update -qq >/dev/null && DEBIAN_FRONTEND=noninteractive apt-get install -qq -y flatpak flatpak-builder ca-certificates dbus binutils >/dev/null"
             ;;
         arch)
-            echo "pacman -Sy --noconfirm --needed flatpak flatpak-builder dbus binutils >/dev/null"
+            echo "pacman -Syu --noconfirm --needed flatpak flatpak-builder dbus binutils >/dev/null"
             ;;
         *)
             die "unknown container scenario: $1 (expected fedora, ubuntu-lts, or arch)"

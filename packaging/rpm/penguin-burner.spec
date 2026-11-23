@@ -1,5 +1,5 @@
 Name:           penguin-burner
-Version:        0.8.5
+Version:        0.8.6
 Release:        1%{?dist}
 Summary:        Automatic NVIDIA GPU undervolting, overclocking, and per-game tuning
 
@@ -140,6 +140,9 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/io.github.jpietek.Pen
 %{_datadir}/penguin-burner/penguin_burner.sh
 
 %changelog
+* Mon Nov 23 2026 PenguinBurner contributors <noreply@github.com> - 0.8.6-1
+- Update to 0.8.6.
+
 * Mon Nov 02 2026 PenguinBurner contributors <noreply@github.com> - 0.8.5-1
 - Restore packaged post-FG display timing and fix Turing V/F base fallback.
 

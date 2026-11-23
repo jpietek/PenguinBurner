@@ -2,20 +2,6 @@
 #include "latency_layer_internal.h"
 
 namespace pblayer {
-InstanceExtensionAvailability instance_extension_availability(
-    PFN_vkEnumerateInstanceExtensionProperties enumerate, const char* extension_name) {
-    if (!enumerate) return InstanceExtensionAvailability::Unknown;
-    uint32_t count = 0;
-    if (enumerate(nullptr, &count, nullptr) != VK_SUCCESS) return InstanceExtensionAvailability::Unknown;
-    std::vector<VkExtensionProperties> properties(count);
-    const VkResult result = enumerate(nullptr, &count, properties.data());
-    if (result != VK_SUCCESS && result != VK_INCOMPLETE) return InstanceExtensionAvailability::Unknown;
-    for (uint32_t i = 0; i < count; ++i)
-        if (std::strncmp(properties[i].extensionName, extension_name, VK_MAX_EXTENSION_NAME_SIZE) == 0)
-            return InstanceExtensionAvailability::Advertised;
-    return InstanceExtensionAvailability::Absent;
-}
-
 void prepare_instance_surface_capabilities2(
     const VkInstanceCreateInfo* original, bool inject, InstanceExtensionSetup& setup) {
     setup.requested = false;
@@ -67,13 +53,10 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_instance(
 
     // Displayed-frame timing needs VK_KHR_get_surface_capabilities2 on the
     // instance. Native games rarely enable it, so always append it; the
-    // application's create info stays untouched. The pre-instance enumeration
-    // below is logged only: a layer under us may answer it with just its own
-    // extensions, so absence is decided by the create call's retry instead.
-    const InstanceExtensionAvailability availability = instance_extension_availability(
-        reinterpret_cast<PFN_vkEnumerateInstanceExtensionProperties>(
-            next_get_instance_proc_addr(VK_NULL_HANDLE, "vkEnumerateInstanceExtensionProperties")),
-        VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
+    // application's create info stays untouched. Do not query instance
+    // extensions through the next layer before creating the instance: layers
+    // such as Mesa device-select require a live instance for that lookup.
+    // The create call's retry below handles an unsupported extension.
     InstanceExtensionSetup surface_caps2;
     prepare_instance_surface_capabilities2(create_info, true, surface_caps2);
 
@@ -86,8 +69,8 @@ VKAPI_ATTR VkResult VKAPI_CALL layer_create_instance(
         link->u.pLayerInfo = next_layer_info;
         result = next_create_instance(create_info, allocator, instance);
     }
-    display_debug_log("create-instance surface-caps2 requested=%d availability=%d injected=%d result=%d",
-        surface_caps2.requested ? 1 : 0, static_cast<int>(availability),
+    display_debug_log("create-instance surface-caps2 requested=%d injected=%d result=%d",
+        surface_caps2.requested ? 1 : 0,
         surface_caps2.injected ? 1 : 0, static_cast<int>(result));
     if (result != VK_SUCCESS) {
         return result;
