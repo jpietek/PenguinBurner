@@ -33,19 +33,27 @@ fn main() {
 }
 
 fn run() -> i32 {
-    let socket_path = match parse_args() {
-        Ok(path) => path,
+    let options = match parse_args(
+        env::args().skip(1),
+        env::var("PENGUIN_BURNERD_DEBUG").ok().as_deref(),
+    ) {
+        Ok(options) => options,
         Err(message) => {
             eprintln!("{message}");
             return 2;
         }
     };
+    let socket_path = options.socket;
+    logging::set_debug_enabled(options.debug);
 
     logging::info(&format!(
         "penguin-burnerd {} ({}) starting",
         env!("CARGO_PKG_VERSION"),
         env!("PENGUIN_BURNERD_BUILD_ID"),
     ));
+    if logging::debug_enabled() {
+        logging::info("debug mode enabled: periodic telemetry and status logging active");
+    }
 
     // Register before spawning the autostart engine so every termination
     // signal is routed to the cleanup thread.
@@ -96,12 +104,27 @@ fn run() -> i32 {
     0
 }
 
-fn parse_args() -> Result<PathBuf, String> {
+#[derive(Debug)]
+struct DaemonOptions {
+    socket: PathBuf,
+    debug: bool,
+}
+
+fn parse_args(
+    mut args: impl Iterator<Item = String>,
+    debug_env: Option<&str>,
+) -> Result<DaemonOptions, String> {
     let mut socket = PathBuf::from(DEFAULT_SOCKET);
-    let mut args = env::args().skip(1);
+    let mut debug = debug_env.is_some_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    });
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "serve" => {}
+            "--debug" => debug = true,
             "--socket" => {
                 socket = PathBuf::from(args.next().ok_or("--socket requires a value")?);
             }
@@ -122,13 +145,16 @@ fn parse_args() -> Result<PathBuf, String> {
             }
             "-h" | "--help" => {
                 return Err(
-                    "usage: penguin-burnerd [serve] [--socket PATH] [--version]".to_string()
+                    "usage: penguin-burnerd [serve] [--socket PATH] [--debug] [--version]\n\
+                     --debug  Log periodic runtime telemetry and status (off by default).\n\
+                     Also enabled by PENGUIN_BURNERD_DEBUG=1 (or true, yes, on)."
+                        .to_string(),
                 );
             }
             other => return Err(format!("unknown argument: {other}")),
         }
     }
-    Ok(socket)
+    Ok(DaemonOptions { socket, debug })
 }
 
 // --- signal handling ---------------------------------------------------------
@@ -156,5 +182,41 @@ fn watchdog_loop() {
         // supervisor retains a timed-out writer, so the process watchdog only
         // reports process/thread liveness here.
         let _ = sd_notify::notify(&[NotifyState::Watchdog]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn periodic_logging_is_opt_in() {
+        let options = parse_args(std::iter::empty(), None).unwrap();
+        assert!(!options.debug);
+        assert_eq!(options.socket, PathBuf::from(DEFAULT_SOCKET));
+        for value in ["", "0", "false", "no", "off", "typo"] {
+            assert!(!parse_args(std::iter::empty(), Some(value)).unwrap().debug);
+        }
+        for value in ["1", "true", "yes", "on", " TRUE "] {
+            assert!(parse_args(std::iter::empty(), Some(value)).unwrap().debug);
+        }
+    }
+
+    #[test]
+    fn debug_flag_works_with_existing_daemon_arguments() {
+        for socket_args in [
+            vec!["--socket", "/tmp/test.sock"],
+            vec!["--socket=/tmp/test.sock"],
+        ] {
+            let args = [vec!["serve", "--debug"], socket_args].concat();
+            let options = parse_args(args.into_iter().map(str::to_string), Some("0")).unwrap();
+            assert!(options.debug);
+            assert_eq!(options.socket, PathBuf::from("/tmp/test.sock"));
+        }
+        assert!(parse_args(["--debgu".to_string()].into_iter(), None).is_err());
+        assert!(parse_args(["--socket".to_string()].into_iter(), None).is_err());
+        let help = parse_args(["--help".to_string()].into_iter(), None).unwrap_err();
+        assert!(help.contains("--debug"));
+        assert!(help.contains("PENGUIN_BURNERD_DEBUG"));
     }
 }
