@@ -1,8 +1,8 @@
 """The PenguinBurner window: header, window status, tabs and pages.
 
-Pages land here one at a time as each is wired to its backend owner; a tab
-whose page is not wired yet offers the classic window instead of sample data.
-Appearance is kept in the runtime config's ``[ui]`` section.
+Each page reads and writes through its backend owner; the window wires the
+pages to each other and keeps Appearance in the runtime config's ``[ui]``
+section. ``--classic`` still opens the previous window as a fallback.
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ from cli.runtime_config_file import (
 )
 from ui.assets import asset_image_path
 from ui.components.elided_label import ElidedLabel
-from ui.components.page_header import PAGE_MARGINS, PageHeader
 from ui.constants import APP_DISPLAY_NAME
 from ui.design.style import COL, COPY, GAP, glyph_icon, info_icon, tab_icon
 from ui.design.tokens import AppearanceSettings
@@ -28,6 +27,7 @@ from ui.dialogs import about
 from ui.dialogs.appearance import AppearanceDialog
 from ui.features.overlay.overlay_page import OverlayPage
 from ui.features.profiles.profiles_shell import PROFILES_TAB, ProfilesTab
+from ui.features.tuning.auto_uv_page import AutoUvPage
 from ui.startup_checks import run_startup_checks
 
 # (tab label, painted tab glyph)
@@ -45,7 +45,6 @@ APPEARANCE_KEYS = {
     "font": "appearance_font",
     "font_family": "appearance_font_family",
 }
-CLASSIC_FLAG = "--classic"
 LIBRARY_TAB = 2
 
 
@@ -61,11 +60,6 @@ def save_appearance(settings: AppearanceSettings) -> None:
     ui_strings_to_runtime_config(
         {key: getattr(settings, field) for field, key in APPEARANCE_KEYS.items()}
     )
-
-
-def open_classic_window() -> bool:
-    """Start the classic window as its own process; it keeps its own look."""
-    return C.QProcess.startDetached(sys.executable, ["-m", "ui", CLASSIC_FLAG])[0]
 
 
 def label(text: str, role: str) -> W.QLabel:
@@ -96,36 +90,10 @@ def header_icon_button(icon: G.QIcon, name: str, slot) -> W.QToolButton:
     return tool
 
 
-class ClassicPlaceholder(W.QWidget):
-    """A tab whose page is not in the new window yet."""
-
-    def __init__(self, title: str, open_classic=open_classic_window, parent=None):
-        super().__init__(parent)
-        layout = W.QVBoxLayout(self)
-        layout.setContentsMargins(*PAGE_MARGINS)
-        layout.setSpacing(GAP["md"])
-        layout.addWidget(PageHeader(title))
-        note = W.QLabel(
-            f"{title} is not in the new window yet. "
-            "Use the classic window for it until it arrives."
-        )
-        note.setObjectName("pageNote")
-        note.setWordWrap(True)
-        layout.addWidget(note)
-        self.open_button = W.QPushButton("Open classic window")
-        self.open_button.clicked.connect(lambda: open_classic())
-        row = W.QHBoxLayout()
-        row.addWidget(self.open_button)
-        row.addStretch()
-        layout.addLayout(row)
-        layout.addStretch()
-
-
 class ShellWindow(W.QWidget):
-    def __init__(self, *, gpu_index: int | None = None, open_classic=open_classic_window):
+    def __init__(self, *, gpu_index: int | None = None):
         super().__init__()
         self.gpu_index = gpu_index
-        self.open_classic = open_classic
         self.setWindowTitle(APP_DISPLAY_NAME)
         self.resize(1230, 810)
         page = W.QVBoxLayout(self)
@@ -210,8 +178,7 @@ class ShellWindow(W.QWidget):
         self.show_status()
 
     def build_page(self, index: int) -> W.QWidget:
-        """The page for tab ``index``. Each ported page adds its branch here;
-        the rest offer the classic window."""
+        """The page for tab ``index``."""
         if index == LIBRARY_TAB:
             from ui.features.library.library_tab import GameLibraryTab
 
@@ -232,7 +199,14 @@ class ShellWindow(W.QWidget):
                 or self.profiles_tab.verifier.is_running()
             )
             return self.profiles_tab.page
-        return ClassicPlaceholder(PAGES[index][0], open_classic=self.open_classic)
+        if index == 0:
+            self.auto_uv_page = AutoUvPage(gpu_index=self.gpu_index)
+            self.auto_uv_page.attach_to_shell(self)
+            self.page_refreshers.append(self.auto_uv_page.refresh_live_state)
+            # A final-candidate choice is a modal step a rebuild would tear down.
+            self.busy_checks.append(self.auto_uv_page.blocks_rebuild)
+            return self.auto_uv_page
+        raise ValueError(f"no page for tab {index}")
 
     def connect_pages(self) -> None:
         """Cross-page wiring, for the pages that are built."""
@@ -356,7 +330,7 @@ def rebuild_window(
     read live state, so nothing is lost.
     """
     design.install_theme(W.QApplication.instance(), settings)
-    replacement = ShellWindow(gpu_index=window.gpu_index, open_classic=window.open_classic)
+    replacement = ShellWindow(gpu_index=window.gpu_index)
     replacement.setWindowIcon(window.windowIcon())
     replacement.setGeometry(window.geometry())
     replacement.tabs.setCurrentIndex(window.tabs.currentIndex())

@@ -19,6 +19,7 @@ from cli import runtime_config_file
 from ui.design.tokens import AppearanceSettings, resolve_colors
 from ui.features.overlay.overlay_page import OverlayPage
 from ui.features.profiles.profiles_page import ProfilesPage
+from ui.features.tuning.auto_uv_page import AutoUvPage
 
 
 @pytest.fixture
@@ -30,7 +31,7 @@ def config(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def window(isolated_theme, config, offline_profiles, monkeypatch, tmp_path):
+def window(isolated_theme, config, offline_profiles, offline_auto_uv, monkeypatch, tmp_path):
     qapp = isolated_theme
     # Game Library reads no host launcher, daemon or GPU here.
     from functools import partial
@@ -43,10 +44,8 @@ def window(isolated_theme, config, offline_profiles, monkeypatch, tmp_path):
         "GameLibraryTab",
         partial(library_tab.GameLibraryTab, sources=(), gpu_choices=tuple),
     )
-    opened = []
     design.install_theme(qapp, AppearanceSettings())
-    win = shell.ShellWindow(open_classic=lambda: opened.append(True) or True)
-    win.opened_classic = opened
+    win = shell.ShellWindow()
     shell.CURRENT["window"] = win
     yield win
     current = shell.CURRENT["window"]
@@ -79,13 +78,14 @@ def test_unknown_or_corrupt_appearance_falls_back_to_defaults(config):
     assert config.read_text() == "not toml ["
 
 
-def test_every_tab_offers_the_classic_window_until_its_page_lands(window):
+def test_every_tab_has_its_page(window):
     assert [window.tabs.tabText(i) for i in range(window.tabs.count())] == [
         "Auto UV",
         "Profiles",
         "Game Library",
         "In-Game Overlay",
     ]
+    assert isinstance(window.pages[0], AutoUvPage)
     for index, page in enumerate(window.pages):
         window.tabs.setCurrentIndex(index)
         assert window.stack.currentWidget() is page
@@ -98,9 +98,7 @@ def test_every_tab_offers_the_classic_window_until_its_page_lands(window):
         elif index == 1:
             assert isinstance(page, ProfilesPage)
         else:
-            assert isinstance(page, shell.ClassicPlaceholder)
-    window.pages[0].open_button.click()
-    assert window.opened_classic == [True]
+            assert isinstance(page, AutoUvPage)
 
 
 def test_status_band_shows_only_what_a_page_reports(window):

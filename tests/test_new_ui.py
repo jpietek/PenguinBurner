@@ -6,35 +6,44 @@ from types import SimpleNamespace
 
 import integrations.afterburner.profile_import as afterburner_import
 import profiles.uv.profile_fan_curve as fan_profiles
-from ui.main import parse_gui_args
-from ui.main import parse_gui_launch_options
-from profiles.uv.profile_fan_curve import fan_payload_has_silent_runtime_fields
-from ui.features.tuning.gpu_selection import GpuChoice
-from ui.features.tuning.gpu_selection import gpu_choices_from_nvml_identities
-from ui.features.tuning.gpu_selection import gpu_choices_with_fallback
-from ui.features.tuning.gpu_selection import persist_runtime_gpu_index
-from profiles.uv.profile_fan_curve import profile_fan_curve_points
-from profiles.uv.profile_fan_curve import profile_fan_measurement_points
-from profiles.uv.profile_fan_curve import profile_fan_curve_target_point
-from integrations.lact.export import lact_export_output_path
-from integrations.lact.export import lact_gpu_id_from_config
+from auto_uv.session.scan_events import (
+    candidate_id_from_payload,
+    event_points,
+    fan_points,
+    stage_title,
+)
+from integrations.lact.export import lact_export_output_path, lact_gpu_id_from_config
+from profiles.uv.profile_fan_curve import (
+    fan_payload_has_silent_runtime_fields,
+    profile_fan_curve_points,
+    profile_fan_curve_target_point,
+    profile_fan_measurement_points,
+)
+from profiles.uv.profile_rules import (
+    profile_can_apply,
+    profile_can_verify,
+    profile_for_selector,
+    profile_verify_selector,
+    runner_status_text,
+)
+from profiles.uv.profile_vf_curve import (
+    curve_plan_from_values,
+    curve_points_from_values,
+)
 from ui.controllers.scan import ScanController
-from profiles.uv.profile_vf_curve import curve_plan_from_values
-from profiles.uv.profile_vf_curve import curve_points_from_values
-from ui.models import candidate_id_from_payload
-from ui.models import event_points
-from ui.models import fan_points
-from ui.models import stage_title
-from profiles.uv.profile_rules import profile_can_apply
-from profiles.uv.profile_rules import profile_can_verify
-from profiles.uv.profile_rules import profile_for_selector
-from profiles.uv.profile_rules import profile_verify_selector
-from profiles.uv.profile_rules import runner_status_text
-from ui.features.tuning.verify import elapsed_from_line
-from ui.features.tuning.verify import progress_percent
-from ui.features.tuning.verify import workload_label
-from ui.features.tuning.tuning import auto_uv_performance_preset_label
-from ui.features.tuning.tuning import auto_uv_preset
+from ui.features.tuning.gpu_selection import (
+    GpuChoice,
+    gpu_choices_from_nvml_identities,
+    gpu_choices_with_fallback,
+    persist_runtime_gpu_index,
+)
+from ui.features.tuning.tuning import auto_uv_performance_preset_label, auto_uv_preset
+from ui.features.tuning.verify import (
+    elapsed_from_line,
+    progress_percent,
+    workload_label,
+)
+from ui.main import parse_gui_args, parse_gui_launch_options
 
 
 def test_ui_launcher_ignores_old_new_ui_flag() -> None:

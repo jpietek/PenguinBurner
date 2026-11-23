@@ -55,7 +55,7 @@ def caption(panel):
 
 
 def test_shell_window_hosts_the_page_on_the_overlay_tab(qtbot, telemetry):
-    window = shell.ShellWindow(open_classic=lambda: True)
+    window = shell.ShellWindow()
     qtbot.addWidget(window)
     page = window.pages[shell.OVERLAY_PAGE]
     assert isinstance(page, OverlayPage) and window.overlay_page is page

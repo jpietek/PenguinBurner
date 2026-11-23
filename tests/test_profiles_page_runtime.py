@@ -592,7 +592,7 @@ def test_shell_window_hosts_the_profiles_tab(isolated_theme, offline_profiles, t
     config.write_text("")
     monkeypatch.setattr(runtime_config_file, "default_config_path", lambda: config)
     design.install_theme(isolated_theme, AppearanceSettings())
-    window = shell.ShellWindow(open_classic=lambda: True)
+    window = shell.ShellWindow()
     tab = window.profiles_tab
     assert isinstance(window.pages[1], ProfilesPage)
     assert window.header_layout.indexOf(tab.import_button) >= 0

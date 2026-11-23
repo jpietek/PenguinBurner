@@ -118,13 +118,11 @@ def test_error_reporter_show_process_includes_details(monkeypatch) -> None:
     assert calls[0]["details"] == "details:Auto-UV scan:3"
 
 
-def test_recent_log_tail_limits_lines_and_chars(monkeypatch) -> None:
-    reporter, _controls, _log_view, _calls = _reporter(
-        monkeypatch, log_text="\n".join(f"line{i}" for i in range(200))
-    )
+def test_recent_log_tail_limits_lines_and_chars() -> None:
+    log_text = "\n".join(f"line{i}" for i in range(200))
 
-    tail = reporter.recent_log_tail(lines=10, char_limit=12000)
+    tail = error_reporting.recent_log_tail(log_text, lines=10, char_limit=12000)
     assert tail.splitlines() == [f"line{i}" for i in range(190, 200)]
 
-    clipped = reporter.recent_log_tail(lines=200, char_limit=20)
+    clipped = error_reporting.recent_log_tail(log_text, lines=200, char_limit=20)
     assert len(clipped) == 20

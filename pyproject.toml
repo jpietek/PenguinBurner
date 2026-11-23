@@ -99,6 +99,7 @@ packages = [
   "auto_uv.probes",
   "auto_uv.run",
   "auto_uv.scan_mode",
+  "auto_uv.session",
   "auto_uv.shared",
   "stability",
   "stability.q2rtx",

@@ -264,15 +264,10 @@ def read_auto_uv_nvml_info(
     power = capabilities.power if capabilities is not None else None
     clocks = telemetry.clocks if telemetry is not None else None
 
-    power_limit_set_supported_value = (
-        _power_limit_set_supported(client)
-        if client is not None and _power_limit_set_probe_applicable(power)
-        else None
-    )
     return AutoUvNvmlInfo(
         power_draw_w=getattr(telemetry, "power_draw_w", None),
         power_management_enabled=getattr(power, "management_enabled", None),
-        power_limit_set_supported=power_limit_set_supported_value,
+        power_limit_set_supported=power_limit_adjustable(power),
         power_limit_w=getattr(power, "current_w", None),
         power_limit_default_w=getattr(power, "default_w", None),
         power_limit_min_w=getattr(power, "minimum_w", None),
@@ -288,22 +283,29 @@ def read_auto_uv_nvml_info(
     )
 
 
-def _power_limit_set_probe_applicable(power: object | None) -> bool:
+def power_limit_adjustable(power: object | None) -> bool | None:
+    """Whether the power-limit control is offered, read without writing.
+
+    Opening the setup dialog must not touch the GPU, so this reads NVML's
+    power-management mode and limit constraints only: management on and a
+    real [min, max] range. The scan applies the chosen limit when it starts
+    and stops with an error if the driver rejects it. None means the facts
+    are unavailable; the control stays disabled either way.
+    """
     if power is None:
-        return False
+        return None
     if getattr(power, "management_enabled", None) is False:
         return False
-    return (
-        getattr(power, "minimum_w", None) is not None
-        and getattr(power, "maximum_w", None) is not None
-    )
-
-
-def _power_limit_set_supported(gpu_client: DaemonGpuClient) -> bool:
+    minimum = getattr(power, "minimum_w", None)
+    maximum = getattr(power, "maximum_w", None)
+    if getattr(power, "management_enabled", None) is None:
+        return None
+    if minimum is None or maximum is None:
+        return None
     try:
-        return gpu_client.power_limit_set_supported()
-    except Exception:  # noqa: BLE001
-        return False
+        return 0 < float(minimum) < float(maximum)
+    except (TypeError, ValueError):
+        return None
 
 
 _NVML_INFO_UNAVAILABLE_TEXT = (
@@ -456,7 +458,7 @@ def _power_management_text(enabled: bool | None) -> str:
 def _power_limit_set_text(supported: bool | None) -> str:
     if supported is None:
         return ""
-    return f"Fixed power-limit writes: {'supported' if supported else 'unavailable'}"
+    return f"Power limit: {'adjustable' if supported else 'fixed by the driver'}"
 
 
 def _clock_list_text(clocks_mhz: tuple[int, ...]) -> str:

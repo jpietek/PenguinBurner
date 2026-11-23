@@ -229,6 +229,47 @@ def test_unsupported_power_limit_is_platform_managed_and_not_saved(
     )
 
 
+@pytest.mark.parametrize(
+    "runtime_options",
+    [
+        {"auto_uv_power_limit_w": 60},
+        {"auto_uv_mode": "adaptive", "auto_uv_balanced_power_limit_w": 70},
+    ],
+)
+def test_requested_power_limit_rejected_by_the_driver_stops_the_scan(
+    monkeypatch, runtime_options
+) -> None:
+    # The setup dialog only reads whether the limit looks adjustable (an RTX
+    # 2050 laptop reports a 35-80 W range yet rejects the setter). The stock
+    # reset is the first write: a limit the user asked for must fail loudly
+    # before any probe instead of being dropped.
+    logs: list[str] = []
+    controllers = _patch_power_environment(monkeypatch, power_limit_supported=False)
+    monkeypatch.setattr(
+        gpu_vf_curve_applier,
+        "reset_nvidia_runtime_defaults",
+        lambda **_kwargs: {
+            "plan": [{"index": 0, "voltage_mv": 900, "target_mhz": 1620}],
+            "gpu_name": "NVIDIA GeForce RTX 2050",
+            "power_limit_w": 60,
+            "power_limit_set_supported": False,
+            "power_limits": {
+                "power_limit_default_w": 60,
+                "power_limit_min_w": 35,
+                "power_limit_max_w": 80,
+            },
+        },
+    )
+
+    with pytest.raises(AutoUvPowerLimitApplyError, match="rejected power-limit writes"):
+        gpu_vf_curve_applier.open_live_gpu_vf_curve_applier(
+            gpu_index=0, runtime_options=runtime_options, log=logs.append
+        )
+
+    assert controllers[0].power_limit_calls == []
+    assert controllers[0].power_limit_probe_calls == 0
+
+
 def test_successful_probe_is_authoritative_even_for_mobile_identity_strings(
     monkeypatch,
 ) -> None:

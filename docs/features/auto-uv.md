@@ -126,8 +126,10 @@ GPUs without table entries show **Auto**. Custom ranges use driver-reported
 clocks and editable voltage bins where available; missing ranges remain Auto.
 A box left at its table default is also automatic: the scan receives only
 edited targets, so the defaults never act as hard bounds on the search.
-No other GPU's preset is substituted. Fixed-power laptop GPUs use the stock
-limit with the power control disabled.
+No other GPU's preset is substituted. The power control is disabled when the
+driver reports power management off or a fixed limit; opening the dialog never
+writes the limit. The scan applies the chosen limit when it starts and stops
+with an error if the driver rejects it.
 
 ## GPU selection and telemetry
 

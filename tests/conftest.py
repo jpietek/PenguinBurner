@@ -181,3 +181,26 @@ def offline_profiles(monkeypatch):
     )
     monkeypatch.setattr(source_mod, "STATUS_POLL_MS", 0)
     return source_mod
+
+
+@pytest.fixture
+def offline_auto_uv(monkeypatch):
+    """The Auto UV page without the root service: a fresh scan engine and no
+    daemon read for the GPU caption. Pages built in the test use it."""
+    from ui.features.tuning import auto_uv_page
+    from ui.features.tuning.gpu_selection import GpuChoice
+
+    monkeypatch.setattr(
+        auto_uv_page,
+        "gpu_choices_with_fallback",
+        lambda selected_index=None, **_: (
+            [GpuChoice(index=0, name="NVIDIA GeForce RTX 5080")],
+            0 if selected_index is None else int(selected_index),
+        ),
+    )
+    monkeypatch.setitem(auto_uv_page.ENGINE, "engine", None)
+    yield auto_uv_page
+    engine = auto_uv_page.ENGINE["engine"]
+    if engine is not None:
+        engine.page = None
+        engine.deleteLater()

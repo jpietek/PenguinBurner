@@ -97,6 +97,7 @@ class ProfileActionsMixin:
     verify_controller: Any
     gpu_index: int | None
     last_auto_uv_candidate_id: str
+    scan_session: Any
     _boot_apply_by_gpu: dict[str, bool]
 
     def _workflow_running(self) -> bool:
@@ -571,10 +572,12 @@ class ProfileActionsMixin:
             stop_request_path=verify_stop_request_path(),
             gpu_index=int(target_gpu_index),
         )
-        workload = workload_label()
-        self.header.set_stage("Profile verification")
-        self.header.set_candidate(label)
-        self.controls.set_status_text(f"Verifying {label} with {workload}.")
+        self.scan_session.start_verification(
+            label=label, workload=workload_label(), duration_s=duration_s
+        )
+        self.header.set_stage(self.scan_session.stage)
+        self.header.set_candidate(self.scan_session.candidate)
+        self.controls.set_status_text(self.scan_session.status)
         self.tabs.setCurrentIndex(self.auto_uv_tab_index)
         # Verify tests an already-known curve rather than discovering one, so
         # there's no live candidate-curve event stream to plot from — just
@@ -590,7 +593,7 @@ class ProfileActionsMixin:
             0,
             elapsed_s=0,
             target_s=duration_s,
-            detail=f"Verifying {label} with {workload}.",
+            detail=self.scan_session.status,
         )
         self.log_view.append(
             "\n$ " + " ".join(shlex.quote(part) for part in command) + "\n"

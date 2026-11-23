@@ -10,6 +10,7 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import auto_uv.session.scan_runs as runs
 import ui.components.runs_table as rt
 from ui.components.runs_table import RunsTable
 from ui.qt import import_qt
@@ -143,105 +144,105 @@ def test_failed_run_decision_cell_still_reads_failed(qapp) -> None:
 
 
 def test_row_state_and_active_decision() -> None:
-    assert rt._is_active_decision("running") is True
-    assert rt._is_active_decision("pass") is False
-    assert rt._is_base_baseline({"stage": "base-baseline"}) is True
-    assert rt._is_base_baseline({"stage": "candidate"}) is False
-    assert rt._probe_key({"candidate_id": "c1", "candidate_voltage_mv": 900})
+    assert runs.is_active_decision("running") is True
+    assert runs.is_active_decision("pass") is False
+    assert runs.is_base_baseline({"stage": "base-baseline"}) is True
+    assert runs.is_base_baseline({"stage": "candidate"}) is False
+    assert runs.probe_key({"candidate_id": "c1", "candidate_voltage_mv": 900})
 
 
 def test_number_and_bool_helpers() -> None:
-    assert rt._to_float("2500") == 2500.0
-    assert rt._to_float("x") is None
-    assert rt._format_int(2500.4) == "2500"
-    assert rt._format_int(None) == ""
-    assert rt._format_float(12.34) == "12.34" or rt._format_float(12.34)
-    assert rt._payload_number({"a": 1, "b": 2}, "missing", "b") == 2.0
+    assert runs.to_float("2500") == 2500.0
+    assert runs.to_float("x") is None
+    assert runs.format_int(2500.4) == "2500"
+    assert runs.format_int(None) == ""
+    assert runs.format_float(12.34) == "12.34" or runs.format_float(12.34)
+    assert runs.payload_number({"a": 1, "b": 2}, "missing", "b") == 2.0
 
 
 def test_duration_and_progress_text() -> None:
-    assert rt._format_duration_compact(0) is not None
-    assert "m" in rt._format_duration_compact(125) or rt._format_duration_compact(125)
-    assert rt._clamped_elapsed_s(120, 60) == 60.0  # clamped to target
-    assert rt._clamped_elapsed_s(-5, 60) == 0.0
-    assert isinstance(rt._progress_time_text(30, 60), str)
+    assert runs.format_duration_compact(0) is not None
+    assert "m" in runs.format_duration_compact(125) or runs.format_duration_compact(125)
+    assert runs.clamped_elapsed_s(120, 60) == 60.0  # clamped to target
+    assert runs.clamped_elapsed_s(-5, 60) == 0.0
+    assert isinstance(runs.progress_time_text(30, 60), str)
 
 
 def test_oc_progress_and_cap_helpers() -> None:
-    assert rt._format_oc_progress((1, 4)) == "+1 MHz"
-    assert rt._format_oc_progress((-10, 4)) == "-10 MHz"
+    assert runs.format_oc_progress((1, 4)) == "+1 MHz"
+    assert runs.format_oc_progress((-10, 4)) == "-10 MHz"
     # Non-OC rows (UV sweep, Efficiency/Balanced) leave OC blank, not
     # a signed zero that looks like Auto-OC ran and gained nothing.
-    assert rt._format_oc_progress(None) == ""
-    assert rt._format_oc_progress((2, 0)) == "+2 MHz"
+    assert runs.format_oc_progress(None) == ""
+    assert runs.format_oc_progress((2, 0)) == "+2 MHz"
     assert (
-        rt._payload_oc_progress(
+        runs.payload_oc_progress(
             {"auto_oc": True, "auto_oc_applied_mhz": 30, "auto_oc_limit_mhz": 90}
         )
         is None
     )
-    assert rt._payload_oc_progress({}) is None
+    assert runs.payload_oc_progress({}) is None
     # OC reports target minus measured baseline, including zero and negative deltas.
     assert (
-        rt._payload_oc_progress(
+        runs.payload_oc_progress(
             {"auto_oc": True, "auto_oc_applied_mhz": 0, "auto_oc_limit_mhz": 380}
         )
         is None
     )
-    assert rt._format_oc_progress((0, 380)) == "+0 MHz"
-    assert rt._payload_oc_progress(
+    assert runs.format_oc_progress((0, 380)) == "+0 MHz"
+    assert runs.payload_oc_progress(
         {
             "auto_oc": True,
             "clock_mhz": 2880,
             "auto_oc_baseline_clock_mhz": 2730,
         }
     ) == (150, 150)
-    assert rt._payload_oc_progress(
+    assert runs.payload_oc_progress(
         {
             "auto_oc": True,
             "clock_mhz": 2600,
             "auto_oc_baseline_clock_mhz": 2730,
         }
     ) == (-130, -130)
-    assert rt._payload_oc_progress(
+    assert runs.payload_oc_progress(
         {
             "clock_mhz": 2880,
             "base_avg_core_clock_mhz": 2730,
         }
     ) == (150, 150)
-    assert rt._payload_oc_progress(
+    assert runs.payload_oc_progress(
         {
             "clock_mhz": 2600,
             "base_avg_core_clock_mhz": 2730,
         }
     ) == (-130, -130)
     assert (
-        rt._payload_curve_oc_progress(
+        runs.payload_oc_progress(
             {"auto_oc_applied_mhz": 15, "auto_oc_limit_mhz": 90}
         )
         is None
     )
-    assert isinstance(rt._perf_cap_reason_text("sw_power_cap"), str)
-    assert isinstance(rt._perf_cap_reason_tooltip("sw_power_cap"), str)
+    assert isinstance(runs.perf_cap_reason_text("sw_power_cap"), str)
+    assert isinstance(runs.perf_cap_reason_tooltip("sw_power_cap"), str)
 
 
 def test_hw_power_brake_is_visible_even_when_the_summary_suppressed_it() -> None:
     # The Cap column is the most visible surface for a power-delivery brake,
     # and the probe summarizer can drop a sparse power token from the reason
     # text. The reported sample count must put it back.
-    assert rt._perf_cap_reason_text("none", 4) == "hw-power-brake"
-    assert rt._perf_cap_reason_text("sw-power", 4) == "sw-power+hw-power-brake"
+    assert runs.perf_cap_reason_text("none", 4) == "hw-power-brake"
+    assert runs.perf_cap_reason_text("sw-power", 4) == "sw-power+hw-power-brake"
     # Already named: no duplicate.
-    assert rt._perf_cap_reason_text("sw-power+hw-power-brake", 4) == (
+    assert runs.perf_cap_reason_text("sw-power+hw-power-brake", 4) == (
         "sw-power+hw-power-brake"
     )
     # No brake, no change.
-    assert rt._perf_cap_reason_text("sw-power", 0) == "sw-power"
-    assert "power delivery" in rt._perf_cap_reason_tooltip("sw-power", 4)
-    assert "power delivery" not in rt._perf_cap_reason_tooltip("sw-power", 0)
+    assert runs.perf_cap_reason_text("sw-power", 0) == "sw-power"
+    assert "power delivery" in runs.perf_cap_reason_tooltip("sw-power", 4)
+    assert "power delivery" not in runs.perf_cap_reason_tooltip("sw-power", 0)
 
 
 def test_measured_clock_and_progress_color() -> None:
-    assert rt._measured_clock_value({"avg_core_clock_mhz": 2490}) is not None
+    assert runs.measured_clock_value({"avg_core_clock_mhz": 2490}) is not None
     color = rt._progress_text_color("#123456", 0.5)
     assert isinstance(color, str) and color

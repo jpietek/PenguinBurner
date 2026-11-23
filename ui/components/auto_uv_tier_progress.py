@@ -24,7 +24,8 @@ class AutoUvTierProgress:
 
     The setup dialog closes before scanning starts, so this strip mirrors the
     same Efficiency -> Balanced -> Performance order in the existing runs area.
-    It stays hidden for a one-profile scan.
+    It stays hidden for a one-profile scan. The scan session decides each
+    tier's state; this only shows it.
     """
 
     def __init__(self, *, QtWidgets):
@@ -52,45 +53,11 @@ class AutoUvTierProgress:
             self._set_state(tier, "pending", position=position)
         self.widget.hide()
 
-    def start(self) -> None:
+    def show_states(self, states: dict[str, str]) -> None:
+        """Show the scan session's tier states; an empty map hides the strip."""
         for position, tier in enumerate(AUTO_UV_TIER_ORDER, start=1):
-            self._set_state(tier, "pending", position=position)
-        self.widget.show()
-
-    def clear(self) -> None:
-        self.widget.hide()
-        for position, tier in enumerate(AUTO_UV_TIER_ORDER, start=1):
-            self._set_state(tier, "pending", position=position)
-
-    def set_active(self, tier: str) -> None:
-        normalized = _normalized_tier(tier)
-        if normalized is None:
-            return
-        self.widget.show()
-        active_index = AUTO_UV_TIER_ORDER.index(normalized)
-        for previous in AUTO_UV_TIER_ORDER[:active_index]:
-            if self._states.get(previous) in {"pending", "active"}:
-                self._set_state(previous, "complete")
-        self._set_state(normalized, "active")
-
-    def set_completed(self, tier: str) -> None:
-        normalized = _normalized_tier(tier)
-        if normalized is not None:
-            self._set_state(normalized, "complete")
-
-    def set_skipped(self, tier: str) -> None:
-        normalized = _normalized_tier(tier)
-        if normalized is not None:
-            self._set_state(normalized, "skipped")
-
-    def mark_unfinished(self, state: str) -> None:
-        terminal = state if state in {"stopped", "failed"} else "stopped"
-        for tier in AUTO_UV_TIER_ORDER:
-            current = self._states.get(tier)
-            if current == "active":
-                self._set_state(tier, terminal)
-            elif current == "pending":
-                self._set_state(tier, "not-run")
+            self._set_state(tier, states.get(tier, "pending"), position=position)
+        self.widget.setVisible(bool(states))
 
     def state(self, tier: str) -> str | None:
         normalized = _normalized_tier(tier)

@@ -122,13 +122,11 @@ def test_window_handles_scan_events(main_window, monkeypatch) -> None:
     win._handle_scan_event(
         {"event": "final_result", "candidate_voltage_mv": 900, "lock_clock_mhz": 2500}
     )
-    assert win.pending_final_result_payload is not None
+    assert win.scan_session.final_result is not None
 
 
 def test_window_shows_chronological_full_scan_profile_progress(main_window) -> None:
     win = main_window
-    win.auto_uv_tier_progress.start()
-
     win._handle_scan_event(
         {
             "event": "tier_started",
@@ -194,7 +192,9 @@ def test_window_plots_selected_performance_auto_oc_curve(main_window) -> None:
 
 
 def test_memory_offset_status_text_formats() -> None:
-    from ui.window import _memory_offset_status_text
+    from auto_uv.session.scan_session import (
+        memory_offset_status_text as _memory_offset_status_text,
+    )
 
     assert _memory_offset_status_text(0) == "Memory offset: none"
     assert _memory_offset_status_text(500) == "Memory offset: +500 MHz memory clock"
@@ -258,7 +258,7 @@ def test_window_previous_crash_close_writes_abort(main_window, monkeypatch, tmp_
     )
 
     assert '"action": "abort"' in response_path.read_text(encoding="utf-8")
-    assert main_window.final_choice_discarded is True
+    assert main_window.scan_session.discarded is True
 
 
 def test_window_previous_crash_start_over_writes_discard(
@@ -283,7 +283,7 @@ def test_window_previous_crash_start_over_writes_discard(
     )
 
     assert '"action": "discard"' in response_path.read_text(encoding="utf-8")
-    assert main_window.final_choice_discarded is False
+    assert main_window.scan_session.discarded is False
 
 
 def test_window_human_lines(main_window) -> None:
@@ -298,10 +298,10 @@ def test_window_scan_finished_branches(main_window) -> None:
     # stopped-by-user
     win._scan_finished(0, 0, True)
     # pending final result -> Complete
-    win.pending_final_result_payload = {"candidate_id": "c1"}
+    win.scan_session.final_result = {"candidate_id": "c1"}
     win._scan_finished(0, 0, False)
     # discarded
-    win.final_choice_discarded = True
+    win.scan_session.discarded = True
     win._scan_finished(0, 0, False)
     # failed (errors.show_process is dialog-guarded by patched exec)
     win._scan_finished(1, 0, False)
