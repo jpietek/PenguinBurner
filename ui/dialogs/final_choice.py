@@ -199,7 +199,15 @@ def select_final_candidate(
     duration_spin.setValue(_minutes(default_duration_s))
     if not recovery_prompt:
         duration_layout = QtWidgets.QHBoxLayout()
-        duration_layout.addWidget(QtWidgets.QLabel("Final verification duration"))
+        duration_label = QtWidgets.QLabel("Final verification duration")
+        soak_tooltip = (
+            "Final verification runs Q2RTX first, then alternates full and "
+            "fractional CUDA grids so the load steps up and down. A scan that "
+            "never moved the load fails instead of saving a profile."
+        )
+        duration_label.setToolTip(soak_tooltip)
+        duration_spin.setToolTip(soak_tooltip)
+        duration_layout.addWidget(duration_label)
         duration_layout.addWidget(duration_spin)
         duration_layout.addStretch(1)
         layout.addLayout(duration_layout)
