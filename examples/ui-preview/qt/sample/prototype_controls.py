@@ -11,13 +11,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields
 
-from design import GAP
 from PySide6 import QtCore as C
 from PySide6 import QtGui as G
 from PySide6 import QtWidgets as W
 
 from ui.components.preference_rows import preference_row
 from ui.components.toggle_switch import make_toggle_switch
+from ui.design.style import GAP
 
 DAEMON_STATES = (
     ("ready", "Ready"),

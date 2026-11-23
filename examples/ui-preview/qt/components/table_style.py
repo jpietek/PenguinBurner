@@ -7,10 +7,11 @@ green delta stays green.
 
 from __future__ import annotations
 
-from design import COL, qcolor
 from PySide6 import QtCore as C
 from PySide6 import QtGui as G
 from PySide6 import QtWidgets as W
+
+from ui.design.style import COL, qcolor
 
 ROW_HEIGHT = 32
 

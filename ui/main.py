@@ -13,13 +13,14 @@ from .qt import (
     import_qt,
     prepare_desktop_scale_env,
 )
-from .window import MainWindow
 
 
 @dataclass(frozen=True, slots=True)
 class GuiLaunchOptions:
     qt_argv: list[str]
     gpu_index: int | None = None
+    # The classic window instead of the new one, until every page is ported.
+    classic: bool = False
 
 
 def parse_gui_launch_options(argv: list[str] | None = None) -> GuiLaunchOptions:
@@ -28,10 +29,15 @@ def parse_gui_launch_options(argv: list[str] | None = None) -> GuiLaunchOptions:
         raw = ["penguin-burner-ui"]
     qt_argv = [raw[0]]
     gpu_index = None
+    classic = False
     index = 1
     while index < len(raw):
         arg = raw[index]
         if arg == "--new-ui":
+            index += 1
+            continue
+        if arg == "--classic":
+            classic = True
             index += 1
             continue
         if arg in {"--gpu-index", "--index"}:
@@ -56,6 +62,7 @@ def parse_gui_launch_options(argv: list[str] | None = None) -> GuiLaunchOptions:
     return GuiLaunchOptions(
         qt_argv=qt_argv,
         gpu_index=gpu_index,
+        classic=classic,
     )
 
 
@@ -101,15 +108,28 @@ def run(argv: list[str] | None = None) -> int:
         app.setWindowIcon(icon)
     apply_desktop_font_settings(app, QtGui)
     apply_dark_palette(app, QtGui)
-    window = MainWindow(
-        qt_modules,
-        gpu_index=launch_options.gpu_index,
-    )
-    icon = application_icon(QtGui)
-    if not icon.isNull():
-        window.window.setWindowIcon(icon)
+    if launch_options.classic:
+        window = _classic_window(qt_modules, launch_options.gpu_index)
+        if not icon.isNull():
+            window.window.setWindowIcon(icon)
+    else:
+        window = _new_window(app, launch_options.gpu_index)
+        if not icon.isNull():
+            window.setWindowIcon(icon)
     window.show()
     return int(app.exec())
+
+
+def _classic_window(qt_modules, gpu_index: int | None):
+    from .window import MainWindow
+
+    return MainWindow(qt_modules, gpu_index=gpu_index)
+
+
+def _new_window(app, gpu_index: int | None):
+    from .shell_window import open_shell_window
+
+    return open_shell_window(app, gpu_index=gpu_index)
 
 
 def main(argv: list[str] | None = None) -> int:

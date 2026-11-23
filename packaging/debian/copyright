@@ -6,6 +6,11 @@ Files: *
 Copyright: PenguinBurner contributors
 License: GPL-3.0-or-later
 
+Files: ui/design/fonts/*
+Copyright: 2016 The Inter Project Authors (https://github.com/rsms/inter)
+License: OFL-1.1
+ See ui/design/fonts/OFL.txt for the full license text.
+
 License: GPL-3.0-or-later
  This package is free software: you can redistribute it and/or modify it under
  the terms of the GNU General Public License as published by the Free Software

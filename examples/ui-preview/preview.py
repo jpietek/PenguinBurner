@@ -3,7 +3,6 @@
 Auto UV replays an in-memory scan fixture."""
 
 import copy
-import html
 import json
 import math
 import sys
@@ -16,9 +15,27 @@ from unittest.mock import patch
 # Use the active checkout's widgets even when a different PenguinBurner wheel is installed.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import design
 import pyqtgraph as pg
-from design import (
+from PySide6 import QtCore as C
+from PySide6 import QtGui as G
+from PySide6 import QtWidgets as W
+from qt.components.adaptive_game_picker import AdaptiveGame, AdaptiveGamePicker
+from qt.components.profile_model import STOCK
+from qt.components.table_style import apply_table_spec
+from qt.features.perf_profile_page import PerfProfilePage
+from qt.features.profiles_page import CurveEditors, ProfilesPage
+from qt.sample.perf_rings import LIVE_KEY, SamplePerfSource
+from qt.sample.profiles_source import SampleProfilesSource
+from qt.sample.prototype_controls import PrototypeControlsDialog, PrototypeState
+
+import ui.design.style as design
+from auto_uv.scan_mode.auto_uv_mode import adaptive_tier_option_key
+from integrations.afterburner.profile_import import afterburner_fan_curve_payload
+from ui.assets import asset_image_path
+from ui.components import fan_curve_editor, vf_curve_editor
+from ui.components.elided_label import ElidedLabel
+from ui.components.page_header import PAGE_MARGINS, PageHeader
+from ui.design.style import (
     COL,
     COPY,
     DIM_ALPHA,
@@ -31,34 +48,18 @@ from design import (
     DemoCurvePlot,
     focus_visible,
     glyph_icon,
+    info_icon,
     install_theme,
     qcolor,
     tab_icon,
 )
-from PySide6 import QtCore as C
-from PySide6 import QtGui as G
-from PySide6 import QtWidgets as W
-from qt.components.adaptive_game_picker import AdaptiveGame, AdaptiveGamePicker
-from qt.components.elided_label import ElidedLabel
-from qt.components.page_header import PAGE_MARGINS, PageHeader
-from qt.components.profile_model import STOCK
-from qt.components.table_style import apply_table_spec
-from qt.features.appearance_dialog import AppearanceDialog
-from qt.features.perf_profile_page import PerfProfilePage
-from qt.features.profiles_page import CurveEditors, ProfilesPage
-from qt.sample.perf_rings import LIVE_KEY, SamplePerfSource
-from qt.sample.profiles_source import SampleProfilesSource
-from qt.sample.prototype_controls import PrototypeControlsDialog, PrototypeState
-
-from auto_uv.scan_mode.auto_uv_mode import adaptive_tier_option_key
-from integrations.afterburner.profile_import import afterburner_fan_curve_payload
-from ui.assets import asset_image_path
-from ui.components import fan_curve_editor, vf_curve_editor
 from ui.dialogs import about, afterburner_import, scan_tuning
+from ui.dialogs.appearance import AppearanceDialog
 from ui.dialogs.error_details import process_failure_details, show_error_dialog
 from ui.dialogs.final_choice import select_final_candidate
 from ui.features.tuning.tuning import AutoUvNvmlInfo
 from ui.qt import apply_dark_palette
+from ui.shell_window import header_icon_button, label, shell_section
 
 HERE = Path(__file__).resolve().parent
 SAMPLE = json.loads((HERE / "sample.json").read_text())
@@ -267,25 +268,12 @@ def setup_options(parent, *, gpu_count=1, no_gpu=False, gpu_index=0):
         )
 
 
-def label(text, role):
-    widget = W.QLabel(text)
-    widget.setObjectName(role)
-    widget.setWordWrap(False)
-    return widget
-
-
 def button(text, slot, role=None):
     widget = W.QPushButton(text)
     if role:
         widget.setObjectName(role)
     widget.clicked.connect(slot)
     return widget
-
-
-ABOUT_AUTHORS = (
-    ("Jan Pietek", "https://github.com/jpietek"),
-    ("Michał Ernst (Ernold)", "https://github.com/Ernold11"),
-)
 
 
 class VisibleWhileEnabled(C.QObject):
@@ -300,42 +288,6 @@ class VisibleWhileEnabled(C.QObject):
         if event.type() == C.QEvent.Type.EnabledChange:
             watched.setVisible(watched.isEnabled())
         return False
-
-
-def header_icon_button(icon, name, slot):
-    """A flat, icon-only header utility (Appearance, About): same size and
-    look for both, with the name as tooltip and accessible name."""
-    tool = W.QToolButton()
-    tool.setObjectName("headerUtility")
-    tool.setIcon(icon)
-    tool.setIconSize(C.QSize(18, 18))
-    tool.setFixedSize(34, 34)
-    tool.setToolTip(name)
-    tool.setAccessibleName(name)
-    tool.clicked.connect(slot)
-    return tool
-
-
-def info_icon(color):
-    """A small outlined info circle for the header About button."""
-    ratio = 3
-    pixmap = G.QPixmap(16 * ratio, 16 * ratio)
-    pixmap.fill(C.Qt.GlobalColor.transparent)
-    pixmap.setDevicePixelRatio(ratio)
-    painter = G.QPainter(pixmap)
-    painter.setRenderHint(G.QPainter.RenderHint.Antialiasing)
-    ink = G.QColor(color)
-    painter.setPen(G.QPen(ink, 1.4))
-    painter.drawEllipse(C.QRectF(1.5, 1.5, 13, 13))
-    stem = G.QPen(ink, 1.5)
-    stem.setCapStyle(C.Qt.PenCapStyle.RoundCap)
-    painter.setPen(stem)
-    painter.drawLine(C.QPointF(8, 7.2), C.QPointF(8, 11.2))
-    painter.setPen(C.Qt.PenStyle.NoPen)
-    painter.setBrush(ink)
-    painter.drawEllipse(C.QPointF(8, 4.9), 0.95, 0.95)
-    painter.end()
-    return G.QIcon(pixmap)
 
 
 TABLE_HEADERS = (
@@ -955,24 +907,6 @@ def polish_curve_editor(kind):
         row.removeWidget(cancel)
         row.insertWidget(row.indexOf(save), cancel)
     repolish(save)
-
-
-def polish_about():
-    """Links in the About dialog are links, not a text field: no caret after a
-    link, and OK holds focus."""
-    dialog = W.QApplication.activeModalWidget()
-    if not isinstance(dialog, W.QDialog):
-        return
-    for text in dialog.findChildren(W.QLabel):
-        if text.openExternalLinks():
-            text.setTextInteractionFlags(
-                C.Qt.TextInteractionFlag.LinksAccessibleByMouse
-                | C.Qt.TextInteractionFlag.LinksAccessibleByKeyboard
-            )
-    box = dialog.findChild(W.QDialogButtonBox)
-    ok = box.button(W.QDialogButtonBox.StandardButton.Ok) if box else None
-    if ok is not None:
-        ok.setFocus(C.Qt.FocusReason.OtherFocusReason)
 
 
 def repolish(widget):
@@ -2692,7 +2626,7 @@ class Preview(W.QWidget):
         self.verify_ids: list[str] = []
         # Header: logo + wordmark, About, header progress and actions, then
         # the two-line global status, a flat tab strip, the page and a footer.
-        header = self.shell_section("shellHeader")
+        header = shell_section("shellHeader")
         top = W.QHBoxLayout(header)
         top.setContentsMargins(GAP["lg"], GAP["md"], GAP["lg"], GAP["sm"])
         top.setSpacing(GAP["md"])
@@ -2711,7 +2645,7 @@ class Preview(W.QWidget):
         self.header_progress.hide()
         top.addWidget(self.header_progress)
         page.addWidget(header)
-        band = self.status_band = self.shell_section("statusBand")
+        band = self.status_band = shell_section("statusBand")
         lines = W.QVBoxLayout(band)
         lines.setContentsMargins(GAP["lg"], 0, GAP["lg"], GAP["sm"] + 2)
         lines.setSpacing(0)
@@ -2745,7 +2679,7 @@ class Preview(W.QWidget):
         self.stack = W.QStackedWidget()
         body.addWidget(self.stack)
         page.addLayout(body, 1)
-        footer = self.shell_section("shellFooter")
+        footer = shell_section("shellFooter")
         foot = W.QHBoxLayout(footer)
         foot.setContentsMargins(GAP["lg"], GAP["xs"] + 2, GAP["lg"], GAP["xs"] + 2)
         foot.addWidget(label("Qt prototype · sample data", "sampleNote"))
@@ -2902,22 +2836,17 @@ class Preview(W.QWidget):
         }
 
     def show_about(self):
-        authors = " · ".join(
-            f'<a href="{url}">{html.escape(name)}</a>' for name, url in ABOUT_AUTHORS
-        )
-        links = (about.ABOUT_LINKS_HTML + f"<br><br>Authors<br>{authors}").replace(
-            "<a href=", f'<a style="color:{COL["accent"]}" href='
-        )
-        with (
-            patch(
-                "runtime.daemon_client.daemon_status",
-                side_effect=self.sample_energy_status,
-            ),
-            patch.object(about, "ABOUT_LINKS_HTML", links),
-            patch.object(about, "GPU_UNDERVOLTING_PURPOSE_TEXT", COPY["aboutPurpose"]),
+        with patch(
+            "runtime.daemon_client.daemon_status",
+            side_effect=self.sample_energy_status,
         ):
-            C.QTimer.singleShot(0, polish_about)
-            about.show_about_dialog(QtCore=C, QtGui=G, QtWidgets=W, parent=self)
+            about.show_about_dialog(
+                QtCore=C,
+                QtGui=G,
+                QtWidgets=W,
+                parent=self,
+                purpose_text=COPY["aboutPurpose"],
+            )
 
     # ---------- Afterburner ----------
 
@@ -3176,13 +3105,6 @@ class Preview(W.QWidget):
             self.scan.ensure_daemon_ready("Updating the PenguinBurner hardware service")
 
     # ---------- shell ----------
-
-    @staticmethod
-    def shell_section(name):
-        section = W.QWidget()
-        section.setObjectName(name)
-        section.setAttribute(C.Qt.WidgetAttribute.WA_StyledBackground, True)
-        return section
 
     def set_profiles_status(self, status):
         status = dict(status or {})

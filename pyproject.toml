@@ -129,6 +129,7 @@ packages = [
   "ui.assets",
   "ui.components",
   "ui.controllers",
+  "ui.design",
   "ui.dialogs",
   "ui.features",
   "ui.features.curves",
@@ -150,6 +151,11 @@ packages = [
 ]
 "ui.assets" = [
   "*.png",
+]
+"ui.design" = [
+  "pburn-design.json",
+  "fonts/*.ttf",
+  "fonts/OFL.txt",
 ]
 
 [tool.setuptools.data-files]

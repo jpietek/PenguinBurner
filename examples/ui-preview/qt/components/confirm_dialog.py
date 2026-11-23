@@ -7,9 +7,10 @@ filled primary or, for a destructive action, a loss-outlined button.
 
 from __future__ import annotations
 
-from design import GAP
 from PySide6 import QtCore as C
 from PySide6 import QtWidgets as W
+
+from ui.design.style import GAP
 
 
 class ConfirmDialog(W.QDialog):

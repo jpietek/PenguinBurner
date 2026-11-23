@@ -14,13 +14,14 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from design import install_theme
 from preview import COPY, Preview, configure_app
 from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtGui import QPainter
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QLabel, QPushButton, QTableWidget
-from tokens import AppearanceSettings
+
+from ui.design.style import install_theme
+from ui.design.tokens import AppearanceSettings
 
 SIZE = (1350, 900)
 
@@ -181,7 +182,7 @@ def capture(
     )
     dialog.close()
 
-    # About is a modal dialog: grab it once polish_about has run, then close.
+    # About is a modal dialog: grab it once it is built, then close.
     about_opened = []
 
     def grab_about():

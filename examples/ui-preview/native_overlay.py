@@ -15,7 +15,6 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
 
-from design import COL, GAP, RAD, TYPE, WEIGHT, focus_visible, qcolor
 from native_library import (
     heading_into_card,
     library_stylesheet,
@@ -24,7 +23,6 @@ from native_library import (
 from PySide6 import QtCore as C
 from PySide6 import QtGui as G
 from PySide6 import QtWidgets as W
-from qt.components.page_header import PAGE_MARGINS
 
 from overlay import shortcuts as overlay_shortcuts
 from overlay.config import (
@@ -41,6 +39,8 @@ from ui.components.overlay_preview import (
     MAX_PREVIEW_H,
     overlay_preview_class,
 )
+from ui.components.page_header import PAGE_MARGINS
+from ui.design.style import COL, GAP, RAD, TYPE, WEIGHT, focus_visible, qcolor
 from ui.dialogs import overlay_shortcuts as shortcuts_ui
 
 CONFIG_PATH = "~/.config/penguin-burner/overlay.toml"

@@ -8,11 +8,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from design import COL, GAP, RAD, TYPE, control_icons, focus_visible
 from PySide6 import QtCore as C
 from PySide6 import QtGui as G
 from PySide6 import QtWidgets as W
-from qt.components.page_header import PAGE_MARGINS
 from qt.components.perf_entry import PerfEntryButton
 from qt.components.perf_profile_plot import PerfProfileSource
 from qt.components.switch_sync import set_switch
@@ -37,8 +35,10 @@ from integrations.steam.launch_options import launch_options_problems
 from ui.assets import asset_image_path
 from ui.components import game_library_panel as library_ui
 from ui.components.game_library_panel import GameLibraryPanel, game_key
+from ui.components.page_header import PAGE_MARGINS
 from ui.components.preference_rows import preference_row
 from ui.components.toggle_switch import make_toggle_switch
+from ui.design.style import COL, GAP, RAD, TYPE, control_icons, focus_visible
 
 GAMES = (
     ("steam", "1091500", "Cyberpunk 2077", "Proton Experimental", 40, True),

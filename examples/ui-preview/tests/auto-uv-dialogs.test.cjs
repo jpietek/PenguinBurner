@@ -8,7 +8,7 @@ const preview = path.resolve(__dirname, '..');
 const dialogs = fs.readFileSync(path.join(preview, 'auto-uv-dialogs.js'), 'utf8');
 const flow = fs.readFileSync(path.join(preview, 'auto-uv.js'), 'utf8');
 const sample = JSON.parse(fs.readFileSync(path.join(preview, 'sample.json'), 'utf8'));
-const design = JSON.parse(fs.readFileSync(path.join(preview, 'pburn-design.json'), 'utf8'));
+const design = JSON.parse(fs.readFileSync(path.join(preview, '..', '..', 'ui', 'design', 'pburn-design.json'), 'utf8'));
 // build_preview.py hands the frozen prototype one flat colour set, the
 // shipped dark look; resolve the same roles here.
 design.colors = Object.assign({}, design.themes.dark, design.accents.penguinburner.dark);

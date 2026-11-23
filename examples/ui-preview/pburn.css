@@ -1,5 +1,5 @@
 /* pburn.css: the shared, tokenised layer for the PenguinBurner preview.
- * Every colour, size and radius comes from pburn-design.json via the CSS
+ * Every colour, size and radius comes from ui/design/pburn-design.json via the CSS
  * custom properties emitted by build_preview.py. Feature areas layer their own
  * rules on top in history.css, library.css, profiles.css, overlay.css and
  * auto-uv.css. Type scale: 26/17/14/12 px, weights 400/600/700.

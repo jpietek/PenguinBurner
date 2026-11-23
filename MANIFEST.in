@@ -10,6 +10,8 @@ include overlay/native/nvapi_shim/build.sh
 recursive-include docs *.md *.png *.svg
 recursive-include packaging/icons *.png *.svg
 recursive-include ui/assets *.png
+include ui/design/pburn-design.json
+recursive-include ui/design/fonts *.ttf OFL.txt
 recursive-include tests *.py *.cpp
 recursive-include overlay/native/latency_layer/src *.cpp *.h *.hpp
 recursive-include overlay/native/latency_layer/vendor *

@@ -13,12 +13,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from design import COL, GAP, RAD, TYPE, WEIGHT, focus_visible, qcolor
 from PySide6 import QtCore as C
 from PySide6 import QtGui as G
 from PySide6 import QtWidgets as W
 
-from qt.components.page_header import PAGE_MARGINS
 from qt.components.perf_entry import keyboard_focus_ring
 from qt.components.perf_fingerprint import (
     PerfFingerprint,
@@ -40,6 +38,8 @@ from qt.components.perf_profile_plot import (
     warming_text,
 )
 from qt.components.profile_style import Pill
+from ui.components.page_header import PAGE_MARGINS
+from ui.design.style import COL, GAP, RAD, TYPE, WEIGHT, focus_visible, qcolor
 
 THREE_COLUMN_WIDTH = 960
 TWO_COLUMN_WIDTH = 720

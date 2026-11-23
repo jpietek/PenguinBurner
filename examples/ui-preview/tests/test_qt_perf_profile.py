@@ -12,7 +12,6 @@ PREVIEW = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PREVIEW))
 sys.path.insert(1, str(PREVIEW.parents[1]))
 
-from design import install_theme  # noqa: E402
 from PySide6 import QtCore as C  # noqa: E402
 from PySide6 import QtGui as G  # noqa: E402
 from PySide6 import QtWidgets as W  # noqa: E402
@@ -46,6 +45,7 @@ from qt.features.perf_profile_page import (  # noqa: E402
 )
 from qt.sample.perf_rings import GAME_NAMES, LIVE_KEY, SamplePerfSource  # noqa: E402
 
+from ui.design.style import install_theme  # noqa: E402
 from ui.qt import apply_dark_palette  # noqa: E402
 
 CYBERPUNK, TLOU2, TLOU1, DOOM = (

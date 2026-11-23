@@ -1,4 +1,4 @@
-"""Read the preview's shared design roles and apply them to Qt widgets and plots."""
+"""Apply the design roles to Qt: colours, font, style sheet, icons and plots."""
 
 import atexit
 import hashlib
@@ -10,7 +10,11 @@ from pathlib import Path
 from PySide6 import QtCore as C
 from PySide6 import QtGui as G
 from PySide6 import QtWidgets as W
-from tokens import (
+
+from ui import theme
+from ui.components.curve_plot import CurvePlot
+from ui.components.toggle_switch import toggle_switch_class
+from ui.design.tokens import (
     FALLBACK_ACCENT,
     SPEC,
     SYSTEM_ACCENT,
@@ -19,10 +23,6 @@ from tokens import (
     resolve_colors,
     resolve_mode,
 )
-
-from ui import theme
-from ui.components.curve_plot import CurvePlot
-from ui.components.toggle_switch import toggle_switch_class
 from ui.styles import STYLESHEET
 
 # COL, TYPE and TIER_COLORS are updated in place by install_theme, so every
@@ -166,6 +166,28 @@ def glyph_icon(
         painter.end()
         icon.addPixmap(pixmap, mode)
     return icon
+
+
+def info_icon(color: str) -> G.QIcon:
+    """A small outlined info circle for the header About button."""
+    ratio = 3
+    pixmap = G.QPixmap(16 * ratio, 16 * ratio)
+    pixmap.fill(C.Qt.GlobalColor.transparent)
+    pixmap.setDevicePixelRatio(ratio)
+    painter = G.QPainter(pixmap)
+    painter.setRenderHint(G.QPainter.RenderHint.Antialiasing)
+    ink = G.QColor(color)
+    painter.setPen(G.QPen(ink, 1.4))
+    painter.drawEllipse(C.QRectF(1.5, 1.5, 13, 13))
+    stem = G.QPen(ink, 1.5)
+    stem.setCapStyle(C.Qt.PenCapStyle.RoundCap)
+    painter.setPen(stem)
+    painter.drawLine(C.QPointF(8, 7.2), C.QPointF(8, 11.2))
+    painter.setPen(C.Qt.PenStyle.NoPen)
+    painter.setBrush(ink)
+    painter.drawEllipse(C.QPointF(8, 4.9), 0.95, 0.95)
+    painter.end()
+    return G.QIcon(pixmap)
 
 
 def tab_icon(name: str) -> G.QIcon:
@@ -863,6 +885,7 @@ def preview_stylesheet() -> str:
         QLabel#statusRunning{{font-weight:{w["semibold"]}}}
         QLabel#statusDetail,QLabel#sampleNote{{font-size:{t["caption"]}px;color:{c["secondary"]}}}
         QLabel#sampleNote{{color:{c["quiet"]}}}
+        QLabel#pageNote{{color:{c["secondary"]}}}
         QWidget#shellFooter{{border-top:1px solid {c["divider"]}}}
         QProgressBar#headerProgress{{background:{c["control"]};border:1px solid {c["border"]};border-radius:{r["control"]}px;color:{c["ink"]};font-size:{t["caption"]}px;text-align:center;max-height:16px}}
         QProgressBar#headerProgress::chunk{{background:{c["primary"]};border-radius:{r["control"] - 1}px}}

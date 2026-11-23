@@ -14,7 +14,6 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from design import TYPE, WEIGHT, qcolor
 from PySide6 import QtCore as C
 from PySide6 import QtGui as G
 from PySide6 import QtWidgets as W
@@ -24,6 +23,7 @@ from qt.components.perf_profile_plot import (
     PerfSummary,
     fingerprint_color,
 )
+from ui.design.style import TYPE, WEIGHT, qcolor
 
 # Unknown board limit: a desktop-class 350 W envelope; unset target: 60 fps.
 FALLBACK_POWER_LIMIT_W = 350.0

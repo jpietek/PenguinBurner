@@ -1,15 +1,16 @@
 """Token styling for the Profiles widgets: one style sheet, painted marks.
 
-Every colour, size and radius comes from the design tokens in design.py
-(pburn-design.json); nothing here hard-codes a hex value.
+Every colour, size and radius comes from the design tokens in ui/design/style.py
+(ui/design/pburn-design.json); nothing here hard-codes a hex value.
 """
 
 from __future__ import annotations
 
-from design import COL, RAD, TIER_COLORS, TYPE, WEIGHT, focus_visible, qcolor
 from PySide6 import QtCore as C
 from PySide6 import QtGui as G
 from PySide6 import QtWidgets as W
+
+from ui.design.style import COL, RAD, TIER_COLORS, TYPE, WEIGHT, focus_visible, qcolor
 
 ROW_HEIGHT = 32
 CELL_PAD_X = 10

@@ -177,14 +177,25 @@ def _patch_gui_run(monkeypatch) -> dict:
     created = {}
 
     class _FakeWindow:
-        def __init__(self, qt_modules, *, gpu_index=None):
+        def __init__(self, kind, gpu_index):
+            created["kind"] = kind
             created["gpu_index"] = gpu_index
             self.window = SimpleNamespace(setWindowIcon=lambda i: None)
+
+        def setWindowIcon(self, _icon):
+            pass
 
         def show(self):
             created["shown"] = True
 
-    monkeypatch.setattr(ui_main, "MainWindow", _FakeWindow)
+    monkeypatch.setattr(
+        ui_main,
+        "_classic_window",
+        lambda qt_modules, gpu_index: _FakeWindow("classic", gpu_index),
+    )
+    monkeypatch.setattr(
+        ui_main, "_new_window", lambda app, gpu_index: _FakeWindow("new", gpu_index)
+    )
     return created
 
 
@@ -199,8 +210,17 @@ def test_main_run_launches_app(monkeypatch) -> None:
 
     assert ui_main.run(["pburn", "--gpu-index", "1"]) == 0
     assert created["shown"] is True
+    assert created["kind"] == "new"
     assert created["gpu_index"] == 1
     assert integration_checks == [True]
+
+
+def test_main_run_classic_flag_opens_the_classic_window(monkeypatch) -> None:
+    created = _patch_gui_run(monkeypatch)
+    monkeypatch.setattr(ui_main, "ensure_host_integration", lambda: None)
+
+    assert ui_main.run(["pburn", "--classic", "--gpu-index", "2"]) == 0
+    assert created == {"kind": "classic", "gpu_index": 2, "shown": True}
 
 
 def test_main_warns_but_starts_on_incomplete_flatpak_integration(

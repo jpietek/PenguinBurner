@@ -31,6 +31,13 @@ def test_parse_gui_launch_options_gpu_index() -> None:
     assert "extra" in opts.qt_argv
 
 
+def test_parse_gui_launch_options_classic_flag() -> None:
+    assert parse_gui_launch_options(["pburn"]).classic is False
+    opts = parse_gui_launch_options(["pburn", "--classic", "--gpu-index", "1"])
+    assert opts.classic is True
+    assert opts.qt_argv == ["pburn"]
+
+
 def test_parse_gui_launch_options_equals_forms() -> None:
     opts = parse_gui_launch_options(["pburn", "--index=3"])
     assert opts.gpu_index == 3
@@ -512,70 +519,12 @@ def test_runs_table_follows_newest_pending_row_unless_user_scrolled_up(
     assert bar.value() == bar.maximum()
 
 
-def test_startup_gpu_check_warns_when_no_nvidia_device(main_window, monkeypatch) -> None:
+def test_startup_checks_use_the_shared_checks(main_window, monkeypatch) -> None:
     win = main_window
-    import ui.window as window_mod  # noqa: F811
-
-    warnings = []
+    calls = []
     monkeypatch.setattr(
-        win.QtWidgets.QMessageBox,
-        "warning",
-        lambda *args, **kwargs: warnings.append(args),
+        window_mod, "run_startup_checks", lambda **kwargs: calls.append(kwargs)
     )
-    # No NVIDIA device nodes present.
-    monkeypatch.setattr(window_mod.Path, "exists", lambda self: False)
-    win._check_gpu_supported_on_startup()
-    assert warnings and "NVIDIA" in warnings[0][2]
-
-    warnings.clear()
-    # Device present -> no warning.
-    monkeypatch.setattr(
-        window_mod.Path, "exists", lambda self: str(self) == "/dev/nvidia0"
-    )
-    win._check_gpu_supported_on_startup()
-    assert warnings == []
-
-
-def test_startup_daemon_check_only_prompts_for_incompatible_running_daemon(
-    main_window, monkeypatch
-) -> None:
-    win = main_window
-    from runtime import daemon_client
-    from ui import assets
-
-    prompts = []
-    compatibility_checks = []
-    monkeypatch.setattr(assets, "application_version", lambda: "0.7.9")
-    monkeypatch.setattr(
-        window_mod,
-        "ensure_daemon_ready_for_privileged_action",
-        lambda **kwargs: prompts.append(kwargs.get("action_label")) or True,
-    )
-
-    # Not running -> no prompt (a new user is left alone).
-    monkeypatch.setattr(
-        daemon_client, "daemon_status",
-        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("no socket")),
-    )
-    win._check_daemon_upgrade_on_startup()
-    assert prompts == []
-
-    # Running and compatible -> no prompt.
-    monkeypatch.setattr(daemon_client, "daemon_status", lambda **kwargs: {"state": "idle"})
-    monkeypatch.setattr(
-        daemon_client,
-        "require_daemon_capabilities",
-        lambda *args, **kwargs: compatibility_checks.append((args, kwargs))
-        or {"state": "idle"},
-    )
-    win._check_daemon_upgrade_on_startup()
-    assert prompts == []
-    assert compatibility_checks == [((), {"expected_version": "0.7.9"})]
-
-    # Running but incompatible (stale 0.6.x) -> prompt to update.
-    def _incompatible(*a, **k):
-        raise daemon_client.DaemonCompatibilityError("predates the versioned protocol")
-
-    monkeypatch.setattr(daemon_client, "require_daemon_capabilities", _incompatible)
-    win._check_daemon_upgrade_on_startup()
-    assert prompts and "Updating the PenguinBurner hardware service" in prompts[0]
+    win._run_startup_checks()
+    assert calls[0]["parent"] is win.window
+    assert calls[0]["on_daemon_updated"] == win._load_profiles
