@@ -9,8 +9,8 @@ from cli.runtime_config_file import (
 )
 from common.penguin_burner_paths import default_user_config_dir
 from profiles.uv.profile_store import STOCK_PROFILE_SELECTOR
+from runtime.daemon_commands import scan_command
 from ui.assets import asset_image_path
-from ui.commands import scan_command
 from ui.components.auto_uv_tier_progress import AutoUvTierProgress
 from ui.components.curve_plot import CurvePlot
 from ui.components.game_library_panel import GameLibraryPanel

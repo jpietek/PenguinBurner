@@ -5,9 +5,9 @@ import subprocess
 from collections.abc import Callable
 
 from runtime.daemon_client import DaemonCompatibilityError, require_daemon_capabilities
+from runtime.daemon_commands import daemon_migration_command
 from runtime.support.runtime_service import daemon_worker_registration_error
 from ui.assets import application_version
-from ui.commands import daemon_migration_command
 
 
 def _daemon_status_and_worker_check(required_capabilities: tuple[str, ...]) -> dict:

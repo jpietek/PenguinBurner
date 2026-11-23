@@ -68,7 +68,7 @@ pub const AUTO_UV_OPTION_FLAGS: &[(&str, &str)] = &[
 ];
 
 /// Profile-verification option key → CLI flag, in the exact argv order of
-/// `ui/commands.py::profile_verify_command` (after the fixed `--stability-test`
+/// `runtime/daemon_commands.py::profile_verify_command` (after the fixed `--stability-test`
 /// prefix; the daemon-owned `--stability-stop-request-file` is appended last).
 pub const PROFILE_VERIFY_OPTION_FLAGS: &[(&str, &str)] = &[
     ("stability_seconds", "--stability-seconds"),

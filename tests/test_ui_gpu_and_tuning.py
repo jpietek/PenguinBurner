@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from cli import runtime_config_file
+from cli.runtime_config_file import runtime_gpu_index
 import pytest
 
 import ui.features.tuning.gpu_selection as gpu_selection
@@ -17,7 +19,6 @@ from ui.features.tuning.gpu_selection import (
     gpu_choices_with_fallback,
     gpu_choices_from_nvml_identities,
     persist_runtime_gpu_index,
-    runtime_gpu_index,
 )
 from ui.features.tuning.tuning import (
     AutoUvNvmlInfo,
@@ -173,14 +174,14 @@ def test_scan_dialog_cannot_start_without_a_detected_gpu(qapp, monkeypatch) -> N
 
 def test_runtime_gpu_index_reads_config_and_defaults(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
-        gpu_selection, "load_raw_runtime_config", lambda _p: {"gpu": {"index": 3}}
+        runtime_config_file, "load_raw_runtime_config", lambda _p: {"gpu": {"index": 3}}
     )
     assert runtime_gpu_index(tmp_path / "c.toml") == 3
 
     def _boom(_p):
         raise RuntimeError("bad config")
 
-    monkeypatch.setattr(gpu_selection, "load_raw_runtime_config", _boom)
+    monkeypatch.setattr(runtime_config_file, "load_raw_runtime_config", _boom)
     assert runtime_gpu_index(tmp_path / "c.toml") == 0
 
 
@@ -489,6 +490,7 @@ def test_voltage_floor_range_stays_automatic_without_curve(monkeypatch) -> None:
 
 
 def test_tuning_uses_shared_runtime_gpu_index() -> None:
-    # tuning now delegates to the single shared gpu_selection.runtime_gpu_index
-    # (behaviour itself is covered by test_runtime_gpu_index_reads_config_and_defaults).
-    assert tuning.runtime_gpu_index is gpu_selection.runtime_gpu_index
+    # One implementation, owned by the runtime config module (behaviour is
+    # covered by test_runtime_gpu_index_reads_config_and_defaults).
+    assert tuning.runtime_gpu_index is runtime_gpu_index
+    assert gpu_selection.runtime_gpu_index is runtime_gpu_index

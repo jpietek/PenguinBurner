@@ -105,7 +105,7 @@ pub fn run_scan(sup: &Arc<Mutex<Supervisor>>, options: &Value, writer: &mut Unix
 }
 
 /// Handle a `start_profile_verification` request on `writer`. The argv mirrors
-/// `ui/commands.py::profile_verify_command` (`--stability-test` prefix, then
+/// `runtime/daemon_commands.py::profile_verify_command` (`--stability-test` prefix, then
 /// the whitelisted options in its exact order); the stop-request file is owned
 /// by the daemon and always appended, pointing at the effective user's config
 /// dir like the Qt `VerifyController` did.
