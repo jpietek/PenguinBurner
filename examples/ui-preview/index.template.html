@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>PenguinBurner · UI preview</title>
+    <style>
+      /* PREVIEW_STYLES */
+    </style>
+  </head>
+  <body>
+    <header class="app">
+      <div class="brand">
+        <img id="logo" alt="" /><strong>PenguinBurner</strong>
+      </div>
+      <button id="aboutBtn" onclick="aboutView()"><svg class="aboutIcon" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 7.2v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="4.9" r="0.95" fill="currentColor"/></svg>About</button>
+      <div class="headprogress" id="headProgress" hidden>
+        <span></span><progress max="100" value="0"></progress>
+      </div>
+      <div class="tools" id="shellTools"></div>
+    </header>
+    <div class="statusband" id="globalStatus" role="status" aria-live="polite">
+      <span></span><span></span>
+    </div>
+    <nav class="nav" aria-label="Application"></nav>
+    <main id="main" tabindex="-1"></main>
+    <footer class="docfoot">
+      <span class="samplenote">Interactive prototype · sample data</span>
+      <div class="spacer"></div>
+      <button id="protoBtn">Prototype controls</button
+      ><button onclick="navigate('Design system')">Design system</button
+      ><button id="auditBtn">UX audit</button>
+    </footer>
+    <dialog id="zoom" aria-label="Screen reference">
+      <button onclick="zoom.close()">Close</button
+      ><img id="shotImg" alt="Current PenguinBurner interface" />
+    </dialog>
+    <dialog id="panel" aria-label="PenguinBurner dialog"></dialog>
+    <script>
+      /* PREVIEW_SCRIPT */
+    </script>
+  </body>
+</html>
