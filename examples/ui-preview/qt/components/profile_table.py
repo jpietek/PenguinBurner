@@ -24,7 +24,7 @@ from qt.components.profile_model import (
     TIER,
     Cell,
 )
-from qt.components.profile_style import (
+from ui.components.profile_style import (
     CELL_PAD_X,
     PILL_HEIGHT,
     ROW_HEIGHT,

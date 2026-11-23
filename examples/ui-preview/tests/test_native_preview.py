@@ -1040,7 +1040,7 @@ def test_perf_profile_entry_opens_page_and_back_restores_library(app):
         library, panel = window.library, window.library.panel
         window.tabs.setCurrentIndex(2)
         button = panel.perf_button
-        from native_library import find_in_layout
+        from ui.features.library.library_page import find_in_layout
 
         header = panel.play_button.parentWidget().layout()
         found = find_in_layout(header, button)
@@ -1075,9 +1075,9 @@ def test_perf_profile_entry_opens_page_and_back_restores_library(app):
         assert "Capture telemetry" in button.accessibleDescription()
         button.click()
         assert window.stack.currentWidget() is library
-        panel.capture_switch.setChecked(True)
+        panel.telemetry_switch.setChecked(True)
         assert window.perf_source.capture_enabled("steam:1888930")
-        panel.capture_switch.setChecked(False)
+        panel.telemetry_switch.setChecked(False)
         assert not window.perf_source.capture_enabled("steam:1888930")
 
         # Playing a wrapped game on a tier records a live ring and swaps in

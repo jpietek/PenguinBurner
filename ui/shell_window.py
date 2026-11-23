@@ -43,6 +43,7 @@ APPEARANCE_KEYS = {
     "font_family": "appearance_font_family",
 }
 CLASSIC_FLAG = "--classic"
+LIBRARY_TAB = 2
 
 
 def load_appearance() -> AppearanceSettings:
@@ -202,6 +203,14 @@ class ShellWindow(W.QWidget):
     def build_page(self, index: int) -> W.QWidget:
         """The page for tab ``index``. Each ported page adds its branch here;
         the rest offer the classic window."""
+        if index == LIBRARY_TAB:
+            from ui.features.library.library_tab import GameLibraryTab
+
+            self.library_tab = GameLibraryTab()
+            self.library_tab.library.status_changed.connect(
+                lambda status: self.set_global_status(status, "library")
+            )
+            return self.library_tab
         return ClassicPlaceholder(PAGES[index][0], open_classic=self.open_classic)
 
     def add_header_action(self, widget: W.QWidget) -> None:
@@ -213,6 +222,7 @@ class ShellWindow(W.QWidget):
     def refresh_pages(self) -> None:
         """Re-read live state after the root service changed (wired pages
         reload here)."""
+        self.library_tab.refresh()
 
     # ---------- window status ----------
 

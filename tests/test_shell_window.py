@@ -70,8 +70,19 @@ def config(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def window(isolated_theme, config):
+def window(isolated_theme, config, monkeypatch, tmp_path):
     qapp = isolated_theme
+    # Game Library reads no host launcher, daemon or GPU here.
+    from functools import partial
+
+    from ui.features.library import library_tab
+
+    monkeypatch.setenv("PENGUIN_BURNER_DAEMON_SOCKET", str(tmp_path / "no-daemon.sock"))
+    monkeypatch.setattr(
+        library_tab,
+        "GameLibraryTab",
+        partial(library_tab.GameLibraryTab, sources=(), gpu_choices=tuple),
+    )
     opened = []
     design.install_theme(qapp, AppearanceSettings())
     win = shell.ShellWindow(open_classic=lambda: opened.append(True) or True)
@@ -118,7 +129,12 @@ def test_every_tab_offers_the_classic_window_until_its_page_lands(window):
     for index, page in enumerate(window.pages):
         window.tabs.setCurrentIndex(index)
         assert window.stack.currentWidget() is page
-        assert isinstance(page, shell.ClassicPlaceholder)
+        if index == shell.LIBRARY_TAB:
+            # The fixture builds it through a partial, so check by name.
+            assert type(page).__name__ == "GameLibraryTab"
+            assert page is window.library_tab
+        else:
+            assert isinstance(page, shell.ClassicPlaceholder)
     window.pages[1].open_button.click()
     assert window.opened_classic == [True]
 
@@ -164,3 +180,21 @@ def test_startup_checks_run_against_the_live_window(window, monkeypatch):
     assert calls[0]["parent"] is window
     shell.startup_checks(None)
     assert len(calls) == 1
+
+
+def test_library_reports_to_the_window_status(window):
+    window.show()
+    window.library_tab.library.status_changed.emit(
+        {"running": "Playing Portal 2", "detail": "Balanced · via Steam"}
+    )
+    assert window.status_sources["library"]["running"] == "Playing Portal 2"
+    assert "Playing Portal 2" in window.status_running.full_text()
+    window.library_tab.library.status_changed.emit(None)
+    assert window.status_sources["library"] is None
+
+
+def test_refresh_pages_reloads_the_library(window, monkeypatch):
+    refreshed = []
+    monkeypatch.setattr(window.library_tab, "refresh", lambda: refreshed.append(True))
+    window.refresh_pages()
+    assert refreshed == [True]

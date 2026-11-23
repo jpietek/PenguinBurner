@@ -16,14 +16,16 @@ from PySide6 import QtCore as C  # noqa: E402
 from PySide6 import QtGui as G  # noqa: E402
 from PySide6 import QtWidgets as W  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
-from qt.components.perf_entry import (  # noqa: E402
+from qt.sample.perf_rings import GAME_NAMES, LIVE_KEY, SamplePerfSource  # noqa: E402
+
+from ui.components.perf_entry import (  # noqa: E402
     PERF_CAPTURE_OFF,
     PERF_UNAVAILABLE,
     PerfEntryButton,
     perf_sparkline_pixmap,
 )
-from qt.components.perf_fingerprint import perf_profile_axes  # noqa: E402
-from qt.components.perf_profile_plot import (  # noqa: E402
+from ui.components.perf_fingerprint import perf_profile_axes  # noqa: E402
+from ui.components.perf_profile_plot import (  # noqa: E402
     LIVE_CAPTION,
     LIVE_REFRESH_MS,
     OVERVIEW_CAPTION,
@@ -36,16 +38,14 @@ from qt.components.perf_profile_plot import (  # noqa: E402
     percentile,
     y_tick_step,
 )
-from qt.features.perf_profile_page import (  # noqa: E402
+from ui.design.style import install_theme  # noqa: E402
+from ui.features.library.perf_profile_page import (  # noqa: E402
     EMPTY_HINT,
     PerfProfilePage,
     capture_off_text,
     column_mode,
     no_recording_text,
 )
-from qt.sample.perf_rings import GAME_NAMES, LIVE_KEY, SamplePerfSource  # noqa: E402
-
-from ui.design.style import install_theme  # noqa: E402
 from ui.qt import apply_dark_palette  # noqa: E402
 
 CYBERPUNK, TLOU2, TLOU1, DOOM = (

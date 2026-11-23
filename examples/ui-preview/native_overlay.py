@@ -15,11 +15,6 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
 
-from native_library import (
-    heading_into_card,
-    library_stylesheet,
-    normalize_group_headings,
-)
 from PySide6 import QtCore as C
 from PySide6 import QtGui as G
 from PySide6 import QtWidgets as W
@@ -33,6 +28,11 @@ from overlay.config import (
 )
 from overlay.gnome_shortcuts import GnomeShortcutSetupResult
 from ui.components import overlay_config as overlay_ui
+from ui.components.library_style import (
+    heading_into_card,
+    library_stylesheet,
+    normalize_group_headings,
+)
 from ui.components.overlay_preview import (
     CANVAS_H,
     CANVAS_W,

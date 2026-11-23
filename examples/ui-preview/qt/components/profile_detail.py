@@ -12,14 +12,14 @@ from PySide6 import QtCore as C
 from PySide6 import QtGui as G
 from PySide6 import QtWidgets as W
 
-from qt.components.profile_style import (
+from ui.components.profile_style import (
     Pill,
     TierChip,
     divider,
     repolish,
     text_label,
 )
-from qt.components.switch_sync import set_switch
+from ui.components.switch_sync import set_switch
 from ui.components.toggle_switch import make_toggle_switch
 from ui.design.style import GAP
 

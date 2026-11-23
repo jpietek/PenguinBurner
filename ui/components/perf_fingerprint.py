@@ -18,7 +18,7 @@ from PySide6 import QtCore as C
 from PySide6 import QtGui as G
 from PySide6 import QtWidgets as W
 
-from qt.components.perf_profile_plot import (
+from ui.components.perf_profile_plot import (
     QUALIFY_MINUTES,
     PerfSummary,
     fingerprint_color,
