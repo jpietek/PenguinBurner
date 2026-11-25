@@ -378,6 +378,7 @@ class LibraryPanel(GameLibraryPanel):
         heading.setSpacing(2)
         self.page_title = W.QLabel("Game Library")
         self.page_title.setObjectName("libraryPageTitle")
+        self.page_title.hide()  # the tab names the page
         heading.addWidget(self.page_title)
         heading.addWidget(self.library_label)
         row.insertLayout(index, heading)

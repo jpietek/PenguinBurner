@@ -10,7 +10,7 @@ from PySide6 import QtGui as G
 from PySide6 import QtWidgets as W
 
 from ui.components.elided_label import ElidedLabel
-from ui.components.page_header import PAGE_MARGINS, PageHeader
+from ui.components.page_header import PAGE_MARGINS
 from ui.components.scan_plot import ScanPlot
 from ui.components.scan_progress import StatusDot, TierStrip
 from ui.components.scan_runs_table import MeasurementLanes, mixed, runs_table
@@ -143,9 +143,10 @@ class AutoUvView(W.QWidget):
         page = W.QVBoxLayout(self)
         page.setContentsMargins(*PAGE_MARGINS)
         page.setSpacing(GAP["md"])
-        self.header = PageHeader("Auto UV", subtitle)
-        self.gpu_caption = self.header.subtitle
-        page.addWidget(self.header)
+        # No page title: the tab names the page, and the plot needs the
+        # height. The GPU caption sits in the card's detail line.
+        self.gpu_caption = label(subtitle, "caption")
+        self.gpu_caption.setVisible(bool(subtitle))
         self.setup_button = button("Setup Auto Undervolt", self.setup, "setupScan")
         self.stop_button = button("Stop", self.stop)
         self.import_button = button("Import Afterburner", self.import_requested.emit)
@@ -157,8 +158,8 @@ class AutoUvView(W.QWidget):
         card.setContentsMargins(1, 1, 1, 1)
         card.setSpacing(0)
         head = W.QVBoxLayout()
-        head.setContentsMargins(GAP["lg"] + 4, GAP["lg"], GAP["lg"] + 4, GAP["md"])
-        head.setSpacing(GAP["md"])
+        head.setContentsMargins(GAP["lg"] + 4, GAP["md"], GAP["lg"] + 4, GAP["sm"])
+        head.setSpacing(GAP["sm"])
         card.addLayout(head)
         status = W.QVBoxLayout()
         status.setSpacing(2)
@@ -177,7 +178,11 @@ class AutoUvView(W.QWidget):
         self.stage_detail.setSizePolicy(
             W.QSizePolicy.Policy.Ignored, W.QSizePolicy.Policy.Preferred
         )
-        status.addWidget(self.stage_detail)
+        detail_row = W.QHBoxLayout()
+        detail_row.setSpacing(GAP["md"])
+        detail_row.addWidget(self.stage_detail, 1)
+        detail_row.addWidget(self.gpu_caption)
+        status.addLayout(detail_row)
         head.addLayout(status)
         self.tier_strip = TierStrip()
         head.addWidget(self.tier_strip)
@@ -248,9 +253,9 @@ class AutoUvView(W.QWidget):
         self.plot_log.addWidget(plot_panel)
         self.plot_log.addWidget(self.log_pane)
         self.plot_log.setChildrenCollapsible(False)
-        self.plot_log.setStretchFactor(0, 2)
+        self.plot_log.setStretchFactor(0, 3)
         self.plot_log.setStretchFactor(1, 1)
-        self.plot_log.setSizes([720, 380])
+        self.plot_log.setSizes([840, 280])
         self.plot_stack.addWidget(self.plot_log)
         card.addWidget(self.plot_stack, 1)
         self.splitter = W.QSplitter(C.Qt.Orientation.Vertical)
@@ -262,16 +267,16 @@ class AutoUvView(W.QWidget):
         table_frame = W.QFrame()
         table_frame.setObjectName("uvCard")
         layout = W.QVBoxLayout(table_frame)
-        layout.setContentsMargins(1, GAP["lg"], 1, 1)
-        layout.setSpacing(2)
-        for widget in (
-            label("Undervolting runs", "sectionTitle"),
-            runs_meta := label("", "caption"),
-        ):
-            widget.setContentsMargins(GAP["lg"] + 3, 0, GAP["lg"] + 3, 0)
-            layout.addWidget(widget)
-        self.runs_meta = runs_meta
-        layout.addSpacing(GAP["md"])
+        layout.setContentsMargins(1, GAP["sm"], 1, 1)
+        layout.setSpacing(GAP["xs"])
+        # Title and run count on one line: the table needs the height.
+        runs_head = W.QHBoxLayout()
+        runs_head.setContentsMargins(GAP["lg"] + 3, 0, GAP["lg"] + 3, 0)
+        runs_head.setSpacing(GAP["md"])
+        runs_head.addWidget(label("Undervolting runs", "sectionTitle"))
+        self.runs_meta = label("", "caption")
+        runs_head.addWidget(self.runs_meta, 1, C.Qt.AlignmentFlag.AlignVCenter)
+        layout.addLayout(runs_head)
         self.lanes = lanes
         self.table = runs_table(lanes)
         self.table.currentCellChanged.connect(self.highlight)
@@ -283,9 +288,10 @@ class AutoUvView(W.QWidget):
         self.table.viewport().installEventFilter(self)
         self.splitter.addWidget(table_frame)
         self.splitter.setChildrenCollapsible(False)
-        self.splitter.setStretchFactor(0, 3)
-        self.splitter.setStretchFactor(1, 2)
-        self.splitter.setSizes([440, 300])
+        # The plot is the scan's main view; the runs table gets a third.
+        self.splitter.setStretchFactor(0, 2)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([520, 260])
         page.addWidget(self.splitter, 1)
         self.setStyleSheet(focus_visible(scan_page_stylesheet()))
 

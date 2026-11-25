@@ -1,4 +1,4 @@
-"""One page header for every tab: title, subtitle and an actions slot.
+"""One page header for every tab: a description line and an actions slot.
 
 Every page lays out its content inside ``PAGE_MARGINS`` (24 px sides, 16 px
 top and bottom), so titles start at the same x and y on each tab. Headers
@@ -17,8 +17,9 @@ PAGE_MARGINS = (GAP["xl"], GAP["lg"], GAP["xl"], GAP["lg"])
 
 
 class PageHeader(W.QWidget):
-    """``PageHeader(title, subtitle)``: a 26 px/700 title over a 12 px
-    secondary subtitle, with ``add_action(widget)`` on the right."""
+    """``PageHeader(title, subtitle)``: a 12 px secondary subtitle with
+    ``add_action(widget)`` on the right; the title is hidden (the tab names
+    the page) and kept as the header's accessible name."""
 
     def __init__(self, title: str, subtitle: str = "", parent=None):
         super().__init__(parent)
@@ -31,6 +32,10 @@ class PageHeader(W.QWidget):
         self.title = W.QLabel(title)
         self.title.setObjectName("pageTitle")
         self.title.setTextFormat(C.Qt.TextFormat.PlainText)
+        # The tab already names the page: the title stays for accessibility
+        # and tests, the visible header is the description and actions.
+        self.title.hide()
+        self.setAccessibleName(title)
         titles.addWidget(self.title)
         self.subtitle = W.QLabel(subtitle)
         self.subtitle.setObjectName("pageSubtitle")

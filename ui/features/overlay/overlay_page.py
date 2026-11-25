@@ -177,6 +177,7 @@ class OverlayPanel(OverlayConfigPanel):
         title = root.findChild(W.QLabel, "overlayPageTitle")
         if title is not None:
             title.setText(PAGE_TITLE)
+            title.hide()  # the tab names the page
         card = root.findChild(W.QFrame, "overlayPreviewCard")
         heading = next(
             (

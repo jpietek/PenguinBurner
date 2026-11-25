@@ -450,12 +450,15 @@ def test_shell_hosts_the_page_with_its_header_actions_and_status(
     monkeypatch.setattr(page.engine.scan_controller, "is_running", lambda: True)
     page.session.start({"auto_uv_mode": "balanced"})
     page.engine._scan_event({"event": "dependency_progress", "percent": 25, "detail": "x"})
-    assert window.status_running.full_text() == "Auto UV · Downloading dependencies"
+    # On the Auto UV tab the card shows the scan; the window band stays out.
+    assert not window.status_band.isVisible()
     assert window.header_progress.isVisible()
     assert window.header_progress.format() == "Downloading dependencies 25%"
     assert page.stop_button.isVisible()
 
     window.tabs.setCurrentIndex(2)
+    assert window.status_band.isVisible()
+    assert window.status_running.full_text() == "Auto UV · Downloading dependencies"
     assert page.setup_button.property("headerRole") == "secondary"
     page.show_scan.emit()
     assert window.tabs.currentIndex() == 0

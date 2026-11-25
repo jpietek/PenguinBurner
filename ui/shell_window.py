@@ -190,6 +190,7 @@ class ShellWindow(W.QWidget):
             self.stack.addWidget(widget)
         page.addWidget(self.stack, 1)
         self.tabs.currentChanged.connect(self.stack.setCurrentIndex)
+        self.tabs.currentChanged.connect(lambda _index: self.show_status())
         self.connect_pages()
         self.show_status()
 
@@ -378,9 +379,20 @@ class ShellWindow(W.QWidget):
         self.show_status()
 
     def show_status(self) -> None:
+        # On the Auto UV tab its own card shows the scan, right over the plot.
+        on_scan_page = self.tabs.currentIndex() == 0
         source, status = next(
-            ((k, v) for k, v in self.status_sources.items() if v), ("", {})
+            (
+                (k, v)
+                for k, v in self.status_sources.items()
+                if v and not (k == "scan" and on_scan_page)
+            ),
+            ("", {}),
         )
+        if on_scan_page and self.status_sources.get("scan"):
+            # A scan runs: the profile lines would describe a suspended GPU.
+            self.status_band.setVisible(False)
+            return
         running, detail = status.get("running"), status.get("detail")
         # Nothing reports until a page is wired; an empty band is hidden.
         self.status_band.setVisible(bool(running or detail))
