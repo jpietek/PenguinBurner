@@ -474,3 +474,23 @@ def test_refresh_rereads_profiles_and_rescans_quietly(qapp, tab, monkeypatch):
     tab.refresh()
     assert scans == [{"deep": False, "quiet": True}]
     assert tab.library._profile_summaries != [{"profile_id": "old"}]
+
+
+def test_games_are_read_before_the_adaptive_picker_lists_them(qapp, monkeypatch):
+    # Profiles can open the picker before Game Library was ever shown.
+    steam, lutris = _sources()
+    widget = GameLibraryTab(sources=(steam, lutris), gpu_choices=lambda: (GPU,))
+    library = widget.library
+    assert not library.panel._scanned
+    seen = []
+    library.when_games_listed(lambda: seen.append(len(library.panel._games)))
+    deadline = time.time() + 5
+    while not seen and time.time() < deadline:
+        qapp.processEvents()
+        time.sleep(0.02)
+    assert library.panel._scanned and seen and seen[0] > 0
+    # Already read: the callback runs at once.
+    library.when_games_listed(lambda: seen.append("now"))
+    assert seen[-1] == "now"
+    widget.close()
+    widget.deleteLater()

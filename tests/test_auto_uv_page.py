@@ -385,7 +385,7 @@ def test_profile_verification_runs_the_verify_command_with_header_progress(
     page.engine.verify_controller.process = None
     page.engine._verify_finished(0, 0, False)
 
-    assert signals["profile_verified"][-1] == ("20261025-910mv-2955mhz", True)
+    assert signals["profile_verified"][-1] == ("20261025-910mv-2955mhz", True, False)
     assert page.session.status == "Profile verification complete."
     assert signals["progress_changed"][-1][:2] == ("Verifying profile 5min / 5min", 100)
     assert "failure" not in spy.names()
@@ -406,7 +406,7 @@ def test_profile_verification_failures(page_env, monkeypatch, stopped, error):
     page.engine.verify_controller.process = None
     page.engine._verify_finished(1, 0, stopped)
 
-    assert signals["profile_verified"][-1] == (PROFILE["profile_id"], False)
+    assert signals["profile_verified"][-1] == (PROFILE["profile_id"], False, stopped)
     assert ("failure" in spy.names()) is error
     assert page.session.stage == ("Idle" if stopped else "Error")
     assert signals["progress_changed"][-1] == (None, 0, "")
@@ -431,7 +431,7 @@ def test_a_rebuilt_page_keeps_the_running_scan(page_env):
 
 
 def test_shell_hosts_the_page_with_its_header_actions_and_status(
-    isolated_theme, offline_auto_uv, monkeypatch, tmp_path
+    isolated_theme, offline_auto_uv, monkeypatch, tmp_path, dispose_window
 ):
     import ui.shell_window as shell
     from cli import runtime_config_file
@@ -461,4 +461,4 @@ def test_shell_hosts_the_page_with_its_header_actions_and_status(
     assert window.tabs.currentIndex() == 0
     page.show_profiles.emit()
     assert window.tabs.currentIndex() == 1
-    window.close()
+    dispose_window(window)

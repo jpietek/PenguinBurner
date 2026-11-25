@@ -1,6 +1,6 @@
 """The new window's Profiles tab over the real backend: the runtime source
-(ui/features/profiles/runtime_profiles_source.py), its command runner, the
-verification runner and the window wiring. Owners are monkeypatched where
+(ui/features/profiles/runtime_profiles_source.py), its command runner and
+the window wiring. Owners are monkeypatched where
 the classic window's tests patch them; the asserted calls are the daemon
 commands, daemon requests and files the classic Profiles tab produces."""
 
@@ -19,7 +19,6 @@ from PySide6 import QtCore as C
 
 import runtime.profile_status as status_mod
 import ui.features.profiles.runtime_profiles_source as source_mod
-import ui.features.profiles.verification_runner as verify_mod
 from cli import runtime_config_file
 from profiles.uv.profile_rules import (
     CHOOSE_TARGET_TO_APPLY,
@@ -517,60 +516,6 @@ def test_runner_reports_each_command_once():
     assert failure_message("$ only\n", 3) == "Exit code 3."
 
 
-# ---------------------------------------------------------------- verification
-
-
-class FakeVerifyController:
-    def __init__(self):
-        self.on_output = self.on_progress = self.on_finished = None
-        self.started = []
-        self.target_duration_s = 0
-        self.running = False
-        self.stopped = False
-
-    def is_running(self):
-        return self.running
-
-    def start(self, command, *, duration_s):
-        self.started.append((command, duration_s))
-        self.target_duration_s = duration_s
-        self.running = True
-        return True
-
-    def stop(self):
-        self.stopped = True
-
-
-def test_verification_runs_the_daemon_command_and_reports(qapp, monkeypatch):
-    profiles = [summary("bal")]
-    controller = FakeVerifyController()
-    runner = verify_mod.ProfileVerificationRunner(lambda: profiles, controller=controller)
-    commands = []
-    monkeypatch.setattr(
-        verify_mod, "profile_verify_command", lambda **kw: commands.append(kw) or ["verify"]
-    )
-    progress, finished, errors = [], [], []
-    runner.progress_changed.connect(lambda *a: progress.append(a))
-    runner.finished.connect(lambda *a: finished.append(a))
-    monkeypatch.setattr(verify_mod, "show_error_dialog", lambda **kw: errors.append(kw["title"]))
-    assert runner.start("bal", "Bal", {"gpu_index": 0}, 5)
-    assert commands[0]["profile_selector"] == "/profiles/auto-uv-profile-bal.json"
-    assert commands[0]["duration_s"] == 300 and commands[0]["gpu_index"] == 0
-    assert progress[0][0] == "Verifying profile 0s / 5min"
-    controller.on_progress(50, elapsed_s=150, target_s=300, detail="elapsed=150s")
-    assert progress[-1][:2] == ("Verifying profile 2min 30s / 5min", 50)
-    controller.running = False
-    controller.on_output("boom\n")
-    controller.on_finished(1, "NormalExit", False)
-    assert finished == [("bal", False, False)] and errors == ["Profile verification failed"]
-    # A user stop is not a failure report.
-    runner.start("bal", "Bal", {"gpu_index": 0}, 1)
-    runner.stop()
-    assert controller.stopped
-    controller.on_finished(130, "NormalExit", True)
-    assert finished[-1] == ("bal", False, True) and len(errors) == 1
-
-
 # ---------------------------------------------------------------- window wiring
 
 
@@ -584,7 +529,9 @@ def test_profiles_status_routes_busy_and_idle_lines():
     }
 
 
-def test_shell_window_hosts_the_profiles_tab(isolated_theme, offline_profiles, tmp_path, monkeypatch):
+def test_shell_window_hosts_the_profiles_tab(
+    isolated_theme, offline_profiles, tmp_path, monkeypatch, dispose_window
+):
     import ui.design.style as design
     import ui.shell_window as shell
 
@@ -593,24 +540,18 @@ def test_shell_window_hosts_the_profiles_tab(isolated_theme, offline_profiles, t
     monkeypatch.setattr(runtime_config_file, "default_config_path", lambda: config)
     design.install_theme(isolated_theme, AppearanceSettings())
     window = shell.ShellWindow()
-    tab = window.profiles_tab
     assert isinstance(window.pages[1], ProfilesPage)
-    assert window.header_layout.indexOf(tab.import_button) >= 0
-    assert tab.stop_button.isHidden()
-    # A verification locks the page and offers Stop.
-    tab.verification_running(True)
-    assert tab.page.busy() and not tab.stop_button.isHidden()
-    tab.verification_running(False)
+    assert window.profiles_tab.page is window.pages[1]
     # Refresh after a root-service update re-reads the source.
     reads = []
     monkeypatch.setattr(offline_profiles, "read_auto_uv_profile_summaries", lambda: reads.append(1) or [])
     window.refresh_pages()
     assert reads == [1]
     assert tomllib.loads(config.read_text() or "") == {}
-    window.close()
+    dispose_window(window)
 
 
-def test_import_header_action_runs_the_chooser(isolated_theme, offline_profiles):
+def test_import_runs_the_chooser_on_the_profiles_tab(isolated_theme, offline_profiles):
     class Window(C.QObject):
         gpu_index = None
 
@@ -621,11 +562,7 @@ def test_import_header_action_runs_the_chooser(isolated_theme, offline_profiles)
             self.tabs = W.QTabBar()
             for name in ("a", "b", "c"):
                 self.tabs.addTab(name)
-            self.actions = []
             self.statuses = []
-
-        def add_header_action(self, widget):
-            self.actions.append(widget)
 
         def set_global_status(self, status, source):
             self.statuses.append((source, status))
@@ -637,7 +574,7 @@ def test_import_header_action_runs_the_chooser(isolated_theme, offline_profiles)
     tab = ProfilesTab(window, source=source_mod.RuntimeProfilesSource(poll_ms=0))
     chosen = []
     tab.page.dialogs.afterburner_entry = lambda parent: chosen.append(parent) or None
-    tab.import_button.click()
+    tab.import_afterburner()
     assert chosen == [tab.page] and window.tabs.currentIndex() == 1
     assert ("profiles", tab.page.status()) in window.statuses
 

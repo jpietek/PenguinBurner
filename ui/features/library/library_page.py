@@ -709,6 +709,27 @@ class LibraryPage(W.QWidget):
         launcher can run, and a verified tier for its GPU."""
         return bool(game is not None and game.ready and self.panel.adaptive_allowed(game))
 
+    def when_games_listed(self, callback) -> None:
+        """Run ``callback`` once every launcher has been read: now if it has,
+        else after the first read, which starts here (Profiles can ask for
+        the games before this tab was ever shown)."""
+        panel = self.panel
+        panel.ensure_scanned()
+        if not panel._scan_active:
+            callback()
+            return
+        timer = C.QTimer(self)
+        timer.setInterval(100)
+
+        def check() -> None:
+            if not panel._scan_active:
+                timer.stop()
+                timer.deleteLater()
+                callback()
+
+        timer.timeout.connect(check)
+        timer.start()
+
     def adaptive_picker_state(self) -> tuple[str, list[tuple[str, str, int]]]:
         """(selected key, [(key, name, effective target FPS)]) for the games
         Adaptive can run on, for Profiles' Use Adaptive for a game."""

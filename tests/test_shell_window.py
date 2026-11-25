@@ -31,7 +31,9 @@ def config(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def window(isolated_theme, config, offline_profiles, offline_auto_uv, monkeypatch, tmp_path):
+def window(
+    isolated_theme, config, offline_profiles, offline_auto_uv, monkeypatch, tmp_path, dispose_window
+):
     qapp = isolated_theme
     # Game Library reads no host launcher, daemon or GPU here.
     from functools import partial
@@ -50,7 +52,7 @@ def window(isolated_theme, config, offline_profiles, offline_auto_uv, monkeypatc
     yield win
     current = shell.CURRENT["window"]
     if current is not None:
-        current.close()
+        dispose_window(current)
     shell.CURRENT["window"] = None
 
 
@@ -193,3 +195,147 @@ def test_pages_are_wired_together(window, monkeypatch):
     window.profiles_tab.page.adaptive_tiers_changed.emit(["Balanced"])
     assert games == ["game"]
     assert summaries == [None]
+
+
+def test_profile_verification_runs_on_the_auto_uv_page(window, monkeypatch):
+    page, scan = window.profiles_tab.page, window.auto_uv_page
+    profile = {"profile_id": "bal", "candidate_id": "c1"}
+    monkeypatch.setattr(page, "profile", lambda pid: profile if pid == "bal" else None)
+    started = []
+    monkeypatch.setattr(
+        scan, "start_profile_verification", lambda p, **kw: started.append((p, kw)) or True
+    )
+    page.verify_requested.emit("bal", "Balanced", {"gpu_index": 1}, 5)
+    page.verify_requested.emit("gone", "Gone", {"gpu_index": 1}, 5)
+    assert started == [
+        (profile, {"label": "Balanced", "duration_s": 300, "gpu_index": 1})
+    ]
+    finished = []
+    monkeypatch.setattr(
+        page.source, "finish_verification", lambda *a: finished.append(a)
+    )
+    scan.profile_verified.emit("bal", False, True)
+    assert finished and finished[-1][0] == "bal" and finished[-1][2] is False
+    assert "stopped" in page.notice[0]
+
+
+def test_scan_and_profiles_lock_each_other(window):
+    tab, scan = window.profiles_tab, window.auto_uv_page
+    scan.busy_changed.emit(True)
+    assert tab.page.busy()
+    scan.busy_changed.emit(False)
+    assert not tab.page.busy()
+    tab.page.status_changed.emit({"running": "Applying", "busy": True})
+    assert scan.other_busy
+    tab.page.status_changed.emit({"running": "Idle"})
+    assert not scan.other_busy
+
+
+@pytest.mark.parametrize("silent_fan", [False, True])
+def test_a_completed_scan_applies_its_profile(window, monkeypatch, silent_fan):
+    page, scan = window.profiles_tab.page, window.auto_uv_page
+    calls = []
+    monkeypatch.setattr(window, "profiles_changed", lambda: calls.append("reload"))
+    page.profiles = [
+        {"profile_id": "old", "candidate_id": "c0"},
+        {"profile_id": "new", "candidate_id": "c1"},
+    ]
+    monkeypatch.setattr(page, "set_target_gpu", lambda index: calls.append(("gpu", index)))
+    monkeypatch.setattr(page, "show_new_profile", lambda pid: calls.append(("show", pid)))
+    monkeypatch.setattr(page, "silent_fan_enabled", lambda: False)
+    monkeypatch.setattr(page, "set_silent_fan", lambda on: calls.append(("fan", on)))
+    monkeypatch.setattr(page, "apply_profile", lambda pid: calls.append(("apply", pid)))
+    scan.scan_completed.emit(
+        {"outcome": "complete", "candidate_id": "c1", "gpu_index": 0, "silent_fan": silent_fan}
+    )
+    assert ("apply", "new") not in calls  # after the scan process releases
+    QTest.qWait(0)
+    expected = ["reload", ("gpu", 0), ("show", "new")]
+    expected += [("fan", True)] if silent_fan else []
+    assert calls == [*expected, ("apply", "new")]
+
+
+def test_a_saved_scan_profile_is_shown_and_reloads_the_library_gate(window, monkeypatch):
+    page, scan = window.profiles_tab.page, window.auto_uv_page
+    summaries, shown = [], []
+    monkeypatch.setattr(window.library_tab.library, "set_profile_summaries", summaries.append)
+    monkeypatch.setattr(window.profiles_tab.source, "refresh", lambda: None)
+    monkeypatch.setattr(page, "reload", lambda: None)
+    page.profiles = [{"profile_id": "p1", "candidate_id": "c9"}]
+    monkeypatch.setattr(page, "show_new_profile", shown.append)
+    scan.profile_saved.emit({"candidate_id": "c9", "gpu_index": 0})
+    assert shown == ["p1"] and summaries == [None]
+    scan.scan_finished.emit({"outcome": "aborted"})
+    assert summaries == [None, None]
+
+
+def test_use_adaptive_picks_a_game_then_applies_it_in_the_library(window, monkeypatch):
+    library = window.library_tab.library
+    monkeypatch.setattr(
+        library, "adaptive_picker_state", lambda: ("steam:1", [("steam:1", "Game", 90)])
+    )
+    applied = []
+    monkeypatch.setattr(library, "apply_adaptive", lambda key, fps: applied.append((key, fps)))
+    seen = []
+
+    class Picker:
+        def __init__(self, games, selected, parent):
+            seen.append((games, selected))
+
+        def exec(self):
+            return W.QDialog.DialogCode.Accepted
+
+        def choice(self):
+            return "steam:1", 117
+
+    monkeypatch.setattr(shell, "AdaptiveGamePicker", Picker)
+    window.profiles_tab.page.adaptive_requested.emit()
+    for _ in range(100):  # the picker opens once the launchers are read
+        if seen:
+            break
+        QTest.qWait(20)
+    assert seen == [([shell.AdaptiveGame("steam:1", "Game", 90)], "steam:1")]
+    assert applied == [("steam:1", 117)]
+    assert window.tabs.currentIndex() == shell.LIBRARY_TAB
+
+
+def test_scan_profile_id_matches_the_candidate():
+    profiles = [{"profile_id": "a", "candidate_id": "c1"}, {"profile_id": "b"}]
+    assert shell.scan_profile_id(profiles, "c1") == "a"
+    assert shell.scan_profile_id(profiles, "") == ""
+    assert shell.scan_profile_id(profiles, "missing") == ""
+
+
+def test_adaptive_picker_without_eligible_games_cannot_apply(isolated_theme):
+    from ui.dialogs.adaptive_game_picker import (
+        NO_GAMES,
+        AdaptiveGame,
+        AdaptiveGamePicker,
+    )
+
+    empty = AdaptiveGamePicker([], "")
+    assert not empty.apply_button.isEnabled()
+    assert any(label.text() == NO_GAMES for label in empty.findChildren(W.QLabel))
+    picker = AdaptiveGamePicker(
+        [AdaptiveGame("a", "A", 60), AdaptiveGame("b", "B", 144)], "b"
+    )
+    assert picker.apply_button.isEnabled() and picker.choice() == ("b", 144)
+    picker.game_combo.setCurrentIndex(0)
+    assert picker.choice() == ("a", 60)
+
+
+def test_one_import_afterburner_action_lands_on_profiles(window, monkeypatch):
+    layout = window.header_layout
+    texts = [
+        layout.itemAt(i).widget().text()
+        for i in range(layout.count())
+        if isinstance(layout.itemAt(i).widget(), W.QPushButton)
+    ]
+    assert texts.count("Import Afterburner") == 1
+    runs = []
+    monkeypatch.setattr(
+        window.profiles_tab.page, "run_afterburner_import", lambda: runs.append(1)
+    )
+    window.tabs.setCurrentIndex(shell.LIBRARY_TAB)
+    window.auto_uv_page.import_button.click()
+    assert runs == [1] and window.tabs.currentIndex() == 1

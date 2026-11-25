@@ -24,6 +24,7 @@ from ui.constants import APP_DISPLAY_NAME
 from ui.design.style import COL, COPY, GAP, glyph_icon, info_icon, tab_icon
 from ui.design.tokens import AppearanceSettings
 from ui.dialogs import about
+from ui.dialogs.adaptive_game_picker import AdaptiveGame, AdaptiveGamePicker
 from ui.dialogs.appearance import AppearanceDialog
 from ui.features.overlay.overlay_page import OverlayPage
 from ui.features.profiles.profiles_shell import PROFILES_TAB, ProfilesTab
@@ -46,6 +47,21 @@ APPEARANCE_KEYS = {
     "font_family": "appearance_font_family",
 }
 LIBRARY_TAB = 2
+
+
+def scan_profile_id(profiles: list[dict], candidate_id) -> str:
+    """The saved profile a scan candidate became ("" when none matches)."""
+    candidate_id = str(candidate_id or "").strip()
+    if not candidate_id:
+        return ""
+    return next(
+        (
+            str(p.get("profile_id") or "")
+            for p in profiles
+            if str(p.get("candidate_id") or "") == candidate_id
+        ),
+        "",
+    )
 
 
 def load_appearance() -> AppearanceSettings:
@@ -194,10 +210,7 @@ class ShellWindow(W.QWidget):
         if index == PROFILES_TAB:
             self.profiles_tab = ProfilesTab(self)
             self.page_refreshers.append(self.profiles_tab.refresh)
-            self.busy_checks.append(
-                lambda: self.profiles_tab.page.busy()
-                or self.profiles_tab.verifier.is_running()
-            )
+            self.busy_checks.append(lambda: self.profiles_tab.page.busy())
             return self.profiles_tab.page
         if index == 0:
             self.auto_uv_page = AutoUvPage(gpu_index=self.gpu_index)
@@ -223,6 +236,108 @@ class ShellWindow(W.QWidget):
             profiles.page.adaptive_tiers_changed.connect(
                 lambda _tiers: library.library.set_profile_summaries(None)
             )
+            profiles.page.adaptive_requested.connect(self.pick_adaptive_game)
+        scan = getattr(self, "auto_uv_page", None)
+        if scan is not None and profiles is not None:
+            page = profiles.page
+            # Profiles → Verify runs on the Auto UV page, like a scan.
+            page.verify_requested.connect(self.verify_profile)
+            scan.profile_verified.connect(page.verification_finished)
+            # A scan or verification locks Apply, Delete, Restore and Verify;
+            # a running Profiles command locks Setup.
+            scan.busy_changed.connect(page.set_busy)
+            # One header Import Afterburner; it lands on Profiles.
+            scan.import_requested.connect(profiles.import_afterburner)
+            page.status_changed.connect(
+                lambda status: scan.set_other_busy(bool((status or {}).get("busy")))
+            )
+            scan.profile_saved.connect(self.show_scan_profile)
+            scan.scan_finished.connect(lambda _summary: self.profiles_changed())
+            scan.scan_completed.connect(self.apply_scan_profile)
+            page.setup_requested.connect(self.setup_from_profiles)
+
+    # ---------- cross-page actions ----------
+
+    def profiles_changed(self) -> None:
+        """A scan saved or verified a profile: Profiles and Game Library's
+        Adaptive gate re-read the saved profiles."""
+        profiles = getattr(self, "profiles_tab", None)
+        if profiles is not None:
+            profiles.source.refresh()
+            profiles.page.reload()
+        library = getattr(self, "library_tab", None)
+        if library is not None:
+            library.library.set_profile_summaries(None)
+
+    def show_scan_profile(self, result: dict) -> None:
+        """A tier's verified profile was saved: show it, on the scanned GPU."""
+        page = self.profiles_tab.page
+        self.profiles_changed()
+        gpu_index = result.get("gpu_index")
+        if gpu_index is not None:
+            page.set_target_gpu(int(gpu_index))
+        profile_id = scan_profile_id(page.profiles, result.get("candidate_id"))
+        if profile_id:
+            page.show_new_profile(profile_id)
+
+    def apply_scan_profile(self, summary: dict) -> None:
+        """A completed scan applies its profile, as the classic window's
+        daemonize does, once the scan process has fully released."""
+
+        def apply() -> None:
+            page = self.profiles_tab.page
+            self.profiles_changed()
+            gpu_index = summary.get("gpu_index")
+            if gpu_index is not None:
+                page.set_target_gpu(int(gpu_index))
+            profile_id = scan_profile_id(page.profiles, summary.get("candidate_id"))
+            if profile_id:
+                page.show_new_profile(profile_id)
+            else:
+                profile_id = page.lead_id()
+            if not profile_id:
+                return
+            # A scan must never turn off a fan curve the user had running.
+            if summary.get("silent_fan") and not page.silent_fan_enabled():
+                page.set_silent_fan(True)
+            page.apply_profile(profile_id)
+
+        C.QTimer.singleShot(0, self, apply)
+
+    def setup_from_profiles(self) -> None:
+        """Profiles' empty state: Setup Auto Undervolt on the Auto UV tab."""
+        scan = self.auto_uv_page
+        if scan.setup_button.isEnabled():
+            C.QTimer.singleShot(0, scan, scan.setup)
+
+    def verify_profile(self, profile_id: str, label: str, row: dict, minutes: int) -> None:
+        profile = self.profiles_tab.page.profile(profile_id)
+        if profile is None:
+            return
+        self.auto_uv_page.start_profile_verification(
+            profile,
+            label=label,
+            duration_s=max(1, int(minutes)) * 60,
+            gpu_index=row.get("gpu_index"),
+        )
+
+    def pick_adaptive_game(self) -> None:
+        """Profiles → Use Adaptive for a game: the game and FPS picker, then
+        Game Library with that game wrapped on Adaptive. The picker lists
+        games once the launchers have been read."""
+        self.library_tab.library.when_games_listed(self.open_adaptive_picker)
+
+    def open_adaptive_picker(self) -> None:
+        library = self.library_tab
+        selected, eligible = library.library.adaptive_picker_state()
+        games = [AdaptiveGame(key, name, int(fps)) for key, name, fps in eligible]
+        picker = AdaptiveGamePicker(games, selected, self)
+        if picker.exec() != W.QDialog.DialogCode.Accepted:
+            return
+        key, fps = picker.choice()
+        self.tabs.setCurrentIndex(LIBRARY_TAB)
+        library.back_to_library()
+        library.library.apply_adaptive(key, fps)
 
     def add_header_action(self, widget: W.QWidget) -> None:
         """A page's header action (Setup, Stop, Import), placed before the

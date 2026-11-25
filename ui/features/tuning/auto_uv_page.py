@@ -212,7 +212,7 @@ class AutoUvPage(AutoUvView):
     profile_saved = C.Signal(object)
     scan_finished = C.Signal(object)
     scan_completed = C.Signal(object)
-    profile_verified = C.Signal(str, bool)
+    profile_verified = C.Signal(str, bool, bool)  # profile id, passed, stopped
 
     def __init__(self, *, gpu_index: int | None = None, engine: AutoUvEngine | None = None):
         super().__init__(MeasurementLanes(LANE_VALUES, LANE_DELTAS))
@@ -434,7 +434,7 @@ class AutoUvPage(AutoUvView):
     # ---------- profile verification (Profiles → Verify) ----------
 
     def start_profile_verification(
-        self, profile: dict, *, label: str, duration_s: int, gpu_index: int
+        self, profile: dict, *, label: str, duration_s: int, gpu_index: int | None
     ) -> bool:
         """Verify a saved profile. Profiles has already checked the GPU,
         asked for the duration and made sure the root service is ready."""
@@ -446,7 +446,7 @@ class AutoUvPage(AutoUvView):
             profile_selector=profile_verify_selector(profile),
             duration_s=duration_s,
             stop_request_path=verify_stop_request_path(),
-            gpu_index=int(gpu_index),
+            gpu_index=None if gpu_index is None else int(gpu_index),
         )
         engine.verifying_profile_id = str(profile.get("profile_id") or "")
         self.session.start_verification(
@@ -483,7 +483,7 @@ class AutoUvPage(AutoUvView):
                 exit_status=exit_status,
                 log_text="\n".join(self.engine.log_lines),
             )
-        self.profile_verified.emit(profile_id, finish.passed)
+        self.profile_verified.emit(profile_id, finish.passed, finish.stopped)
 
     def hide_finished_progress(self) -> None:
         if not self.busy():

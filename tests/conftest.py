@@ -122,6 +122,22 @@ def native_launcher_installed(monkeypatch):
     installation.native_command.cache_clear()
 
 
+def _dispose_window(window) -> None:
+    """Close and delete a whole window now. Its connected lambdas keep the
+    wrapper alive, so a closed window otherwise leaks, and every later
+    app-wide restyle (isolated_theme) walks all of its widgets again."""
+    from PySide6 import QtCore as C
+
+    window.close()
+    window.deleteLater()
+    C.QCoreApplication.sendPostedEvents(None, C.QEvent.Type.DeferredDelete)
+
+
+@pytest.fixture
+def dispose_window():
+    return _dispose_window
+
+
 @pytest.fixture
 def isolated_theme(qapp):
     """install_theme restyles the whole process (app style sheet, palette,

@@ -118,7 +118,8 @@ def candidate(curve, voltage=850, clock=2745):
     ],
 )
 def test_failure_then_scan_click_restores_table_plot_and_long_verifies_safer_point(
-    monkeypatch, qapp, tmp_path, failure_kind, mode, override, duration, base_shift
+    monkeypatch, qapp, tmp_path, failure_kind, mode, override, duration, base_shift,
+    dispose_window,
 ):
     """Run real orchestration/persistence/Qt twice; substitute only hardware and the search schedule."""
     from auto_uv import main_loop as main
@@ -358,7 +359,7 @@ def test_failure_then_scan_click_restores_table_plot_and_long_verifies_safer_poi
             assert clocks[list(volts).index(860)] == 2745
     finally:
         for win in windows:
-            win.window.close()
+            dispose_window(win.window)
 
 
 @pytest.mark.parametrize("change", ["gpu", "settings", "malformed", "profile"])
