@@ -605,6 +605,12 @@ class ProfilesPage(W.QWidget):
             self.external_busy = busy
             self._render()
 
+    def running_tier(self) -> str:
+        """The tier the overlay HUD shows as running."""
+        return model.running_tier_label(
+            self.source.runtime(), self.profiles, self._winners()
+        )
+
     def _winners(self) -> dict[str, str]:
         return tier_winner_ids(
             self.profiles,

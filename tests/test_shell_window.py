@@ -339,3 +339,49 @@ def test_one_import_afterburner_action_lands_on_profiles(window, monkeypatch):
     window.tabs.setCurrentIndex(shell.LIBRARY_TAB)
     window.auto_uv_page.import_button.click()
     assert runs == [1] and window.tabs.currentIndex() == 1
+
+
+def test_running_tier_label_follows_what_runs():
+    from ui.features.profiles.profile_model import (
+        STOCK,
+        RuntimeState,
+        running_tier_label,
+    )
+
+    profiles = [{"profile_id": "p1", "profile_tier": "performance"}]
+    winners = {"performance": "p1"}
+    assert running_tier_label(RuntimeState(), profiles, winners) == "Default"
+    assert running_tier_label(RuntimeState(running_selector=STOCK), profiles, winners) == "Default"
+    adaptive = RuntimeState(running_selector="x", running_adaptive=True, live_tier="Balanced")
+    assert running_tier_label(adaptive, profiles, winners) == "Balanced"
+    assert running_tier_label(RuntimeState(running_selector="gone"), profiles, winners) == "Custom"
+
+
+def test_overlay_preview_shows_the_running_tier(window, monkeypatch):
+    panel, page = window.overlay_page.panel, window.profiles_tab.page
+    monkeypatch.setattr(page, "running_tier", lambda: "Balanced")
+    page.status_changed.emit({"running": "Running Balanced"})
+    assert panel.running_tier == "Balanced"
+    monkeypatch.setattr(page, "running_tier", lambda: "Default")
+    window.tabs.setCurrentIndex(shell.OVERLAY_PAGE)
+    assert panel.running_tier == "Default"
+
+
+def test_scan_keeps_the_silent_fan_choice_profiles_shows(window):
+    page, scan = window.profiles_tab.page, window.auto_uv_page
+    page.silent_fan = True
+    assert scan.silent_fan_checked() is True
+    page.silent_fan = False
+    assert scan.silent_fan_checked() is False
+
+
+def test_a_refused_verification_is_reported_back_to_profiles(window, monkeypatch):
+    page, scan = window.profiles_tab.page, window.auto_uv_page
+    monkeypatch.setattr(page, "profile", lambda pid: {"profile_id": pid})
+    monkeypatch.setattr(scan, "start_profile_verification", lambda *a, **k: False)
+    finished = []
+    monkeypatch.setattr(page.source, "finish_verification", lambda *a: finished.append(a))
+    page._verify_gpus["bal"] = "GPU-1"
+    page.verify_requested.emit("bal", "Balanced", {"gpu_index": 0}, 5)
+    assert "bal" not in page._verify_gpus and finished[-1][0] == "bal"
+    assert "stopped" in page.notice[0]

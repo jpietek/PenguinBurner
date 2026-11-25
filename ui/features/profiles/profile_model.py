@@ -342,6 +342,20 @@ def tier_label(profile: dict, winners: dict[str, str]) -> str:
     return profile_tier_column_label(profile, winners)
 
 
+def running_tier_label(
+    runtime: RuntimeState, profiles: list[dict], winners: dict[str, str]
+) -> str:
+    """The overlay HUD's tier row: Adaptive's live tier, the running
+    profile's tier, "Custom" for an untiered profile, "Default" at stock."""
+    if runtime.running_adaptive and runtime.live_tier:
+        return runtime.live_tier
+    selector = runtime.running_selector
+    if not selector or selector == STOCK:
+        return "Default"
+    profile = profile_by_id(profiles, selector)
+    return (tier_label(profile, winners) if profile else "") or "Custom"
+
+
 def adaptive_tier_labels(
     profiles: list[dict], store: TierStore, target: Target
 ) -> list[str]:

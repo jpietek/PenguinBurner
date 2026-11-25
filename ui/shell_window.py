@@ -231,6 +231,16 @@ class ShellWindow(W.QWidget):
             library.library.selected_game_changed.connect(
                 lambda game: overlay.panel.set_game(game)
             )
+        if overlay is not None and profiles is not None:
+            # The HUD preview's tier row shows what runs now.
+            def show_running_tier(*_args) -> None:
+                overlay.panel.set_running_tier(profiles.page.running_tier())
+
+            profiles.page.status_changed.connect(show_running_tier)
+            self.tabs.currentChanged.connect(
+                lambda index: index == OVERLAY_PAGE and show_running_tier()
+            )
+            show_running_tier()
         if library is not None and profiles is not None:
             # Adaptive per game needs a tier profile on that game's GPU.
             profiles.page.adaptive_tiers_changed.connect(
@@ -251,6 +261,9 @@ class ShellWindow(W.QWidget):
             page.status_changed.connect(
                 lambda status: scan.set_other_busy(bool((status or {}).get("busy")))
             )
+            # The scan keeps the Silent fan curve choice Profiles shows (the
+            # saved choice, a running or a boot profile's curve).
+            scan.silent_fan_checked = page.silent_fan_enabled
             scan.profile_saved.connect(self.show_scan_profile)
             scan.scan_finished.connect(lambda _summary: self.profiles_changed())
             scan.scan_completed.connect(self.apply_scan_profile)
@@ -314,12 +327,15 @@ class ShellWindow(W.QWidget):
         profile = self.profiles_tab.page.profile(profile_id)
         if profile is None:
             return
-        self.auto_uv_page.start_profile_verification(
+        started = self.auto_uv_page.start_profile_verification(
             profile,
             label=label,
             duration_s=max(1, int(minutes)) * 60,
             gpu_index=row.get("gpu_index"),
         )
+        if not started:
+            # Another run holds the GPU: nothing ran, the profile is unchanged.
+            self.profiles_tab.page.verification_finished(profile_id, False, stopped=True)
 
     def pick_adaptive_game(self) -> None:
         """Profiles → Use Adaptive for a game: the game and FPS picker, then
