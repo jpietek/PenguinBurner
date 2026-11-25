@@ -914,7 +914,9 @@ def test_issue109_clean_floor_descent_soaks_one_step_above_the_floor(monkeypatch
 # Explicit freeze retry keeps predicted-edge and floor safeguards.
 # ---------------------------------------------------------------------------
 
-def _run_scripted_scan(monkeypatch, *, runtime_options, freeze_at=None, floors=None, pass_all=False):
+def _run_scripted_scan(
+    monkeypatch, *, runtime_options, freeze_at=None, floors=None, pass_all=False, fps_for=None
+):
     """One launch of the real main loop on the tester's card script."""
     warm = rtx_3080_issue109_stock_curve_warm()
     calls: list[tuple[str, int, int, int]] = []
@@ -935,6 +937,8 @@ def _run_scripted_scan(monkeypatch, *, runtime_options, freeze_at=None, floors=N
         stock_mv = STOCK_LOAD[cap][1]
         power_w = PROBE_POWER_W[cap] * (voltage / stock_mv) ** 2
         fps = None if pass_all else (60.0 if voltage < floors.get(stage, 0) else None)
+        if fps_for is not None:
+            fps = fps_for(stage, voltage, lock) or fps
         return _probe_result(voltage, lock, kw["candidate_plan"], measured_clock=float(lock + 30),
                              measured_mv=float(voltage + 6), power_w=power_w, fps=fps)
 
@@ -982,6 +986,38 @@ def test_balanced_at_912_still_leaves_performance_room_to_climb(monkeypatch):
     climb = [(c[1], c[2]) for c in calls if c[0] == "candidate"]
     assert climb == [(943, 1890), (943, 1905)], logs[-25:]
     assert completed["performance"] == (943, 1905)
+
+
+def test_performance_keeps_its_climb_when_its_fps_samples_run_low(monkeypatch):
+    """2026-11-25 host run: Performance reused Balanced's descent and its
+    Auto-OC climb passed to a higher clock, but the desktop was in use, so
+    the climb's FPS samples came in below Balanced's. Ranking the whole
+    inherited history by FPS handed Performance the Balanced point. It now
+    picks only among its own climb."""
+    record_unsafe_voltage(**EFFICIENCY_SOAK_FREEZE)
+    record_unsafe_voltage(**CLIMB_CRASH_BLACKLIST)
+    ranked: list[set] = []
+    real_pair = main.performance_comparison_pair
+
+    def recording_pair(history):
+        # What the Performance final choice ranks (and may A/B compare).
+        ranked.append({(p.candidate_voltage_mv, p.lock_clock_mhz) for p in history})
+        return real_pair(history)
+
+    monkeypatch.setattr(main, "performance_comparison_pair", recording_pair)
+    calls, logs, completed = _run_scripted_scan(
+        monkeypatch, runtime_options={"auto_uv_mode": "adaptive"},
+        freeze_at=(937, 1920), pass_all=True,
+        # A few FPS under Balanced's ~119, above the climb's FPS floor.
+        fps_for=lambda stage, _mv, _mhz: 115.0 if stage == "candidate" else None,
+    )
+    assert completed["balanced"] == (912, 1875)
+    climb = {(c[1], c[2]) for c in calls if c[0] == "candidate"}
+    assert climb, logs[-25:]
+    assert completed["performance"] in climb, logs[-25:]
+    assert completed["performance"][1] > completed["balanced"][1]
+    # Only the climb is ranked: Balanced's inherited probes never compete.
+    assert ranked and ranked[-1] <= climb, (ranked[-1], climb)
 
 
 # ---------------------------------------------------------------------------

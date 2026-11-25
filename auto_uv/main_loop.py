@@ -1187,6 +1187,9 @@ def run_adaptive_tier_scans(
                 min_search_voltage_mv=int(prepared.min_search_voltage_mv),
                 reference_actual_voltage_mv=tier_stable_probe.avg_voltage_mv,
             )
+        # Probes performance inherits from balanced's descent; its own
+        # Auto-OC passes follow them in the same history.
+        tier_inherited_probes = 0
         try:
             if (
                 tier_mode == AUTO_UV_MODE_PERFORMANCE
@@ -1216,6 +1219,7 @@ def run_adaptive_tier_scans(
                 tier_history = list(donation.history)
                 if prepare_tier_baseline is not None and tier_stable_probe is not None:
                     tier_history = [tier_stable_probe, *tier_history[1:]]
+                tier_inherited_probes = len(tier_history)
                 log_phase(
                     log,
                     "auto-uv",
@@ -1303,6 +1307,7 @@ def run_adaptive_tier_scans(
                 ),
                 request_reason=f"adaptive-{tier_mode}",
                 auto_uv_mode_override=str(tier_mode),
+                own_history_from=tier_inherited_probes,
             )
             # The descent candidate is only the input to final selection. In
             # particular, Performance can replace it with a much higher
@@ -1976,6 +1981,7 @@ def select_final_scan_candidate(
     request_reason: str,
     auto_uv_mode_override: str | None = None,
     policy: TuningPolicy | None = None,
+    own_history_from: int = 0,
 ) -> FinalScanCandidate:
     # Adaptive scans select per tier: the tier name overrides the scan-wide
     # mode so the OC pass and the choice dialog see the active tier.
@@ -2141,6 +2147,15 @@ def select_final_scan_candidate(
             lock_clock_mhz=probe.lock_clock_mhz, profile_tier=selection_mode,
         )
     ]
+    if own_history_from > 0:
+        # A tier that reused another tier's descent picks only among the
+        # probes it ran itself (Performance's Auto-OC climb): a noisy FPS
+        # sample must not hand it back the donor tier's point. With none of
+        # its own left, the inherited history is the fallback.
+        own = {id(probe) for probe in stable_history[own_history_from:]}
+        own_choices = [probe for probe in choice_history if id(probe) in own]
+        if own_choices:
+            choice_history = own_choices
     if custom_target is None and selection_mode == AUTO_UV_MODE_EFFICIENCY:
         # Select across the passed descent and climb, carrying the measured
         # candidate's actual plan rather than rebuilding it from its label.
