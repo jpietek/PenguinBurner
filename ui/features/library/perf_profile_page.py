@@ -216,7 +216,7 @@ class PerfProfilePage(W.QWidget):
     """``PerfProfilePage(source, on_back=...)``; ``show_game(key)`` opens one game.
 
     ``source`` is any ``PerfProfileSource``. ``on_back`` runs when the user
-    presses Back to game (the library restores its selection);
+    presses Back to Game Library (the library restores its selection);
     ``on_enable_capture(key)`` turns Capture telemetry on for a game whose
     capture is off (the empty state offers it when given).
     """
@@ -286,7 +286,7 @@ class PerfProfilePage(W.QWidget):
         back = W.QHBoxLayout(self.backline)
         back.setContentsMargins(0, 0, 0, 0)
         back.setSpacing(GAP["md"])
-        self.back_button = W.QPushButton("Back to game")
+        self.back_button = W.QPushButton("Back to Game Library")
         self.back_button.setObjectName("perfBack")
         self.back_button.setIcon(_back_icon(self.devicePixelRatioF() or 1.0))
         self.back_button.setIconSize(C.QSize(16, 16))

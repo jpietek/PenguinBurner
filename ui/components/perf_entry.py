@@ -1,12 +1,13 @@
-"""The Game Library's Perf Profile entry: sparkline icon, button and peek.
+"""The Game Library's Perf Profile entry: chart icon, button and peek.
 
 After PR #137 (``origin/build-pr-137`` @ 611e6d3,
 ``ui/components/game_perf_profile_badge.py`` and ``GamePerfProfilePeek`` in
 ``ui/components/game_perf_profile.py``): one button beside Play for every
 game. Until a ring exists it looks disabled and says how to record one; hover
 or keyboard focus peeks the fingerprint and the numbers that matter, Esc
-closes the peek, and a click opens the full view. The icon is that game's own
-frametime ribbon in miniature.
+closes the peek, and a click opens the full view. The icon is a fixed
+frametime-chart glyph, in accent once a ring exists: a miniature of a steady
+game's ribbon was just a flat line.
 """
 
 from __future__ import annotations
@@ -19,19 +20,20 @@ from ui.components.perf_fingerprint import fingerprint_pixmap, perf_profile_axes
 from ui.components.perf_profile_plot import (
     PerfProfileSource,
     PerfRecording,
-    densify_frametimes,
-    frametime_ceiling,
-    hitch_points,
     latency_text,
-    percentile,
     warming_text,
 )
-from ui.design.style import COL, GAP, RAD, TYPE, WEIGHT, focus_visible, qcolor
+from ui.design.style import (
+    COL,
+    GAP,
+    RAD,
+    TYPE,
+    WEIGHT,
+    focus_visible,
+    glyph_icon,
+    qcolor,
+)
 
-SPARK_WIDTH = 44
-SPARK_HEIGHT = 18
-# Room between the sparkline and the label; Qt's own icon gap is ~4 px.
-ICON_GAP = 4
 PEEK_FINGERPRINT = 124
 PERF_UNAVAILABLE = (
     "Game Perf Profile unavailable — no telemetry recorded for this game yet. "
@@ -48,122 +50,6 @@ _KEYBOARD_REASONS = (
     C.Qt.FocusReason.BacktabFocusReason,
     C.Qt.FocusReason.ShortcutFocusReason,
 )
-
-
-def perf_sparkline_pixmap(
-    summary_or_columns,
-    *,
-    width: int = SPARK_WIDTH,
-    height: int = SPARK_HEIGHT,
-    dpr: float = 1.0,
-    live: bool = False,
-) -> G.QPixmap:
-    """A miniature frametime ribbon: the median line over its p99 band in
-    accent, a severe dot at the worst hitch, a live dot at the newest end.
-
-    ``summary_or_columns`` is a ``PerfRecording``, a densified
-    ``(xs, p50s, p99s, maxes)`` tuple, or ``None``/empty for a game with no
-    recording, which draws a flat dashed quiet line.
-    """
-    columns: tuple[tuple[float, ...], ...]
-    if isinstance(summary_or_columns, PerfRecording):
-        live = live or summary_or_columns.live
-        # Two pixels a column keeps the line smooth at this size.
-        columns = densify_frametimes(
-            summary_or_columns.frametimes_ms, columns=max(2, width // 2)
-        )
-    else:
-        columns = summary_or_columns or ((), (), (), ())
-    columns = tuple(columns)
-    xs, medians, p99s, maxes = columns
-    ratio = max(1.0, float(dpr))
-    pixmap = G.QPixmap(round(width * ratio), round(height * ratio))
-    pixmap.setDevicePixelRatio(ratio)
-    pixmap.fill(C.Qt.GlobalColor.transparent)
-    painter = G.QPainter(pixmap)
-    try:
-        painter.setRenderHint(G.QPainter.RenderHint.Antialiasing, True)
-        if len(xs) < 2:
-            pen = G.QPen(qcolor("quiet"), 1.2)
-            pen.setDashPattern([3, 2.5])
-            painter.setPen(pen)
-            painter.drawLine(C.QPointF(1, height / 2), C.QPointF(width - 1, height / 2))
-            return pixmap
-        # Scaled to the ribbon, not the full figure's ceiling: at 18 px the
-        # shape is the information. The top row is kept for the hitch dot.
-        ordered_p99 = sorted(p99s)
-        ceiling = max(
-            percentile(ordered_p99, 0.9) * 1.25,
-            max(medians) * 1.3,
-            1.0,
-        )
-        ceiling = min(
-            ceiling,
-            frametime_ceiling(sorted(medians)[len(medians) // 2], ordered_p99[-1]),
-        )
-        # A sparkline baseline sits under the lowest median, not at 0 ms.
-        floor = min(medians) * 0.7
-        lo, span = xs[0], (xs[-1] - xs[0]) or 1.0
-        pad = 2.5
-        top = 5.5 if live or hitch_points(xs, medians, maxes)[0] else 2.0
-
-        def px(x: float) -> float:
-            return pad + (width - 2 * pad) * (x - lo) / span
-
-        def py(v: float) -> float:
-            return (
-                height
-                - 1.5
-                - (height - 1.5 - top) * (min(v, ceiling) - floor) / (ceiling - floor)
-            )
-
-        band = G.QPolygonF(
-            [C.QPointF(px(x), py(v)) for x, v in zip(xs, medians, strict=True)]
-            + [
-                C.QPointF(px(x), py(v))
-                for x, v in reversed(list(zip(xs, p99s, strict=True)))
-            ]
-        )
-        painter.setPen(C.Qt.PenStyle.NoPen)
-        painter.setBrush(qcolor("accent", 0.34))
-        painter.drawPolygon(band)
-        line = G.QPen(qcolor("accent"), 1.3)
-        line.setJoinStyle(C.Qt.PenJoinStyle.RoundJoin)
-        painter.setPen(line)
-        painter.setBrush(C.Qt.BrushStyle.NoBrush)
-        painter.drawPolyline(
-            G.QPolygonF(
-                [C.QPointF(px(x), py(v)) for x, v in zip(xs, medians, strict=True)]
-            )
-        )
-        hitch_x, hitch_y = hitch_points(xs, medians, maxes)
-        if hitch_x:
-            worst = max(range(len(hitch_y)), key=hitch_y.__getitem__)
-            painter.setPen(C.Qt.PenStyle.NoPen)
-            painter.setBrush(qcolor("severe"))
-            painter.drawEllipse(C.QPointF(px(hitch_x[worst]), 2.4), 2.2, 2.2)
-        if live:
-            # Recording now: a dot on the newest end of the ribbon.
-            end = C.QPointF(width - 2.6, py(medians[-1]))
-            painter.setPen(G.QPen(qcolor("control"), 1.2))
-            painter.setBrush(qcolor("focus"))
-            painter.drawEllipse(end, 2.5, 2.5)
-    finally:
-        painter.end()
-    return pixmap
-
-
-def _icon_with_gap(spark: G.QPixmap) -> G.QPixmap:
-    ratio = spark.devicePixelRatio()
-    pixmap = G.QPixmap(
-        round((SPARK_WIDTH + ICON_GAP) * ratio), round(SPARK_HEIGHT * ratio)
-    )
-    pixmap.setDevicePixelRatio(ratio)
-    pixmap.fill(C.Qt.GlobalColor.transparent)
-    painter = G.QPainter(pixmap)
-    painter.drawPixmap(0, 0, spark)
-    painter.end()
-    return pixmap
 
 
 def keyboard_focus_ring(widget: W.QWidget) -> None:
@@ -333,7 +219,7 @@ class PerfEntryButton(W.QPushButton):
         super().__init__("Perf Profile", parent)
         self.setObjectName("gamePerfProfileButton")
         self.setCursor(C.Qt.CursorShape.PointingHandCursor)
-        self.setIconSize(C.QSize(SPARK_WIDTH + ICON_GAP, SPARK_HEIGHT))
+        self.setIconSize(C.QSize(16, 16))
         self.setStyleSheet(focus_visible(entry_stylesheet()))
         keyboard_focus_ring(self)
         self.source = source
@@ -375,13 +261,7 @@ class PerfEntryButton(W.QPushButton):
         self.setProperty("perfLive", bool(recording and recording.live))
         self.style().unpolish(self)
         self.style().polish(self)
-        self.setIcon(
-            G.QIcon(
-                _icon_with_gap(
-                    perf_sparkline_pixmap(recording, dpr=self.devicePixelRatioF())
-                )
-            )
-        )
+        self.setIcon(glyph_icon("perf-profile", "accent" if summary else "quiet"))
         if summary is None:
             capture = self._capture
             if capture is None:

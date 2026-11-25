@@ -1,7 +1,7 @@
 """The Game Library tab: the library, and a game's Perf Profile drill-down.
 
 The Perf Profile opens in place of the list, from the entry beside Play;
-Back to game returns to the same selection, filters and keyboard focus.
+Back to Game Library returns to the same selection, filters and keyboard focus.
 Both views read the daemon's frame-history rings through one
 ``RuntimePerfSource``.
 """

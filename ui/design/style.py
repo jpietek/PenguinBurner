@@ -125,6 +125,12 @@ def _tab_glyph(painter: G.QPainter, name: str) -> None:
                 ]
             )
         )
+    elif name == "perf-profile":
+        # A frametime chart: a baseline with steady frame bars and one tall
+        # hitch.
+        painter.drawLine(C.QPointF(2.5, 17), C.QPointF(17.5, 17))
+        for x, top in ((4.5, 11.5), (7.5, 10.5), (10.5, 11.5), (13.5, 4), (16.5, 11)):
+            painter.drawLine(C.QPointF(x, 14.5), C.QPointF(x, top))
     elif name == "stop":
         painter.setBrush(painter.pen().color())
         painter.drawRoundedRect(C.QRectF(5, 5, 10, 10), 1.6, 1.6)
