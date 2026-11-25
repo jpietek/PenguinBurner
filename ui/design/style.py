@@ -436,8 +436,20 @@ class DemoCurvePlot(CurvePlot):
     def _live_color(self) -> str:
         return self.candidate_tier_color or COL["candidateCurve"]
 
+    # Dashed when the live candidate repeats a confirmed tier's curve.
+    candidate_dashed = False
+
     def _candidate_curve_pen(self):
-        return self.pg.mkPen(self._live_color(), width=2.2)
+        pen = self.pg.mkPen(self._live_color(), width=2.2)
+        if self.candidate_dashed:
+            pen.setStyle(C.Qt.PenStyle.CustomDashLine)
+            pen.setDashPattern([2.5, 2.5])
+        return pen
+
+    def set_candidate_dashed(self, dashed: bool) -> None:
+        if bool(dashed) != self.candidate_dashed and self.candidate_curve is not None:
+            self.candidate_dashed = bool(dashed)
+            self._apply_curve_highlights()
 
     def set_candidate_tier_color(self, color: str | None) -> None:
         """Draw the live candidate, its points and the probe in ``color``."""

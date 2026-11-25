@@ -187,6 +187,11 @@ def scan_engine() -> AutoUvEngine:
     return engine
 
 
+def curve_key(points) -> tuple:
+    """A curve's points, rounded, to tell when two tiers drew the same one."""
+    return tuple((round(float(v)), round(float(m))) for v, m in points or ())
+
+
 class AutoUvPage(AutoUvView):
     """Auto UV over the real scan.
 
@@ -225,6 +230,7 @@ class AutoUvPage(AutoUvView):
         # wires its checkbox here, the persisted choice is the fallback.
         self.silent_fan_checked: Callable[[], bool] = silent_fan_curve_from_runtime_config
         self.tier_traces: dict[str, Any] = {}
+        self.tier_points: dict[str, tuple] = {}
         self.last_busy: bool | None = None
         self.stop_button.setIcon(glyph_icon("stop", "loss"))
         self.import_button.setIcon(glyph_icon("import", "secondary"))
@@ -369,6 +375,7 @@ class AutoUvPage(AutoUvView):
         if update.candidate_curve is not None:
             curve_id, points = update.candidate_curve
             plot.set_candidate_points(points, curve_id=curve_id)
+            self.sync_shared_curves()
         if update.tier_curve is not None:
             self.show_tier_curve(*update.tier_curve)
         if update.probe_marker is not None:
@@ -518,22 +525,54 @@ class AutoUvPage(AutoUvView):
     def clear_plot(self) -> None:
         self.plot.clear()
         self.tier_traces.clear()
+        self.tier_points.clear()
 
     def show_tier_curve(self, tier: str, points) -> None:
         title = tier.title()
+        self.tier_points[title] = curve_key(points)
         if title in self.tier_traces:
             voltages, clocks = zip(*points, strict=True)
             self.tier_traces[title].setData(voltages, clocks)
-            return
-        self.plot.add_comparison_points(
-            points,
-            name=f"{title} tier",
-            color=TIER_COLORS[title],
-            alpha=255,
-            width=3,
-            z_value=2,
+        else:
+            self.plot.add_comparison_points(
+                points,
+                name=f"{title} tier",
+                color=TIER_COLORS[title],
+                alpha=255,
+                width=3,
+                z_value=2,
+            )
+            self.tier_traces[title] = self.plot.comparison_curves[-1]
+        self.sync_shared_curves()
+
+    def shared_tier(self, title: str) -> str:
+        """The earlier tier whose curve ``title`` repeats ("" if none): a
+        Performance tier that keeps the Balanced point draws on top of it."""
+        key = self.tier_points.get(title)
+        return next(
+            (
+                earlier
+                for earlier in TIERS[: TIERS.index(title)]
+                if key and self.tier_points.get(earlier) == key
+            ),
+            "",
         )
-        self.tier_traces[title] = self.plot.comparison_curves[-1]
+
+    def sync_shared_curves(self) -> None:
+        """A curve that repeats another is dashed in its own colour over it,
+        so both colours stay visible; the live candidate too."""
+        for title, trace in self.tier_traces.items():
+            shared = bool(self.shared_tier(title))
+            pen = self.plot.pg.mkPen(TIER_COLORS[title], width=3)
+            if shared:
+                pen.setStyle(C.Qt.PenStyle.CustomDashLine)
+                pen.setDashPattern([2.5, 2.5])
+            trace.setPen(pen)
+            trace.setZValue(3 if shared else 2)
+        live = curve_key(self.plot._candidate_points)
+        self.plot.set_candidate_dashed(
+            bool(live) and live in self.tier_points.values()
+        )
 
     def write_run(self, index: int) -> None:
         runs = self.session.runs
@@ -635,11 +674,18 @@ class AutoUvPage(AutoUvView):
             items.append(("Previous runs", "curveHistory", "solid"))
         for tier in TIERS:
             if tier in self.tier_traces:
-                items.append((tier + " tier", TIER_COLORS[tier], "solid"))
+                shared = self.shared_tier(tier)
+                items.append(
+                    (f"{tier} tier = {shared}", TIER_COLORS[tier], "dashed")
+                    if shared
+                    else (tier + " tier", TIER_COLORS[tier], "solid")
+                )
         if self.engine.verify_controller.is_running() or any(
             run.active for run in self.session.runs.rows
         ):
-            items.append(("Live candidate", "candidateCurve", "dot"))
+            items.append(
+                ("Live candidate", self.plot.candidate_tier_color or "candidateCurve", "dot")
+            )
         row = self.table.currentRow()
         rows = self.session.runs.rows
         if 0 <= row < len(rows) and rows[row].kind != "baseline":

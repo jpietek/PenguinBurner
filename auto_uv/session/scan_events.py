@@ -73,7 +73,64 @@ def status_value(value, *, precision: int = 2) -> str:
 
 
 def top_status_text(text: str) -> str:
-    return _round_gui_decimals(str(text or "").strip())
+    """A scan line for the window: a structured ``Auto-UV phase=...`` probe
+    line becomes a readable summary; anything else is kept, rounded."""
+    text = str(text or "").strip()
+    return live_status_text(text) or _round_gui_decimals(text)
+
+
+_LIVE_PHASES = {
+    "candidate-live": "Testing",
+    "final-verify-live": "Final verification",
+    "resume-verify-live": "Resume verification",
+    "baseline-live": "Baseline",
+}
+_WORKLOADS = {"q2rtx": "Q2RTX", "cuda": "CUDA"}
+
+
+def live_status_text(line: str) -> str:
+    """``Auto-UV phase=final-verify-live candidate=860mV target=2800MHz
+    elapsed=71.40s running=q2rtx power=263.30W core_clock=2745MHz temp=62C
+    fan=40%`` -> ``Final verification · 860 mV @ 2800 MHz · 1:11 · Q2RTX ·
+    263 W · 2745 MHz · 62 °C · fan 40%``. The tier is left out (the tier
+    strip shows it). "" for a line without live probe fields."""
+    if not line.startswith("Auto-UV phase=") or "candidate=" not in line:
+        return ""
+    fields: dict[str, str] = {}
+    starting = False
+    for token in line[len("Auto-UV ") :].split():
+        key, sep, value = token.partition("=")
+        if sep and key not in fields:
+            fields[key] = value
+        elif key == "phase" and value == "startup":
+            starting = True  # the workload is still starting up
+    phase = fields.get("phase", "")
+    kind = next((k for k in _LIVE_PHASES if phase.endswith(k)), "")
+    parts = [_LIVE_PHASES.get(kind) or phase.replace("-", " ").capitalize()]
+    if starting:
+        parts.append("starting")
+    volts, clock = _number(fields.get("candidate", "").rstrip("mV")), _number(
+        fields.get("target", "").rstrip("MHz")
+    )
+    if volts is not None and clock is not None:
+        parts.append(f"{round(volts)} mV @ {round(clock)} MHz")
+    elapsed = _number(fields.get("elapsed", "").rstrip("s"))
+    if elapsed is not None:
+        minutes, seconds = divmod(int(elapsed), 60)
+        parts.append(f"{minutes}:{seconds:02d}")
+    workload = fields.get("running", "")
+    if workload:
+        parts.append(_WORKLOADS.get(workload, workload))
+    for key, unit, label in (
+        ("power", "W", "{} W"),
+        ("core_clock", "MHz", "{} MHz"),
+        ("temp", "C", "{} °C"),
+        ("fan", "%", "fan {}%"),
+    ):
+        value = _number(fields.get(key, "").rstrip(unit))
+        if value is not None:
+            parts.append(label.format(round(value)))
+    return " · ".join(part for part in parts if part)
 
 
 def probe_decision_label(payload: dict) -> str:

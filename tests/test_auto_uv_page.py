@@ -549,3 +549,41 @@ def test_a_long_candidate_list_keeps_the_choice_dialog_on_screen(page_env, monke
     assert seen["height"] <= seen["screen"] * 0.9 + 1
     assert seen["scrolls"], "rows that do not fit scroll inside the table"
     assert not seen["overlap"] and not seen["clipped"]
+
+
+def test_live_probe_lines_read_as_one_summary():
+    from auto_uv.session.scan_events import top_status_text
+
+    assert top_status_text(
+        "Auto-UV phase=final-verify-live candidate=860mV target=2800MHz elapsed=71.40s "
+        "running=q2rtx live=860.00mV power=263.30W load=busy core_clock=2745MHz temp=62C fan=40%"
+    ) == (
+        "Final verification · 860 mV @ 2800 MHz · 1:11 · Q2RTX · 263 W · 2745 MHz · 62 °C · fan 40%"
+    )
+    assert top_status_text(
+        "Auto-UV phase=efficiency-candidate-live candidate=885mV target=2760MHz "
+        "elapsed=0.0s phase=startup running=cuda live=885.0mV power=37.2W"
+    ) == "Testing · starting · 885 mV @ 2760 MHz · 0:00 · CUDA · 37 W"
+    # Other lines keep their text.
+    assert top_status_text("Auto-UV final state: 2760MHz@870mV") == "Auto-UV final state: 2760MHz@870mV"
+
+
+def test_a_tier_that_repeats_another_is_dashed_over_it(page_env):
+    from PySide6 import QtCore as C
+
+    _page_mod, page, _spy, _signals = page_env
+    curve = [(850.0, 2700.0), (860.0, 2800.0), (900.0, 2800.0)]
+    page.show_tier_curve("balanced", curve)
+    page.show_tier_curve("performance", curve)
+    balanced, performance = page.tier_traces["Balanced"], page.tier_traces["Performance"]
+    assert balanced.opts["pen"].style() == C.Qt.PenStyle.SolidLine
+    assert performance.opts["pen"].style() == C.Qt.PenStyle.CustomDashLine
+    assert performance.zValue() > balanced.zValue()
+    assert page.shared_tier("Performance") == "Balanced"
+    # The live candidate on the same curve is dashed too.
+    page.plot.set_candidate_points(curve, curve_id="c1")
+    page.sync_shared_curves()
+    assert page.plot.candidate_dashed
+    page.plot.set_candidate_points([(850.0, 2600.0), (900.0, 2650.0)], curve_id="c2")
+    page.sync_shared_curves()
+    assert not page.plot.candidate_dashed

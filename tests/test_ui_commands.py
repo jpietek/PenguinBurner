@@ -2130,8 +2130,11 @@ def test_top_status_text_does_not_truncate_live_temperature() -> None:
 
     rendered = _top_status_text(text)
 
-    assert rendered.endswith("temp=60C fan=33%")
-    assert rendered == text
+    # The live line is summarised for the window, temperature and fan kept.
+    assert rendered.endswith("60 °C · fan 33%")
+    assert rendered == (
+        "Testing · 990 mV @ 2640 MHz · 0:15 · Q2RTX · 294 W · 2580 MHz · 60 °C · fan 33%"
+    )
 
 
 def test_status_header_candidate_detail_wraps_instead_of_hard_clipping() -> None:
