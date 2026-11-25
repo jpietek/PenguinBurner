@@ -493,3 +493,59 @@ def test_the_live_candidate_takes_the_scanned_tier_colour(page_env, monkeypatch)
     page.refresh_view()
     assert page.plot.candidate_tier_color is None
     assert page.plot._candidate_curve_pen().color().name() == COL["candidateCurve"].lower()
+
+
+def test_a_long_candidate_list_keeps_the_choice_dialog_on_screen(page_env, monkeypatch):
+    from PySide6 import QtCore as C
+    from PySide6 import QtGui as G
+    from PySide6 import QtWidgets as W
+
+    from ui.dialogs.final_choice import select_final_candidate
+    from ui.features.tuning.auto_uv_view import fit_choice_dialog
+
+    candidates = [
+        {
+            "candidate_id": f"{mv}mv-2685mhz",
+            "candidate_voltage_mv": mv,
+            "lock_clock_mhz": 2685,
+            "avg_fps": 58.0,
+            "efficiency_fps_per_w": 0.21,
+        }
+        for mv in range(800, 1200, 10)
+    ]
+    seen = {}
+
+    def exec_(dialog):
+        dialog.show()
+        monkeypatch.setattr(W.QApplication, "activeModalWidget", lambda: dialog)
+        fit_choice_dialog()
+        W.QApplication.processEvents()
+        screen = dialog.screen().availableGeometry()
+        table = dialog.findChild(W.QTableView)
+        below = [
+            w for w in dialog.findChildren(W.QWidget)
+            if w.isVisible() and isinstance(w, (W.QSpinBox, W.QPushButton))
+            and w.mapTo(dialog, C.QPoint(0, 0)).y() > table.mapTo(dialog, C.QPoint(0, 0)).y()
+        ]
+        table_bottom = table.mapTo(dialog, C.QPoint(0, table.height())).y()
+        seen.update(
+            height=dialog.height(),
+            screen=screen.height(),
+            scrolls=table.verticalScrollBar().maximum() > 0,
+            overlap=[w for w in below if w.mapTo(dialog, C.QPoint(0, 0)).y() < table_bottom],
+            clipped=[
+                w for w in below
+                if w.mapTo(dialog, C.QPoint(0, w.height())).y() > dialog.height()
+            ],
+        )
+        return 0
+
+    monkeypatch.setattr(W.QDialog, "exec", exec_)
+    select_final_candidate(
+        QtCore=C, QtGui=G, QtWidgets=W, parent=None,
+        candidates=candidates, default_candidate_id="900mv-2685mhz",
+        auto_uv_mode="efficiency",
+    )
+    assert seen["height"] <= seen["screen"] * 0.9 + 1
+    assert seen["scrolls"], "rows that do not fit scroll inside the table"
+    assert not seen["overlap"] and not seen["clipped"]

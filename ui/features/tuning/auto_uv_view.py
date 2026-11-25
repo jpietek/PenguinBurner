@@ -85,11 +85,15 @@ def scan_page_stylesheet():
 
 def fit_choice_dialog():
     """Give the final-choice dialog room for every column: content widths
-    with Status stretching last, no sideways scroll, no blank rows."""
+    with Status stretching last, no sideways scroll, no blank rows, and the
+    whole dialog on screen (the table scrolls when its rows do not fit)."""
     dialog = W.QApplication.activeModalWidget()
     if not isinstance(dialog, W.QDialog):
         return
+    screen = dialog.screen() or W.QApplication.primaryScreen()
+    available = screen.availableGeometry() if screen is not None else None
     width = dialog.width()
+    tables = []
     for table in dialog.findChildren(W.QTableView):
         apply_table_spec(table)
         header = table.horizontalHeader()
@@ -118,17 +122,32 @@ def fit_choice_dialog():
         width = max(
             width, 1040, needed + (margins.left() + margins.right() if margins else 0)
         )
-        rows = table.verticalHeader().length()
-        table.setMinimumHeight(0)
-        table.setFixedHeight(header.height() + rows + 2 * table.frameWidth() + 2)
-    layout = dialog.layout()
+        full = (
+            header.height()
+            + table.verticalHeader().length()
+            + 2 * table.frameWidth()
+            + 2
+        )
+        row = table.verticalHeader().defaultSectionSize()
+        table.setMinimumHeight(min(full, header.height() + 6 * row))
+        table.setMaximumHeight(full)
+        table.setVerticalScrollBarPolicy(C.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        tables.append((table, full))
     dialog.setMinimumHeight(0)
-    dialog.resize(
-        width,
-        layout.heightForWidth(width)
-        if layout is not None and layout.hasHeightForWidth()
-        else dialog.sizeHint().height(),
+    if available is not None:
+        width = min(width, int(available.width() * 0.95))
+    # Everything but the tables, plus the tables' full height ...
+    height = dialog.sizeHint().height() + sum(
+        full - table.sizeHint().height() for table, full in tables
     )
+    # ... capped to the screen: the table takes what is left and scrolls.
+    if available is not None:
+        height = min(height, int(available.height() * 0.9))
+    dialog.resize(width, height)
+    if available is not None:
+        frame = dialog.frameGeometry()
+        frame.moveCenter(available.center())
+        dialog.move(frame.topLeft())
 
 
 class AutoUvView(W.QWidget):
