@@ -430,8 +430,27 @@ class DemoCurvePlot(CurvePlot):
             if badge is not None:
                 style_value_badge(badge, self.pg)
 
+    # The tier a scan is measuring colours its live candidate; None = neutral.
+    candidate_tier_color: str | None = None
+
+    def _live_color(self) -> str:
+        return self.candidate_tier_color or COL["candidateCurve"]
+
     def _candidate_curve_pen(self):
-        return self.pg.mkPen(COL["candidateCurve"], width=2.2)
+        return self.pg.mkPen(self._live_color(), width=2.2)
+
+    def set_candidate_tier_color(self, color: str | None) -> None:
+        """Draw the live candidate, its points and the probe in ``color``."""
+        color = COL.get(color, color) if color else None
+        if color == self.candidate_tier_color or self.candidate_curve is None:
+            return
+        self.candidate_tier_color = color
+        live = self._live_color()
+        self.candidate_curve.setSymbolPen(self.pg.mkPen(live))
+        self.candidate_curve.setSymbolBrush(live)
+        if self.probe_marker is not None:
+            self.probe_marker.setSymbolBrush(qcolor(live))
+        self._apply_curve_highlights()
 
     def _emphasis(self) -> bool:
         return bool(self._highlighted_curve_id)

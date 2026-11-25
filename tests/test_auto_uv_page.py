@@ -462,3 +462,31 @@ def test_shell_hosts_the_page_with_its_header_actions_and_status(
     page.show_profiles.emit()
     assert window.tabs.currentIndex() == 1
     dispose_window(window)
+
+
+def test_a_long_live_line_never_widens_the_page(page_env, monkeypatch):
+    _page_mod, page, _spy, _signals = page_env
+    monkeypatch.setattr(page.engine.scan_controller, "is_running", lambda: True)
+    page.session.start({"auto_uv_mode": "balanced"})
+    page.refresh_view()
+    before = page.minimumSizeHint().width()
+    page.session.candidate = "Auto-UV phase=candidate-live " + "x=1 " * 400
+    page.refresh_view()
+    assert page.minimumSizeHint().width() <= before
+    assert page.candidate_label.full_text().startswith("Auto-UV phase=")
+
+
+def test_the_live_candidate_takes_the_scanned_tier_colour(page_env, monkeypatch):
+    from ui.design.style import COL, TIER_COLORS
+
+    _page_mod, page, _spy, _signals = page_env
+    monkeypatch.setattr(page.engine.scan_controller, "is_running", lambda: True)
+    page.session.start({"auto_uv_mode": "balanced"})
+    page.session.tier_states = {"balanced": "active"}
+    page.refresh_view()
+    assert page.plot.candidate_tier_color == TIER_COLORS["Balanced"]
+    assert page.plot._candidate_curve_pen().color().name() == TIER_COLORS["Balanced"].lower()
+    monkeypatch.setattr(page.engine.scan_controller, "is_running", lambda: False)
+    page.refresh_view()
+    assert page.plot.candidate_tier_color is None
+    assert page.plot._candidate_curve_pen().color().name() == COL["candidateCurve"].lower()

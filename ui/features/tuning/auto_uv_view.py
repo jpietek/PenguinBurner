@@ -9,6 +9,7 @@ from PySide6 import QtCore as C
 from PySide6 import QtGui as G
 from PySide6 import QtWidgets as W
 
+from ui.components.elided_label import ElidedLabel
 from ui.components.page_header import PAGE_MARGINS, PageHeader
 from ui.components.scan_plot import ScanPlot
 from ui.components.scan_progress import StatusDot, TierStrip
@@ -167,15 +168,10 @@ class AutoUvView(W.QWidget):
         stage_row.addWidget(self.stage_dot)
         self.stage_label = label("", "sectionTitle")
         stage_row.addWidget(self.stage_label)
-        self.candidate_label = label("", "uvCandidate")
-        self.candidate_label.setTextInteractionFlags(
-            C.Qt.TextInteractionFlag.TextSelectableByMouse
-        )
-        self.candidate_label.setToolTip(
-            "Current candidate. Select or right-click to copy."
-        )
-        stage_row.addWidget(self.candidate_label)
-        stage_row.addStretch()
+        # Elided: the live probe line is long, and a label sized to it widened
+        # the window past the screen and re-laid it out on every update.
+        self.candidate_label = ElidedLabel("uvCandidate", copyable=True)
+        stage_row.addWidget(self.candidate_label, 1)
         status.addLayout(stage_row)
         self.stage_detail = label("", "caption")
         self.stage_detail.setSizePolicy(
@@ -330,7 +326,7 @@ class AutoUvView(W.QWidget):
                    detail_tooltip: str = "") -> None:
         self.stage_label.setText(title)
         self.stage_dot.set_tone(tone)
-        self.candidate_label.setText(candidate)
+        self.candidate_label.set_full_text(candidate)
         self.candidate_label.setVisible(bool(candidate))
         self.stage_detail.setText(detail)
         self.stage_detail.setToolTip(detail_tooltip or detail)

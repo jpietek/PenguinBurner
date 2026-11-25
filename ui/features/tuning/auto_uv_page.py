@@ -551,6 +551,13 @@ class AutoUvPage(AutoUvView):
             detail=IDLE_DETAIL if idle else session.status,
             detail_tooltip=session.status,
         )
+        active = next(
+            (tier for tier, state in session.tier_states.items() if state == "active"),
+            None,
+        )
+        self.plot.set_candidate_tier_color(
+            TIER_COLORS.get(active.title()) if active and busy else None
+        )
         self.tier_strip.setVisible(bool(session.tier_states))
         self.tier_strip.set_states(
             {tier.title(): state for tier, state in session.tier_states.items()},
