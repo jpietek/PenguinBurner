@@ -83,8 +83,10 @@ def scan_page_stylesheet():
     """
 
 
-# The idle runs card's body: room for the "No runs yet" line.
-IDLE_RUN_ROWS_PX = 32
+# The idle runs card's body: about five rows, a middle ground between a
+# page-tall empty table and one squeezed to its "No runs yet" line.
+IDLE_RUN_ROWS = 5
+IDLE_RUN_ROW_PX = 32
 
 
 def fit_choice_dialog():
@@ -381,7 +383,7 @@ class AutoUvView(W.QWidget):
         unlimited = 16777215
         if compact and self.runs_card.maximumHeight() == unlimited:
             header = self.table.horizontalHeader().sizeHint().height()
-            self.runs_card.setMaximumHeight(header + 2 * IDLE_RUN_ROWS_PX + 48)
+            self.runs_card.setMaximumHeight(header + IDLE_RUN_ROWS * IDLE_RUN_ROW_PX + 48)
         elif not compact and self.runs_card.maximumHeight() < unlimited:
             # Leaving the idle layout: the plot two thirds, the runs a third.
             self.runs_card.setMaximumHeight(unlimited)

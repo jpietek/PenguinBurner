@@ -592,7 +592,7 @@ def test_a_tier_that_repeats_another_is_dashed_over_it(page_env):
 def test_the_empty_runs_card_stays_compact_until_a_scan_runs(page_env, monkeypatch):
     _page_mod, page, _spy, _signals = page_env
     page.refresh_view()
-    assert page.runs_card.maximumHeight() < 300  # idle: heading and "No runs yet"
+    assert 200 < page.runs_card.maximumHeight() < 320  # idle: about five rows
     monkeypatch.setattr(page.engine.scan_controller, "is_running", lambda: True)
     page.session.start({"auto_uv_mode": "balanced"})
     page.refresh_view()
