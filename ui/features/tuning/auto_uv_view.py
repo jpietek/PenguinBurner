@@ -83,6 +83,10 @@ def scan_page_stylesheet():
     """
 
 
+# The idle runs card's body: room for the "No runs yet" line.
+IDLE_RUN_ROWS_PX = 32
+
+
 def fit_choice_dialog():
     """Give the final-choice dialog room for every column: content widths
     with Status stretching last, no sideways scroll, no blank rows, and the
@@ -285,6 +289,7 @@ class AutoUvView(W.QWidget):
         # Card 2: the runs table.
         table_frame = W.QFrame()
         table_frame.setObjectName("uvCard")
+        self.runs_card = table_frame
         layout = W.QVBoxLayout(table_frame)
         layout.setContentsMargins(1, GAP["sm"], 1, 1)
         layout.setSpacing(GAP["xs"])
@@ -369,16 +374,18 @@ class AutoUvView(W.QWidget):
 
     def show_layout(self, *, idle: bool, has_runs: bool, runs_meta: str) -> None:
         self.plot_stack.setCurrentIndex(0 if idle else 1)
-        # Idle: a compact placeholder instead of an empty plot.
-        if idle:
-            self.plot_stack.setFixedHeight(125)
-            self.scan_card.setMaximumHeight(self.scan_card.sizeHint().height())
-        elif self.scan_card.maximumHeight() < 16777215:
-            # Leaving the idle layout: give the plot card 60% again.
-            self.plot_stack.setMinimumHeight(150)
-            self.plot_stack.setMaximumHeight(16777215)
-            self.scan_card.setMaximumHeight(16777215)
+        self.plot_stack.setMinimumHeight(150)
+        # Idle: the empty runs card shrinks to its heading and "No runs
+        # yet"; the plot card keeps the room the curve will use.
+        compact = idle and not has_runs
+        unlimited = 16777215
+        if compact and self.runs_card.maximumHeight() == unlimited:
+            header = self.table.horizontalHeader().sizeHint().height()
+            self.runs_card.setMaximumHeight(header + 2 * IDLE_RUN_ROWS_PX + 48)
+        elif not compact and self.runs_card.maximumHeight() < unlimited:
+            # Leaving the idle layout: the plot two thirds, the runs a third.
+            self.runs_card.setMaximumHeight(unlimited)
             total = max(self.splitter.height(), 600)
-            self.splitter.setSizes([round(total * 0.6), round(total * 0.4)])
+            self.splitter.setSizes([round(total * 2 / 3), round(total / 3)])
         self.runs_empty.setVisible(not has_runs)
         self.runs_meta.setText(runs_meta)
