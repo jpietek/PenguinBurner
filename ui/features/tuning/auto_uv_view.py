@@ -318,6 +318,7 @@ class AutoUvView(W.QWidget):
         self.splitter.setStretchFactor(0, 2)
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setSizes([520, 260])
+        self._compact_runs: bool | None = None
         page.addWidget(self.splitter, 1)
         self.setStyleSheet(focus_visible(scan_page_stylesheet()))
 
@@ -379,15 +380,18 @@ class AutoUvView(W.QWidget):
         self.plot_stack.setMinimumHeight(150)
         # Idle: the empty runs card shrinks to its heading and "No runs
         # yet"; the plot card keeps the room the curve will use.
+        # These are starting splits only: the handle between the cards (and
+        # between plot and log) stays draggable in every state.
         compact = idle and not has_runs
-        unlimited = 16777215
-        if compact and self.runs_card.maximumHeight() == unlimited:
-            header = self.table.horizontalHeader().sizeHint().height()
-            self.runs_card.setMaximumHeight(header + IDLE_RUN_ROWS * IDLE_RUN_ROW_PX + 48)
-        elif not compact and self.runs_card.maximumHeight() < unlimited:
-            # Leaving the idle layout: the plot two thirds, the runs a third.
-            self.runs_card.setMaximumHeight(unlimited)
+        if compact != self._compact_runs:
+            self._compact_runs = compact
             total = max(self.splitter.height(), 600)
-            self.splitter.setSizes([round(total * 2 / 3), round(total / 3)])
+            if compact:
+                header = self.table.horizontalHeader().sizeHint().height()
+                runs = header + IDLE_RUN_ROWS * IDLE_RUN_ROW_PX + 48
+                self.splitter.setSizes([total - runs, runs])
+            else:
+                # A scan starts: the plot two thirds, the runs a third.
+                self.splitter.setSizes([round(total * 2 / 3), round(total / 3)])
         self.runs_empty.setVisible(not has_runs)
         self.runs_meta.setText(runs_meta)

@@ -591,9 +591,18 @@ def test_a_tier_that_repeats_another_is_dashed_over_it(page_env):
 
 def test_the_empty_runs_card_stays_compact_until_a_scan_runs(page_env, monkeypatch):
     _page_mod, page, _spy, _signals = page_env
+    page.resize(1200, 800)
+    page.show()
     page.refresh_view()
-    assert 200 < page.runs_card.maximumHeight() < 320  # idle: about five rows
+    plot, runs = page.splitter.sizes()
+    assert 200 < runs < 340 and plot > runs  # idle: about five rows
+    # Only a starting split: the user can still drag the table taller.
+    assert page.runs_card.maximumHeight() == 16777215
+    page.splitter.setSizes([300, plot + runs - 300])
+    page.refresh_view()
+    assert page.splitter.sizes()[0] == 300, "a refresh keeps the user's split"
     monkeypatch.setattr(page.engine.scan_controller, "is_running", lambda: True)
     page.session.start({"auto_uv_mode": "balanced"})
     page.refresh_view()
-    assert page.runs_card.maximumHeight() == 16777215
+    plot, runs = page.splitter.sizes()
+    assert abs(plot - 2 * runs) <= 2  # a scan starts at two thirds / one third
