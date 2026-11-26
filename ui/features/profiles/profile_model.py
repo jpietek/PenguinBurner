@@ -43,7 +43,6 @@ from profiles.uv.profile_rules import (
     profile_can_verify,
     profile_delete_safety,
     profile_for_selector,
-    profile_matches_gpu_target,
     profile_row_applicable,
     profile_row_deletable,
     profile_status_label,
@@ -60,8 +59,8 @@ DATE, PROFILE, GPU, MV, TARGET, EFFECTIVE, FPSW, FPS, POWER, MEM, TIER, SOURCE =
     len(COLUMNS)
 )
 RIGHT_ALIGNED = frozenset({MV, TARGET, EFFECTIVE, FPSW, FPS, POWER, MEM})
-# Columns whose tooltip compares against the scan's own baseline, with the
-# classic table's precision (profile_list.set_profiles metric_columns).
+# Columns whose tooltip compares against the scan's own baseline: the
+# profile field and its decimal places.
 METRIC_COLUMNS = {
     MV: ("candidate_voltage_mv", 2),
     EFFECTIVE: ("avg_core_clock_mhz", 2),
@@ -279,12 +278,6 @@ def resolve_target(
     return Target(choices, keep.uuid if keep else "")
 
 
-def profile_matches_target(profile: dict, target: Target) -> bool:
-    return profile_matches_gpu_target(
-        profile, target.uuid, target_chosen=target.chosen, single_gpu=target.single_gpu
-    )
-
-
 def row_visible(profile: dict, target: Target) -> bool:
     """Rows bound to another GPU hide behind the target (legacy rows stay)."""
     profile_uuid = profile_gpu_uuid(profile).casefold()
@@ -301,7 +294,7 @@ def visible_profiles(profiles: Iterable[dict], target: Target) -> list[dict]:
 
 
 def next_sort(column: int, descending: bool, clicked: int) -> tuple[int, bool]:
-    """The classic header rule: same column flips; Date starts newest first."""
+    """Header click rule: same column flips; Date starts newest first."""
     if clicked not in SORTABLE_COLUMNS:
         return column, descending
     if clicked == column:
@@ -310,7 +303,7 @@ def next_sort(column: int, descending: bool, clicked: int) -> tuple[int, bool]:
 
 
 def sort_profiles(profiles: list[dict], column: int, descending: bool) -> list[dict]:
-    """Order rows like QTableWidget.sortItems with the classic item comparator.
+    """Order rows like QTableWidget.sortItems with the profile item comparator.
 
     The input order breaks ties, so the store's newest-first order stays
     the secondary key."""
@@ -396,8 +389,8 @@ def factory_power_limit(profile: dict, gpus: Iterable[GpuTarget]) -> float | Non
 
 
 def date_text(profile: dict) -> str:
-    # The classic table shows seconds; the minute is enough to tell rows apart
-    # and keeps the column narrow. Sorting still uses the full timestamp.
+    # Dates show to the minute: enough to tell rows apart, and it keeps the
+    # column narrow. Sorting still uses the full timestamp.
     text = _full_date_text(profile)
     return text[:16] if len(text) >= 16 else text
 
@@ -474,7 +467,7 @@ def memory_clock_mhz(profile: dict) -> int | None:
 
 
 # ---------------------------------------------------------------------------
-# Per-profile action rules (profile_actions._show_profile_context_menu)
+# Per-profile action rules
 # ---------------------------------------------------------------------------
 
 
@@ -562,7 +555,7 @@ def verification_label(profile: dict) -> tuple[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# Delete safety (profile_actions._delete_selected_profiles)
+# Delete safety
 # ---------------------------------------------------------------------------
 
 

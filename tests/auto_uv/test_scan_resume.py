@@ -119,14 +119,12 @@ def candidate(curve, voltage=850, clock=2745):
 )
 def test_failure_then_scan_click_restores_table_plot_and_long_verifies_safer_point(
     monkeypatch, qapp, tmp_path, failure_kind, mode, override, duration, base_shift,
-    dispose_window,
+    dispose_window, offline_auto_uv,
 ):
     """Run real orchestration/persistence/Qt twice; substitute only hardware and the search schedule."""
     from auto_uv import main_loop as main
     from auto_uv.final_verification import main_loop as final_module
-    from ui import window as window_module
-    from ui.qt import import_qt
-    from ui.window import MainWindow
+    page_module = offline_auto_uv
 
     curve = rtx_5080_20260524_high_oc_base_curve()
     for point in curve:
@@ -233,20 +231,20 @@ def test_failure_then_scan_click_restores_table_plot_and_long_verifies_safer_poi
         # Observe the restored GUI BEFORE final verification starts.
         win = windows[-1]
         # Historical passing rows remain; changed stock clocks require two new baselines.
-        assert win.runs_table.widget.rowCount() == (7 if base_shift else 5)
-        clocks = [win.runs_table.widget.item(i, 2).text() for i in range(win.runs_table.widget.rowCount())]
+        assert win.table.rowCount() == (7 if base_shift else 5)
+        clocks = [win.table.item(i, 2).text() for i in range(win.table.rowCount())]
         assert "2800" not in clocks and "2775" not in clocks and "2760" not in clocks
         if not base_shift:
-            assert win.vf_plot._last_candidate_curve_id == "850mv-2745mhz"
-            voltages, clocks = win.vf_plot.candidate_curve.getData()
+            assert win.plot._last_candidate_curve_id == "850mv-2745mhz"
+            voltages, clocks = win.plot.candidate_curve.getData()
             assert clocks[list(voltages).index(850)] == 2745
         else:
             for point in kw["stable_plan"]:
                 base = next(p for p in curve if p["index"] == point["index"])
                 assert point["new_offset_mhz"] == point["target_mhz"] - base["base_mhz"]
-        win.window.show()
+        win.show()
         qapp.processEvents()
-        win.window.grab().save(str(tmp_path / "restored-scan.png"))
+        win.grab().save(str(tmp_path / "restored-scan.png"))
         return final_module.run_final_verification_and_save(**kw)
 
     monkeypatch.setattr(main, "open_live_gpu_vf_curve_applier", lambda **_kw: Gpu())
@@ -266,32 +264,20 @@ def test_failure_then_scan_click_restores_table_plot_and_long_verifies_safer_poi
     monkeypatch.setattr(runner_module, "probe_voltage_candidate", probe)
     monkeypatch.setattr(main, "probe_voltage_candidate", probe)
     monkeypatch.setattr(final_module, "apply_plan_and_refresh", lambda *_args: None)
-    monkeypatch.setattr(window_module, "read_auto_uv_profile_summaries", lambda: [])
-    monkeypatch.setattr(
-        window_module, "gpu_choices_with_fallback", lambda **_kw: ([], 0)
-    )
-    monkeypatch.setattr(
-        window_module,
-        "systemd_autostart_profile_info",
-        lambda: {"selector": "", "silent_fan_curve": False},
-    )
-    monkeypatch.setattr(window_module, "running_auto_uv_profile_info", lambda: {
+    monkeypatch.setattr(page_module, "running_auto_uv_profile_info", lambda: {
         "selector": "", "silent_fan_curve": False, "adaptive_auto_uv": False,
     })
+    monkeypatch.setattr(page_module, "penguin_burner_runtime_is_active", lambda: False)
+    monkeypatch.setattr(page_module, "silent_fan_curve_from_runtime_config", lambda: False)
     monkeypatch.setattr(
-        window_module, "penguin_burner_runtime_is_active", lambda: False
+        page_module, "ensure_daemon_ready_for_privileged_action", lambda **_kw: True
     )
-    monkeypatch.setattr(
-        window_module, "silent_fan_curve_from_runtime_config", lambda: False
-    )
-    monkeypatch.setattr(
-        window_module, "ensure_daemon_ready_for_privileged_action", lambda **_kw: True
-    )
-    monkeypatch.setattr(window_module, "select_scan_tuning", lambda **_kw: options)
-    monkeypatch.setattr(window_module, "persist_runtime_gpu_index", lambda index: index)
-    monkeypatch.setattr(window_module, "scan_command", lambda _opts: ["simulated-scan"])
-    modules = import_qt()
-    monkeypatch.setattr(modules[2].QDialog, "exec", lambda _self: 0)
+    monkeypatch.setattr(page_module, "select_scan_tuning", lambda **_kw: options)
+    monkeypatch.setattr(page_module, "persist_runtime_gpu_index", lambda index: index)
+    monkeypatch.setattr(page_module, "scan_command", lambda _opts: ["simulated-scan"])
+    from PySide6 import QtWidgets
+
+    monkeypatch.setattr(QtWidgets.QDialog, "exec", lambda _self: 0)
     windows = []
 
     class Controller:
@@ -302,7 +288,7 @@ def test_failure_then_scan_click_restores_table_plot_and_long_verifies_safer_poi
             win = windows[-1]
 
             def event(name, payload):
-                win._handle_scan_event({"event": name, **payload})
+                win.engine._scan_event({"event": name, **payload})
                 if name == "scan_resumed":
                     restored.append(payload)
 
@@ -315,24 +301,28 @@ def test_failure_then_scan_click_restores_table_plot_and_long_verifies_safer_poi
             )
             return True
 
+    def launch():
+        """A fresh app: a new scan engine and its Auto UV page."""
+        page_module.ENGINE["engine"] = None
+        page = page_module.AutoUvPage(gpu_index=0)
+        page.engine.scan_controller = Controller()
+        windows.append(page)
+        return page
+
     try:
-        first = MainWindow(modules)
-        windows.append(first)
-        first.scan_controller = Controller()
+        first = launch()
         assert not calls  # Opening the app does no scan work.
         with pytest.raises((SystemExit, AutoUvCriticalProbeError), match="simulated"):
-            first.start_scan()
+            first.setup()
         assert scan_checkpoint_path().is_file()
         before_retry = list(calls)
         curve[16]["base_mhz"] += base_shift
         curve[16]["target_mhz"] += base_shift
         expected_calls = [*before_retry, *(before_retry[:2] if base_shift else []), (860, 2745)]
-        second = MainWindow(modules)
-        windows.append(second)
-        second.scan_controller = Controller()
+        second = launch()
         assert calls == before_retry and not finals
-        assert second.runs_table.widget.rowCount() == 0
-        second.start_scan()  # The explicit click is the only resume trigger.
+        assert second.table.rowCount() == 0
+        second.setup()  # The explicit click is the only resume trigger.
         assert calls == expected_calls  # No voltage sweep repeats.
         assert workloads[-1].duration_s == duration - round(duration * 0.25)
         assert "--duration-seconds" in workloads[-1].companion_command
@@ -350,16 +340,17 @@ def test_failure_then_scan_click_restores_table_plot_and_long_verifies_safer_poi
         if mode == "adaptive":
             # A later tier's unavailable GPU leaves the verified Efficiency profile
             # and its checkpoint. Another click must not repeat that long check.
-            second.start_scan()
+            second.setup()
             assert len(finals) == 1
             assert calls == expected_calls
-            assert second.auto_uv_tier_progress.state("efficiency") == "complete"
-            assert second.vf_plot.comparison_curves
-            volts, clocks = second.vf_plot.comparison_curves[0].getData()
+            assert second.session.tier_states["efficiency"] == "complete"
+            assert second.plot.comparison_curves
+            volts, clocks = second.plot.comparison_curves[0].getData()
             assert clocks[list(volts).index(860)] == 2745
     finally:
         for win in windows:
-            dispose_window(win.window)
+            win.engine.page = None
+            dispose_window(win)
 
 
 @pytest.mark.parametrize("change", ["gpu", "settings", "malformed", "profile"])

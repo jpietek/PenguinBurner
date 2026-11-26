@@ -1,9 +1,9 @@
 """Game Perf Profile: the frame-ring model and the frametime figure.
 
-Ported from PR #137 (``origin/build-pr-137`` @ 611e6d3):
-``ui/components/game_perf_profile_panel.py`` (``densify_frametimes``,
-``hitch_points``, ``live_tail``, the y-ceiling, ticks, captions and refresh
-cadence) and ``runtime/frame_history.py`` (floor-index percentiles and the
+Ported from PR #137 (``origin/build-pr-137`` @ 611e6d3): its panel's
+``densify_frametimes``, ``hitch_points``, ``live_tail``, the y-ceiling,
+ticks, captions and refresh cadence, and ``runtime/frame_history.py``
+(floor-index percentiles and the
 5-minute qualify gate). The algorithms are kept equivalent to that commit;
 the figure is restyled to the preview's green design tokens (``ui/design/style.py``).
 

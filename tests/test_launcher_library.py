@@ -815,66 +815,6 @@ def test_launchers_sharing_a_bulk_key_mean_the_same_thing_by_it() -> None:
         assert steam[key].confirm == lutris[key].confirm
 
 
-def test_the_demo_render_only_reaches_for_parts_of_the_window_that_exist() -> None:
-    """The tour script is run by hand, so it rots silently -- and it did.
-
-    Merging the Steam and Lutris tabs left it reaching for window.steam_panel,
-    and nothing failed until someone ran it. This is the cheap standing check:
-    every attribute it pokes on the window has to be one the window sets.
-    """
-    import ast
-
-    demo = ast.parse(
-        Path("scripts/render-auto-uv-qt-demo.py").read_text(encoding="utf-8")
-    )
-    window_source = ast.parse(Path("ui/window.py").read_text(encoding="utf-8"))
-
-    defined = {
-        node.attr
-        for node in ast.walk(window_source)
-        if isinstance(node, ast.Attribute)
-        and isinstance(node.value, ast.Name)
-        and node.value.id == "self"
-    }
-    defined |= {
-        node.name
-        for node in ast.walk(window_source)
-        if isinstance(node, (ast.FunctionDef, ast.ClassDef))
-    }
-
-    def poked(name: str) -> set[str]:
-        return {
-            node.attr
-            for node in ast.walk(demo)
-            if isinstance(node, ast.Attribute)
-            and isinstance(node.value, ast.Name)
-            and node.value.id == name
-        }
-
-    import ui.window
-
-    on_instance = poked("window") - defined
-    in_module = poked("window_mod") - set(dir(ui.window))
-
-    assert not on_instance, f"the window no longer has: {sorted(on_instance)}"
-    assert not in_module, f"ui.window no longer exports: {sorted(in_module)}"
-
-
-def test_demo_live_capture_selects_an_installed_game() -> None:
-    import runpy
-
-    choose = runpy.run_path("scripts/render-auto-uv-qt-demo.py")["_choose_live_game"]
-    steam = _game("Quake II RTX", launcher="steam", game_id="1089130")
-    lutris = _game("Shelter", launcher="lutris", game_id="4")
-    games = (steam, lutris)
-
-    assert choose(games, "Shelter") is lutris
-    assert choose(games, "quake") is steam
-    assert choose(games, "") is lutris
-    with pytest.raises(RuntimeError, match="Game not found"):
-        choose(games, "Missing title")
-
-
 def test_a_native_linux_game_is_not_offered_a_proton_it_does_not_use() -> None:
     """Steam says which games are native; a picker there does nothing.
 

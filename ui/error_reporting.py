@@ -7,48 +7,6 @@ from .dialogs.error_details import (
 )
 
 
-class ErrorReporter:
-    def __init__(self, *, QtCore, QtGui, QtWidgets, parent, controls, log_view):
-        self.QtCore = QtCore
-        self.QtGui = QtGui
-        self.QtWidgets = QtWidgets
-        self.parent = parent
-        self.controls = controls
-        self.log_view = log_view
-
-    def show(self, title: str, message: str) -> None:
-        self.controls.set_status_text(str(message).splitlines()[0])
-        self.log_view.append(f"\n{title}: {message}\n")
-        show_error_dialog(
-            QtCore=self.QtCore,
-            QtGui=self.QtGui,
-            QtWidgets=self.QtWidgets,
-            parent=self.parent,
-            title=title,
-            message=message,
-        )
-
-    def show_process(
-        self,
-        *,
-        title: str,
-        action_label: str,
-        exit_code,
-        exit_status,
-    ) -> None:
-        show_process_failure(
-            QtCore=self.QtCore,
-            QtGui=self.QtGui,
-            QtWidgets=self.QtWidgets,
-            parent=self.parent,
-            title=title,
-            action_label=action_label,
-            exit_code=exit_code,
-            exit_status=exit_status,
-            log_text=self.log_view.text_edit.toPlainText(),
-        )
-
-
 def show_process_failure(
     *,
     QtCore,

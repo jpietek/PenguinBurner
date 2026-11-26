@@ -1,37 +1,18 @@
 # Documentation Images
 
-Render the animated README demo with the current Qt UI and its deterministic
-sample data:
+The animated README demo (`auto-uv-full-scan-demo.gif`) shows the 0.8.4
+window. Its renderer drove that window, so it lives with the release; to
+reproduce the published GIF, install the 0.8.4 wheel and run it from the tag:
 
 ```bash
-python scripts/render-auto-uv-qt-demo.py
-```
-
-To show the installed Steam, Lutris, Heroic and Faugus libraries, select a game
-visible on the capture host. The committed GIF selects Faugus's Diablo III:
-
-```bash
-python scripts/render-auto-uv-qt-demo.py \
-  --live-game-library --select-game "Diablo III" --screenshots-dir docs/assets
-```
-
-The README demo was refreshed from the installed **0.8.4** release. To reproduce
-that boundary after installing the released wheel, run:
-
-```bash
-python scripts/render-auto-uv-qt-demo.py --installed \
+git show v0.8.4:scripts/render-auto-uv-qt-demo.py > /tmp/render-demo.py
+python /tmp/render-demo.py --installed \
   --live-game-library --select-game "Diablo III"
 ```
 
-`--installed` loads the installed distribution's Qt UI and prints its version
-and module path. Without that flag, the renderer uses the checkout. The tour
-includes the redesigned overlay settings, DLSS 5 NR timing, hotspot temperature,
-and both frame-timing graphs, with a longer hold on the overlay screen.
-
 The scan and overlay telemetry are simulated; profiles use fixed example
-results. No scan or GPU write occurs. `--screenshots-dir` also refreshes the
-scan, profiles and overlay PNGs. Rendering requires PySide6, pyqtgraph and
-`ffmpeg`. Inspect the GIF, its generated poster and PNGs before publishing.
+results. No scan or GPU write occurs. Rendering requires PySide6, pyqtgraph and
+`ffmpeg`. Inspect the GIF and its poster before publishing.
 
 Capture Game Library from the current Qt widget and installed games:
 

@@ -154,9 +154,6 @@ class CurvePlot:
             [point[1] for point in self._source_points],
         )
 
-    def set_base_points(self, points: list[tuple[float, float]]) -> None:
-        self.set_source_points(points)
-
     def add_comparison_points(
         self,
         points: list[tuple[float, float]],

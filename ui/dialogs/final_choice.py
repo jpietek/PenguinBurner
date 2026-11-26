@@ -20,11 +20,13 @@ from auto_uv.scan_mode.auto_uv_mode import (
     normalize_auto_uv_mode,
 )
 from profiles.uv.profile_presentation import (
+    format_number,
     format_profile_metric_with_delta,
+    metric_delta_percent,
     profile_base_metric,
 )
 
-from ..components.profile_list import _paint_profile_delta_item
+from .. import theme
 from ..components.table_sizing import set_header_fit_column_widths
 from ..constants import (
     DEFAULT_FINAL_VERIFICATION_DURATION_S,
@@ -573,3 +575,63 @@ def _minutes(seconds: int) -> int:
 
 def _seconds(minutes: int) -> int:
     return max(60, int(minutes) * 60)
+
+
+# Candidate metric deltas against the stock baseline: green better, red worse.
+GOOD_DELTA_COLOR = theme.GOOD
+BAD_DELTA_COLOR = theme.ERROR
+
+
+def _profile_metric_delta_color(
+    current,
+    baseline,
+    *,
+    lower_is_better: bool = False,
+) -> str:
+    delta = metric_delta_percent(
+        current,
+        baseline,
+    )
+    if delta is None:
+        return ""
+    improved = delta < -0.005 if lower_is_better else delta > 0.005
+    regressed = delta > 0.005 if lower_is_better else delta < -0.005
+    if improved:
+        return GOOD_DELTA_COLOR
+    if regressed:
+        return BAD_DELTA_COLOR
+    return ""
+
+
+def _paint_profile_delta_item(
+    item,
+    QtGui,
+    current,
+    baseline,
+    *,
+    label: str,
+    lower_is_better: bool = False,
+) -> None:
+    color = _profile_metric_delta_color(
+        current,
+        baseline,
+        lower_is_better=lower_is_better,
+    )
+    delta = metric_delta_percent(
+        current,
+        baseline,
+    )
+    if delta is None:
+        return
+    if color:
+        item.setForeground(QtGui.QColor(color))
+    base_text = format_number(baseline, precision=2)
+    if lower_is_better:
+        comparison_text = "lower" if delta < 0.0 else "higher"
+        if label == "Power W" and delta < 0.0:
+            comparison_text = "saved"
+        item.setToolTip(
+            f"{label} {delta:+.2f}% {comparison_text} vs base {base_text}"
+        )
+    else:
+        item.setToolTip(f"{label} {delta:+.2f}% vs base {base_text}")

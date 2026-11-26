@@ -1,10 +1,9 @@
 """The Profiles page's data source over the saved-profile store and the
-root daemon: the classic Profiles tab's reads and writes, call for call.
+root daemon.
 
 Reads come from one snapshot taken by ``refresh()`` (saved profiles, GPUs,
 what runs now and at boot), so rendering never blocks on the daemon; a
-2 s poll re-reads what runs now off the GUI thread, as the classic window's
-status poll does. Writes follow an explicit user action: privileged ones go
+2 s poll re-reads what runs now off the GUI thread. Writes follow an explicit user action: privileged ones go
 to the root daemon through ``runtime_profile_command`` /
 ``delete_profiles_command`` run by a QProcess, the rest write the user's
 own profile and config files.
@@ -150,7 +149,7 @@ class RuntimeProfilesSource(C.QObject):
         self.runner = runner or ProfileCommandRunner(self)
         self._listeners: list[Callable[[], None]] = []
         # True once stock was restored and nothing has been applied since:
-        # the status reads "Default" (the classic window's _defaults_restored).
+        # the status reads "Default".
         self._defaults_restored = False
         self._profiles: list[dict] = []
         self._gpus: list[GpuTarget] = []
@@ -170,8 +169,8 @@ class RuntimeProfilesSource(C.QObject):
     # ---------------- snapshot ----------------
 
     def refresh(self) -> None:
-        """Re-read saved profiles, GPUs and the daemon's state (the classic
-        window's _load_profiles reads); listeners are not called."""
+        """Re-read saved profiles, GPUs and the daemon's state; listeners are
+        not called."""
         self._profiles = list(read_auto_uv_profile_summaries())
         self._gpus = [gpu_target(choice) for choice in detected_gpu_choices()]
         self._cache.clear()
@@ -197,7 +196,7 @@ class RuntimeProfilesSource(C.QObject):
 
     def poll_status(self) -> None:
         """Gather what runs now off the GUI thread, then apply it here. Skipped
-        while a command owns the state, as the classic poll is."""
+        while a command owns the state."""
         if self.runner.is_running():
             return
         if self._poll_thread is not None and self._poll_thread.is_alive():
@@ -291,7 +290,7 @@ class RuntimeProfilesSource(C.QObject):
     def base_curve_points(self, profile_id: str) -> list[tuple[float, float]]:
         profile = self._profile(profile_id)
         points = [] if profile is None else profile_base_curve_points(profile)
-        # The classic editor falls back to the last scan's cached stock curve.
+        # Without a profile curve, fall back to the last scan's cached stock curve.
         return points or load_cached_base_curve_points()
 
     def _fan_payload(self, profile_id: str) -> dict | None:
@@ -378,7 +377,7 @@ class RuntimeProfilesSource(C.QObject):
         done: Done,
     ) -> None:
         """Apply through the root daemon: --boot saves it for boot, --clear-boot
-        makes it session-only (profile_actions._run_runtime_action)."""
+        makes it session-only."""
         profile = self._profile(profile_id)
         gpu = self._gpu(gpu_uuid)
         if profile is None or gpu is None:

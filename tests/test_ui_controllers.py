@@ -11,12 +11,10 @@ import sys
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore
 
-from ui.components.scan_controls import ScanControls
 from ui.controllers.scan import ScanController
 from ui.controllers.verify import VerifyController
-
 
 # --- ScanController: pure-ish line handling -----------------------------------
 
@@ -252,20 +250,6 @@ def test_verify_runs_and_reports_progress(qtbot, tmp_path) -> None:
     assert not (tmp_path / "vstop").exists()  # cleaned up on finish
 
 
-def test_verify_progress_wires_to_real_scan_controls(qtbot, tmp_path) -> None:
-    # Regression test: on_progress is assigned ScanControls.set_verify_progress
-    # verbatim in ui/window.py, whose elapsed_s/target_s/detail are keyword-only.
-    # A mocked positional-lambda stub would not catch a calling-convention
-    # mismatch between the two, so this wires the real widget instead.
-    controller = VerifyController(QtCore=QtCore, stop_request_path=tmp_path / "vstop")
-    controls = ScanControls(QtWidgets=QtWidgets)
-    controller.on_progress = controls.set_verify_progress
-
-    script = "print('status elapsed=30.0s running')"
-    assert controller.start([sys.executable, "-c", script], duration_s=60) is True
-    qtbot.waitUntil(lambda: not controller.is_running(), timeout=5000)
-
-    assert controls.dependency_progress.text() == "Verifying profile 30s / 1min"
 
 
 def test_verify_routes_telemetry_json_out_of_the_log_view(qtbot, tmp_path) -> None:

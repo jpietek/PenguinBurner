@@ -1,7 +1,7 @@
 """The Game Perf Profile page: one game's frame-ring detail.
 
-After PR #137 (``origin/build-pr-137`` @ 611e6d3,
-``ui/components/game_perf_profile_panel.py``), as a Game Library drill-down:
+After PR #137 (``origin/build-pr-137`` @ 611e6d3), as a Game Library
+drill-down:
 a header with Back, breadcrumb, title, meta line and tier pill; the row of
 cards on top (Fingerprint · Frame rate · GPU and system, reflowing 3 -> 2 -> 1
 columns at 960 / 720 px); the frametime figure below. Header and cards

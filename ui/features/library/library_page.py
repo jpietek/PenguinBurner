@@ -1,7 +1,6 @@
 """Game Library page: every launcher's games, laid out as the new window draws them.
 
-The page is the classic ``GameLibraryPanel`` with the new window's layout on
-top: a search field and folding filters over the list, a painted wrapped
+The page is ``GameLibraryPanel`` with the window's layout on top: a search field and folding filters over the list, a painted wrapped
 marker, the page heading, and the Perf Profile entry beside Play. Every scan,
 write, launch, session and write-state gate is still the panel's own code,
 over the real launcher registry and the daemon's launcher-session stream.
@@ -46,7 +45,7 @@ from ui.design.style import COL, GAP, focus_visible
 from ui.features.tuning.gpu_selection import detected_gpu_choices
 
 DETAILS_MIN_WIDTH = 460
-#: A painted wrapped marker replaces the classic row's ●/○ glyph.
+#: Item data role for the painted wrapped marker on each row.
 WRAPPED_ROLE = int(C.Qt.ItemDataRole.UserRole) + 7
 #: Tracked states that are a game session of this library: the wrapper
 #: confirmed the game (running), or Stop was asked and has not landed yet.
@@ -128,7 +127,7 @@ def find_in_layout(layout, widget):
 
 
 class LibraryPanel(GameLibraryPanel):
-    """The classic Game Library panel in the new window's layout.
+    """The Game Library panel in the window's layout.
 
     ``owner`` is the ``LibraryPage``: it holds the perf source and the
     signals this panel reports through.
@@ -406,8 +405,7 @@ class LibraryPanel(GameLibraryPanel):
         self.target_follow_label.setWordWrap(True)
         self._details_pane = pane
         pane.setMinimumWidth(DETAILS_MIN_WIDTH)
-        # The Perf Profile entry replaces the classic badge beside Play, in a
-        # secondary style, with the game's own frametime sparkline as its icon.
+        # The Perf Profile entry sits beside Play, in a secondary style, with the game's own frametime sparkline as its icon.
         found = find_in_layout(self.play_button.parentWidget().layout(), self.play_button)
         assert found, "Play is laid out in the game header"
         hero, _index = found
@@ -443,8 +441,8 @@ class LibraryPanel(GameLibraryPanel):
         self.owner.selected_game_changed.emit(game)
 
     def _sync_perf_profile_badge(self, game) -> None:
-        """The entry beside Play stands in for the classic badge, on the same
-        calls: each selection and each game-state poll (a live ring grows)."""
+        """Sync the entry beside Play on each selection and each game-state
+        poll (a live ring grows)."""
         setting = game_setting(game)
         self.perf_button.sync(
             game_key(game) if game is not None else "",
@@ -662,8 +660,8 @@ class LibraryPage(W.QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
-        # The first look reads every launcher, as the classic tab does on
-        # first entry; never while the window is being built.
+        # The first look reads every launcher; never while the window is
+        # being built.
         self.panel.ensure_scanned()
         self._sync_perf_timer()
         if self._recording:
@@ -688,8 +686,7 @@ class LibraryPage(W.QWidget):
     # -- Adaptive ----------------------------------------------------------------
 
     def adaptive_available(self, gpu_uuid: str = "", include_legacy_profiles: bool = False) -> bool:
-        """The panel's Adaptive gate, over the saved profiles (as the classic
-        window's)."""
+        """The panel's Adaptive gate, over the saved profiles."""
         if self._profile_summaries is None:
             self._profile_summaries = list(read_auto_uv_profile_summaries())
         return adaptive_tier_available(

@@ -2,8 +2,8 @@
 every page shares, with the selected game's wide artwork behind the HUD
 preview.
 
-Everything the overlay tab does runs through ``OverlayConfigPanel`` as in
-the classic window: overlay.toml loaded and saved on each explicit edit, the
+Everything the overlay tab does runs through ``OverlayConfigPanel``:
+overlay.toml loaded and saved on each explicit edit, the
 1 s re-sync that picks up shortcut and CLI edits, the telemetry a wrapped game
 publishes, the vkcube live preview and the Keyboard shortcuts dialog. This
 module lays it out, and takes the selected game and the running tier from the
@@ -155,8 +155,7 @@ class OverlayPanel(OverlayConfigPanel):
 
     ``running_tier`` is the tier the other pages report as running (Adaptive's
     live tier, the running profile's tier, or "Default" at stock). Empty means
-    unknown: the HUD preview then keeps its sample tier, as the classic tab
-    does. A tier published by a wrapped game always wins.
+    unknown: the HUD preview then keeps its sample tier. A tier published by a wrapped game always wins.
     """
 
     def __init__(self, *, config_path: str | Path | None = None):
@@ -317,8 +316,8 @@ class OverlayPanel(OverlayConfigPanel):
     # -- keyboard shortcuts -----------------------------------------------------
 
     def _show_shortcuts(self):
-        """The classic flow: KDE opens its own shortcut settings; otherwise,
-        or when that fails, the shortcuts dialog."""
+        """KDE opens its own shortcut settings; otherwise, or when that
+        fails, the shortcuts dialog opens."""
         before = getattr(self, "_shortcuts_dialog", None)
         super()._show_shortcuts()
         dialog = getattr(self, "_shortcuts_dialog", None)

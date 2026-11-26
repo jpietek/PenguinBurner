@@ -611,37 +611,19 @@ def test_the_one_sentence_form_still_reads_the_same() -> None:
 
 
 def test_the_status_line_no_longer_pins_the_window_open(qapp) -> None:
-    """A plain QLabel reports its whole string as its minimum width.
+    """A plain QLabel reports its whole string as its minimum width, which
+    kept the window from narrowing. The window's status lines elide: how
+    narrow they may get must not depend on how long the status is."""
+    from PySide6 import QtWidgets as W
 
-    That is why the window would not narrow and why a smaller one snapped back
-    out to fit the text. The bar has to shrink and elide instead.
-    """
-    from ui.components.scan_controls import ScanControls
-    from ui.qt import import_qt
+    from ui.components.elided_label import ElidedLabel
 
-    QtCore, QtGui, QtWidgets, _pg = import_qt()
-    if QtWidgets is None:
-        import pytest
-
-        pytest.skip("PySide6 not available")
-
-    controls = ScanControls(QtWidgets=QtWidgets, QtCore=QtCore)
-    long_line = "Currently running profile: " + "2920 MHz 925 mV, " * 12
-
-    controls.set_status_text(long_line, "Standing: 2730 MHz 850 mV · Autostart: Yes")
-
-    assert controls.status_label.minimumSizeHint().width() == 0
-    # The precise property: how wide the bar may shrink to must not depend on
-    # how long the status is. It used to, which is why a smaller window snapped
-    # back out to fit the text.
-    wide = controls.widget.minimumSizeHint().width()
-    controls.set_status_text("Idle", "")
-    assert controls.widget.minimumSizeHint().width() == wide
-    controls.set_status_text(long_line, "Standing: 2730 MHz 850 mV · Autostart: Yes")
-    # The second line carries its own subject and appears only when it has one.
-    assert controls.status_detail_label.isVisibleTo(controls.widget)
-    # Elided on screen, whole in the tooltip.
-    assert controls.status_label.toolTip().startswith("Currently running profile:")
-    # A one-off message clears the detail, so the bar keeps its single-line height.
-    controls.set_status_text("Idle")
-    assert not controls.status_detail_label.isVisibleTo(controls.widget)
+    bar = W.QWidget()
+    row = W.QHBoxLayout(bar)
+    label = ElidedLabel("statusRunning")
+    row.addWidget(label)
+    label.set_full_text("Idle")
+    narrow = bar.minimumSizeHint().width()
+    label.set_full_text("Currently running profile: " + "2920 MHz 925 mV, " * 12)
+    assert bar.minimumSizeHint().width() == narrow
+    assert label.full_text().startswith("Currently running profile")

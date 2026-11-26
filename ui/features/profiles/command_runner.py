@@ -1,7 +1,7 @@
 """Runs one short root-service command at a time (Apply, Restore, Delete).
 
-The classic window's CommandController (a QProcess) with the finish turned
-into a ``CommandResult``: the captured output becomes the copyable error
+A CommandController (a QProcess) whose finish is turned into a
+``CommandResult``: the captured output becomes the copyable error
 report of a failed command, as the window's ErrorReporter builds it.
 """
 

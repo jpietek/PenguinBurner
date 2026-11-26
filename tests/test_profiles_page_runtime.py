@@ -1,8 +1,8 @@
-"""The new window's Profiles tab over the real backend: the runtime source
+"""The window's Profiles tab over the real backend: the runtime source
 (ui/features/profiles/runtime_profiles_source.py), its command runner and
-the window wiring. Owners are monkeypatched where
-the classic window's tests patch them; the asserted calls are the daemon
-commands, daemon requests and files the classic Profiles tab produces."""
+the window wiring. Owners are monkeypatched at their seams; the asserted
+calls are the daemon commands, daemon requests and files the Profiles tab
+produces."""
 
 from __future__ import annotations
 

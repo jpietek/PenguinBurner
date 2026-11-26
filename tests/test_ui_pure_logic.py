@@ -6,7 +6,7 @@ Covers ui/verify.py and ui/error_reporting
 
 from __future__ import annotations
 
-import ui.error_reporting as error_reporting
+from ui import error_reporting
 from ui.features.tuning.verify import (
     elapsed_from_line,
     progress_percent,
@@ -70,52 +70,10 @@ class _FakeLogView:
         self.appended.append(text)
 
 
-def _reporter(monkeypatch, *, log_text: str = ""):
-    calls: list[dict] = []
-    monkeypatch.setattr(
-        error_reporting, "show_error_dialog", lambda **kw: calls.append(kw)
-    )
-    monkeypatch.setattr(
-        error_reporting,
-        "process_failure_details",
-        lambda **kw: f"details:{kw['action_label']}:{kw['exit_code']}",
-    )
-    monkeypatch.setattr(error_reporting, "qt_enum_name", lambda status: f"status:{status}")
-    controls = _FakeControls()
-    log_view = _FakeLogView(log_text)
-    reporter = error_reporting.ErrorReporter(
-        QtCore=object(),
-        QtGui=object(),
-        QtWidgets=object(),
-        parent=object(),
-        controls=controls,
-        log_view=log_view,
-    )
-    return reporter, controls, log_view, calls
 
 
-def test_error_reporter_show_sets_status_logs_and_opens_dialog(monkeypatch) -> None:
-    reporter, controls, log_view, calls = _reporter(monkeypatch)
-
-    reporter.show("VF Curve", "Something failed\nsecond line")
-
-    assert controls.status_text == "Something failed"
-    assert any("VF Curve: Something failed" in entry for entry in log_view.appended)
-    assert calls and calls[0]["title"] == "VF Curve"
 
 
-def test_error_reporter_show_process_includes_details(monkeypatch) -> None:
-    reporter, _controls, _log_view, calls = _reporter(monkeypatch, log_text="line\n" * 5)
-
-    reporter.show_process(
-        title="Scan failed",
-        action_label="Auto-UV scan",
-        exit_code=3,
-        exit_status="crash",
-    )
-
-    assert calls[0]["title"] == "Scan failed"
-    assert calls[0]["details"] == "details:Auto-UV scan:3"
 
 
 def test_recent_log_tail_limits_lines_and_chars() -> None:

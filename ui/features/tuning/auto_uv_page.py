@@ -1,6 +1,6 @@
 """The Auto UV tab: run the undervolt scan and profile verification.
 
-The scan runs as the daemon-streamed subprocess the classic window starts
+The scan runs as a daemon-streamed subprocess
 (``runtime.daemon_commands.scan_command``); ``ScanSession`` turns its JSON
 events into what this page shows. ``AutoUvEngine`` owns the processes, the
 session and the log for the whole app, so rebuilding the window for a new

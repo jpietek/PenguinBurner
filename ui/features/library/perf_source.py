@@ -1,9 +1,9 @@
 """The Perf Profile's data: the daemon's per-game frame-history rings.
 
 ``RuntimePerfSource`` is the ``PerfProfileSource`` the Game Library page and
-its Perf Profile read. It reads the same rings the classic Game Perf Profile
-tab reads (``runtime.frame_history``: the live ring under /run while the game
-plays, else the archive) and passes the daemon's summary through unchanged.
+its Perf Profile read. It reads the daemon's rings through
+``runtime.frame_history`` (the live ring under /run while the game plays,
+else the archive) and passes the daemon's summary through unchanged.
 The library supplies what the ring does not hold: the game's name, its
 Capture telemetry setting and its Adaptive target.
 """

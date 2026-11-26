@@ -49,7 +49,7 @@ def test_native_packages_install_pyqtgraph_colorama_runtime_dependency() -> None
 
 
 def test_native_packages_install_pyyaml_runtime_dependency() -> None:
-    # PyYAML is imported during MainWindow construction (the Lutris library
+    # PyYAML is imported during the window's construction (the Lutris library
     # source), so a package missing it crashes the whole GUI at startup, not
     # just one tab.
     metadata = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))

@@ -2,7 +2,7 @@
 
 Each page reads and writes through its backend owner; the window wires the
 pages to each other and keeps Appearance in the runtime config's ``[ui]``
-section. ``--classic`` still opens the previous window as a fallback.
+section.
 """
 
 from __future__ import annotations
@@ -295,8 +295,8 @@ class ShellWindow(W.QWidget):
             page.show_new_profile(profile_id)
 
     def apply_scan_profile(self, summary: dict) -> None:
-        """A completed scan applies its profile, as the classic window's
-        daemonize does, once the scan process has fully released."""
+        """A completed scan applies its profile through the daemon once the
+        scan process has fully released."""
 
         def apply() -> None:
             page = self.profiles_tab.page
@@ -512,8 +512,8 @@ def open_shell_window(app: W.QApplication, *, gpu_index: int | None) -> ShellWin
     G.QGuiApplication.styleHints().colorSchemeChanged.connect(follow_desktop_scheme)
     window = ShellWindow(gpu_index=gpu_index)
     CURRENT["window"] = window
-    # After the window paints, as the classic window does; a rebuild for a
-    # new Appearance does not run them again.
+    # Startup checks run after the window paints; a rebuild for a new
+    # Appearance does not run them again.
     C.QTimer.singleShot(0, lambda: startup_checks(CURRENT["window"]))
     return window
 

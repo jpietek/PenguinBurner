@@ -14,9 +14,6 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import importlib
 
 import integrations.afterburner.profile_import as ab
-import ui.features.integrations.afterburner_workflow as workflow_mod
-from ui.features.integrations.afterburner_workflow import AfterburnerImportWorkflow
-from ui.qt import import_qt
 
 # `ui.main` the attribute is shadowed by the re-exported `main` function, so
 # fetch the actual submodule object for monkeypatching.
@@ -74,71 +71,14 @@ def test_afterburner_import_reads_the_shared_runtime_gpu_index(tmp_path) -> None
     assert ab.runtime_gpu_index(tmp_path / "absent.toml") == 0
 
 
-# --- afterburner workflow -----------------------------------------------------
 
 
-def _workflow(monkeypatch, *, running=False):
-    qtcore, qtgui, qtwidgets, pg = import_qt()
-    monkeypatch.setattr(qtwidgets.QMessageBox, "information", lambda *a, **k: None)
-    state = {"status": [], "loaded": 0}
-    controls = SimpleNamespace(set_status_text=lambda t: state["status"].append(t))
-    profile_list = SimpleNamespace(
-        select_profile=lambda pid: None,
-        table=SimpleNamespace(setFocus=lambda: None),
-    )
-    log_view = SimpleNamespace(append=lambda t: None)
-    tabs = SimpleNamespace(setCurrentIndex=lambda i: None)
-    errors: list = []
-    wf = AfterburnerImportWorkflow(
-        QtCore=qtcore, QtGui=qtgui, QtWidgets=qtwidgets, pg=pg, parent=None,
-        tabs=tabs, profiles_tab_index=2, profile_list=profile_list, controls=controls,
-        log_view=log_view, workflow_running=lambda: running,
-        load_profiles=lambda: state.__setitem__("loaded", state["loaded"] + 1),
-        show_error=lambda title, msg: errors.append(title),
-    )
-    return wf, state, errors
 
 
-def test_workflow_blocked_when_running(monkeypatch) -> None:
-    wf, state, _errors = _workflow(monkeypatch, running=True)
-    wf.run()
-    assert state["status"] and "Finish the current" in state["status"][0]
 
 
-def test_workflow_cancelled(monkeypatch) -> None:
-    wf, state, _errors = _workflow(monkeypatch)
-    monkeypatch.setattr(workflow_mod, "select_afterburner_import", lambda **k: None)
-    wf.run()
-    assert state["loaded"] == 0
 
 
-def test_workflow_dialog_error(monkeypatch) -> None:
-    wf, _state, errors = _workflow(monkeypatch)
-
-    def _boom(**k):
-        raise RuntimeError("dialog broke")
-
-    monkeypatch.setattr(workflow_mod, "select_afterburner_import", _boom)
-    wf.run()
-    assert errors == ["Import Afterburner"]
-
-
-def test_workflow_success(monkeypatch) -> None:
-    wf, state, _errors = _workflow(monkeypatch)
-    monkeypatch.setattr(workflow_mod, "select_afterburner_import", lambda **k: {"section": "profile2"})
-    monkeypatch.setattr(
-        workflow_mod,
-        "persist_afterburner_import_selection",
-        lambda entry: {
-            "section": "profile2",
-            "device_profile_relative_path": "Profiles/p.cfg",
-            "afterburner_root": "/ab",
-            "profile_path": "/tmp/auto-uv-afterburner-profile2.json",
-            "profile_id": "afterburner-profile2",
-        },
-    )
-    wf.run()
-    assert state["loaded"] == 1
 
 
 # --- main.run -----------------------------------------------------------------
@@ -189,12 +129,7 @@ def _patch_gui_run(monkeypatch) -> dict:
             created["shown"] = True
 
     monkeypatch.setattr(
-        ui_main,
-        "_classic_window",
-        lambda qt_modules, gpu_index: _FakeWindow("classic", gpu_index),
-    )
-    monkeypatch.setattr(
-        ui_main, "_new_window", lambda app, gpu_index: _FakeWindow("new", gpu_index)
+        ui_main, "_open_window", lambda app, gpu_index: _FakeWindow("new", gpu_index)
     )
     return created
 
@@ -213,14 +148,6 @@ def test_main_run_launches_app(monkeypatch) -> None:
     assert created["kind"] == "new"
     assert created["gpu_index"] == 1
     assert integration_checks == [True]
-
-
-def test_main_run_classic_flag_opens_the_classic_window(monkeypatch) -> None:
-    created = _patch_gui_run(monkeypatch)
-    monkeypatch.setattr(ui_main, "ensure_host_integration", lambda: None)
-
-    assert ui_main.run(["pburn", "--classic", "--gpu-index", "2"]) == 0
-    assert created == {"kind": "classic", "gpu_index": 2, "shown": True}
 
 
 def test_main_warns_but_starts_on_incomplete_flatpak_integration(

@@ -3,7 +3,7 @@
 Nothing here starts a process, talks to the root service or touches the
 GPU: the scan and verification controllers are stubbed where they would
 spawn, and recorded scan events (tests/fixtures/auto_uv_scan) drive the page
-through the same ScanSession the classic window uses.
+through ScanSession.
 """
 
 from __future__ import annotations
@@ -211,7 +211,7 @@ def test_recorded_full_scan_renders_rows_tiers_and_completes(page_env):
     assert page.table.item(last, 1).text() == "987"
     assert page.table.item(last, 12).text().startswith("Final · ")
     assert page.table.item(last, 11).data(RESULT_ROLE) == "gain"
-    # Δ stock follows the classic window's colour thresholds.
+    # Δ stock follows the gain/loss colour thresholds.
     assert page.table.item(last, 6).data(DELTA_TONE_ROLE) == "gain"
     saved = signals["profile_saved"][-1][0]
     assert saved["candidate_id"] == "987mv-1920mhz" and saved["gpu_index"] == 0

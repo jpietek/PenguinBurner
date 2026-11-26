@@ -1,8 +1,7 @@
 """Profiles page: saved profiles, Apply / Apply on startup, edits, Verify.
 
-Native widgets over a ProfilesSource (profile_model.ProfilesSource): the
-classic Profiles tab's workflows (ui/features/profiles/profile_actions.py),
-with every rule from the backend (profiles.uv.profile_rules) through
+Native widgets over a ProfilesSource (profile_model.ProfilesSource), with
+every rule from the backend (profiles.uv.profile_rules) through
 profile_model. Dialogs (confirmations, Verify, Edit memory offset, LACT,
 Afterburner) and the V/F and fan curve editors open through small hook
 objects so a host can restyle or script them.
@@ -216,7 +215,7 @@ class ProfileDialogs:
         return combo.currentText().strip() or None
 
     def afterburner_entry(self, parent) -> dict | None:
-        """The classic Afterburner chooser: pick an exported slot to import."""
+        """The Afterburner chooser: pick an exported slot to import."""
         import pyqtgraph as pg
 
         from ui.dialogs.afterburner_import import select_afterburner_import
@@ -572,8 +571,7 @@ class ProfilesPage(W.QWidget):
             -1 if self.target.index is None else self.target.index
         )
         if self.target.index is not None:
-            # The chosen GPU becomes the saved runtime GPU, as the classic
-            # target selector does.
+            # The chosen GPU becomes the saved runtime GPU.
             try:
                 self.source.remember_target_gpu(self.target.index)
             except Exception as exc:  # noqa: BLE001 - a corrupt config is refused
@@ -1479,8 +1477,8 @@ class ProfilesPage(W.QWidget):
     # ---------------- Afterburner ----------------
 
     def run_afterburner_import(self) -> str | None:
-        """Import Afterburner: the classic chooser, then save the chosen slot
-        as a profile row (ui/features/integrations/afterburner_workflow)."""
+        """Import Afterburner: the chooser, then save the chosen slot as a
+        profile row."""
         if self.busy():
             return self.import_afterburner({})
         try:

@@ -141,11 +141,8 @@ def test_gpu_selection_persists_runtime_index(tmp_path) -> None:
 
 
 def test_new_ui_vf_plot_does_not_hardcode_gpu_clock_or_voltage_range() -> None:
-    source = Path("ui/window.py").read_text(encoding="utf-8")
-    vf_plot_block = source.split("self.vf_plot = CurvePlot(", 1)[1].split(
-        "self.fan_plot = CurvePlot(",
-        1,
-    )[0]
+    source = Path("ui/features/tuning/auto_uv_view.py").read_text(encoding="utf-8")
+    vf_plot_block = source.split("self.plot = ScanPlot(", 1)[1].split(")", 1)[0]
 
     assert "x_range=" not in vf_plot_block
     assert "y_range=" not in vf_plot_block

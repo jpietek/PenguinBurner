@@ -9,55 +9,82 @@ from auto_uv.domain.user_options import AUTO_UV_DEFAULTS
 from auto_uv.run.scan_runtime_settings import (
     short_probe_base_duration_s as _short_probe_base_duration_s,
 )
-from ui.assets import application_version as _application_version
-from ui.dialogs.about import ABOUT_LINKS_HTML
-from ui.dialogs.final_choice import (
-    FINAL_CHOICE_FPS_SORT_COLUMN,
-    FINAL_CHOICE_FPSW_SORT_COLUMN,
-    best_final_choice_candidate_id as _best_final_choice_candidate_id,
-    create_final_choice_table as _create_final_choice_table,
-    final_choice_shows_oc_column as _final_choice_shows_oc_column,
-    final_choice_sort_column_for_mode as _final_choice_sort_column_for_mode,
-    final_choice_intro_text as _final_choice_intro_text,
-    sort_candidates_for_final_choice as _sort_candidates_for_final_choice,
-)
-from ui.main import parse_gui_args as _parse_gui_args
-from auto_uv.session.scan_events import top_status_text as _top_status_text
 from auto_uv.session.scan_events import probe_decision_label as _probe_decision_label
 from auto_uv.session.scan_events import probe_failure_label as _probe_failure_label
-from ui.styles import STYLESHEET
-from ui.features.tuning.tuning import (
-    AUTO_UV_PRESET_ADAPTIVE,
-    AUTO_UV_PRESET_BALANCED,
-    AUTO_UV_PRESET_EFFICIENCY,
-    AUTO_UV_PRESET_PERFORMANCE,
-    DEFAULT_AUTO_UV_BALANCED_TAIL_RISE_BINS,
-    DEFAULT_AUTO_UV_PRESET,
-    GPU_UNDERVOLTING_PURPOSE_TEXT,
-    DEFAULT_AUTO_UV_PERFORMANCE_TAIL_RISE_BINS,
-    DEFAULT_AUTO_UV_TAIL_RISE_BINS,
-    auto_uv_preset as _auto_uv_preset,
-    auto_uv_performance_preset_label as _auto_uv_performance_preset_label,
-    auto_uv_target_default as _auto_uv_target_default,
-    auto_uv_performance_preset_tooltip as _auto_uv_performance_preset_tooltip,
+from auto_uv.session.scan_events import top_status_text as _top_status_text
+from auto_uv.session.scan_runs import (
+    clamped_elapsed_s as _scan_controls_clamped_elapsed_s,
 )
 from auto_uv.session.scan_runs import (
     format_duration_compact as _format_duration_compact,
+)
+from auto_uv.session.scan_runs import (
     is_active_decision as _is_active_decision,
+)
+from auto_uv.session.scan_runs import (
     progress_label as _progress_label,
+)
+from auto_uv.session.scan_runs import (
     progress_time_text as _progress_time_text,
+)
+from auto_uv.session.scan_runs import (
     row_state as _row_state,
 )
-from ui.components.runs_table import RunsTable, _progress_text_color
-from ui.components.scan_controls import (
-    _clamped_elapsed_s as _scan_controls_clamped_elapsed_s,
-)
+from ui.assets import application_version as _application_version
 from ui.components.curve_plot import (
     _axis_value_badge_text,
     _nearest_curve_point,
     _probe_marker_values,
 )
 from ui.components.table_sizing import set_header_fit_column_widths
+from ui.dialogs.about import ABOUT_LINKS_HTML
+from ui.dialogs.final_choice import (
+    FINAL_CHOICE_FPS_SORT_COLUMN,
+    FINAL_CHOICE_FPSW_SORT_COLUMN,
+)
+from ui.dialogs.final_choice import (
+    best_final_choice_candidate_id as _best_final_choice_candidate_id,
+)
+from ui.dialogs.final_choice import (
+    create_final_choice_table as _create_final_choice_table,
+)
+from ui.dialogs.final_choice import (
+    final_choice_intro_text as _final_choice_intro_text,
+)
+from ui.dialogs.final_choice import (
+    final_choice_shows_oc_column as _final_choice_shows_oc_column,
+)
+from ui.dialogs.final_choice import (
+    final_choice_sort_column_for_mode as _final_choice_sort_column_for_mode,
+)
+from ui.dialogs.final_choice import (
+    sort_candidates_for_final_choice as _sort_candidates_for_final_choice,
+)
+from ui.features.tuning.tuning import (
+    AUTO_UV_PRESET_ADAPTIVE,
+    AUTO_UV_PRESET_BALANCED,
+    AUTO_UV_PRESET_EFFICIENCY,
+    AUTO_UV_PRESET_PERFORMANCE,
+    DEFAULT_AUTO_UV_BALANCED_TAIL_RISE_BINS,
+    DEFAULT_AUTO_UV_PERFORMANCE_TAIL_RISE_BINS,
+    DEFAULT_AUTO_UV_PRESET,
+    DEFAULT_AUTO_UV_TAIL_RISE_BINS,
+    GPU_UNDERVOLTING_PURPOSE_TEXT,
+)
+from ui.features.tuning.tuning import (
+    auto_uv_performance_preset_label as _auto_uv_performance_preset_label,
+)
+from ui.features.tuning.tuning import (
+    auto_uv_performance_preset_tooltip as _auto_uv_performance_preset_tooltip,
+)
+from ui.features.tuning.tuning import (
+    auto_uv_preset as _auto_uv_preset,
+)
+from ui.features.tuning.tuning import (
+    auto_uv_target_default as _auto_uv_target_default,
+)
+from ui.main import parse_gui_args as _parse_gui_args
+from ui.styles import STYLESHEET
 
 
 def test_auto_uv_short_verification_defaults_to_10_seconds() -> None:
@@ -159,70 +186,8 @@ def test_probe_failure_severity_controls_table_row_state() -> None:
     )
 
 
-def test_runs_table_power_delta_keeps_raw_sign() -> None:
-    table = RunsTable.__new__(RunsTable)
-    table.base_baseline = {
-        "stage": "base-baseline",
-        "power_w": 300.0,
-        "efficiency_fps_per_w": 0.5,
-    }
-
-    assert table._delta_text(225.6, "power_w") == "-24.80%"
-    assert table._delta_text(0.75, "efficiency_fps_per_w") == "+50.00%"
-    assert table._metric_text_with_delta(225.6, "power_w") == "225.60 (-24.80%)"
 
 
-def test_runs_table_compacts_metric_delta_columns() -> None:
-    import os
-
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-
-    table = RunsTable(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
-
-    assert "FPS vs base" not in RunsTable.COLUMNS
-    assert "Power vs base" not in RunsTable.COLUMNS
-    assert "FPS/W vs base" not in RunsTable.COLUMNS
-
-    table.add_probe_result(
-        {
-            "stage": "base-baseline",
-            "voltage_mv": 1020,
-            "clock_mhz": 2745,
-            "fps": 150.0,
-            "power_w": 300.0,
-            "efficiency_fps_per_w": 0.50,
-            "decision": "pass",
-        }
-    )
-    table.add_probe_result(
-        {
-            "stage": "candidate",
-            "voltage_mv": 900,
-            "clock_mhz": 2600,
-            "fps": 160.0,
-            "power_w": 270.0,
-            "efficiency_fps_per_w": 0.75,
-            "perf_cap_reason": "sw-power+hw-thermal",
-            "decision": "accept",
-        }
-    )
-
-    assert table.widget.columnCount() == len(RunsTable.COLUMNS)
-    assert table.widget.item(0, table.FPS_COLUMN).text() == "150.00 (ref)"
-    assert table.widget.item(1, table.FPS_COLUMN).text() == "160.00 (+6.67%)"
-    assert table.widget.item(1, table.POWER_COLUMN).text() == "270.00 (-10.00%)"
-    assert table.widget.item(1, table.PERF_CAP_COLUMN).text() == ("sw-power+hw-thermal")
-    assert table.widget.item(1, table.FPSW_COLUMN).text() == "0.7500 (+50.00%)"
-    assert (
-        table.widget.item(1, table.POWER_COLUMN)
-        .toolTip()
-        .startswith("Power W -10.00% vs base")
-    )
 
 
 def test_final_choice_performance_mode_sorts_by_fps() -> None:
@@ -687,11 +652,6 @@ def test_auto_uv_target_default_uses_gpu_table_target() -> None:
 
 
 
-def test_progress_text_stays_light_until_bar_is_full() -> None:
-    assert _progress_text_color("#62e887", 0.0) == "#f2f5f2"
-    assert _progress_text_color("#62e887", 0.5) == "#f2f5f2"
-    assert _progress_text_color("#62e887", None) == "#f2f5f2"
-    assert _progress_text_color("#62e887", 1.0) == "#10140f"
 
 
 def test_final_progress_label_uses_capitalized_user_text() -> None:
@@ -708,93 +668,8 @@ def test_progress_time_uses_human_duration_text() -> None:
     assert _scan_controls_clamped_elapsed_s(9, 7) == 7.0
 
 
-def test_running_status_without_duration_is_static_text() -> None:
-    import os
-
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-
-    from ui.components.runs_table import RunsTable
-
-    table = RunsTable(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
-    payload = {"stage": "candidate", "voltage_mv": 900, "clock_mhz": 2600}
-
-    table.add_probe_start(payload)
-    assert table.widget.cellWidget(0, table.STATUS_COLUMN) is None
-    assert table.widget.item(0, table.STATUS_COLUMN).text() == "Running"
 
 
-def test_overlay_tab_hides_runs_panel_and_scrolls_options(monkeypatch) -> None:
-    import os
-
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-
-    from overlay.metrics import (
-        METRICS,
-        OVERLAY_ITEM_SECTIONS,
-    )
-    from ui.window import MainWindow
-
-    monkeypatch.setattr(MainWindow, "_load_profiles", lambda self: None)
-    qt_modules = (QtCore, QtGui, QtWidgets, pytest.importorskip("pyqtgraph"))
-    window = MainWindow(qt_modules)
-
-    assert window.table_panel.isVisibleTo(window.window)
-    window.tabs.setCurrentIndex(window.overlay_tab_index)
-    assert not window.table_panel.isVisibleTo(window.window)
-    assert (
-        window.overlay_config.widget.findChild(
-            QtWidgets.QCheckBox,
-            "overlayEnableCheckbox",
-        )
-        is None
-    )
-    # The per-game switch in Game Library remains a separate control.
-    # It is a QAbstractButton painted from the shared theme.
-    assert (
-        window.game_library_panel.widget.findChild(
-            QtWidgets.QAbstractButton,
-            "gameOverlay",
-        )
-        is not None
-    )
-    assert (
-        window.overlay_config.widget.findChild(
-            QtWidgets.QScrollArea,
-        )
-        is window.overlay_config._options_scroll
-    )
-    # Subject groups use the same cards as Game Library, with full labels
-    # and checkboxes revealed inside each section only while editing it.
-    panel = window.overlay_config
-    headings = {
-        label.property("headingText")
-        for label in panel.widget.findChildren(QtWidgets.QLabel, "prefGroupHeading")
-    }
-    assert {title for title, _ids in OVERLAY_ITEM_SECTIONS}.issubset(headings)
-    for title, item_ids in OVERLAY_ITEM_SECTIONS:
-        labels = [panel.item_title_labels[item].text() for item in item_ids]
-        assert labels == [METRICS[item].label for item in item_ids]
-        assert all(panel.item_checkboxes[item].isHidden() for item in item_ids)
-        panel.section_edit_buttons[title].click()
-        assert all(not panel.item_checkboxes[item].isHidden() for item in item_ids)
-        panel.section_edit_buttons[title].click()
-    assert panel.item_title_labels["gpu_util_pct"].text() == "GPU usage"
-    assert panel.item_title_labels["cpu_util_pct"].text() == "CPU usage"
-    assert panel.item_title_labels["cpu_peak_thread_pct"].text() == "Busiest CPU thread"
-
-    window.tabs.setCurrentIndex(window.auto_uv_tab_index)
-    assert window.table_panel.isVisibleTo(window.window)
-    window.window.close()
 
 
 def test_overlay_panel_has_no_adaptive_target_fps_control(tmp_path, qtbot) -> None:
@@ -890,385 +765,24 @@ def test_overlay_panel_has_no_steam_launch_controls(tmp_path, qtbot) -> None:
     assert panel.widget.findChild(QtWidgets.QPushButton, "overlayCopyLaunchButton") is None
 
 
-def test_running_status_with_duration_uses_seconds_progress() -> None:
-    import os
-
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-
-    from ui.components.runs_table import RunsTable
-
-    table = RunsTable(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
-    payload = {
-        "stage": "candidate",
-        "voltage_mv": 900,
-        "clock_mhz": 2600,
-        "elapsed_s": 0,
-        "target_duration_s": 32,
-    }
-
-    table.add_probe_start(payload)
-    widget = table.widget.cellWidget(0, table.STATUS_COLUMN)
-
-    assert widget is not None
-    assert widget.format() == "0s / 32s"
-    assert table.widget.item(0, table.DECISION_COLUMN).text() == "Running"
-    assert table.widget.item(0, table.STATUS_COLUMN).text() == ""
-
-    table.update_probe_progress(
-        {
-            "stage": "candidate",
-            "voltage_mv": 900,
-            "clock_mhz": 2600,
-            "elapsed_s": 12,
-            "target_duration_s": 32,
-        }
-    )
-
-    widget = table.widget.cellWidget(0, table.STATUS_COLUMN)
-    assert widget is not None
-    assert widget.format() == "12s / 32s"
-
-
-def test_probe_result_reuses_running_row_and_keeps_seconds_progress() -> None:
-    import os
-
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-
-    from ui.components.runs_table import RunsTable
-
-    table = RunsTable(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
-    start_payload = {
-        "stage": "candidate",
-        "voltage_mv": 900,
-        "clock_mhz": 2600,
-        "elapsed_s": 0,
-        "target_duration_s": 32,
-    }
-    result_payload = {
-        "stage": "candidate",
-        "voltage_mv": 900,
-        "clock_mhz": 2600,
-        "fps": 120,
-        "power_w": 240,
-        "decision": "pass",
-    }
-
-    table.add_probe_start(start_payload)
-    table.add_probe_result(result_payload)
-    widget = table.widget.cellWidget(0, table.STATUS_COLUMN)
-
-    assert table.widget.rowCount() == 1
-    assert table.widget.item(0, table.DECISION_COLUMN).text() == "Pass"
-    assert table.widget.item(0, table.STATUS_COLUMN).text() == ""
-    assert widget is not None
-    assert widget.format() == "32s / 32s"
-
-
-def test_probe_failure_result_is_generic_while_status_keeps_detail() -> None:
-    import os
-
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-
-    from ui.components.runs_table import RunsTable
-
-    table = RunsTable(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
-    table.add_probe_result(
-        {
-            "stage": "candidate",
-            "voltage_mv": 875,
-            "clock_mhz": 2880,
-            "decision": "fail",
-            "failure_kind": "fatal-output",
-            "fatal_output_matches": ["VK_ERROR_DEVICE_LOST"],
-        }
-    )
-    widget = table.widget.cellWidget(0, table.STATUS_COLUMN)
-
-    assert table.widget.item(0, table.DECISION_COLUMN).text() == "Failed"
-    assert widget is not None
-    assert widget.format() == "Vulkan device lost 100%"
-
-
-def test_auto_oc_target_mhz_stays_in_target_column() -> None:
-    import os
-
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-
-    table = RunsTable(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
-    table.record_candidate_curve(
-        {
-            "stage": "candidate",
-            "label": "performance-oc 3/10",
-            "voltage_mv": 950,
-            "clock_mhz": 2745,
-            "auto_oc": True,
-            "auto_oc_baseline_clock_mhz": 2565,
-            "auto_oc_applied_mhz": 180,
-            "auto_oc_limit_mhz": 180,
-            "points": [
-                {
-                    "voltage_mv": 950,
-                    "base_mhz": 2565,
-                    "clock_mhz": 2745,
-                    "offset_mhz": 180,
-                }
-            ],
-        }
-    )
-    start_payload = {
-        "stage": "candidate",
-        "label": "performance-oc 3/10",
-        "voltage_mv": 950,
-        "clock_mhz": 2745,
-        "elapsed_s": 0,
-        "target_duration_s": 32,
-    }
-    result_payload = {
-        "stage": "candidate",
-        "label": "performance-oc 3/10",
-        "voltage_mv": 950,
-        "clock_mhz": 2745,
-        "measured_clock_mhz": 2733.5,
-        "decision": "pass",
-    }
-
-    table.add_probe_start(start_payload)
-    table.add_probe_result(result_payload)
-
-    assert table.widget.rowCount() == 1
-    assert table.widget.item(0, table.TARGET_MHZ_COLUMN).text() == "2745"
-    assert table.widget.item(0, table.OC_MHZ_COLUMN).text() == "+180 MHz"
-    assert table.widget.item(0, table.MEASURED_MHZ_COLUMN).text() == "2733.50"
-    assert table.widget.item(0, table.DECISION_COLUMN).text() == "Pass"
-
-
-def test_candidate_curve_updates_oc_column_for_existing_run_row() -> None:
-    import os
-
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-
-    table = RunsTable(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
-    table.add_probe_start(
-        {
-            "stage": "candidate",
-            "voltage_mv": 910,
-            "clock_mhz": 2890,
-            "elapsed_s": 0,
-            "target_duration_s": 32,
-        }
-    )
-
-    assert table.widget.item(0, table.OC_MHZ_COLUMN).text() == ""
-
-    table.record_candidate_curve(
-        {
-            "stage": "candidate",
-            "voltage_mv": 910,
-            "clock_mhz": 2890,
-            "auto_oc": True,
-            "auto_oc_baseline_clock_mhz": 2730,
-            "points": [
-                {
-                    "voltage_mv": 910,
-                    "base_mhz": 2400,
-                    "clock_mhz": 2890,
-                }
-            ],
-        }
-    )
-
-    assert table.widget.item(0, table.OC_MHZ_COLUMN).text() == "+160 MHz"
-
-
-def test_oc_column_ignores_auto_oc_budget_without_measured_baseline() -> None:
-    import os
-
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-
-    table = RunsTable(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
-    table.add_probe_start(
-        {
-            "stage": "candidate",
-            "voltage_mv": 885,
-            "clock_mhz": 2880,
-            "elapsed_s": 0,
-            "target_duration_s": 32,
-        }
-    )
-    table.record_candidate_curve(
-        {
-            "stage": "candidate",
-            "voltage_mv": 885,
-            "clock_mhz": 2880,
-            "auto_oc": True,
-            "auto_oc_applied_mhz": 7,
-            "auto_oc_limit_mhz": 107,
-        }
-    )
-
-    assert table.widget.item(0, table.OC_MHZ_COLUMN).text() == ""
-
-    table.add_probe_result(
-        {
-            "stage": "candidate",
-            "voltage_mv": 885,
-            "clock_mhz": 2880,
-            "base_avg_core_clock_mhz": 2730,
-            "decision": "pass",
-        }
-    )
-
-    assert table.widget.item(0, table.OC_MHZ_COLUMN).text() == "+150 MHz"
-
-
-def test_non_auto_oc_run_leaves_oc_progress_empty() -> None:
-    import os
-
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-
-    table = RunsTable(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
-    table.add_probe_result(
-        {
-            "stage": "candidate",
-            "voltage_mv": 900,
-            "clock_mhz": 2600,
-            "decision": "pass",
-        }
-    )
-
-    # A row with no measured baseline leaves OC blank, not "0/0".
-    assert table.widget.item(0, table.OC_MHZ_COLUMN).text() == ""
-
-
-def test_run_with_measured_baseline_shows_signed_oc_progress() -> None:
-    import os
-
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-
-    table = RunsTable(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
-    table.add_probe_result(
-        {
-            "stage": "candidate",
-            "voltage_mv": 885,
-            "clock_mhz": 2880,
-            "base_avg_core_clock_mhz": 2730,
-            "decision": "pass",
-        }
-    )
-
-    assert table.widget.item(0, table.OC_MHZ_COLUMN).text() == "+150 MHz"
-
-
-def test_run_with_measured_baseline_shows_negative_oc_progress() -> None:
-    import os
-
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-
-    table = RunsTable(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
-    table.add_probe_result(
-        {
-            "stage": "candidate",
-            "voltage_mv": 875,
-            "clock_mhz": 2600,
-            "measured_baseline_clock_mhz": 2730,
-            "decision": "fail",
-        }
-    )
-
-    assert table.widget.item(0, table.OC_MHZ_COLUMN).text() == "-130 MHz"
-
-
-def test_runs_table_row_click_toggles_single_candidate_selection() -> None:
-    import os
-
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-
-    table = RunsTable(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
-    selected: list[str | None] = []
-    table.on_candidate_selection_changed = selected.append
-
-    table.add_probe_result(
-        {
-            "stage": "candidate",
-            "voltage_mv": 900,
-            "clock_mhz": 2600,
-            "decision": "accepted",
-        }
-    )
-    table.add_probe_result(
-        {
-            "stage": "candidate",
-            "voltage_mv": 890,
-            "clock_mhz": 2610,
-            "decision": "accepted",
-        }
-    )
-
-    table._handle_cell_clicked(0, 0)
-    assert selected == ["900mv-2600mhz"]
-    assert table.selected_candidate_id() == "900mv-2600mhz"
-
-    table._handle_cell_clicked(1, 0)
-    assert selected[-1] == "890mv-2610mhz"
-    assert table.selected_candidate_id() == "890mv-2610mhz"
-    assert [index.row() for index in table.widget.selectionModel().selectedRows()] == [
-        1
-    ]
-
-    table._handle_cell_clicked(1, 0)
-    assert selected[-1] is None
-    assert table.selected_candidate_id() is None
-    assert table.widget.selectionModel().selectedRows() == []
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def test_stopping_rows_remain_active_until_stop_is_finalized() -> None:
@@ -1293,24 +807,6 @@ def test_app_stylesheet_keeps_custom_scrollbars_inside_overlay() -> None:
     assert "QWidget" not in first_selector
 
 
-def test_scan_controls_include_about_button_after_import_afterburner() -> None:
-    import os
-
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-
-    from ui.components.scan_controls import ScanControls
-
-    controls = ScanControls(QtWidgets=QtWidgets)
-    buttons = controls.widget.findChildren(QtWidgets.QPushButton)
-
-    assert [button.text() for button in buttons][-2:] == ["Import Afterburner", "About"]
-    assert controls.about_button.objectName() == "aboutButton"
-    assert "QPushButton#aboutButton" in STYLESHEET
 
 
 def test_application_version_is_available_for_about_dialog() -> None:
@@ -1403,7 +899,7 @@ def test_advanced_tuning_group_has_breathing_room() -> None:
 
 
 def test_scan_tuning_power_limit_controls_disabled_when_power_management_disabled():
-    import ui.dialogs.scan_tuning as scan_tuning
+    from ui.dialogs import scan_tuning
 
     values = scan_tuning._power_limit_control_values(
         SimpleNamespace(
@@ -1420,7 +916,7 @@ def test_scan_tuning_power_limit_controls_disabled_when_power_management_disable
 
 
 def test_scan_tuning_power_limit_controls_require_daemon_setter_probe():
-    import ui.dialogs.scan_tuning as scan_tuning
+    from ui.dialogs import scan_tuning
 
     values = scan_tuning._power_limit_control_values(
         SimpleNamespace(
@@ -1443,7 +939,7 @@ def test_scan_tuning_preset_hover_always_shows_its_tooltip(monkeypatch) -> None:
     pytest.importorskip("PySide6")
     from PySide6 import QtCore, QtWidgets
 
-    import ui.dialogs.scan_tuning as scan_tuning
+    from ui.dialogs import scan_tuning
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     _ = app
@@ -1473,8 +969,8 @@ def test_scan_tuning_preset_hover_always_shows_its_tooltip(monkeypatch) -> None:
     )
 
     event_types = getattr(QtCore.QEvent, "Type", QtCore.QEvent)
-    enter_type = getattr(event_types, "Enter")
-    leave_type = getattr(event_types, "Leave")
+    enter_type = event_types.Enter
+    leave_type = event_types.Leave
     QtWidgets.QApplication.sendEvent(efficiency, QtCore.QEvent(enter_type))
     QtWidgets.QApplication.sendEvent(efficiency, QtCore.QEvent(leave_type))
     QtWidgets.QApplication.sendEvent(balanced, QtCore.QEvent(enter_type))
@@ -1495,7 +991,7 @@ def test_scan_tuning_unsupported_power_limit_only_omits_power_option(
     pytest.importorskip("PySide6")
     from PySide6 import QtCore, QtGui, QtWidgets
 
-    import ui.dialogs.scan_tuning as scan_tuning
+    from ui.dialogs import scan_tuning
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     _ = app
@@ -1608,7 +1104,7 @@ def test_scan_tuning_dialog_keeps_geometry_stable_between_presets(monkeypatch) -
     pytest.importorskip("PySide6")
     from PySide6 import QtCore, QtGui, QtWidgets
 
-    import ui.dialogs.scan_tuning as scan_tuning
+    from ui.dialogs import scan_tuning
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     _ = app
@@ -1833,7 +1329,7 @@ def test_scan_tuning_enter_in_numeric_field_only_commits_value(monkeypatch) -> N
     pytest.importorskip("PySide6")
     from PySide6 import QtCore, QtGui, QtTest, QtWidgets
 
-    import ui.dialogs.scan_tuning as scan_tuning
+    from ui.dialogs import scan_tuning
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     monkeypatch.setattr(
@@ -1928,7 +1424,7 @@ def test_scan_tuning_dialog_returns_power_limit_from_slider(monkeypatch) -> None
     pytest.importorskip("PySide6")
     from PySide6 import QtCore, QtGui, QtWidgets
 
-    import ui.dialogs.scan_tuning as scan_tuning
+    from ui.dialogs import scan_tuning
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     _ = app
@@ -2034,7 +1530,7 @@ def test_scan_tuning_memory_offset_is_mhz_with_mt_s_shown_and_doubled(
     pytest.importorskip("PySide6")
     from PySide6 import QtCore, QtGui, QtWidgets
 
-    import ui.dialogs.scan_tuning as scan_tuning
+    from ui.dialogs import scan_tuning
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     _ = app
@@ -2137,21 +1633,6 @@ def test_top_status_text_does_not_truncate_live_temperature() -> None:
     )
 
 
-def test_status_header_candidate_detail_wraps_instead_of_hard_clipping() -> None:
-    import os
-
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-
-    from ui.components.status_header import StatusHeader
-
-    header = StatusHeader(QtCore=QtCore, QtWidgets=QtWidgets)
-
-    assert header.candidate_label.wordWrap() is True
 
 
 def test_column_width_includes_header_text_width() -> None:
@@ -2255,6 +1736,7 @@ def test_tier_target_controls_validate_ranges_and_auto(monkeypatch, gpu_name, ha
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
     from PySide6 import QtCore, QtGui, QtWidgets
+
     import ui.dialogs.scan_tuning as tuning
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])

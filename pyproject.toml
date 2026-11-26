@@ -133,7 +133,6 @@ packages = [
   "ui.design",
   "ui.dialogs",
   "ui.features",
-  "ui.features.curves",
   "ui.features.integrations",
   "ui.features.library",
   "ui.features.overlay",

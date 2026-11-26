@@ -47,7 +47,7 @@ def test_curve_plot_full_data_api(qapp) -> None:
     plot.enable_point_selection(True)
 
     plot.set_source_points([(800, 2000), (900, 2400)])
-    plot.set_base_points([(820, 2050), (910, 2450)])
+    plot.set_source_points([(820, 2050), (910, 2450)])
     plot.add_comparison_points(
         [(820, 2100), (900, 2400)],
         name="Other",

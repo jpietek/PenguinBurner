@@ -1,22 +1,95 @@
 from __future__ import annotations
 
 import json
-import os
 from types import SimpleNamespace
 
 import pytest
 
-import profiles.uv.profile_store as profile_store
 import penguin_burner
+import profiles.uv.profile_fan_curve as ui_app
+import profiles.uv.profile_vf_curve as curve_profiles
 import profiles.verification.metrics as profile_verification_metrics
 import profiles.verification.rules as profile_verification_rules
 import profiles.verification.runner as profile_verification_runner
+from auto_uv.session.scan_events import (
+    candidate_id_from_payload as _candidate_id_from_result,
+)
+from auto_uv.session.scan_events import event_base_points as _event_base_points
+from auto_uv.session.scan_events import stage_title as _stage_title
+from auto_uv.session.scan_events import status_value as _status_value
+from auto_uv.session.scan_events import top_status_text as _top_status_text
 from cli.runtime_profile_argument import (
     runtime_profile_selector_allows_unverified_from_argv as allow_unverified_from_argv,
 )
-import profiles.uv.profile_vf_curve as curve_profiles
-import profiles.uv.profile_fan_curve as ui_app
-from runtime.gpu_control.flattened_clock_ceiling import FlattenedClockCeilingController
+from common.cli_output import format_user_duration as _format_duration_for_user
+from integrations.lact.export import (
+    lact_export_output_path as _lact_export_output_path,
+)
+from integrations.lact.export import (
+    lact_gpu_id_from_config as _lact_gpu_id_from_config,
+)
+import profiles.uv.profile_store as profile_store
+from profiles.uv.profile_fan_curve import (
+    fan_curve_target_point_from_payload as _fan_curve_target_point_from_payload,
+)
+from profiles.uv.profile_fan_curve import (
+    fan_measurement_point as _fan_measurement_point,
+)
+from profiles.uv.profile_fan_curve import (
+    fan_measurement_points as _fan_measurement_points,
+)
+from profiles.uv.profile_fan_curve import (
+    fan_payload_has_silent_runtime_fields as _fan_payload_has_silent_runtime_fields,
+)
+from profiles.uv.profile_fan_curve import (
+    profile_fan_curve_points as _profile_fan_curve_points,
+)
+from profiles.uv.profile_fan_curve import (
+    profile_fan_curve_target_point as _profile_fan_curve_target_point,
+)
+from profiles.uv.profile_fan_curve import (
+    profile_fan_measurement_points as _profile_fan_measurement_points,
+)
+from profiles.uv.profile_fan_curve import (
+    sorted_unique_fan_points as _sorted_unique_fan_points,
+)
+from profiles.uv.profile_presentation import format_number as _format_number
+from profiles.uv.profile_presentation import (
+    metric_delta_percent as _metric_delta_percent,
+)
+from profiles.uv.profile_presentation import profile_base_metric as _profile_base_metric
+from profiles.uv.profile_presentation import (
+    profile_metric_tooltip as _profile_metric_tooltip,
+)
+from profiles.uv.profile_presentation import profile_sort_values as _profile_sort_values
+from profiles.uv.profile_presentation import (
+    profile_source_label as _profile_source_label,
+)
+from profiles.uv.profile_presentation import (
+    profile_tier_column_label as _profile_tier_label,
+)
+from profiles.uv.profile_presentation import (
+    promote_preferred_profile as _promote_preferred_profile,
+)
+from profiles.uv.profile_presentation import sort_value_less as _sort_value_less
+from profiles.uv.profile_rules import TierStore
+from profiles.uv.profile_rules import (
+    adaptive_profile_tier_labels as _adaptive_profile_tier_labels,
+)
+from profiles.uv.profile_rules import (
+    delete_confirmation_text as _profile_delete_confirmation_text,
+)
+from profiles.uv.profile_rules import (
+    profile_delete_autostart_action as _profile_delete_autostart_action,
+)
+from profiles.uv.profile_rules import (
+    profile_verify_selector as _profile_verify_selector,
+)
+from profiles.uv.profile_rules import runner_status_text as _runner_status_text
+from profiles.uv.profile_rules import (
+    selected_profile_ids_include_selector as _selected_profile_ids_include_selector,
+)
+from profiles.uv.profile_rules import tier_winner_ids as _resolved_tier_winner_ids
 from profiles.uv.profile_store import (
     archive_auto_uv_profile,
     bind_auto_uv_profile_gpu_identity,
@@ -29,17 +102,27 @@ from profiles.uv.profile_store import (
     read_auto_uv_profile_summaries,
     resolve_auto_uv_profile,
 )
-from common.cli_output import format_user_duration as _format_duration_for_user
+from profiles.uv.profile_store import (
+    profile_id_from_archive_path as _profile_id_from_archive_path,
+)
+from profiles.uv.profile_vf_curve import (
+    load_cached_base_curve_points as _load_cached_base_curve_points,
+)
+from profiles.uv.profile_vf_curve import (
+    profile_base_curve_points as _profile_base_curve_points,
+)
+from profiles.uv.profile_vf_curve import (
+    save_cached_base_curve_points as _save_cached_base_curve_points,
+)
+from runtime.gpu_control.flattened_clock_ceiling import FlattenedClockCeilingController
+from runtime.profile_status import (
+    profile_info_from_command_text as _profile_info_from_command_text,
+)
 from ui.components.fan_curve_editor import (
     fan_curve_editor_shortcut_legend_rows as _fan_curve_editor_shortcut_legend_rows,
 )
 from ui.components.vf_curve_editor import (
     vf_curve_editor_shortcut_legend_rows as _curve_editor_shortcut_legend_rows,
-)
-from profiles.uv.profile_vf_curve import (
-    load_cached_base_curve_points as _load_cached_base_curve_points,
-    profile_base_curve_points as _profile_base_curve_points,
-    save_cached_base_curve_points as _save_cached_base_curve_points,
 )
 from ui.dialogs.error_details import error_dialog_copy_text as _error_dialog_copy_text
 from ui.dialogs.error_details import process_failure_details as _process_failure_details
@@ -49,75 +132,8 @@ from ui.dialogs.final_choice import candidate_status_text as _candidate_status_t
 from ui.dialogs.final_choice import (
     final_choice_sort_values as _final_choice_sort_values,
 )
-from profiles.uv.profile_fan_curve import (
-    fan_curve_target_point_from_payload as _fan_curve_target_point_from_payload,
-    fan_measurement_point as _fan_measurement_point,
-    fan_measurement_points as _fan_measurement_points,
-    fan_payload_has_silent_runtime_fields as _fan_payload_has_silent_runtime_fields,
-    profile_fan_curve_points as _profile_fan_curve_points,
-    profile_fan_curve_target_point as _profile_fan_curve_target_point,
-    profile_fan_measurement_points as _profile_fan_measurement_points,
-    sorted_unique_fan_points as _sorted_unique_fan_points,
-)
-from profiles.uv.profile_store import (
-    profile_id_from_archive_path as _profile_id_from_archive_path,
-)
-from integrations.lact.export import (
-    lact_export_output_path as _lact_export_output_path,
-)
-from integrations.lact.export import (
-    lact_gpu_id_from_config as _lact_gpu_id_from_config,
-)
-from auto_uv.session.scan_events import candidate_id_from_payload as _candidate_id_from_result
-from auto_uv.session.scan_events import event_base_points as _event_base_points
-from auto_uv.session.scan_events import stage_title as _stage_title
-from auto_uv.session.scan_events import status_value as _status_value
-from auto_uv.session.scan_events import top_status_text as _top_status_text
-from profiles.uv.profile_rules import (
-    delete_confirmation_text as _profile_delete_confirmation_text,
-)
-from profiles.uv.profile_rules import (
-    adaptive_profile_tier_labels as _adaptive_profile_tier_labels,
-)
-from runtime.profile_status import (
-    profile_info_from_command_text as _profile_info_from_command_text,
-)
-from profiles.uv.profile_rules import (
-    profile_delete_autostart_action as _profile_delete_autostart_action,
-)
-from profiles.uv.profile_rules import (
-    profile_verify_selector as _profile_verify_selector,
-)
-from profiles.uv.profile_rules import runner_status_text as _runner_status_text
-from profiles.uv.profile_rules import (
-    selected_profile_ids_include_selector as _selected_profile_ids_include_selector,
-)
 from ui.features.tuning.verify import elapsed_from_line as _verify_elapsed_from_line
 from ui.features.tuning.verify import progress_percent as _verify_progress_percent
-from ui.features.tuning.gpu_selection import GpuChoice
-from ui.components.profile_list import (
-    ProfileList,
-    _should_preserve_selection,
-    _should_preserve_single_selection_toggle,
-)
-from profiles.uv.profile_presentation import PROFILE_SORTABLE_COLUMNS
-from profiles.uv.profile_presentation import format_number as _format_number
-from profiles.uv.profile_presentation import metric_delta_percent as _metric_delta_percent
-from profiles.uv.profile_presentation import profile_base_metric as _profile_base_metric
-from profiles.uv.profile_presentation import (
-    profile_metric_tooltip as _profile_metric_tooltip,
-)
-from profiles.uv.profile_presentation import profile_sort_values as _profile_sort_values
-from profiles.uv.profile_presentation import profile_source_label as _profile_source_label
-from profiles.uv.profile_presentation import (
-    profile_tier_column_label as _profile_tier_label,
-)
-from profiles.uv.profile_presentation import (
-    promote_preferred_profile as _promote_preferred_profile,
-)
-from profiles.uv.profile_presentation import sort_value_less as _sort_value_less
-from profiles.uv.profile_rules import TierStore
-from profiles.uv.profile_rules import tier_winner_ids as _resolved_tier_winner_ids
 
 # No saved tier assignments; "None" tiers still come from the user's file.
 _NO_TIER_ASSIGNMENTS = TierStore(assignments=lambda _gpu_uuid: {})
@@ -233,20 +249,6 @@ def test_profile_metric_tooltip_identifies_its_scan_baseline() -> None:
         assert _profile_metric_tooltip(current, baseline, label="Power W") == ""
 
 
-def test_profile_table_headers_and_sorting_scope() -> None:
-    assert ProfileList.COLUMNS[2] == "GPU"
-    assert ProfileList.COLUMNS[3] == "mV"
-    assert ProfileList.COLUMNS[4] == "Target MHz"
-    assert ProfileList.COLUMNS[5] == "Effective MHz"
-    assert ProfileList.COLUMNS[6] == "FPS/W"
-    assert ProfileList.COLUMNS[8] == "Power W"
-    assert ProfileList.COLUMNS[9] == "Mem"
-    assert ProfileList.COLUMNS[10] == "Tier"
-    assert "Autostart" not in ProfileList.COLUMNS
-    assert "Voltage vs base" not in ProfileList.COLUMNS
-    assert "FPS/W vs base" not in ProfileList.COLUMNS
-    assert "Power vs base" not in ProfileList.COLUMNS
-    assert PROFILE_SORTABLE_COLUMNS == frozenset({0, 2, 3, 4, 5, 6, 7, 8})
 
 
 def test_existing_profile_uses_matching_latest_long_verification_clock(
@@ -394,502 +396,30 @@ def test_profile_non_sort_columns_have_no_sort_keys() -> None:
     assert sort_values[11] == ""
 
 
-def test_profile_table_keeps_plain_metrics_and_regular_font_for_highlight() -> None:
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-    profile_list = ProfileList(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
-    header = profile_list.table.horizontalHeader()
-    assert not header.highlightSections()
-    assert not header.font().bold()
-    profile_list.set_profiles(
-        [
-            {
-                "profile_id": "profile-a",
-                "candidate_id": "875mv-2610mhz",
-                "profile_created_at": "2026-04-27T12:00:00+02:00",
-                "candidate_voltage_mv": 875,
-                "base_candidate_voltage_mv": 1000,
-                "lock_clock_mhz": 2610,
-                "avg_core_clock_mhz": 2605.25,
-                "base_avg_core_clock_mhz": 2650.0,
-                "efficiency_fps_per_w": 0.80,
-                "base_efficiency_fps_per_w": 0.50,
-                "avg_fps": 160.0,
-                "base_avg_fps": 150.0,
-                "avg_power_w": 200.0,
-                "base_avg_power_w": 250.0,
-                "memory_offset_mhz": 1000,
-            }
-        ],
-        preferred_candidate_id="875mv-2610mhz",
-        select_preferred=True,
-    )
-
-    assert (
-        profile_list.table.item(0, profile_list.VOLTAGE_COLUMN).text()
-        == "875"
-    )
-    assert (
-        profile_list.table.item(0, profile_list.EFFECTIVE_MHZ_COLUMN).text()
-        == "2605.25"
-    )
-    assert profile_list.table.item(0, profile_list.FPSW_COLUMN).text() == (
-        "0.8000"
-    )
-    assert profile_list.table.item(0, profile_list.FPS_COLUMN).text() == (
-        "160.00"
-    )
-    assert profile_list.table.item(0, profile_list.POWER_COLUMN).text() == (
-        "200.00"
-    )
-    # The stored offset is an NVML transfer-rate value (MT/s); the table shows
-    # the realized memory clock in MHz (half of it) with a unit suffix.
-    assert profile_list.table.item(0, profile_list.MEMORY_OFFSET_COLUMN).text() == (
-        "+500 MHz"
-    )
-    for column in range(profile_list.table.columnCount()):
-        item = profile_list.table.item(0, column)
-        assert item is not None
-        assert not item.font().bold()
-        assert item.foreground().style() == QtCore.Qt.BrushStyle.NoBrush
 
 
-def test_profile_table_keeps_scan_deltas_in_tooltips_and_sorts_absolute_values() -> None:
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-    profile_list = ProfileList(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
-    profile_list.set_profiles(
-        [
-            {
-                "avg_core_clock_mhz": 2888.06,
-                "base_avg_core_clock_mhz": 2743.59,
-                "efficiency_fps_per_w": 0.211799,
-                "base_efficiency_fps_per_w": 0.183359,
-                "avg_fps": 67.161,
-                "base_avg_fps": 64.228,
-                "avg_power_w": 317.098,
-                "base_avg_power_w": 350.286,
-            }
-        ]
-    )
-
-    expected = {
-        profile_list.EFFECTIVE_MHZ_COLUMN: (
-            "2888.06",
-            "+5.27%",
-        ),
-        profile_list.FPSW_COLUMN: (
-            "0.2118",
-            "+15.51%",
-        ),
-        profile_list.FPS_COLUMN: (
-            "67.16",
-            "+4.57%",
-        ),
-    }
-    for column, (text, delta) in expected.items():
-        item = profile_list.table.item(0, column)
-        assert item.text() == text
-        assert delta in item.toolTip()
-        assert "vs this scan's baseline:" in item.toolTip()
-        assert item.foreground().style() == QtCore.Qt.BrushStyle.NoBrush
-    power_item = profile_list.table.item(0, profile_list.POWER_COLUMN)
-    assert power_item.text() == "317.10"
-    assert "unavailable" in power_item.toolTip()
-    profile_list.set_profiles(
-        [
-            {
-                "profile_id": "efficiency",
-                "gpu_identity": {"uuid": "GPU-A"},
-                "avg_power_w": 247.895,
-                "base_avg_power_w": 300.129,
-                "avg_fps": 60.075,
-                "base_avg_fps": 61.324,
-            },
-            {
-                "profile_id": "balanced",
-                "gpu_identity": {"uuid": "GPU-A"},
-                "avg_power_w": 252.228,
-                "base_avg_power_w": 354.089,
-                "avg_fps": 61.933,
-                "base_avg_fps": 63.018,
-            },
-        ],
-        default_power_limits_w={"gpu-a": 360.0},
-    )
-    profile_list.table.sortItems(
-        profile_list.POWER_COLUMN, QtCore.Qt.SortOrder.AscendingOrder
-    )
-    power_items = [profile_list.table.item(row, profile_list.POWER_COLUMN) for row in range(2)]
-    assert [item.text() for item in power_items] == ["247.90 (-31.14%)", "252.23 (-29.94%)"]
-    for item in power_items:
-        assert "factory/default power limit (360.00 W)" in item.toolTip()
-        assert "not measured stock power savings" in item.toolTip()
-        assert "scan's baseline" not in item.toolTip()
-        assert item.foreground().color().name() == "#55d27a"
-    profile_list.table.sortItems(
-        profile_list.FPS_COLUMN, QtCore.Qt.SortOrder.DescendingOrder
-    )
-    assert [
-        profile_list.table.item(row, profile_list.FPS_COLUMN).text() for row in range(2)
-    ] == ["61.93", "60.08"]
 
 
-def test_profile_table_defaults_to_newest_date_first() -> None:
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-    profile_list = ProfileList(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
-    profile_list.set_profiles(
-        [
-            {
-                "profile_id": "old",
-                "display_name": "Old",
-                "profile_created_at": "2026-04-25T12:00:00+02:00",
-            },
-            {
-                "profile_id": "new",
-                "display_name": "New",
-                "profile_created_at": "2026-04-27T12:00:00+02:00",
-            },
-            {
-                "profile_id": "middle",
-                "display_name": "Middle",
-                "profile_created_at": "2026-04-26T12:00:00+02:00",
-            },
-        ],
-    )
-
-    assert profile_list.table.horizontalHeader().sortIndicatorSection() == 0
-    assert (
-        profile_list.table.horizontalHeader().sortIndicatorOrder()
-        == QtCore.Qt.DescendingOrder
-    )
-    assert [
-        profile_list.table.item(row, profile_list.PROFILE_COLUMN).text()
-        for row in range(profile_list.table.rowCount())
-    ] == ["New", "Middle", "Old"]
 
 
-def test_profile_list_syncs_silent_fan_toggle_from_runtime_state() -> None:
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-    profile_list = ProfileList(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
-
-    profile_list.set_profiles(
-        [{"profile_id": "profile-a", "final_verified": True}],
-        silent_fan_checked=True,
-    )
-
-    assert profile_list.silent_fan_enabled() is True
 
 
-def test_profile_list_preserves_silent_fan_toggle_for_same_selection_refresh() -> None:
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-    profile_list = ProfileList(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
-    profiles = [{"profile_id": "profile-a", "final_verified": True}]
-    profile_list.set_profiles(profiles)
-    profile_list.select_profile("profile-a")
-    profile_list.silent_fan_checkbox.setChecked(True)
-
-    profile_list.set_profiles(profiles, silent_fan_checked=False)
-
-    assert profile_list.selected_profile_id() == "profile-a"
-    assert profile_list.silent_fan_enabled() is True
 
 
-def test_profile_list_uses_one_apply_button() -> None:
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-    profile_list = ProfileList(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
-
-    profile_list.set_profiles(
-        [{"profile_id": "profile-a", "final_verified": True}],
-    )
-
-    assert profile_list.daemonize_button.text() == "Apply"
-    assert not hasattr(profile_list, "adaptive_button")
-    assert not hasattr(profile_list, "adaptive_checkbox")
-    assert not profile_list.daemonize_button.isEnabled()
-    assert "Apply on startup" in profile_list.daemonize_button.toolTip()
-    assert not hasattr(profile_list, "remove_button")
-    restore_tooltip = profile_list.restore_defaults_button.toolTip()
-    assert "core and memory offsets" in restore_tooltip
-    assert "default power limit" in restore_tooltip
-
-    profile_list.select_profile("profile-a")
-    assert profile_list.daemonize_button.isEnabled()
 
 
-def test_profile_list_single_gpu_keeps_clean_apply_and_legacy_profile() -> None:
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-    profile_list = ProfileList(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
-    profiles = [{"profile_id": "legacy", "final_verified": True}]
-    profile_list.set_profiles(profiles)
-    profile_list.configure_gpu_targets(
-        profiles,
-        [GpuChoice(0, "NVIDIA RTX 5090", "00000000:01:00.0", "GPU-A")],
-    )
-    profile_list.select_profile("legacy")
-
-    assert not profile_list.target_gpu_combo.isHidden()
-    assert not profile_list.target_gpu_label.isEnabled()
-    assert not profile_list.target_gpu_combo.isEnabled()
-    assert profile_list.target_gpu_combo.count() == 1
-    assert profile_list.target_gpu_combo.currentData() == "GPU-A"
-    assert profile_list.daemonize_button.text() == "Apply"
-    assert profile_list.daemonize_button.isEnabled()
-    assert profile_list.main_gpu_checkbox.isHidden()
-    assert profile_list.target_gpu_index() == 0
-    assert profile_list.table.item(0, profile_list.GPU_COLUMN).text() == (
-        "Unassigned (legacy)"
-    )
 
 
-def test_profile_list_stale_configured_index_does_not_fake_multiple_gpus() -> None:
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-    profile_list = ProfileList(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
-    profiles = [{"profile_id": "legacy", "final_verified": True}]
-    profile_list.set_profiles(profiles)
-    profile_list.configure_gpu_targets(
-        profiles,
-        [
-            GpuChoice(0, "NVIDIA RTX 5090", "00000000:01:00.0", "GPU-A"),
-            GpuChoice(5, "NVIDIA GPU"),
-        ],
-        preferred_index=5,
-    )
-
-    assert profile_list.target_gpu_combo.count() == 1
-    assert profile_list.target_gpu_combo.currentData() == "GPU-A"
-    assert profile_list.target_gpu_index() == 0
-    assert not profile_list.target_gpu_label.isEnabled()
-    assert not profile_list.target_gpu_combo.isEnabled()
 
 
-def test_profile_list_multiple_profile_gpus_requires_explicit_target() -> None:
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-    profile_list = ProfileList(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
-    profiles = [
-        {
-            "profile_id": "profile-a",
-            "final_verified": True,
-            "gpu_identity": {"name": "RTX 5090", "uuid": "GPU-A"},
-        },
-        {
-            "profile_id": "profile-b",
-            "final_verified": True,
-            "gpu_identity": {"name": "RTX 5090", "uuid": "GPU-B"},
-        },
-    ]
-    choices = [
-        GpuChoice(0, "RTX 5090", "00000000:01:00.0", "GPU-A"),
-        GpuChoice(1, "RTX 5090", "00000000:02:00.0", "GPU-B"),
-    ]
-    profile_list.set_profiles(profiles)
-    profile_list.configure_gpu_targets(profiles, choices)
-    profile_list.select_profile("profile-b")
-
-    assert not profile_list.target_gpu_combo.isHidden()
-    assert profile_list.target_gpu_label.isEnabled()
-    assert profile_list.target_gpu_combo.isEnabled()
-    assert profile_list.target_gpu_index() is None
-    assert not profile_list.daemonize_button.isEnabled()
-    assert not profile_list.boot_apply_checkbox.isEnabled()
-    assert not profile_list.main_gpu_checkbox.isHidden()
-    assert not profile_list.main_gpu_checkbox.isEnabled()
-
-    profile_list.target_gpu_combo.setCurrentIndex(2)
-
-    assert profile_list.target_gpu_uuid() == "GPU-B"
-    assert profile_list.target_gpu_index() == 1
-    assert profile_list.daemonize_button.text() == "Apply to GPU 1"
-    assert profile_list.daemonize_button.isEnabled()
-    assert profile_list.boot_apply_checkbox.isEnabled()
-    assert not profile_list.main_gpu_checkbox.isEnabled()
-    assert profile_list.table.isRowHidden(0)
-    assert not profile_list.table.isRowHidden(1)
-
-    profile_list.set_main_gpu_state(checked=True, has_boot_profile=True)
-
-    assert profile_list.main_gpu_checkbox.isEnabled()
-    assert profile_list.main_gpu_checkbox.isChecked()
 
 
-def test_profile_list_multiple_hardware_gpus_one_profile_group_keeps_selector_visible() -> None:
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-    profile_list = ProfileList(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
-    profiles = [
-        {
-            "profile_id": "profile-b",
-            "final_verified": True,
-            "gpu_identity": {"name": "RTX 5090", "uuid": "GPU-B"},
-        }
-    ]
-    choices = [
-        GpuChoice(0, "RTX 4090", "00000000:01:00.0", "GPU-A"),
-        GpuChoice(1, "RTX 5090", "00000000:02:00.0", "GPU-B"),
-    ]
-    profile_list.set_profiles(profiles)
-    profile_list.configure_gpu_targets(profiles, choices)
-    profile_list.select_profile("profile-b")
-
-    assert not profile_list.target_gpu_combo.isHidden()
-    assert profile_list.target_gpu_combo.isEnabled()
-    assert profile_list.target_gpu_index() is None
-    assert not profile_list.daemonize_button.isEnabled()
-
-    profile_list.target_gpu_combo.setCurrentIndex(2)
-
-    assert profile_list.target_gpu_index() == 1
-    assert profile_list.daemonize_button.text() == "Apply to GPU 1"
-    assert profile_list.daemonize_button.isEnabled()
 
 
-def test_profile_list_target_filter_keeps_legacy_profiles_visible() -> None:
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-    profile_list = ProfileList(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
-    profiles = [
-        {
-            "profile_id": "profile-a",
-            "final_verified": True,
-            "gpu_identity": {"name": "RTX 4090", "uuid": "GPU-A"},
-        },
-        {
-            "profile_id": "profile-b",
-            "final_verified": True,
-            "gpu_identity": {"name": "RTX 5090", "uuid": "GPU-B"},
-        },
-        {
-            "profile_id": "legacy",
-            "final_verified": True,
-            # Profile summaries normalize missing legacy identity to an empty
-            # mapping. It must not become the literal UUID string "None".
-            "gpu_identity": {},
-        },
-    ]
-    choices = [
-        GpuChoice(0, "RTX 4090", "00000000:01:00.0", "GPU-A"),
-        GpuChoice(1, "RTX 5090", "00000000:02:00.0", "GPU-B"),
-    ]
-    profile_list.set_profiles(profiles)
-    profile_list.configure_gpu_targets(profiles, choices)
-
-    profile_list.target_gpu_combo.setCurrentIndex(1)
-
-    assert not profile_list.table.isRowHidden(0)
-    assert profile_list.table.isRowHidden(1)
-    assert not profile_list.table.isRowHidden(2)
 
 
-def test_profile_filter_deselects_rows_hidden_by_gpu_switch() -> None:
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-    profile_list = ProfileList(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
-    profiles = [
-        {
-            "profile_id": "profile-a",
-            "final_verified": True,
-            "gpu_identity": {"uuid": "GPU-A"},
-        },
-        {
-            "profile_id": "profile-b",
-            "final_verified": True,
-            "gpu_identity": {"uuid": "GPU-B"},
-        },
-    ]
-    choices = [
-        GpuChoice(0, "RTX A", uuid="GPU-A"),
-        GpuChoice(1, "RTX B", uuid="GPU-B"),
-    ]
-    profile_list.set_profiles(profiles)
-    profile_list.configure_gpu_targets(profiles, choices)
-    profile_list.target_gpu_combo.setCurrentIndex(1)
-    profile_list.select_profile("profile-a")
-    assert profile_list.selected_profile_ids() == ["profile-a"]
-
-    profile_list.target_gpu_combo.setCurrentIndex(2)
-
-    assert profile_list.selected_profile_ids() == []
 
 
-def test_profile_list_boot_toggle_defaults_off_and_survives_reloads() -> None:
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PySide6")
-    from PySide6 import QtCore, QtGui, QtWidgets
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    _ = app
-    profile_list = ProfileList(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
-
-    # Opt-in boot persistence: unticked until the config (or a pre-existing
-    # boot entry seeding the one-time default) says otherwise.
-    assert not profile_list.persist_on_startup_enabled()
-
-    # Profile reloads must never flip the user's choice — the config key is
-    # the single source of truth (the old toggle was removed over resync
-    # glitches; this pins the fix).
-    profile_list.set_boot_apply_checked(True)
-    profile_list.set_profiles(
-        [{"profile_id": "profile-a", "final_verified": True}],
-    )
-    assert profile_list.persist_on_startup_enabled()
-    profile_list.set_boot_apply_checked(False)
-    profile_list.set_profiles([])
-    assert not profile_list.persist_on_startup_enabled()
 
 
 def test_adaptive_profile_tier_labels_need_distinct_verified_tiers() -> None:
@@ -2082,29 +1612,8 @@ def test_promote_preferred_profile_moves_one_matching_candidate_to_top() -> None
     ]
 
 
-def test_profile_refresh_preserves_user_selection_over_preferred_profile() -> None:
-    assert _should_preserve_selection(
-        ["profile-a", "profile-b", "profile-c"],
-        preferred_profile_id="profile-a",
-    )
-    assert _should_preserve_selection(
-        ["profile-a"],
-        preferred_profile_id="profile-b",
-    )
-    assert not _should_preserve_selection(
-        [],
-        preferred_profile_id="profile-b",
-    )
 
 
-def test_profile_refresh_preserves_single_selection_toggle_for_same_selection() -> None:
-    assert _should_preserve_single_selection_toggle(["profile-a"], ["profile-a"])
-    assert not _should_preserve_single_selection_toggle(["profile-a"], ["profile-b"])
-    assert not _should_preserve_single_selection_toggle(
-        ["profile-a", "profile-b"],
-        ["profile-a", "profile-b"],
-    )
-    assert not _should_preserve_single_selection_toggle([], [])
 
 
 def test_selected_profile_ids_include_persisted_selector() -> None:

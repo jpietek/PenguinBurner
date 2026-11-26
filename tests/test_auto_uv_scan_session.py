@@ -239,33 +239,10 @@ def test_profile_verification_texts() -> None:
     assert finish.show_error and session.stage == "Error" and session.progress is None
 
 
-def test_classic_window_and_session_show_the_same_scan(qapp, monkeypatch) -> None:
-    """The classic window renders the shared session: same header texts."""
-    import os
+def test_memory_offset_status_text_formats() -> None:
+    from auto_uv.session.scan_session import memory_offset_status_text
 
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    import ui.window as window_mod
-    from ui.qt import import_qt
-
-    monkeypatch.setattr(window_mod, "read_auto_uv_profile_summaries", lambda: [])
-    monkeypatch.setattr(
-        window_mod, "systemd_autostart_profile_info",
-        lambda: {"selector": "", "silent_fan_curve": False},
-    )
-    monkeypatch.setattr(window_mod, "penguin_burner_runtime_is_active", lambda: False)
-    monkeypatch.setattr(window_mod, "silent_fan_curve_from_runtime_config", lambda: False)
-    monkeypatch.setattr(window_mod, "gpu_choices_with_fallback", lambda **_: ([], 0))
-    window = window_mod.MainWindow(import_qt())
-    window.scan_session.start({"auto_uv_mode": "adaptive"})
-    window._show_scan_state()
-    reference = full_scan()
-    for payload in events(RESUME)[:30]:
-        window._handle_scan_event(payload)
-        reference.handle_event(payload)
-        assert window.header.stage() == reference.stage
-        assert window.header.candidate_label.text() == reference.candidate
-        assert window.controls.status_label.fullText() == reference.status
-    assert window.runs_table.widget.rowCount() == len(reference.runs.rows)
-    for tier, state in reference.tier_states.items():
-        assert window.auto_uv_tier_progress.state(tier) == state
-    window.window.close()
+    assert memory_offset_status_text(0) == "Memory offset: none"
+    assert memory_offset_status_text(500) == "Memory offset: +500 MHz memory clock"
+    assert memory_offset_status_text(-200) == "Memory offset: -200 MHz memory clock"
+    assert memory_offset_status_text(None) == "Memory offset: none"

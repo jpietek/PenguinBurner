@@ -141,8 +141,8 @@ def dispose_window():
 @pytest.fixture
 def isolated_theme(qapp):
     """install_theme restyles the whole process (app style sheet, palette,
-    font, the classic ui.theme colours and the switch). The two windows run
-    in separate processes, but tests share one, so put everything back."""
+    font, the ui.theme colours and the switch). Tests share one process, so
+    put everything back."""
     from PySide6 import QtCore as C
     from PySide6 import QtGui as G
     from PySide6 import QtWidgets as W
