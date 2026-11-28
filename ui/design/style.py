@@ -532,7 +532,7 @@ def _toggle_colors(self) -> tuple[str, str, str]:
     )
 
 
-# Production theme constants -> preview tokens. Painted widgets read
+# Production theme constants -> design tokens. Painted widgets read
 # ui.theme at paint time, so the module attributes are re-pointed too.
 NATIVE_TOKENS = {
     "WINDOW_BG": "window",
@@ -805,7 +805,7 @@ def install_theme(app, settings: AppearanceSettings | None = None):
         QPushButton#autoUvScopeButton:checked {{background:{COL["selection"]}; color:{COL["ink"]}; border-color:{COL["accent"]}}}
         QPushButton#autoUvScopeButton:checked:hover {{background:{COL["selection"]}; border-color:{COL["focus"]}}}
     """
-    app.setStyleSheet(focus_visible(base + preview_stylesheet() + control_stylesheet()))
+    app.setStyleSheet(focus_visible(base + shell_stylesheet() + control_stylesheet()))
     global _FOCUS_FILTER
     if _FOCUS_FILTER is None:
         _FOCUS_FILTER = FocusVisibleFilter(app)
@@ -861,7 +861,7 @@ def control_icons() -> dict[str, str]:
     if _ICON_DIR is None:
         import tempfile
 
-        _ICON_DIR = Path(tempfile.mkdtemp(prefix="pburn-ui-preview-icons-"))
+        _ICON_DIR = Path(tempfile.mkdtemp(prefix="pburn-ui-icons-"))
         atexit.register(shutil.rmtree, _ICON_DIR, True)
     paths = {}
     for name, (width, height, body) in shapes.items():
@@ -904,7 +904,7 @@ def control_stylesheet() -> str:
     """
 
 
-def preview_stylesheet() -> str:
+def shell_stylesheet() -> str:
     c, t, w, r = COL, TYPE, WEIGHT, RAD
     # One filled primary per view: the header Setup on Auto UV, a dialog's
     # accept, and Profiles' current-session action.
@@ -912,7 +912,7 @@ def preview_stylesheet() -> str:
     return f"""
         QWidget{{font-family:"{t["family"]}";font-size:{t["body"]}px;color:{c["ink"]}}}
         QToolTip{{background:{c["raised"]};color:{c["ink"]};border:1px solid {c["border"]};padding:4px 6px}}
-        QLabel#brand{{font-size:{t["section"]}px;font-weight:{w["bold"]};padding:0 4px 0 0}}
+        QLabel#brand{{font-size:{t["brand"]}px;font-weight:{w["bold"]};padding:0 4px 0 0}}
         QLabel#pageTitle{{font-size:{t["title"]}px;font-weight:{w["bold"]}}}
         QLabel#pageSubtitle{{font-size:{t["caption"]}px;color:{c["secondary"]}}}
         QLabel#sectionTitle{{font-size:{t["section"]}px;font-weight:{w["semibold"]}}}
@@ -920,8 +920,7 @@ def preview_stylesheet() -> str:
         QWidget#shellHeader,QWidget#statusBand,QFrame#tabStrip{{background:{c["panel"]}}}
         QFrame#tabStrip{{border-bottom:1px solid {c["divider"]};border-top:1px solid {c["divider"]}}}
         QLabel#statusRunning{{font-weight:{w["semibold"]}}}
-        QLabel#statusDetail,QLabel#sampleNote{{font-size:{t["caption"]}px;color:{c["secondary"]}}}
-        QLabel#sampleNote{{color:{c["quiet"]}}}
+        QLabel#statusDetail{{font-size:{t["caption"]}px;color:{c["secondary"]}}}
         QLabel#pageNote{{color:{c["secondary"]}}}
         QWidget#shellFooter{{border-top:1px solid {c["divider"]}}}
         QProgressBar#headerProgress{{background:{c["control"]};border:1px solid {c["border"]};border-radius:{r["control"]}px;color:{c["ink"]};font-size:{t["caption"]}px;text-align:center;max-height:16px}}
@@ -948,8 +947,6 @@ def preview_stylesheet() -> str:
         QToolButton#headerUtility:hover{{background:{c["controlHover"]}}}
         QToolButton#headerUtility:pressed{{background:{c["raised"]}}}
         QFrame#headerDivider{{background:{c["divider"]};border:none}}
-        QPushButton#aboutPreview{{background:transparent;color:{c["secondary"]};border:1px solid transparent;padding:4px 8px}}
-        QPushButton#aboutPreview:hover{{color:{c["ink"]};background:{c["controlHover"]}}}
         QPushButton#footerAction{{background:transparent;color:{c["secondary"]};border:1px solid transparent;padding:3px 4px;font-size:{t["caption"]}px}}
         QPushButton#footerAction:hover{{color:{c["ink"]};background:transparent}}
         QPushButton#footerAction:focus{{border:2px solid {c["focus"]};padding:2px 3px}}
@@ -963,7 +960,6 @@ def preview_stylesheet() -> str:
         QFrame#prefGroupCard{{background:{c["panel"]};border:1px solid {c["border"]};border-radius:{r["panel"]}px}}
         QFrame#prefRow[hasSeparator="true"]{{border-top:1px solid {c["divider"]}}}
         QLabel#prefRowSubtitle{{font-size:{t["caption"]}px;color:{c["secondary"]}}}
-        QScrollArea#prototypeScroll,QScrollArea#prototypeScroll > QWidget > QWidget{{background:transparent}}
         QMenu::item:selected,QComboBox QAbstractItemView::item:selected,QListView::item:selected,QTreeView::item:selected{{background:{c["selection"]};color:{c["ink"]}}}
         QComboBox QAbstractItemView::item:hover,QListView::item:hover,QTreeView::item:hover{{background:{c["raised"]};color:{c["ink"]}}}
         QLineEdit,QPlainTextEdit,QTextEdit{{selection-background-color:{c["selection"]};selection-color:{c["ink"]}}}

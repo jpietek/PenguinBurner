@@ -42,7 +42,7 @@ class SteamLibrarySource(LiveOverlaySource):
     #: Shipped fallback, used when the machine has no Steam icon of its own.
     icon_asset = "tab-steam.png"
     #: The icon Steam installs itself, preferred over our copy.
-    desktop_icon_name = "steam"
+    desktop_icon_names = ("steam", "com.valvesoftware.Steam")
     #: Steam exposes an API for starting a game; the tab offers Play for it.
     can_launch = True
 
@@ -82,9 +82,13 @@ class SteamLibrarySource(LiveOverlaySource):
         # selection change would otherwise pay it again.
         self._probe: dict[str, object] = {}
 
-    def desktop_icon(self):
+    def desktop_icon(self, *, data_dirs=None):
         """Steam's own installed icon, or None when it has none here."""
-        return desktop_icon(self.desktop_icon_name, self._home)
+        for name in self.desktop_icon_names:
+            found = desktop_icon(name, self._home, data_dirs=data_dirs)
+            if found is not None:
+                return found
+        return None
 
     def available(self) -> bool:
         """Whether a Steam installation exists here.

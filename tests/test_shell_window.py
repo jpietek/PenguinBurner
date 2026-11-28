@@ -109,11 +109,19 @@ def test_status_band_shows_only_what_a_page_reports(window):
     assert window.status_running.full_text() == (
         "No running/autostart profile available yet."
     )
+    assert not window.status_detail.isVisible()
+    single_line_height = window.status_band.height()
     window.set_global_status(None, "profiles")
     assert not window.status_band.isVisible()
     window.set_global_status({"running": "Running Balanced", "detail": "GPU 0"}, "profiles")
     assert window.status_band.isVisible()
+    W.QApplication.processEvents()
     assert window.status_running.full_text() == "Running Balanced"
+    assert window.status_detail.isVisible()
+    assert window.status_band.height() > single_line_height
+    window.set_global_status({"detail": "GPU 0"}, "profiles")
+    assert not window.status_running.isVisible()
+    assert window.status_detail.isVisible()
     window.set_global_status(None, "profiles")
     assert not window.status_band.isVisible()
 

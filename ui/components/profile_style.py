@@ -52,7 +52,7 @@ def profiles_stylesheet() -> str:
         QLabel#profilesNotice[tone="loss"] {{color:{c["loss"]}}}
         QLabel#profilesNotice[tone="accent"] {{color:{c["gain"]}}}
         /* Primary colours, hover, pressed and disabled come from
-           design.preview_stylesheet; this page only widens the padding. */
+           design.shell_stylesheet; this page only widens the padding. */
         QPushButton#profilesPrimary {{padding:6px 16px}}
         QPushButton#profilesPrimary:focus {{border:2px solid {c["focus"]};padding:5px 15px}}
         QPushButton#profilesPrimary[role="secondary"] {{background:{c["control"]};border-color:{c["border"]};color:{c["ink"]};font-weight:{w["semibold"]}}}

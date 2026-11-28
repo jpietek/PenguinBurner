@@ -122,7 +122,7 @@ class ShellWindow(W.QWidget):
 
         header = shell_section("shellHeader")
         top = self.header_layout = W.QHBoxLayout(header)
-        top.setContentsMargins(GAP["lg"], GAP["md"], GAP["lg"], GAP["sm"])
+        top.setContentsMargins(GAP["lg"], GAP["sm"], GAP["lg"], GAP["xs"])
         top.setSpacing(GAP["sm"])
         logo = W.QLabel()
         logo.setObjectName("brandLogo")
@@ -155,7 +155,7 @@ class ShellWindow(W.QWidget):
 
         band = self.status_band = shell_section("statusBand")
         lines = W.QVBoxLayout(band)
-        lines.setContentsMargins(GAP["lg"], 0, GAP["lg"], GAP["sm"] + 2)
+        lines.setContentsMargins(GAP["lg"], 0, GAP["lg"], GAP["xs"])
         lines.setSpacing(0)
         self.status_running = ElidedLabel("statusRunning")
         self.status_detail = ElidedLabel("statusDetail", copyable=True)
@@ -406,6 +406,8 @@ class ShellWindow(W.QWidget):
                 "warning": COL["warning"],
             }.get(tone, COL["accent"])
             prefix = f'<span style="color:{dot}">●</span>&nbsp;'
+        self.status_running.setVisible(bool(running))
+        self.status_detail.setVisible(bool(detail))
         self.status_running.set_full_text(running or "", prefix)
         self.status_detail.set_full_text(detail or "")
         self.status_band.setToolTip("\n".join(filter(None, (running, detail))))

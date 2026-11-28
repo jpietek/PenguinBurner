@@ -23,7 +23,7 @@ class LutrisLibrarySource(WrapperLibrarySource):
     display_name = "Lutris"
     icon_asset = "tab-lutris.png"
     #: Lutris's freedesktop application id, which is also its icon filename.
-    desktop_icon_names = ("net.lutris.Lutris",)
+    desktop_icon_names = ("net.lutris.Lutris", "lutris")
 
     command_field_key = "prefix_command"
     command_field_subtitle = "prefix_command in the Lutris config"

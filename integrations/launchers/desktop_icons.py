@@ -31,8 +31,11 @@ def desktop_icon(
     for root in icon_search_roots(home, data_dirs):
         for relative in (
             Path("icons") / "hicolor" / "scalable" / "apps" / f"{icon_name}.svg",
-            Path("icons") / "hicolor" / "256x256" / "apps" / f"{icon_name}.png",
-            Path("icons") / "hicolor" / "128x128" / "apps" / f"{icon_name}.png",
+            *(
+                Path("icons/hicolor") / f"{size}x{size}" / "apps" / f"{icon_name}.png"
+                for size in (512, 256, 192, 128, 96, 72, 64, 48, 36, 32, 24, 22, 16)
+            ),
+            Path("pixmaps") / f"{icon_name}.svg",
             Path("pixmaps") / f"{icon_name}.png",
         ):
             candidate = root / relative
@@ -54,4 +57,7 @@ def icon_search_roots(
     roots.extend(Path(entry) for entry in listed if entry)
     if not listed:
         roots.extend((Path("/usr/local/share"), Path("/usr/share")))
-    return roots
+    roots.extend(
+        (roots[0] / "flatpak/exports/share", Path("/var/lib/flatpak/exports/share"))
+    )
+    return list(dict.fromkeys(roots))

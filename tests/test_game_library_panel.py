@@ -1050,7 +1050,9 @@ def test_the_badge_prefers_the_launchers_own_installed_icon(qapp, tmp_path) -> N
 
     steam, lutris = _steam_and_lutris()
     steam.desktop_icon = lambda: icon
-    lutris.desktop_icon = lambda: None  # no Lutris installed here
+    broken_icon = tmp_path / "lutris.png"
+    broken_icon.write_bytes(b"invalid image")
+    lutris.desktop_icon = lambda: broken_icon
     panel = _panel(qapp, (steam, lutris))
 
     installed = panel._launcher_badge("steam")
@@ -1058,7 +1060,7 @@ def test_the_badge_prefers_the_launchers_own_installed_icon(qapp, tmp_path) -> N
 
     assert installed is not None
     assert installed.toImage().pixelColor(4, 4).name() == "#ff0000"
-    # The shipped asset still answers for the launcher that has no icon here.
+    # The shipped asset still renders if the installed file cannot be decoded.
     assert shipped is not None
 
 

@@ -1302,24 +1302,27 @@ class GameLibraryPanel:
         if (launcher, ratio) in self._badges:
             return self._badges[(launcher, ratio)]
         source = self._by_launcher.get(launcher)
+        installed = getattr(source, "desktop_icon", None)
+        path = installed() if callable(installed) else None
+        candidate = self.QtGui.QPixmap(str(path)) if path else self.QtGui.QPixmap()
+        if candidate.isNull():
+            for name in getattr(source, "desktop_icon_names", ()):
+                candidate = self.QtGui.QIcon.fromTheme(name).pixmap(round(_BADGE * ratio))
+                if not candidate.isNull():
+                    break
+        if candidate.isNull():
+            asset = getattr(source, "icon_asset", "")
+            if asset:
+                candidate = self.QtGui.QPixmap(str(asset_image_path(asset)))
         pixmap = None
-        path = None
-        if source is not None:
-            installed = getattr(source, "desktop_icon", None)
-            path = installed() if callable(installed) else None
-            if path is None:
-                asset = getattr(source, "icon_asset", "")
-                path = asset_image_path(asset) if asset else None
-        if path is not None:
-            candidate = self.QtGui.QPixmap(str(path))
-            if not candidate.isNull():
-                pixmap = candidate.scaled(
-                    round(_BADGE * ratio),
-                    round(_BADGE * ratio),
-                    self.QtCore.Qt.KeepAspectRatio,
-                    self.QtCore.Qt.SmoothTransformation,
-                )
-                pixmap.setDevicePixelRatio(ratio)
+        if not candidate.isNull():
+            pixmap = candidate.scaled(
+                round(_BADGE * ratio),
+                round(_BADGE * ratio),
+                self.QtCore.Qt.KeepAspectRatio,
+                self.QtCore.Qt.SmoothTransformation,
+            )
+            pixmap.setDevicePixelRatio(ratio)
         self._badges[(launcher, ratio)] = pixmap
         return pixmap
 

@@ -1032,3 +1032,12 @@ def test_shared_launch_validates_then_dispatches_to_the_selected_launcher(
     else:
         args = ("legendary", "demo") if launcher == "heroic" else ("demo",)
         assert calls == [(args, {"home": tmp_path})]
+
+
+def test_flatpak_steam_icon_at_a_smaller_size(tmp_path):
+    from integrations.steam.library_source import SteamLibrarySource
+
+    icon = tmp_path / "icons/hicolor/48x48/apps/com.valvesoftware.Steam.png"
+    icon.parent.mkdir(parents=True)
+    icon.touch()
+    assert SteamLibrarySource().desktop_icon(data_dirs=[tmp_path]) == icon

@@ -1,6 +1,6 @@
 """The Auto UV page layout: status card with tier strip, V/F plot beside the
-log, and the runs table. ``AutoUvView`` only lays out and renders; the real
-page drives it from the scan session and the UI mock from its replay."""
+log, and the runs table. ``AutoUvView`` only lays out and renders; the page
+drives it from the scan session."""
 
 from __future__ import annotations
 

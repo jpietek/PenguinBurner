@@ -93,7 +93,8 @@
   "typography": {
     "family": "Inter",
     "title": 26,
-    "section": 17,
+    "brand": 17,
+    "section": 15,
     "body": 14,
     "caption": 12,
     "table": 12
